@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -2818,6 +2819,7 @@ def create_app(
             "pairing_code_unavailable": 409,
             "bootstrap_outcome_uncertain": 409,
             "provisional_expired": 410,
+            "transport_acknowledgement_required": 409,
         }.get(error.code, 409)
         message = {
             "otp_invalid_format": _ONBOARDING_ERROR_MESSAGES["otp_invalid_format"],
@@ -2832,6 +2834,16 @@ def create_app(
                 "pairing_uncertain"
             ],
             "provisional_expired": _ONBOARDING_ERROR_MESSAGES["pairing_commit_failed"],
+            "transport_acknowledgement_required": (
+                "Review and acknowledge the current HTTP connection risks for "
+                "this Kodi and Bridge port, then enter a current pairing code. "
+                "Revoking a pairing invalidates its previous acknowledgement. "
+                "The code was not sent."
+            ),
+            "bridge_build_not_reviewed": (
+                "Install the compatible official Bridge from the Kodi Lab "
+                "repository, or review this custom build in Advanced settings."
+            ),
         }.get(error.code, "External bridge request rejected.")
         return _json_error(status_code, error.code, message)
 
@@ -3624,6 +3636,12 @@ def create_app(
         )
         provenance: dict[str, Any] | None = None
         healthy = False
+        generated_base_url: str | None = None
+        try:
+            ipaddress.ip_address(urlsplit(base_url).hostname or "")
+            literal_repository_address = True
+        except ValueError:
+            literal_repository_address = False
         if base_url and data_path.is_dir():
             try:
                 _, provenance = load_current(
@@ -3634,11 +3652,26 @@ def create_app(
                     )
                     or None,
                 )
+                generated_base_url = str(provenance["base_url"])
                 async with httpx.AsyncClient(timeout=2) as client:
                     result = await client.get("http://repository:8110/health")
                     healthy = result.status_code == 200 and result.content == b"ok\n"
             except (OSError, ValueError, KeyError, httpx.HTTPError):
-                pass
+                if provenance is None:
+                    # Diagnose only: serving/admission still requires the exact
+                    # configured origin above. Verify every package byte and
+                    # candidate pin before displaying the stored origin.
+                    try:
+                        _, observed = load_current(
+                            data_path,
+                            expected_bundle_sha256=os.getenv(
+                                "KODI_LAB_REPOSITORY_BUNDLE_SHA256"
+                            )
+                            or None,
+                        )
+                        generated_base_url = str(observed["base_url"])
+                    except (OSError, ValueError, KeyError):
+                        pass
         dev_provenance: dict[str, object] | None = None
         publications: list[Any] = []
         storage_usage = (0, 0)
@@ -3756,6 +3789,10 @@ def create_app(
                 "base_url": base_url,
                 "healthy": healthy,
                 "provenance": provenance,
+                "generated_base_url": generated_base_url,
+                "repository_origin_mismatch": generated_base_url is not None
+                and generated_base_url != base_url,
+                "literal_repository_address": literal_repository_address,
                 "development_provenance": dev_provenance,
                 "development_error": development_repository_error,
                 "publications": publications,

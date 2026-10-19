@@ -20,6 +20,7 @@ instances for experiments or connect to Kodi installations you already use.
   [Docker's Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/).
   Rootless Docker is not qualified for managed runtimes.
 - **Python 3.12, Git, sha256sum and [uv](https://docs.astral.sh/uv/getting-started/installation/)**.
+  The Ubuntu download example also uses `curl`; a browser download works too.
 - Internet access for Python packages, container images and upstream Kodi downloads.
 - Capacity for application images and each Kodi instance. RC1 requires at least
   **8 GiB free staging space**, plus space for Docker images and profiles. There
@@ -28,25 +29,36 @@ instances for experiments or connect to Kodi installations you already use.
 Setup installs Python build/test packages automatically; editors and AI clients
 are optional.
 
-Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has a reported working
-deployment, including managed Nexus/Omega and MCP. A maintained
-[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md) is available for
-experimental use; clean-host Windows qualification remains pending. macOS and
-ARM64 hosts are not qualified. An existing Kodi target can be on another
-computer; these requirements apply to the Kodi Lab server.
+Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop is a working host
+configuration, including managed Nexus/Omega and MCP. Follow the maintained
+[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). macOS and ARM64 hosts
+are not qualified. An existing Kodi target can be on another computer; these
+requirements apply to the Kodi Lab server.
 
 ## Quick Start — Install Kodi Lab
 
 These steps are for a fresh installation. For an existing installation, use the
 [upgrade and rollback guide](docs/LINUX-V1-UPGRADE-ROLLBACK.md).
 
-With the Ubuntu prerequisites installed, clone and run the shared installer:
+With the prerequisites installed, download and run one installer script.
+On **Ubuntu**, use Bash:
 
 ```sh
-git clone https://github.com/kcook98765/kodi-lab.git
-cd kodi-lab
-python3 scripts/install.py install --directory "$HOME/kodi-lab-install"
+curl -fL https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install.py -o install-kodi-lab.py
+python3 install-kodi-lab.py bootstrap
 ```
+
+On **Windows**, use PowerShell after enabling Ubuntu's Docker Desktop/WSL2 integration:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install-windows.ps1 -OutFile install-kodi-lab.ps1
+.\install-kodi-lab.ps1
+```
+
+The scripts obtain a clean source checkout in the Linux user's data directory
+and default to `~/kodi-lab-install`. Windows discovers that user's Linux home
+automatically. No manual checkout path is needed. The selected source commit is
+recorded; an exact commit can be selected with `--revision` / `-Revision`.
 
 It prompts for your private LAN repository address and Web administrator
 password, then builds/verifies the application bundle, initializes fresh state
@@ -150,6 +162,10 @@ you need before resetting or removing a disposable instance; see
 
 To connect an existing Kodi instead, open **Add Kodi** and follow the Bridge and
 pairing instructions. See [existing-Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
+For everyday Kodi, enter its address and code; a friendly name is optional.
+Use [reconnect guidance](docs/KODI-RECONNECT.md) for an existing/revoked pairing,
+and [repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md) after a
+host address change.
 
 ## Connect Your AI Agent
 

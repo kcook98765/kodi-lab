@@ -140,7 +140,7 @@ work.
 | Installation and Compose UX | Same wheel build, optional service | Separate account, systemd unit, volume-to-host sharing |
 | Recovery | Compose health/restart; Web fails closed | systemd health/restart; Web fails closed |
 | Attack surface | Broker image, shared volume, daemon socket | Host daemon process, host paths, daemon socket |
-| Portability | Native Linux proved; Windows/WSL2 Desktop reported operational; clean-host acceptance pending | Linux-only host service; Docker Desktop needs host integration |
+| Portability | Native Linux proved; Windows/WSL2 Desktop working; new-installer acceptance tracked separately | Linux-only host service; Docker Desktop needs host integration |
 
 The unselected host fallback could use the same `kodi-lab-broker` wheel script,
 a dedicated `kodi-lab` account, root systemd service, and a private socket
@@ -150,6 +150,6 @@ is shipped in this decision. Docker Desktop's Unix peer credentials, UID/GID
 mapping, volume semantics, and host daemon socket exposure require their own
 validation before support is claimed. The later
 [Windows/WSL2 installer](WINDOWS-WSL2-INSTALL.md) records the issue #8 operational
-report and provides an experimental installation path while retaining these
+configuration and provides the maintained installation path while retaining these
 qualification requirements. It uses the existing container broker, not the host
 fallback, and does not expand the Docker/socket authority boundary.

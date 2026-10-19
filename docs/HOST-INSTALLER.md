@@ -1,13 +1,13 @@
 # Install Kodi Lab with one entry point
 
-After installing the prerequisites, use the shared installer from a clean Git
+After installing the prerequisites, run a downloaded installer or use a clean Git
 checkout. It builds the existing verified application bundle and runs the same
 initialization commands as the manual installation. It does not install Docker,
 change firewall rules, download Kodi automatically, create agent credentials or
 enable Windows sign-in startup.
 
-Native Ubuntu 24.04 amd64 remains the qualified baseline. Windows uses the
-experimental [WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md). Native Windows
+Native Ubuntu 24.04 amd64 remains the qualified baseline. Windows uses the working
+[WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md). Native Windows
 server execution, macOS, ARM64, WSL1, rootless and remote Docker engines are outside
 this installer path.
 
@@ -46,16 +46,31 @@ for installation.
 
 ## Fresh Ubuntu installation
 
+Download [the Python installer](https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install.py),
+then run it from an ordinary-user terminal:
+
+```sh
+python3 install.py bootstrap
+```
+
+No source checkout or path arguments are required. `bootstrap` defaults to
+`~/kodi-lab-install`, obtains a fresh detached checkout under
+`${XDG_DATA_HOME:-~/.local/share}/kodi-lab/sources`, and runs the existing installer
+from it. By default it resolves `main` once and records the exact source commit.
+For reproducible selection, pass `--revision` with a full lowercase 40-character
+commit ID. Windows' downloaded PowerShell launcher resolves that commit before
+retrieving the Python script, so both downloads use the same revision.
+Downloaded scripts require the same host prerequisites as checkout installation.
+Source checkouts are retained for diagnosis; failures do not delete state or
+silently reuse an existing installation directory.
+
 Choose a private-LAN IPv4 address on this server, preferably reserved in DHCP.
 Ensure `18100` and `18120` are unused and `10.250.0.0/24` does not overlap your
 LAN, VPN or Docker networks. The installer checks visible Linux routes and
 Docker networks. Windows users must check Windows routes too.
 
 ```sh
-git clone https://github.com/kcook98765/kodi-lab.git
-cd kodi-lab
-git rev-parse HEAD
-python3 scripts/install.py install --directory "$HOME/kodi-lab-install"
+python3 install.py bootstrap --directory "$HOME/kodi-lab-install"
 ```
 
 Enter this server's private LAN address when prompted, then choose the Web
@@ -63,7 +78,7 @@ administrator password at the existing password prompt. No password or token
 belongs in a command argument. To supply network choices explicitly:
 
 ```sh
-python3 scripts/install.py install --directory "$HOME/kodi-lab-install" \
+python3 install.py bootstrap --directory "$HOME/kodi-lab-install" \
   --repository-bind 192.168.1.50 --repository-port 18120 --web-port 18100
 ```
 
@@ -71,6 +86,9 @@ Replace the example address. `--repository-base-url` accepts an explicit
 credential-free origin if devices use a durable hostname or configured HTTPS
 proxy; otherwise it defaults to `http://ADDRESS:18120`. It must identify the
 actual reachable repository. The installer does not create DNS or TLS services.
+Prefer a stable LAN DNS name or DHCP reservation before generating packages.
+See [repository address recovery](REPOSITORY-ADDRESS-RECOVERY.md) before changing
+an existing origin; regenerating with a new address is not a migration.
 
 Use a new destination outside the checkout, with an existing parent. Checkout
 and destination must be on the Linux filesystem, not under `/mnt`. The installer

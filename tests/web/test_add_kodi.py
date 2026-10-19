@@ -16,6 +16,9 @@ def test_add_kodi_requires_auth_and_preserves_legacy_page(client: TestClient) ->
     response = client.get("/add-kodi")
     assert response.status_code == 200
     assert "<h1>Add Kodi</h1>" in response.text
+    assert "Friendly Kodi name (optional)" in response.text
+    home_name = response.text.split('id="kodi-name"', 1)[1].split(">", 1)[0]
+    assert "required" not in home_name
     assert f'data-csrf-token="{csrf}"' in response.text
     assert 'data-recovery-namespace="' in response.text
     assert 'name="password" type="password"' in response.text

@@ -286,10 +286,14 @@ def test_environment_cannot_override_bundle_or_project(
     monkeypatch.setenv("COMPOSE_FILE", "/some/other/compose.yaml")
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "production")
     monkeypatch.setenv("KODI_LAB_REMOTE_IMAGE", "unreviewed:latest")
+    monkeypatch.setenv("GIT_WORK_TREE", "/some/other/source")
+    monkeypatch.setenv("GIT_INDEX_FILE", "/some/other/index")
     assert not any(
         key.startswith(("COMPOSE_", "KODI_LAB_")) for key in install.environment()
     )
     assert install.environment()["PATH"] == os.environ["PATH"]
+    assert "GIT_WORK_TREE" not in install.environment()
+    assert "GIT_INDEX_FILE" not in install.environment()
 
 
 @pytest.mark.parametrize(

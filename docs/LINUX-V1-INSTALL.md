@@ -17,6 +17,13 @@ Python 3.12 and `sha256sum`. The application supports Python 3.12
 neither host routes nor another Docker network before enabling the managed lab.
 The Web port defaults to `127.0.0.1:18100`.
 
+The private listener bind and advertised base URL serve different purposes.
+For a new installation, prefer a site-controlled LAN DNS hostname that every
+Kodi device can resolve, or reserve the host IP in DHCP. Moving a listener does
+not change the origin embedded in repository ZIPs. See
+[address diagnosis and recovery](https://github.com/kcook98765/kodi-lab/blob/main/docs/REPOSITORY-ADDRESS-RECOVERY.md) for DHCP changes,
+installed-client recovery and the remaining origin-migration boundary.
+
 The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed

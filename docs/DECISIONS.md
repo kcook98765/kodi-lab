@@ -6420,3 +6420,40 @@ are retained during verification and the latest successful receipt supplies
 later inspection modes. An initial baseline without a receipt uses `0644`.
 Hashes, paths, types, sizes and link checks stay exact. Android exec-capable
 mounts and other POSIX systems continue to verify actual executable bits.
+
+## D-0435: Preserve accepted managed identities while rotating Android Bridge pins
+
+PR #11 assigns 1.1.23/1.1.24 and rotates previous/retained identities to
+1.1.19/1.1.20 and 1.1.17/1.1.18. Integration also freezes the already accepted
+1.1.15/1.1.16 identities as exact legacy manifests. They remain usable only for
+established trust; new trust requires the current build. Unknown fingerprints
+and unsupported capabilities still fail closed. No target is upgraded, re-paired
+or granted authority by changing these resources.
+
+## D-0436: Installer bootstrapping and bounded address/onboarding improvements
+
+Windows 11 with WSL2, Ubuntu and Docker Desktop is a working configuration.
+Issue #8's standalone Python bootstrap and Windows PowerShell entry point obtain
+a clean detached checkout and invoke the existing shared installer. Default
+Linux paths no longer require a manual clone or Windows-to-WSL user-name mapping.
+`main` resolves once to a recorded commit; an explicit full commit is checked
+before any downloaded installer is executed. Windows retrieves the frontend and
+source at the same commit. Local builds remain the distribution path; no release
+publication, prerequisite installation, firewall change or update is implied.
+Manual installation remains available, and installer revision acceptance remains
+separate from the known working host configuration.
+
+Issue #9 adds read-only Web diagnosis of configured versus verified generated
+origins, literal-IP/DHCP guidance, and recovery documentation. The existing
+origin/candidate guards still decide serving. Full stable/development origin
+migration, package version/cache behavior, application metadata transition and
+rollback require a separate design; no automatic origin inference or rewriting
+is introduced.
+
+Issue #10 makes Home's friendly name optional, preserves standard ports and
+explicit permissions, preselects an existing production Bridge port, explains
+stale HTTP consent before pairing and exposes technical codes in Advanced error
+details. The existing acknowledgement checks, OTP dispatch, uncertain-outcome
+recovery and trust confirmation are unchanged. A complete existing-device
+household reconnect flow is deferred rather than replacing those coordinators
+or silently reusing old consent. Agent grants remain separate.

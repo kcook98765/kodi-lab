@@ -105,7 +105,10 @@ def ready_web(
 
     with _server(bridge) as port:
         bridges._endpoint_policy = ExternalEndpointPolicy(
-            allowed_ports=(port,), test_loopback_enabled=True
+            allowed_ports=(8765, port), test_loopback_enabled=True
+        )
+        monkeypatch.setattr(
+            app.state.kodi_lab.settings, "external_bridge_allowed_ports", (8765, port)
         )
         csrf = login(client)
         target_id = _ready_target(client, csrf)
@@ -152,6 +155,63 @@ def _pair(client: TestClient, target_id: str, csrf: str, port: int, code: str) -
         json={"confirmed": True, "bridge_port": port, "code": code},
         headers=_headers(csrf),
     )
+
+
+def test_reconnect_explains_stale_acknowledgement_without_consuming_code(
+    ready_web: tuple[TestClient, dict[str, Any], int, str, str],
+) -> None:
+    client, bridge, port, target_id, csrf = ready_web
+    original_code = bridge["_onboarding_store"]().status(paired=False)["code"]
+    assert _pair(client, target_id, csrf, port, original_code).status_code == 200
+    confirmed = client.post(
+        f"/api/production-targets/{target_id}/bridge/confirm",
+        json={
+            "confirmed": True,
+            "acknowledgement": (
+                "I confirm this bridge is installed on the production Kodi target and "
+                "the displayed bridge identity and package provenance match the "
+                "reviewed package."
+            ),
+        },
+        headers=_headers(csrf),
+    )
+    assert confirmed.status_code == 200
+    revoked = client.post(
+        f"/api/production-targets/{target_id}/bridge/revoke",
+        json={"confirmed": True},
+        headers=_headers(csrf),
+    )
+    assert revoked.status_code == 200
+    # Simulate the operator's explicit Kodi-side reset, never an automatic retry.
+    assert bridge["_reset_pairing"]() is True
+    bridge["_onboarding_store"]().initialize(paired=False)
+    bridge["_onboarding_store"]().generate_new_code(paired=False)
+    code = bridge["_onboarding_store"]().status(paired=False)["code"]
+    response = _pair(client, target_id, csrf, port, code)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "transport_acknowledgement_required"
+    assert "current HTTP connection risks" in response.json()["error"]["message"]
+    assert "code was not sent" in response.json()["error"]["message"]
+    assert bridge["_onboarding_store"]().status(paired=False)["code"] == code
+    assert (
+        "First acknowledge the current HTTP risks"
+        in client.get("/production-targets").text
+    )
+    assert f'<option value="{port}" selected>' in client.get("/production-targets").text
+    renewed = client.post(
+        f"/api/production-targets/{target_id}/bridge/http-acknowledgements",
+        json={
+            "confirmed": True,
+            "bridge_port": port,
+            "acknowledgement": (
+                "I acknowledge that private-LAN HTTP protects authenticity "
+                "and integrity but does not provide screenshot confidentiality."
+            ),
+        },
+        headers=_headers(csrf),
+    )
+    assert renewed.status_code == 201
+    assert _pair(client, target_id, csrf, port, code).status_code == 200
 
 
 def test_fresh_production_web_pairing_uses_otp_not_rejected_pair_bridge(

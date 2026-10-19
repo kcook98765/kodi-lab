@@ -3,13 +3,31 @@
   const root = document.querySelector("[data-production-targets]");
   if (!root) return;
   const errorBox = root.querySelector("[data-error]");
+  const diagnostics = root.querySelector("[data-error-diagnostics]");
+  const errorCode = root.querySelector("[data-error-code]");
   const request = async (url, method, body) => {
     const response = await fetch(url, {method, credentials: "same-origin", headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": root.dataset.csrfToken}, body: JSON.stringify(body ?? {})});
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error?.message || payload.detail?.message || "Production target request rejected");
+    if (!response.ok) {
+      const error = new Error(payload.error?.message || payload.detail?.message || "Production target request rejected");
+      error.code = payload.error?.code || payload.detail?.code || "request_rejected";
+      throw error;
+    }
     return payload;
   };
-  const run = async (work) => { errorBox.hidden = true; try { await work(); } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; } };
+  const run = async (work) => {
+    errorBox.hidden = true;
+    if (diagnostics) diagnostics.hidden = true;
+    try { await work(); } catch (error) {
+      errorBox.textContent = error.message;
+      errorBox.hidden = false;
+      if (diagnostics && errorCode && error.code) {
+        errorCode.textContent = error.code;
+        diagnostics.open = false;
+        diagnostics.hidden = false;
+      }
+    }
+  };
   root.querySelector("[data-global-block]")?.addEventListener("click", (event) => run(async () => {
     const blocked = event.currentTarget.dataset.blocked === "true";
     if (!confirm(blocked ? "Clear the global deny-only block? This grants no authority." : "Block all future production mutations?")) return;

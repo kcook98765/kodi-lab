@@ -60,6 +60,51 @@ def test_repository_page_requires_login_and_shows_verified_install(
     assert "malicious LAN actor" in page.text
 
 
+def test_repository_page_explains_verified_origin_mismatch_without_serving_links(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = candidate(tmp_path)
+    data = tmp_path / "repository-data"
+    generate(bundle, data, BASE)
+    before = {
+        str(p.relative_to(data)): p.read_bytes() for p in data.rglob("*") if p.is_file()
+    }
+    configured = "http://192.168.50.199:18120"
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", configured)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(data))
+    monkeypatch.setenv(
+        "KODI_LAB_REPOSITORY_BUNDLE_SHA256",
+        sha256((bundle / "BUNDLE.json").read_bytes()),
+    )
+    login(client)
+    page = client.get("/kodi-repository")
+    assert page.status_code == 200
+    assert "Repository address mismatch" in page.text
+    assert BASE in page.text and configured in page.text
+    assert "Reserve it in DHCP" in page.text
+    assert f'href="{configured}/install/' not in page.text
+    assert "<strong>Serving</strong>" not in page.text
+    assert before == {
+        str(p.relative_to(data)): p.read_bytes() for p in data.rglob("*") if p.is_file()
+    }
+
+
+def test_repository_page_does_not_trust_origin_from_wrong_candidate(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = candidate(tmp_path)
+    data = tmp_path / "repository-data"
+    generate(bundle, data, BASE)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", "http://192.168.50.199:18120")
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(data))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", "f" * 64)
+    login(client)
+    page = client.get("/kodi-repository")
+    assert "Repository address mismatch" not in page.text
+    assert "Stable repository is not configured or verified" in page.text
+    assert BASE not in page.text
+
+
 @pytest.fixture
 def development_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     bundle = phase2_candidate(tmp_path)

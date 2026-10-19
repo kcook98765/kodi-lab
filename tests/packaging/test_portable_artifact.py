@@ -60,6 +60,13 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             "kodi_lab-1.0.0rc1.dist-info/entry_points.txt",
         ):
             assert path in names
+        for tier in ("", "previous_", "retained_", "legacy_"):
+            for kind in ("build", "preview_build"):
+                resource = f"kodi/managed_bridge_{tier}{kind}.json"
+                assert (
+                    archive.read("kodi_lab/" + resource)
+                    == (root / "src/kodi_lab" / resource).read_bytes()
+                )
         source_revisions = {
             path.name for path in (root / "migrations/versions").glob("*.py")
         }

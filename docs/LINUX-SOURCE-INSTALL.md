@@ -8,8 +8,8 @@ They are acquired only when you explicitly install a reviewed runtime in Web.
 For a fresh installation with prerequisites already installed, the
 [shared host installer](HOST-INSTALLER.md) automates the same bundle steps.
 The manual procedure below remains available. Windows-hosted Linux containers
-use the experimental [WSL2/Docker Desktop guide](WINDOWS-WSL2-INSTALL.md);
-that operational report is separate from native Linux qualification.
+use the working [WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md);
+validation of new installer revisions is separate from host-platform operation.
 
 ## Prerequisites and capacity
 

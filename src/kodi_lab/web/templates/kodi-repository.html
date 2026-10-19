@@ -4,7 +4,13 @@
 {% block main_class %}responsive-forms{% endblock %}
 {% block content %}
       <h1>Kodi Repository</h1>
-      <h2>Stable · reviewed Kodi Lab infrastructure</h2>
+      <p>Advertised address: <code>{{ base_url or 'Not configured' }}</code>. This address is embedded in repository packages. The host listener or Windows forwarding address is configured separately.</p>
+      {% if repository_origin_mismatch %}
+      <p class="notice" role="alert">Repository address mismatch: the configured address is <code>{{ base_url }}</code>, but verified generated packages still use <code>{{ generated_base_url }}</code>. Changing the listener, forwarding or environment does not rewrite those packages. Restore the working advertised origin and its reachability before retrying; do not delete repository data or hand-edit ZIPs.</p>
+      {% endif %}
+      {% if literal_repository_address %}<p class="notice">This advertised address uses a literal IP. Reserve it in DHCP. For a new installation, a durable LAN hostname that every Kodi can resolve can avoid changing the embedded origin when DHCP changes.</p>{% endif %}
+      <p>A successful bootstrap ZIP download or internal service health check does not verify that Kodi can reach the feed URLs inside it. <a href="https://github.com/kcook98765/kodi-lab/blob/main/docs/REPOSITORY-ADDRESS-RECOVERY.md">Address diagnosis and recovery</a>.</p>
+      <h2>Stable · Home and reviewed Kodi Lab infrastructure</h2>
       {% if provenance %}
       <p>Stable repository: <strong>{{ 'Serving' if healthy else 'Configured; service unavailable' }}</strong></p>
       <p>LAN install source: <code>{{ base_url }}/install/</code></p>

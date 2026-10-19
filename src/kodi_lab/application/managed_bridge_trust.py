@@ -60,6 +60,7 @@ def require_approved_identity(
     if established:
         builds.append(approved_bridge_build(kodi_version, previous=True))
         builds.append(approved_bridge_build(kodi_version, retained=True))
+        builds.append(approved_bridge_build(kodi_version, legacy=True))
     if (
         not any(
             all(

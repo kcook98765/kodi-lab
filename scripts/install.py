@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,16 @@ from urllib.request import ProxyHandler, Request, build_opener
 SCHEMA = "kodi-lab-host-installation-v1"
 MANAGED_NETWORK = "kodi-lab-managed-v1"
 MIN_FREE_BYTES = 8 * 1024**3
+SOURCE_REPOSITORY = "https://github.com/kcook98765/kodi-lab.git"
 COMPOSE_COMMANDS = {"config", "exec", "logs", "ps", "run", "stop", "up"}
+GIT_DIRECTORY_OVERRIDES = {
+    "GIT_DIR",
+    "GIT_COMMON_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+}
 
 
 def environment() -> dict[str, str]:
@@ -34,6 +44,7 @@ def environment() -> dict[str, str]:
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("COMPOSE_", "KODI_LAB_"))
+        and key not in GIT_DIRECTORY_OVERRIDES
     }
 
 
@@ -253,6 +264,66 @@ def load(root: Path) -> dict[str, Any]:
     if any(values.get(key) != value for key, value in expected.items()):
         raise ValueError("site configuration differs from installation receipt")
     return data
+
+
+def bootstrap(args: argparse.Namespace) -> None:
+    """A downloaded copy can obtain a clean checkout without knowing its layout."""
+    host = host_kind()
+    destination = installation_path(args.directory)
+    if (
+        destination.exists()
+        or destination.is_symlink()
+        or not destination.parent.is_dir()
+    ):
+        raise ValueError("choose a new installation directory with an existing parent")
+    if args.revision != "main" and not re.fullmatch(r"[0-9a-f]{40}", args.revision):
+        raise ValueError("revision must be main or a full lowercase Git commit ID")
+    for executable in ("git", "uv", "docker", "bash", "ip", "sha256sum"):
+        if shutil.which(executable) is None:
+            raise ValueError(f"install prerequisite: {executable}")
+    engine(destination.parent, host)
+    check_networks(destination.parent)
+    source_parent = installation_path(
+        str(
+            Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+            / "kodi-lab/sources"
+        )
+    )
+    if destination.is_relative_to(source_parent) or source_parent.is_relative_to(
+        destination
+    ):
+        raise ValueError("source storage and installation directory must be separate")
+    source_parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    checkout = Path(tempfile.mkdtemp(prefix="checkout-", dir=source_parent))
+    print(f"Source checkout retained at {checkout}", flush=True)
+    run(["git", "init", "--quiet", str(checkout)], source_parent)
+    run(["git", "remote", "add", "origin", SOURCE_REPOSITORY], checkout)
+    run(["git", "fetch", "--depth", "1", "origin", args.revision], checkout)
+    run(["git", "checkout", "--quiet", "--detach", "FETCH_HEAD"], checkout)
+    commit = run(["git", "rev-parse", "HEAD"], checkout, capture=True)
+    if not re.fullmatch(r"[0-9a-f]{40}", commit) or (
+        args.revision != "main" and args.revision != commit
+    ):
+        raise ValueError("downloaded source commit differs from requested revision")
+    print(f"Installing source commit {commit}", flush=True)
+    command = [
+        sys.executable,
+        str(checkout / "scripts/install.py"),
+        "install",
+        "--directory",
+        str(destination),
+        "--web-port",
+        str(args.web_port),
+        "--repository-port",
+        str(args.repository_port),
+        "--repository-local-port",
+        str(args.repository_local_port),
+    ]
+    if args.repository_bind:
+        command += ["--repository-bind", args.repository_bind]
+    if args.repository_base_url:
+        command += ["--repository-base-url", args.repository_base_url]
+    run(command, checkout)
 
 
 def install(args: argparse.Namespace) -> None:
@@ -480,9 +551,10 @@ def install(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("install", "start", "stop", "status", "compose")
+        "action", choices=("bootstrap", "install", "start", "stop", "status", "compose")
     )
-    parser.add_argument("--directory", required=True)
+    parser.add_argument("--directory")
+    parser.add_argument("--revision", default="main")
     parser.add_argument("--repository-bind")
     parser.add_argument("--repository-base-url")
     parser.add_argument("--repository-port", type=int, default=18120)
@@ -490,6 +562,10 @@ def main() -> int:
     parser.add_argument("--web-port", type=int, default=18100)
     args, extra = parser.parse_known_args()
     try:
+        if not args.directory:
+            if args.action != "bootstrap":
+                raise ValueError("--directory is required for this action")
+            args.directory = str(Path.home() / "kodi-lab-install")
         if args.action == "compose":
             extra = extra[1:] if extra[:1] == ["--"] else extra
             if not extra or extra[0] not in COMPOSE_COMMANDS:
@@ -513,7 +589,9 @@ def main() -> int:
                 raise ValueError("Compose project and configuration are pinned")
         elif extra:
             raise ValueError("unexpected installer arguments")
-        if args.action == "install":
+        if args.action == "bootstrap":
+            bootstrap(args)
+        elif args.action == "install":
             install(args)
         else:
             root = installation_path(args.directory)

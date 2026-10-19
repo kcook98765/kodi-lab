@@ -237,9 +237,9 @@
     const fields = new FormData(form);
     const code = String(fields.get("code") || "").toUpperCase();
     if (!otpPattern.test(code)) return showError("Enter the four-character pairing code shown in Bridge.", codeInput);
-    const name = String(fields.get("name") || "").trim();
     const address = String(fields.get("address") || "").trim();
-    if (!name || !address) return showError("Enter a friendly name and Kodi address.", !name ? form.elements.namedItem("name") : form.elements.namedItem("address"));
+    if (!address) return showError("Enter Kodi’s address.", form.elements.namedItem("address"));
+    const name = String(fields.get("name") || "").trim() || `Kodi ${address}`;
     run(async () => {
       if (!operationId) operationId = newOperationId();
       saveOperation(); // Save before dispatch, including a lost initial response.

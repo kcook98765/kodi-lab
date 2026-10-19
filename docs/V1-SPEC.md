@@ -229,9 +229,10 @@ Host policy:
 - Ubuntu is the CI-validated host for v1;
 - x86_64 official initially;
 - ARM64/Apple Silicon and native Windows/macOS server execution are post-V1 host work;
-- D-0434 permits an experimental Windows/WSL2 Ubuntu amd64 installation path using
-  Docker Desktop's Linux engine and the existing container broker. The recorded
-  working deployment does not establish clean-host Windows qualification.
+- D-0434/D-0436 define the maintained Windows/WSL2 Ubuntu amd64 installation path
+  using Docker Desktop's Linux engine and the existing container broker. This is
+  a working host configuration; new installer acceptance and formal clean-host
+  qualification remain separately recorded evidence.
 
 ## 7. Releases
 

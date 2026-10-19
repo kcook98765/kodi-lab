@@ -1,10 +1,10 @@
 # Windows host installation through WSL2 and Docker Desktop
 
-Kodi Lab has a reported operational Windows-hosted Linux-container deployment.
-The maintained installer below is **experimental**: fresh-account/clean-host
-Windows acceptance has not yet been recorded. Native Ubuntu 24.04 amd64 remains
-the qualified baseline. This guide does not claim native Windows server
-execution or formal Windows qualification.
+Kodi Lab works on Windows 11 through Ubuntu 24.04 under WSL2 and Docker Desktop's
+Linux engine, including managed Kodi and MCP access. The installer below uses
+that configuration. Native Ubuntu 24.04 amd64 remains the qualified baseline;
+new installer revisions have their own fresh-install acceptance checks. This
+guide covers Windows-hosted Linux containers, not native Windows server execution.
 
 ## Observed working configuration
 
@@ -83,6 +83,33 @@ state, grants or credentials.
 
 ## Install
 
+Download [the PowerShell installer](https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install-windows.ps1)
+to Windows, then run it as your ordinary Windows user:
+
+```powershell
+.\install-windows.ps1
+```
+
+It discovers your selected Ubuntu user's Linux home, obtains the shared installer
+and source at one exact Git commit, and defaults to `~/kodi-lab-install` inside
+Ubuntu. It prompts for the repository address and Web password. No manual clone,
+UNC path or Linux user-name substitution is required. Use `-Distribution Ubuntu`
+if your distribution is named `Ubuntu`, or provide the actual name from
+`wsl --list --verbose`. `-InstallDirectory` remains available for a custom Linux
+destination; `-Revision` selects a full lowercase Git commit ID. A failed source
+download or mismatched revision never proceeds to initialization.
+
+For a new installation with working LAN DNS, use `-RepositoryAddress` for the
+Windows private interface and `-RepositoryBaseUrl http://kodi-lab.home.arpa:18120`
+for the durable advertised origin. Replace that example with your configured
+hostname and check its resolution from Kodi before installing the repository.
+
+You can also download [the Python installer](https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install.py)
+inside Ubuntu and run `python3 install.py bootstrap`. Both entry points use the
+same installer and preserve the ordinary manual methods below.
+
+### From an existing source checkout
+
 In **Ubuntu/WSL**, clone the repository into your Linux home and run:
 
 ```sh
@@ -95,7 +122,7 @@ When prompted, enter the **Windows host's private LAN IPv4 address**, not WSL's
 transient VM address or `127.0.0.1`. Choose the Web administrator password at the
 existing password prompt. The installer detects WSL2 and requires Docker Desktop.
 
-Alternatively, from **PowerShell**, run the maintained wrapper after cloning.
+From **PowerShell**, the wrapper can also use an explicit existing checkout.
 Replace `your-user` with the Linux user name; these parameters are Linux paths:
 
 ```powershell
@@ -158,6 +185,9 @@ Remove-NetFirewallRule -Name 'KodiLabRepository18120'
 Prefer a DHCP reservation. If the Windows LAN address changes, review the
 repository URL, installed Kodi repository URLs, forwarding and firewall together;
 a changed URL does not move existing pairings or authorize a new target identity.
+See [repository address diagnosis and recovery](REPOSITORY-ADDRESS-RECOVERY.md):
+moving a Windows listener does not rewrite the repository's embedded URLs, and
+ordinary restart/candidate transition does not migrate an advertised origin.
 For outbound external Kodi access, use its reachable LAN address and normal
 **Add Kodi** identity/Bridge checks. A Windows browser reaching Web does not prove
 that a Linux container can reach that Kodi device. Report reachability failures

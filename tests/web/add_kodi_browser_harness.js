@@ -189,6 +189,13 @@ async function secretCleanupAndValidation() {
   assert.equal(b.fields.password.value, "");
 }
 async function main() {
+  const unnamed = setup([result("requires_action", "transport_consent_required", {transport})]);
+  unnamed.fields.name.value = "   ";
+  await submit(unnamed);
+  assert.equal(unnamed.calls[0].body.name, "Kodi 192.168.50.135");
+  assert.equal(unnamed.calls[0].body.kodi_port, 8080);
+  assert.equal(unnamed.calls[0].body.bridge_port, 8765);
+  assert.equal(unnamed.find("consent").checked, false);
   await consentAndSuccess();
   await uncertainAndReload();
   await registrationRetry();

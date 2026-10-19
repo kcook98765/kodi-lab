@@ -48,9 +48,13 @@ class ManagedBridgeProvisionError(RuntimeError):
 
 
 def approved_bridge_build(
-    kodi_release: str | None = None, *, previous: bool = False, retained: bool = False
+    kodi_release: str | None = None,
+    *,
+    previous: bool = False,
+    retained: bool = False,
+    legacy: bool = False,
 ) -> dict[str, Any]:
-    if previous and retained:
+    if sum((previous, retained, legacy)) > 1:
         raise ValueError("ambiguous Bridge build selection")
     resource = (
         "managed_bridge_preview_build.json"
@@ -68,6 +72,12 @@ def approved_bridge_build(
             "managed_bridge_retained_preview_build.json"
             if kodi_release == "22.0-rc.1"
             else "managed_bridge_retained_build.json"
+        )
+    if legacy:
+        resource = (
+            "managed_bridge_legacy_preview_build.json"
+            if kodi_release == "22.0-rc.1"
+            else "managed_bridge_legacy_build.json"
         )
     return cast(
         dict[str, Any],
