@@ -322,6 +322,7 @@ class VerifiedDevelopmentSourceDestinationRecord:
     addon_version: str
     matched: bool
     video_plugin_descriptor_eligible: bool = False
+    verified_destination_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1880,6 +1881,7 @@ class DockerManagedContainerAdapter:
                 managed_instance_id=spec.managed_instance_id,
                 expected_container_id=expected_container_id,
                 expected_runtime_revision_id=spec.runtime_revision_id,
+                require_stopped=spec.require_stopped,
             )
             stream, _ = client.get_archive(
                 selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
@@ -1889,7 +1891,10 @@ class DockerManagedContainerAdapter:
                 root_name=spec.addon_id,
                 capture_paths=frozenset({"addon.xml"}),
             )
-            if manifest.digest != spec.verified_destination_digest:
+            if manifest.digest not in {
+                spec.verified_destination_digest,
+                spec.alternate_destination_digest,
+            }:
                 raise DockerDevelopmentSourceDeploymentError(
                     "development_destination_mismatch",
                     "Current destination bytes do not match retained evidence.",
@@ -1918,6 +1923,7 @@ class DockerManagedContainerAdapter:
                 managed_instance_id=spec.managed_instance_id,
                 expected_container_id=expected_container_id,
                 expected_runtime_revision_id=spec.runtime_revision_id,
+                require_stopped=spec.require_stopped,
             )
             return VerifiedDevelopmentSourceDestinationRecord(
                 managed_instance_id=spec.managed_instance_id,
@@ -1928,6 +1934,7 @@ class DockerManagedContainerAdapter:
                 addon_version=spec.addon_version,
                 matched=True,
                 video_plugin_descriptor_eligible=descriptor_eligible,
+                verified_destination_digest=manifest.digest,
             )
         except DockerDevelopmentSourceDeploymentError:
             raise
@@ -1954,6 +1961,7 @@ class DockerManagedContainerAdapter:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_revision_id: str,
+        require_stopped: bool = False,
     ) -> None:
         container_id = _require_container_id(inspected.get("Id"))
         if (
@@ -1977,9 +1985,14 @@ class DockerManagedContainerAdapter:
                 "Managed container runtime revision differs from trusted state"
             )
         state = _require_mapping(inspected.get("State"))
-        if (
-            normalize_runtime_state(state.get("Status"))
-            is not ContainerRuntimeState.RUNNING
+        expected_state = (
+            ContainerRuntimeState.STOPPED
+            if require_stopped
+            else ContainerRuntimeState.RUNNING
+        )
+        if normalize_runtime_state(state.get("Status")) is not expected_state or (
+            require_stopped
+            and (state.get("Running") is not False or state.get("Pid") != 0)
         ):
             raise ManagedRuntimeNotRunningError(
                 "Destination verification requires the exact running runtime"

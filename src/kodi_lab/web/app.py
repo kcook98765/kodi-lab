@@ -3897,6 +3897,7 @@ def create_app(
             os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
         )
         provenance: dict[str, Any] | None = None
+        origin_reachability = "not_checked"
         healthy = False
         generated_base_url: str | None = None
         try:
@@ -4050,11 +4051,18 @@ def create_app(
                         "confirmed_at": None if ready is None else ready.confirmed_at,
                     }
                 )
+        if provenance is not None and generated_base_url == base_url:
+            from kodi_lab.repository.address import probe_advertised_origin
+
+            origin_reachability = await probe_advertised_origin(
+                base_url, str(provenance["addons_xml_sha256"])
+            )
         return templates.TemplateResponse(
             request,
             "kodi-repository.html",
             {
                 "base_url": base_url,
+                "origin_reachability": origin_reachability,
                 "healthy": healthy,
                 "provenance": provenance,
                 "generated_base_url": generated_base_url,
@@ -5750,6 +5758,42 @@ def create_app(
         return context.mcp_workspace_development.establish_external_baseline(
             target_id=target_id, source_id=payload.source_id
         )
+
+    @app.post("/api/instances/{target_id}/deployments/{operation_id}/reconcile")
+    def reconcile_managed_workspace_deployment(
+        target_id: UUID,
+        operation_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        from kodi_lab.application.workspace_deployment_recovery import (
+            WorkspaceDeploymentRecoveryError,
+            WorkspaceDeploymentRecoveryService,
+        )
+
+        try:
+            return (
+                WorkspaceDeploymentRecoveryService(
+                    session_factory, broker, data_root=settings.data_root
+                )
+                .reconcile(target_id, operation_id)
+                .model_dump(mode="json")
+            )
+        except WorkspaceDeploymentRecoveryError as error:
+            raise HTTPException(
+                status_code=404
+                if str(error) == "managed_deployment_not_found"
+                else 409,
+                detail=str(error),
+            ) from error
+        except (OSError, RuntimeError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Deployment evidence is busy or unavailable; preserve the "
+                    "workspace and inspect current status."
+                ),
+            ) from error
 
     @app.post("/api/external-targets/{target_id}/deployments/{operation_id}/reconcile")
     def reconcile_external_deployment(

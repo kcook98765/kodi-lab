@@ -266,6 +266,21 @@ def load(root: Path) -> dict[str, Any]:
     return data
 
 
+def listener_preflight(root: Path, data: dict[str, Any]) -> None:
+    bind = "127.0.0.1" if data["host"] == "windows-wsl2" else data["repository_bind"]
+    run(
+        [
+            sys.executable,
+            str(root / "bundle/linux-v1-bundle"),
+            "preflight",
+            str(root / "bundle"),
+            "--repository-bind",
+            bind,
+        ],
+        root,
+    )
+
+
 def bootstrap(args: argparse.Namespace) -> None:
     """A downloaded copy can obtain a clean checkout without knowing its layout."""
     host = host_kind()
@@ -440,6 +455,7 @@ def install(args: argparse.Namespace) -> None:
             root,
         )
         save(root, data, "configured")
+        listener_preflight(root, data)
         if engine(source, host) != engine_id:
             raise ValueError("Docker engine changed during installation")
         check_networks(source)
@@ -615,6 +631,8 @@ def main() -> int:
                 "status": ["ps"],
                 "compose": extra,
             }[args.action]
+            if args.action == "start":
+                listener_preflight(root, data)
             run([*compose(root, data, managed=True), *arguments], root)
             if args.action == "start":
                 probe(data["web_port"])

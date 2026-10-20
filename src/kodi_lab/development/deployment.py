@@ -10,7 +10,7 @@ import stat
 import tarfile
 import unicodedata
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -400,6 +400,17 @@ def _capture_file(
         if target_fd is not None:
             os.close(target_fd)
         os.close(source_fd)
+
+
+def expected_destination_digest(
+    source: DevelopmentTreeManifest, *, runtime_uid: int, runtime_gid: int
+) -> str:
+    """Bind a complete normalized source tree to its destination ownership."""
+    entries = tuple(
+        replace(entry, uid=runtime_uid, gid=runtime_gid) for entry in source.entries
+    )
+    canonical = _canonical_manifest(entries, include_ownership=True)
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 def _canonical_manifest(

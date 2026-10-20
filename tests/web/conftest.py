@@ -749,6 +749,13 @@ def client(
 ) -> Iterator[TestClient]:
     development_root = data_root.parent / "development-root"
     development_root.mkdir(parents=True)
+
+    async def no_advertised_network(_base: str, _checksum: str) -> str:
+        return "not_checked"
+
+    monkeypatch.setattr(
+        "kodi_lab.repository.address.probe_advertised_origin", no_advertised_network
+    )
     # Web route tests exercise authentication semantics, not Argon2 cost tuning.
     # Dedicated auth tests continue to instantiate the production-strength KDF.
     monkeypatch.setattr(

@@ -203,6 +203,12 @@ screen, then grant a Read-only Inspection agent that target and verify
 forwarding. Clients on another computer require the existing
 [explicit LAN MCP configuration](NATIVE-LAN-MCP.md).
 
+The maintained installer checks its loopback repository listener before install
+initialization and `start`. For a manual bundle, run `python3 linux-v1-bundle
+preflight . --repository-bind 127.0.0.1` inside WSL before startup. This verifies
+local bind availability; check Windows LAN forwarding and the advertised feed
+from Kodi separately. See [address recovery](REPOSITORY-ADDRESS-RECOVERY.md).
+
 For start/stop/status, use the copied helper inside WSL as in
 [everyday management](HOST-INSTALLER.md#start-stop-and-diagnose), or the PowerShell
 wrapper with `-Action start`, `stop` or `status` and the same distribution and

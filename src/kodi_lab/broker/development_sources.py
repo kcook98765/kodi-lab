@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -15,6 +16,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.development.confined_fs import open_development_root
+from kodi_lab.development.deployment import (
+    capture_development_tree,
+    expected_destination_digest,
+)
 from kodi_lab.domain import (
     AddonZipInstallationConfidence,
     AddonZipInstallationResult,
@@ -50,6 +55,7 @@ from kodi_lab.storage.repositories import (
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
+from kodi_lab.storage.workspace_deployments import prior_workspace_copy
 
 BROKER_DEVELOPMENT_ROOT = Path("/mnt/kodi-lab-development")
 
@@ -131,9 +137,18 @@ class DevelopmentSourceDestinationVerificationSpec:
     addon_version: str
     verified_destination_digest: str
     trusted_container_id: str
+    require_stopped: bool = False
+    alternate_destination_digest: str | None = None
+    requested_source_digest: str | None = None
 
 
 class DevelopmentSourceDeploymentResolver(Protocol):
+    def resolve_workspace_reconciliation(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec: ...
     def resolve(
         self,
         managed_instance_id: str,
@@ -651,6 +666,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
         deployment_operation_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDeploymentSpec:
+        recovery_column = McpWorkspaceDeploymentOperationRow.recovery_state
         try:
             instance_id = UUID(managed_instance_id)
             workspace_uuid = UUID(workspace_id)
@@ -716,7 +732,24 @@ class SqliteDevelopmentSourceDeploymentResolver:
                             == managed_instance_id,
                             McpWorkspaceDeploymentOperationRow.development_source_id
                             == str(workspace.development_source_id),
-                            McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                            (
+                                (
+                                    McpWorkspaceDeploymentOperationRow.state
+                                    == "succeeded"
+                                )
+                                | (
+                                    (
+                                        McpWorkspaceDeploymentOperationRow.state
+                                        == "failed"
+                                    )
+                                    & recovery_column.in_(
+                                        [
+                                            "contained_requested_tree",
+                                            "contained_prior_tree",
+                                        ]
+                                    )
+                                )
+                            ),
                             McpWorkspaceDeploymentOperationRow.runtime_revision_id
                             == str(instance.runtime_revision_id)
                             if instance is not None
@@ -807,6 +840,119 @@ class SqliteDevelopmentSourceDeploymentResolver:
             raise DevelopmentSourceDeploymentStateError(
                 "Canonical workspace deployment state could not be read."
             ) from error
+
+    def resolve_workspace_reconciliation(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec:
+        """Resolve only the exact retained operation and its unchanged workspace."""
+        with self._session_factory() as session:
+            operation = session.get(
+                McpWorkspaceDeploymentOperationRow, deployment_operation_id
+            )
+            instance = ManagedInstanceRepository(session).get(UUID(managed_instance_id))
+            workspace = (
+                None
+                if operation is None
+                else AgentWorkspaceRepository(session).get(UUID(operation.workspace_id))
+            )
+            baseline = (
+                None
+                if operation is None
+                else DevelopmentSourceDeploymentRepository(session).get(
+                    UUID(managed_instance_id), UUID(operation.development_source_id)
+                )
+            )
+            profile = (
+                None
+                if instance is None
+                else RuntimeExecutionProfileRepository(session).get(
+                    instance.runtime_revision_id
+                )
+            )
+            attachment = (
+                None
+                if operation is None
+                else ManagedInstanceDevelopmentSourceRepository(session).get(
+                    UUID(managed_instance_id), UUID(operation.development_source_id)
+                )
+            )
+        binding = None if operation is None else operation.original_container_id
+        if (
+            binding is None
+            and baseline is not None
+            and operation is not None
+            and baseline.verified_at
+            <= datetime.fromisoformat(operation.requested_at.replace("Z", "+00:00"))
+        ):
+            binding = baseline.trusted_container_id
+        if (
+            operation is None
+            or instance is None
+            or workspace is None
+            or profile is None
+            or attachment is None
+            or baseline is None
+            or operation.target_class != "internal_lab"
+            or operation.deployment_mode != "direct"
+            or operation.state not in {"ambiguous", "reconciliation_required"}
+            or operation.target_id != managed_instance_id
+            or instance.instance_type is not InstanceType.DISPOSABLE
+            or operation.runtime_revision_id != str(instance.runtime_revision_id)
+            or str(baseline.runtime_revision_id) != operation.runtime_revision_id
+            or binding != expected_container_id
+            or baseline.trusted_container_id != expected_container_id
+            or baseline.verified_at
+            > datetime.fromisoformat(operation.requested_at.replace("Z", "+00:00"))
+            or workspace.generation != operation.generation
+            or workspace.current_tree_digest is None
+            or workspace.state.value != "ready"
+            or workspace.bytes_state.value != "present"
+            or str(workspace.development_source_id) != operation.development_source_id
+            or workspace.source_addon_id != operation.addon_id
+        ):
+            raise DevelopmentSourceDeploymentStateError(
+                "Exact stopped workspace recovery evidence is unavailable."
+            )
+        with self._session_factory() as session:
+            prior = prior_workspace_copy(
+                session,
+                operation,
+                container_id=binding,
+                baseline_verified_at=baseline.verified_at,
+            )
+            prior_digest = (
+                prior.verified_destination_digest
+                if prior is not None
+                else baseline.verified_destination_digest
+            )
+        captured = capture_development_tree(
+            self._data_root / "agent-workspaces" / operation.workspace_id, "tree"
+        )
+        if captured.digest != workspace.current_tree_digest:
+            raise DevelopmentSourceDeploymentStateError(
+                "Workspace bytes changed since the retained operation."
+            )
+        return DevelopmentSourceDestinationVerificationSpec(
+            managed_instance_id=managed_instance_id,
+            development_source_id=operation.development_source_id,
+            runtime_revision_id=operation.runtime_revision_id,
+            runtime_uid=profile.runtime_uid,
+            runtime_gid=profile.runtime_gid,
+            addon_id=operation.addon_id,
+            addon_version=operation.addon_version,
+            verified_destination_digest=expected_destination_digest(
+                captured,
+                runtime_uid=profile.runtime_uid,
+                runtime_gid=profile.runtime_gid,
+            ),
+            trusted_container_id=binding,
+            require_stopped=True,
+            alternate_destination_digest=prior_digest,
+            requested_source_digest=captured.digest,
+        )
 
     def resolve_workspace_destination_verification(
         self,

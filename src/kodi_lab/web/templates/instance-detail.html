@@ -29,6 +29,7 @@
         <dt>JSON-RPC</dt><dd>{{ detail.runtime.jsonrpc_state }}</dd>
         <dt>Usability</dt><dd>{{ detail.runtime.usability_state }}</dd>
         <dt>Readiness</dt><dd>{{ detail.runtime.readiness_state }}</dd>
+        {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
       </dl>
       {% if detail.reconciliation.required %}
       <section class="reconciliation-warning" role="alert">
@@ -40,6 +41,12 @@
         <div data-launch-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-launch-id="{{ detail.reconciliation.operation_uuid }}">
           <button type="button" data-launch-recheck>Recheck exact launch receipt</button>
           <p data-launch-reconcile-status role="status">This never launches or starts Kodi. If the result remains unknown, stop the original container through normal lifecycle controls, then recheck.</p>
+        </div>
+        {% endif %}
+        {% if detail.reconciliation.operation_kind == 'mcp_workspace_deployment' and detail.reconciliation.operation_uuid %}
+        <div data-deployment-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-deployment-id="{{ detail.reconciliation.operation_uuid }}">
+          <button type="button" data-deployment-recheck>Inspect stopped deployment</button>
+          <p data-deployment-reconcile-status role="status">Stop through normal lifecycle controls if running, then inspect the exact installed tree. This never copies, starts Kodi, or replays deployment. Unknown evidence remains blocked.</p>
         </div>
         {% endif %}
       </section>

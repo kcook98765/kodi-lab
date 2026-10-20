@@ -31,6 +31,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.models import (
     ManagedRuntimeReconstructionRow,
+    McpWorkspaceDeploymentOperationRow,
     McpWorkspaceLaunchRow,
 )
 from kodi_lab.storage.repositories import (
@@ -56,6 +57,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
     REPOSITORY_REPLACEMENT = "repository_replacement"
     ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
@@ -98,6 +100,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.MCP_WORKSPACE_DEPLOYMENT: 18,
     ManagedInstanceActivityKind.MCP_WORKSPACE_LAUNCH: 17,
     ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT: 16,
     ManagedInstanceActivityKind.ADDON_REPOSITORY_INSTALLATION: 15,
@@ -159,6 +162,52 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        for workspace_deployment in session.scalars(
+            select(McpWorkspaceDeploymentOperationRow).where(
+                McpWorkspaceDeploymentOperationRow.target_id == str(instance_id)
+            )
+        ):
+            cause = (
+                workspace_deployment.failure_cause
+                or workspace_deployment.failure_code
+                or "none"
+            )
+            failed_phase = workspace_deployment.failure_phase or (
+                "none"
+                if workspace_deployment.state == "succeeded"
+                else "unknown (historical)"
+            )
+            recovery_summary = workspace_deployment.recovery_state or "not requested"
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.MCP_WORKSPACE_DEPLOYMENT,
+                    operation_uuid=UUID(workspace_deployment.id),
+                    original_managed_instance_id=instance_id,
+                    requested_at=datetime.fromisoformat(
+                        workspace_deployment.requested_at.replace("Z", "+00:00")
+                    ),
+                    started_at=None
+                    if workspace_deployment.started_at is None
+                    else datetime.fromisoformat(
+                        workspace_deployment.started_at.replace("Z", "+00:00")
+                    ),
+                    completed_at=None
+                    if workspace_deployment.completed_at is None
+                    else datetime.fromisoformat(
+                        workspace_deployment.completed_at.replace("Z", "+00:00")
+                    ),
+                    state=workspace_deployment.state,
+                    summary=(
+                        f"Workspace generation {workspace_deployment.generation}: "
+                        f"{workspace_deployment.state}. Failed phase: "
+                        f"{failed_phase}. "
+                        f"Cause: {cause[:64]}. "
+                        f"Recovery: {recovery_summary}."
+                    )[:256],
+                    reconciliation_required=workspace_deployment.state
+                    in {"ambiguous", "reconciliation_required"},
+                )
+            )
         for launch in session.scalars(
             select(McpWorkspaceLaunchRow).where(
                 McpWorkspaceLaunchRow.target_id == str(instance_id)

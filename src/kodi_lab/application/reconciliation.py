@@ -847,6 +847,13 @@ class StaleOperationReconciliationDispatcher:
                 if workspace_deployment.mutation_started
                 else "failed"
             )
+            if workspace_deployment.failure_phase is None:
+                workspace_deployment.failure_phase = (
+                    workspace_deployment.phase
+                    if workspace_deployment.phase != "finalize"
+                    else None
+                )
+                workspace_deployment.failure_cause = "worker_interrupted"
             workspace_deployment.phase = "finalize"
             workspace_deployment.failure_code = (
                 "deployment_ambiguous"
@@ -1839,6 +1846,11 @@ class ManagedInstanceReconciliationService:
                 else operation.phase.value
             )
         )
+        if (
+            isinstance(operation, McpWorkspaceDeploymentOperationRow)
+            and operation.failure_phase
+        ):
+            phase_value = operation.failure_phase
         operation_uuid = UUID(str(operation.id))
         requested_at = (
             _timestamp(operation.requested_at)
@@ -1871,6 +1883,7 @@ class ManagedInstanceReconciliationService:
                     ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
                     ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST,
                     ReconciliationOperationKind.MCP_WORKSPACE_LAUNCH,
+                    ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT,
                     ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION,
                 }
                 else INSTANCE_MUTATIONS

@@ -80,6 +80,7 @@ class ManagedRuntimeStatus(BaseModel):
     jsonrpc_state: SemanticJsonRpcState
     usability_state: SemanticUsabilityState
     readiness_state: ReadinessTaskState
+    stored_readiness_state: ReadinessTaskState | None = None
     failure_code: str | None = Field(default=None, max_length=64)
     failure_detail: str | None = Field(default=None, max_length=256)
     allowed_actions: list[str] = Field(max_length=4)
@@ -488,7 +489,10 @@ class ManagedRuntimeStatusService:
             process_state=process,
             jsonrpc_state=jsonrpc,
             usability_state=usability,
-            readiness_state=readiness,
+            readiness_state=readiness
+            if container is ContainerRuntimeState.RUNNING
+            else ReadinessTaskState.IDLE,
+            stored_readiness_state=readiness,
             failure_code=failure_code,
             failure_detail=failure_detail,
             allowed_actions=actions,

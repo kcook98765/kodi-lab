@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -130,6 +131,20 @@ class FakeResolver:
         )
         return self.spec
 
+    def resolve_workspace_reconciliation(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec:
+        return replace(
+            self.resolve_workspace_destination_verification(
+                deployment_operation_id, managed_instance_id, expected_container_id
+            ),
+            require_stopped=True,
+            requested_source_digest="sha256:" + "1" * 64,
+        )
+
     def resolve_workspace_destination_verification(
         self,
         deployment_operation_id: str,
@@ -202,6 +217,7 @@ class FakeProvider:
             addon_id=spec.addon_id,
             addon_version=spec.addon_version,
             matched=True,
+            verified_destination_digest=spec.verified_destination_digest,
         )
 
 
@@ -469,3 +485,34 @@ def test_typed_failures_are_sanitized(
         _call(BrokerClient(socket_config.socket_path))
     assert captured.value.code == code
     assert "private persistence detail" not in str(captured.value)
+
+
+def test_stopped_workspace_recovery_wire_is_read_only_and_exact(
+    tmp_path: Path, socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    resolver = FakeResolver(_spec(tmp_path))
+    provider = FakeProvider()
+    with run_broker(socket_config, registry=_registry(provider, resolver)):
+        proof = BrokerClient(
+            socket_config.socket_path
+        ).inspect_mcp_workspace_deployment(
+            deployment_operation_id=OPERATION_ID,
+            managed_instance_id=INSTANCE_ID,
+            expected_container_id=CONTAINER_ID,
+        )
+        rejected = _raw(
+            socket_config.socket_path,
+            {
+                "deployment_operation_id": OPERATION_ID,
+                "managed_instance_id": INSTANCE_ID,
+                "expected_container_id": CONTAINER_ID,
+                "path": "/private",
+            },
+            operation="inspect_mcp_workspace_deployment",
+        )
+    assert proof.matches_requested and not proof.matches_prior
+    assert proof.deployment_operation_id == OPERATION_ID
+    assert provider.calls == []
+    assert len(provider.verification_calls) == 1
+    assert provider.verification_calls[0][0].require_stopped
+    assert rejected["ok"] is False

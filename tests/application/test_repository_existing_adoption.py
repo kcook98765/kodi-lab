@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, MetaData, select
+from sqlalchemy import Engine, MetaData, Table, select
 from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.application.mcp_administration import (
@@ -35,7 +35,7 @@ from kodi_lab.mcp.authorization import (
 from kodi_lab.mcp.registry import TargetClass, build_mcp_tool_registry
 from kodi_lab.repository.development import load_current
 from kodi_lab.repository.workspace_package import build_workspace_package
-from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentPublicationRow,
@@ -950,27 +950,39 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
     if round_trip:
         command.downgrade(config, "0059_workspace_validation_digest")
         command.upgrade(config, "0060_repository_existing_verify")
-    historical_sessions = create_session_factory(historical_engine)
-    with historical_sessions() as session:
-        operation = session.get(
-            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
-        )
-        linked = session.get(
-            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
-        )
-        assert operation is not None and linked is not None
-        assert operation.initiator_kind == "mcp"
-        assert linked.origin == "planned" and linked.verified_by is None
-        assert operation.repository_origin == "planned"
-        assert linked.identity_sha256 is None
-        assert linked.publication_source_id is None
+    # Inspect the exact historical schema without asking the current ORM for
+    # nullable columns introduced by later migrations.
+    historical = MetaData()
+    operations = Table(
+        "mcp_workspace_deployment_operations",
+        historical,
+        autoload_with=historical_engine,
+    )
+    links = Table(
+        "repository_workspace_deployments", historical, autoload_with=historical_engine
+    )
+    with historical_engine.connect() as connection:
+        historical_operation = connection.execute(
+            select(operations).where(operations.c.id == str(pending.deployment_id))
+        ).one()
+        historical_link = connection.execute(
+            select(links).where(links.c.operation_id == str(pending.deployment_id))
+        ).one()
+        assert historical_operation is not None and historical_link is not None
+        assert historical_operation.initiator_kind == "mcp"
         assert (
-            operation.client_id,
-            operation.request_id,
-            linked.approved_at,
-            linked.observed_at,
-            linked.verified_at,
-            linked.publication_id,
+            historical_link.origin == "planned" and historical_link.verified_by is None
+        )
+        assert historical_operation.repository_origin == "planned"
+        assert historical_link.identity_sha256 is None
+        assert historical_link.publication_source_id is None
+        assert (
+            historical_operation.client_id,
+            historical_operation.request_id,
+            historical_link.approved_at,
+            historical_link.observed_at,
+            historical_link.verified_at,
+            historical_link.publication_id,
         ) == before
     historical_engine.dispose()
 

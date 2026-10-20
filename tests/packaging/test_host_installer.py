@@ -414,14 +414,15 @@ def test_management_reuses_project_and_never_reinitializes(
         "host": "ubuntu",
         "completed_stage": "ready",
         "web_port": 18100,
+        "repository_bind": "192.168.2.20",
     }
     monkeypatch.setattr(install, "load", lambda _: data)
     monkeypatch.setattr(
         sys, "argv", ["installer", action, "--directory", str(host.root)]
     )
     assert install.main() == 0
-    assert len(host.commands) == 1
-    command = host.commands[0]
+    assert len(host.commands) == (2 if action == "start" else 1)
+    command = host.commands[-1]
     assert command[command.index("--project-name") + 1] == data["project"]
     assert not any(
         value in command for value in ("initialize", "set-password", "build", "down")
@@ -541,3 +542,17 @@ def test_management_cannot_override_its_project_before_loading_receipt(
         ["installer", "compose", "--directory", str(tmp_path), "--", "ps", *extra],
     )
     assert install.main() == 1
+
+
+def test_listener_failure_prevents_initialization_and_service_start(host: Host) -> None:
+    host.fail = "preflight"
+    with pytest.raises(subprocess.CalledProcessError):
+        install.install(host.args())
+    assert not any(
+        "repository-init" in command or "initialize" in command or "up" in command
+        for command in host.commands
+    )
+    assert (
+        json.loads((host.root / "INSTALLATION.json").read_text())["completed_stage"]
+        == "configured"
+    )

@@ -108,6 +108,7 @@ python3 linux-v1-bundle configure . \
   --repository-bind PRIVATE_LAN_IPV4 --repository-port PORT \
   --repository-base-url http://DURABLE_LAN_HOST:PORT
 docker compose -f compose.release.yaml config --quiet
+python3 linux-v1-bundle preflight .
 docker compose -f compose.release.yaml --profile repository-init run --rm --no-deps repository-init
 docker compose -f compose.release.yaml run --rm --no-deps \
   --entrypoint kodi-lab-repository repository verify

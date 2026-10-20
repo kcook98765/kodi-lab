@@ -28,6 +28,10 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
     config, url = migration_setup(
         monkeypatch, tmp_path, start_revision="0076_managed_resource_policy"
     )
+    # Current coordinators need the current columns. Prepare their fixture at
+    # head, remove only the later nullable binding evidence, then return to the
+    # exact historical schema before exercising the 76 -> 77 transition.
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     path = Path(str(engine.url.database))
     env = fixture._environment(tmp_path / "fixture", database_path=path)
@@ -38,6 +42,9 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
         assert workspace is not None and deployment is not None
         deployment.source_manifest_digest = workspace.current_tree_digest
         deployment.verified_destination_digest = workspace.current_tree_digest
+        deployment.original_container_id = None
+        deployment.original_runtime_state_revision = None
+    command.downgrade(config, "0076_managed_resource_policy")
     with engine.connect() as connection:
         prior = (
             connection.execute(
@@ -79,6 +86,7 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
             == triggers
         )
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()
+    command.upgrade(config, "head")
     bridge = Bridge()
     service = WorkspaceLaunchService(
         env.sessions,

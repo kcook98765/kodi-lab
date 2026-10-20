@@ -417,6 +417,9 @@ class WorkspaceDeploymentResult(BaseModel):
     state: str = Field(max_length=32)
     deployment_mode: str = Field(default="direct", max_length=16)
     phase: str = Field(default="finalize", max_length=32)
+    failed_phase: str | None = Field(default=None, max_length=32)
+    failure_cause: str | None = Field(default=None, max_length=128)
+    recovery_state: str | None = Field(default=None, max_length=32)
     publication_id: UUID | None = None
     repository_id: str | None = Field(default=None, max_length=64)
     installation_kind: str | None = Field(default=None, max_length=16)
@@ -2610,7 +2613,15 @@ class McpWorkspaceDevelopmentService:
                     McpWorkspaceDeploymentOperationRow.target_id == str(target_id),
                     McpWorkspaceDeploymentOperationRow.development_source_id
                     == str(source.id),
-                    McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                    (
+                        (McpWorkspaceDeploymentOperationRow.state == "succeeded")
+                        | (
+                            (McpWorkspaceDeploymentOperationRow.state == "failed")
+                            & McpWorkspaceDeploymentOperationRow.recovery_state.in_(
+                                ["contained_requested_tree", "contained_prior_tree"]
+                            )
+                        )
+                    ),
                     McpWorkspaceDeploymentOperationRow.runtime_revision_id
                     == str(instance.runtime_revision_id),
                 )
@@ -2745,7 +2756,18 @@ class McpWorkspaceDevelopmentService:
         if operation.target_class == "external_development":
             return self._run_external_deployment(operation, digest)
         container_id = self._exact_running_container(UUID(operation.target_id))
-        self._update_deployment(operation_id, phase="stop", mutation_started=True)
+        with self._sessions() as session:
+            original_instance = session.get(ManagedInstanceRow, operation.target_id)
+            if original_instance is None:
+                raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+            original_revision = original_instance.runtime_state_revision
+        self._update_deployment(
+            operation_id,
+            phase="stop",
+            mutation_started=True,
+            original_container_id=container_id,
+            original_runtime_state_revision=original_revision,
+        )
         try:
             self._broker.stop_managed_container(
                 managed_instance_id=operation.target_id,
@@ -4081,6 +4103,13 @@ class McpWorkspaceDevelopmentService:
             if row is None or row.state not in {"pending", "running"}:
                 return
             row.state = state
+            if state != "succeeded" and row.failure_phase is None:
+                row.failure_phase = row.phase if row.phase != "finalize" else None
+                row.failure_cause = (
+                    failure_code
+                    if failure_code != "deployment_ambiguous"
+                    else f"{row.phase}_unconfirmed"
+                )
             row.phase = "finalize"
             row.failure_code = failure_code
             row.completed_at = _to_text(now)
@@ -4306,6 +4335,9 @@ class McpWorkspaceDevelopmentService:
             state=row.state,
             deployment_mode=row.deployment_mode,
             phase=row.phase,
+            failed_phase=row.failure_phase,
+            failure_cause=row.failure_cause,
+            recovery_state=row.recovery_state,
             publication_id=None if linked is None else UUID(linked.publication_id),
             repository_id=None if linked is None else linked.repository_id,
             installation_kind=(

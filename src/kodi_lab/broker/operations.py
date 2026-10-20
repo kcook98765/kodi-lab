@@ -325,7 +325,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=36)
+    operations: list[str] = Field(max_length=37)
     protocol_version: Literal[1]
 
 
@@ -1074,6 +1074,19 @@ class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
         if not is_canonical_uuid(value):
             raise ValueError("identity must be a canonical UUID string")
         return value
+
+
+class InspectMcpWorkspaceDeploymentResult(StrictModel):
+    deployment_operation_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    development_source_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requested_manifest_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    requested_destination_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    installed_manifest_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    matches_requested: bool
+    matches_prior: bool
 
 
 class AddonZipInstallationParams(StrictModel):
@@ -3463,6 +3476,73 @@ def build_foundation_registry(
             "broker_managed_instance_id": result.managed_instance_id,
             "broker_development_source_id": result.development_source_id,
             "broker_destination_matched": result.matched,
+        },
+    )
+
+    def inspect_mcp_workspace_deployment(
+        params: VerifyMcpWorkspaceDestinationParams,
+    ) -> InspectMcpWorkspaceDeploymentResult:
+        try:
+            spec = deployment_resolver.resolve_workspace_reconciliation(
+                params.deployment_operation_id,
+                params.managed_instance_id,
+                params.expected_container_id,
+            )
+            outcome = (
+                deployment_provider.verify_attached_development_source_destination(
+                    spec=spec,
+                    expected_container_id=params.expected_container_id,
+                )
+            )
+            if (
+                not outcome.matched
+                or outcome.container_id != params.expected_container_id
+                or outcome.managed_instance_id != params.managed_instance_id
+                or outcome.runtime_revision_id != spec.runtime_revision_id
+                or outcome.development_source_id != spec.development_source_id
+                or outcome.verified_destination_digest
+                not in {
+                    spec.verified_destination_digest,
+                    spec.alternate_destination_digest,
+                }
+                or outcome.verified_destination_digest is None
+                or spec.requested_source_digest is None
+            ):
+                raise ValueError("Recovery evidence identity differs")
+        except Exception as error:
+            raise OperationError(
+                "workspace_recovery_evidence_unavailable",
+                "Exact stopped-container and installed-tree evidence "
+                "could not be verified.",
+                audit_fields={
+                    "broker_managed_instance_id": params.managed_instance_id,
+                    "broker_deployment_operation_id": params.deployment_operation_id,
+                },
+            ) from error
+        return InspectMcpWorkspaceDeploymentResult(
+            deployment_operation_id=params.deployment_operation_id,
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            requested_manifest_digest=spec.requested_source_digest,
+            requested_destination_digest=spec.verified_destination_digest,
+            installed_manifest_digest=outcome.verified_destination_digest,
+            matches_requested=outcome.verified_destination_digest
+            == spec.verified_destination_digest,
+            matches_prior=outcome.verified_destination_digest
+            == spec.alternate_destination_digest,
+        )
+
+    registry.register(
+        name="inspect_mcp_workspace_deployment",
+        params_model=VerifyMcpWorkspaceDestinationParams,
+        result_model=InspectMcpWorkspaceDeploymentResult,
+        handler=inspect_mcp_workspace_deployment,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_deployment_operation_id": result.deployment_operation_id,
+            "broker_recovery_requested_tree": result.matches_requested,
         },
     )
 

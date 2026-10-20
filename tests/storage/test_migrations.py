@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0077_workspace_launch",)
+        ).fetchone() == ("0078_workspace_deploy_recovery",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(

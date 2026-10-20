@@ -445,6 +445,11 @@ evidence remains historical but cannot authorize the new generation. Existing
 validation, deployment and execution UUID/state/generation/target. Web gains no
 MCP trigger, force control or generic reconciliation route.
 
+Managed direct deployments with uncertain outcomes have a Web administrator
+[stopped-container recovery procedure](MANAGED-DEPLOYMENT-RECOVERY.md). It verifies
+the complete installed tree against retained evidence and records containment;
+it never treats containment as successful deployment or replays the old request.
+
 ## Slice 5 replay-safe promotion request and Web human gate
 
 Migration `0043_mcp_promotion_request` seeds exactly

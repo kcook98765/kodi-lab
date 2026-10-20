@@ -847,7 +847,9 @@ def test_lifecycle_uses_only_fresh_trusted_preconditions(
     assert stopped.status_code == 200
     assert str(broker.calls[-1][0]) == "stop"
     assert broker.calls[-1][1]["expected_runtime_state"] == "running"
-    assert stopped.json()["readiness_state"] == "cancelled"
+    assert stopped.json()["readiness_state"] == "idle"
+    assert stopped.json()["stored_readiness_state"] == "cancelled"
+    assert stopped.json()["usability_state"] == "not_usable"
 
     removed = client.post(
         f"/api/instances/{INSTANCE_ID}/deprovision",

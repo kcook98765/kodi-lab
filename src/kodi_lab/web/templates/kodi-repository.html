@@ -5,6 +5,8 @@
 {% block content %}
       <h1>Kodi Repository</h1>
       <p>Advertised address: <code>{{ base_url or 'Not configured' }}</code>. This address is embedded in repository packages. The host listener or Windows forwarding address is configured separately.</p>
+      {% if origin_reachability == 'verified' %}<p>Advertised feed checksum verified from Lab. Also check reachability from each Kodi device.</p>
+      {% elif origin_reachability in ['unreachable', 'unexpected_feed'] %}<p class="notice" role="alert">Advertised repository feed {% if origin_reachability == 'unreachable' %}is unreachable from Lab{% else %}does not match the verified current feed{% endif %}, even if internal services are healthy. Check the explicit private listener bind, DHCP reservation, DNS and Windows forwarding. Restore the existing address or follow the repository address recovery procedure; restarting or downloading a ZIP does not rewrite installed Kodi URLs.</p>{% endif %}
       {% if repository_origin_mismatch %}
       <p class="notice" role="alert">Repository address mismatch: the configured address is <code>{{ base_url }}</code>, but verified generated packages still use <code>{{ generated_base_url }}</code>. Changing the listener, forwarding or environment does not rewrite those packages. Restore the working advertised origin and its reachability before retrying; do not delete repository data or hand-edit ZIPs.</p>
       {% endif %}

@@ -3052,7 +3052,7 @@ def test_workspace_deployment_lost_sync_or_start_response_stays_blocked(
 
     blocked = ManagedInstanceReconciliationService(sync_env.sessions).status(TARGET_ID)
     assert blocked.blocking
-    assert ReconciliationAction.STOP in blocked.blocked_actions
+    assert ReconciliationAction.STOP not in blocked.blocked_actions
 
     start_env = _environment(tmp_path / "lost-start")
 

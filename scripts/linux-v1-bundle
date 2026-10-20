@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import socket
 import subprocess
 import sys
 import tarfile
@@ -151,6 +152,29 @@ def validate_temporary_network_pool(
             "temporary network pool conflicts with a host route or Docker network"
         )
     return str(pool)
+
+
+def preflight_repository_listener(bind: str) -> None:
+    """Run on the Docker host, where the explicit published bind must exist."""
+    address = ipaddress.ip_address(bind)
+    if address.version != 4 or not (
+        address.is_loopback
+        or any(address in network for network in PRIVATE_LAN_NETWORKS)
+    ):
+        raise ValueError(
+            "repository listener needs an explicit private or loopback IPv4 address"
+        )
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind((str(address), 0))
+    except OSError as error:
+        raise ValueError(
+            "Repository listener address is unavailable on this Docker host. "
+            "Check DHCP/reservation and the explicit private bind; restore the old "
+            "address or follow REPOSITORY-ADDRESS-RECOVERY before changing the "
+            "advertised origin. Windows/WSL2 must check its loopback backend and "
+            "Windows LAN forwarding separately. No address was rewritten."
+        ) from error
 
 
 def validate_repository_config(bind: str, port: int, base_url: str) -> None:
@@ -407,7 +431,8 @@ def verify_bridge(bundle: pathlib.Path, data: dict[str, Any]) -> dict[str, Any]:
         or provenance.get("license") != "MIT"
         or provenance.get("semantic_fingerprint")
         != "0f93de93cf51623fd480198abda89b0f945581b542494b693049573f160fb2a2"
-        or provenance.get("capabilities") != ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
+        or provenance.get("capabilities")
+        != ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
         or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
         or provenance.get("source_commit") != data.get("source_commit")
         or provenance.get("source_tree") != data.get("source_tree")
@@ -1034,7 +1059,8 @@ def configure_development_source(bundle: pathlib.Path, source: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "command", choices=("finalize", "verify", "configure", "development-source")
+        "command",
+        choices=("finalize", "verify", "configure", "development-source", "preflight"),
     )
     parser.add_argument("bundle", type=pathlib.Path)
     parser.add_argument("repository", type=pathlib.Path, nargs="?")
@@ -1056,7 +1082,19 @@ def main() -> int:
                 args.bundle,
                 require_development_directory=args.command != "development-source",
             )
-            if args.command == "configure":
+            if args.command == "preflight":
+                values = dict(
+                    line.split("=", 1)
+                    for line in (args.bundle / ".env").read_text().splitlines()
+                    if line and not line.startswith("#")
+                )
+                preflight_repository_listener(
+                    args.repository_bind or values["KODI_LAB_REPOSITORY_BIND"]
+                )
+                print(
+                    "Repository listener address is available locally; verify advertised feed reachability from Kodi after startup."
+                )
+            elif args.command == "configure":
                 configure(
                     args.bundle,
                     data,

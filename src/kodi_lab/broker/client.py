@@ -85,6 +85,7 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     EstablishManagedBridgeTrustParams,
     EstablishManagedBridgeTrustResult,
+    InspectMcpWorkspaceDeploymentResult,
     InspectRepositoryReplacementParams,
     InspectRepositoryReplacementResult,
     ManagedContainerInventoryParams,
@@ -885,6 +886,32 @@ class BrokerClient:
             raise ClientProtocolError(
                 "development-source destination verification identity differs"
             )
+        return result
+
+    def inspect_mcp_workspace_deployment(
+        self,
+        *,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> InspectMcpWorkspaceDeploymentResult:
+        params = VerifyMcpWorkspaceDestinationParams(
+            deployment_operation_id=deployment_operation_id,
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+        )
+        result = self._call(
+            "inspect_mcp_workspace_deployment",
+            params,
+            InspectMcpWorkspaceDeploymentResult,
+            response_timeout=120.0,
+        )
+        if (
+            result.deployment_operation_id != deployment_operation_id
+            or result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError("workspace recovery evidence identity differs")
         return result
 
     def verify_mcp_workspace_destination(

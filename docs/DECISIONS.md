@@ -6534,3 +6534,25 @@ identities remain explicitly retained, including 1.1.19/1.1.20 in a separate
 historical tier. An explicit Web reviewed upgrade on managed Omega/RC1 verifies
 the whole prior 1.1.23/1.1.24 inventory and retains the old tree after atomic
 exchange. This is separate from external pairing and production installation.
+
+
+## D-0439: Explicit managed deployment containment and address diagnosis
+
+Issue #17 recovery is a Web administrator action over the exact retained
+managed-disposable operation. Keep the original failed phase and closed cause.
+Allow ordinary Web Stop while a single deployment fence blocks other mutations;
+recovery itself is read-only. Verify unchanged workspace and source attachment,
+runtime/container binding, fresh stopped containment and the complete installed
+tree through the broker. Historical binding may come only from a retained
+pre-operation verified baseline. Prior tree evidence prefers a newer verified
+workspace copy for the same workspace/runtime/container over that canonical
+baseline. Matching requested/prior bytes permits failed
+containment, never deployment/readiness success or automatic start/copy/replay.
+Uncertainty and other blockers remain protected. Retained history includes the
+exact deployment anchor; stored readiness is distinct from current usability.
+
+Issue #9 host startup checks the explicitly selected listener address. Windows
+uses its loopback backend and checks LAN forwarding separately. Web diagnostics
+independently verify the advertised checksum with a bounded no-redirect request.
+DNS/proxy origins need not resolve to a host interface; no address is inferred
+or rewritten. Existing origin migration/version and client-recovery rules apply.

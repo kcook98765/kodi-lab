@@ -88,6 +88,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "delete_managed_snapshot_artifact",
                 "deprovision_managed_container",
                 "establish_managed_bridge_trust",
+                "inspect_mcp_workspace_deployment",
                 "inspect_repository_replacement",
                 "launch_reviewed_runtime_installation",
                 "managed_container_inventory",

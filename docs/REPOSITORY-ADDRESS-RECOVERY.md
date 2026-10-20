@@ -35,9 +35,22 @@ WSL, Docker and Kodi reachability separately; see
 
 ## Diagnose an existing installation
 
+Before starting a manual Linux bundle, run `python3 linux-v1-bundle preflight .`
+on the Docker host. It checks that the configured private listener address is
+assigned locally without listening or changing configuration. The maintained
+installer runs this check before `start`. Under Windows/WSL2 it checks the
+loopback backend; Windows LAN ownership and forwarding remain separate checks.
+Manual Windows overlays can select `--repository-bind 127.0.0.1` for this host
+check. No DNS/proxy origin is required to resolve to a local interface.
+
 1. Open **Settings → Kodi Repository**. It shows the advertised origin and warns
    when a verified generated origin differs. A literal IP receives a DHCP
    reservation reminder. Stable/Home and optional Development ZIPs are separate.
+   The page independently checks the advertised Stable checksum URL with a
+   bounded request and no redirects. An unreachable or unexpected feed receives
+   a recovery warning even when configured/generated origins agree and internal
+   services are healthy. Verification is from Lab; test Kodi-device reachability
+   separately. It never rewrites the advertised address.
 2. Inspect the configured bundle environment and any Windows forwarding rules.
    Preserve the installed bundle, project name, candidate hashes and state.
 3. Download the stable bootstrap ZIP and inspect its descriptor locally:

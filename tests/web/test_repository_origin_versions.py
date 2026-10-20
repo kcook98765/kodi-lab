@@ -14,6 +14,31 @@ from tests.web.conftest import FakeBroker, login
 from tests.web.test_kodi_repository_page import HealthyRepository
 
 
+def test_same_stale_literal_origin_reports_reachability_despite_internal_health(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = candidate(tmp_path)
+    root = tmp_path / "repository"
+    generate(bundle, root, BASE)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", BASE)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(root))
+    monkeypatch.setattr("kodi_lab.web.app.httpx.AsyncClient", HealthyRepository)
+
+    async def unreachable(_base: str, _checksum: str) -> str:
+        assert _base == BASE
+        return "unreachable"
+
+    monkeypatch.setattr(
+        "kodi_lab.repository.address.probe_advertised_origin", unreachable
+    )
+    login(client)
+    page = client.get("/kodi-repository")
+    assert page.status_code == 200
+    assert "is unreachable from Lab" in page.text
+    assert "DHCP reservation" in page.text
+    assert "Repository address mismatch" not in page.text
+
+
 def test_repository_and_add_kodi_show_current_versioned_bootstrap(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
