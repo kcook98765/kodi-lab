@@ -206,3 +206,19 @@ Take the backup with services stopped through the supported backup procedure,
 retain all referenced images and snapshots, and verify restoration prerequisites.
 A live SQLite/WAL observation copy is not a rollback backup. No schema downgrade,
 manual approval-row editing or Docker prune is part of this rollback.
+
+## Onboarding lock compatibility
+
+Household onboarding can leave private `locks/household-onboarding/<UUID>.lock`
+files in the state volume. Backup and upgrade validate the known directory and
+zero-byte, single-link regular lock files using the normal private ownership and
+mode checks, then exclude them from backup bytes. Restore preserves their live
+inodes, including lock files created after the backup. Unknown scopes, names,
+links, types, content or unsafe metadata remain errors. Do not delete active lock
+files or replace lock inodes to get past an upgrade check.
+
+For a candidate rollback to an older stable Bridge repository generation, use
+the retained admin image matching that original bundle and its verified original
+backup after the documented reverse repository transition. A successor admin
+may reject an older repository's packaged Bridge provenance. Qualify both
+upgrade and rollback on copied state before a live cutover.

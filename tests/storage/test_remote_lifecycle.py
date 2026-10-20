@@ -720,3 +720,103 @@ def test_clean_recovery_rejects_untrusted_snapshot_root(tmp_path: Path) -> None:
     with pytest.raises(HostBootstrapError, match="ownership is unsafe"):
         recover_clean(fresh, _url(fresh), identifier, identifier)
     assert not (fresh / ".recovery-pending.json").exists()
+
+
+def test_onboarding_locks_allow_historical_backup_upgrade_and_restore(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "state"
+    _historical(root)
+    previous_umask = os.umask(0o077)
+    try:
+        with packaged_migrations.packaged_config(_url(root)) as config:
+            command.upgrade(config, "0071_household_onboarding")
+    finally:
+        os.umask(previous_umask)
+    lock_root = root / "locks"
+    lock_root.mkdir(mode=0o700)
+    onboarding = lock_root / "household-onboarding"
+    onboarding.mkdir(mode=0o700)
+    lock = onboarding / f"{uuid4()}.lock"
+    lock.touch(mode=0o600)
+    inode = lock.stat().st_ino
+    with sqlite3.connect(root / "database" / "kodi-lab.db") as db:
+        original_database = list(db.iterdump())
+
+    # A fixed successor can make the first backup before changing the schema
+    # or the old repository candidate identity.
+    first_backup = backup(root, _url(root))
+    manifest = _verify_backup(root, first_backup)
+    assert manifest["revision"] == "0071_household_onboarding"
+    assert not (root / "backups" / first_backup / "locks").exists()
+
+    previous, current, identifier = upgrade(root, _url(root))
+    assert previous == "0071_household_onboarding"
+    assert current == _head_revision()
+    assert identifier is not None
+    later_lock = onboarding / f"{uuid4()}.lock"
+    later_lock.touch(mode=0o600)
+    later_inode = later_lock.stat().st_ino
+    assert restore(root, _url(root), identifier, identifier)[0] == previous
+    assert lock.stat().st_ino == inode
+    assert later_lock.stat().st_ino == later_inode
+    with sqlite3.connect(root / "database" / "kodi-lab.db") as db:
+        assert list(db.iterdump()) == original_database
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "root_link",
+        "root_mode",
+        "unknown_scope",
+        "scope_link",
+        "scope_mode",
+        "file_link",
+        "file_mode",
+        "file_directory",
+        "file_hardlink",
+        "file_content",
+        "unknown_file",
+    ],
+)
+def test_onboarding_lock_exclusion_rejects_unsafe_or_unknown_entries(
+    tmp_path: Path,
+    unsafe: str,
+) -> None:
+    root = tmp_path / "state"
+    root.mkdir(mode=0o700)
+    locks = root / "locks"
+    locks.mkdir(mode=0o700)
+    scope = locks / "household-onboarding"
+    scope.mkdir(mode=0o700)
+    lock = scope / f"{uuid4()}.lock"
+    lock.touch(mode=0o600)
+    if unsafe == "root_link":
+        locks.rename(tmp_path / "outside")
+        locks.symlink_to(tmp_path / "outside", target_is_directory=True)
+    elif unsafe == "root_mode":
+        locks.chmod(0o755)
+    elif unsafe == "unknown_scope":
+        (locks / "other-state").mkdir(mode=0o700)
+    elif unsafe == "scope_link":
+        scope.rename(tmp_path / "outside")
+        scope.symlink_to(tmp_path / "outside", target_is_directory=True)
+    elif unsafe == "scope_mode":
+        scope.chmod(0o755)
+    elif unsafe == "file_link":
+        lock.unlink()
+        lock.symlink_to(tmp_path / "outside")
+    elif unsafe == "file_mode":
+        lock.chmod(0o644)
+    elif unsafe == "file_directory":
+        lock.unlink()
+        lock.mkdir(mode=0o700)
+    elif unsafe == "file_hardlink":
+        os.link(lock, tmp_path / "outside")
+    elif unsafe == "file_content":
+        lock.write_text("not lock state")
+    else:
+        lock.rename(scope / "unexpected.lock")
+    with pytest.raises(HostBootstrapError):
+        remote_lifecycle._files(root)
