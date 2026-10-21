@@ -57,6 +57,7 @@ EXCLUDED = frozenset(
         "snapshots",
         "screenshots",
         "development-source-staging",
+        "locks",
     }
 )
 ROLLBACK_ROOTS = frozenset(
@@ -651,8 +652,29 @@ def _skip(path: Path) -> bool:
     )
 
 
+def _onboarding_locks(path: Path) -> None:
+    """Validate only known ephemeral locks; never replace their live inodes."""
+
+    _private(path, directory=True)
+    for scope in path.iterdir():
+        if scope.name != "household-onboarding":
+            raise HostBootstrapError("unclassified application lock scope")
+        _private(scope, directory=True)
+        for lock in scope.iterdir():
+            if not re.fullmatch(
+                r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.lock", lock.name
+            ):
+                raise HostBootstrapError("unclassified onboarding lock file")
+            _private(lock, directory=False)
+            item = lock.lstat()
+            if item.st_nlink != 1 or item.st_size != 0:
+                raise HostBootstrapError("onboarding lock metadata is unsafe")
+
+
 def _top_level(root: Path) -> None:
     for child in root.iterdir():
+        if child.name == "locks":
+            _onboarding_locks(child)
         if child.name in ROLLBACK_ROOTS | EXCLUDED:
             continue
         if child.name.startswith("external-deployment-"):
