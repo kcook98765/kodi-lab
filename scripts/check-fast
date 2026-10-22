@@ -16,10 +16,15 @@ if [[ -d /dev/shm && -w /dev/shm ]] \
     && (( $(df -B1 --output=avail /dev/shm | tail -n 1) >= 1073741824 )); then
     pytest_tmp_parent="/dev/shm"
 fi
-pytest_tmpdir="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
+pytest_root="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
+scratch_token="$(python3 scripts/test_scratch.py capture "$pytest_root" --owner-pid "$$")"
+pytest_tmpdir="$pytest_root/pytest"
 cleanup() {
-    chmod -R u+rwX -- "$pytest_tmpdir" 2>/dev/null || true
-    rm -rf -- "$pytest_tmpdir"
+    local status=$?
+    if ! python3 scripts/test_scratch.py remove "$scratch_token"; then
+        if (( status == 0 )); then status=1; fi
+    fi
+    exit "$status"
 }
 trap cleanup EXIT
 

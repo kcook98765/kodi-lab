@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parent.parent
-MIN_SHM_FREE_BYTES = 1_073_741_824
+MIN_SHM_FREE_BYTES = 3 * 1024**3
 
 
 def _selection(value: str, *, tests_only: bool) -> str:
@@ -42,6 +42,18 @@ def _source_path(value: str) -> str:
 
 
 def _temp_parent() -> str | None:
+    if "KODI_LAB_CHECK_PYTEST_TMP_PARENT" in os.environ:
+        selected = Path(os.environ["KODI_LAB_CHECK_PYTEST_TMP_PARENT"])
+        if (
+            not selected.is_absolute()
+            or selected.is_symlink()
+            or not selected.is_dir()
+            or not os.access(selected, os.W_OK)
+        ):
+            raise SystemExit(
+                "Pytest temp parent must be absolute, writable and non-symlink"
+            )
+        return str(selected)
     shm = Path("/dev/shm")
     if shm.is_dir() and os.access(shm, os.W_OK):
         stats = os.statvfs(shm)
@@ -52,12 +64,19 @@ def _temp_parent() -> str | None:
 
 @contextmanager
 def _pytest_temp() -> Iterator[Path]:
-    with tempfile.TemporaryDirectory(prefix="klp.", dir=_temp_parent()) as root:
+    # Keep the ownership marker outside pytest's resettable basetemp.
+    from scripts.test_scratch import register
+
+    root = Path(tempfile.mkdtemp(prefix="klp.", dir=_temp_parent()))
+    owned = register(root, os.getpid())
+    try:
+        yield root / "pytest"
+    finally:
         try:
-            yield Path(root) / "pytest"
-        finally:
-            # Some safety tests deliberately make their private directories read-only.
-            subprocess.run(["chmod", "-R", "u+rwX", "--", root], check=False)
+            owned.remove()
+        except (OSError, ValueError):
+            print(f"test scratch retained: {root}", flush=True)
+            raise
 
 
 def _run(label: str, command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -81,6 +100,7 @@ def _focused(tests: list[str], sources: list[str]) -> None:
                     "pytest",
                     "--basetemp",
                     str(basetemp),
+                    "--durations=10",
                     selected,
                 ],
             )
@@ -126,6 +146,7 @@ def main() -> None:
                     "pytest",
                     "--basetemp",
                     str(basetemp),
+                    "--durations=10",
                     *args.integration,
                 ],
             )

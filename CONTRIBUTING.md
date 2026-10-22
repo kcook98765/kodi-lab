@@ -95,6 +95,12 @@ runtime acquisition acceptance are separate release qualification procedures,
 not automatic companions to the full gate. Report the achieved level as
 FOCUSED PASS, INTEGRATION PASS, or RELEASE PASS.
 
+The release gate checks lint/types and exact broker/schema contracts before
+starting the complete suite. Its private result directory contains stage status,
+JUnit XML, timings and resource measurements. Successful case scratch is reclaimed
+after safe teardown; see [cleanup and evidence](docs/TEST-PERFORMANCE.md).
+Use `--keep-passed-tmp` with direct pytest for debugging.
+
 The older `check-smoke` and `check-fast` commands remain available for explicit
 use. `check-fast` excludes only the 99 tests marked `slow`, so it is much closer
 to a full suite run than a focused lane. Do not use either as a required step

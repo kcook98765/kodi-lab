@@ -25,12 +25,15 @@ it does not bypass trust admission or establish credentials. Regression tests
 reject real network calls and cover absent Bridge, transport failure and native
 identity mismatch. Production timeouts, identity checks and trust pins are unchanged.
 
-The gate keeps ordinary pytest temporary files on `/dev/shm` when at least 1 GiB
-is available. For a full run whose temporary files exceed tmpfs capacity, set
+The gate selects `/dev/shm` when at least 3 GiB is available. Before running
+checks it requires the selected pytest filesystem to have the unchanged production
+2 GiB reserve plus 1 GiB of test headroom. This is a test-harness preflight;
+application storage reserves are unchanged. For a full run whose temporary files exceed tmpfs capacity, set
 `KODI_LAB_CHECK_PYTEST_TMP_PARENT=/tmp ./scripts/check` (or another absolute,
 writable, non-symlink directory). An explicitly provided parent takes precedence
 over the `/dev/shm` heuristic and is validated before temporary directories are
-created. The default selection is unchanged when the variable is unset. Keep the parent
+created. Focused/integration lanes honor the same explicit parent and use the same 3 GiB
+tmpfs selection threshold. Keep the parent
 path short: Unix socket tests retain the runtime 100-byte socket-path limit.
 Snapshot publication tests use a separate private, run-owned
 scratch directory under `/tmp` by default so the production 2 GiB snapshot
@@ -43,7 +46,8 @@ create their own private scratch root.
 
 An uncatchable termination can leave a scratch root behind. Run
 `./scripts/clean-test-scratch` to list only same-user, marker-validated, dead
-roots older than one hour. Add `--delete` to remove those validated candidates.
+roots older than one hour. Run wrappers mark their own outer roots; pytest and
+snapshot data live below those roots so pytest cannot erase the ownership marker. Add `--delete` to remove those validated candidates.
 The command rejects symlinks, live matching PID/start-time identities, foreign
 owners, permissive roots, malformed markers, and unrelated names.
 
@@ -99,10 +103,90 @@ tests do not load the Web fixture and continue to exercise production-strength
 Argon2id. Production configuration and application behavior are unchanged.
 
 The suite contains short event/poll loops, but profiling did not identify them as
-a dominant cost. No sleeps, timeout behavior, application setup, or production
-database initialization was changed in this pass. A shared current-head template
-for non-migration application tests remains a possible future optimization, but
-the present improvement does not justify adding that extra fixture layer.
+a dominant cost. Production sleeps, timeout behavior, application setup and database initialization
+remain unchanged. Ordinary Web and ZIP fixtures now use the limited ORM schema
+template pilot described below; this does not replace the migration templates.
+
+## Earlier failures and resource evidence (2026-10-21)
+
+`./scripts/check` runs Ruff format/lint and strict mypy first, then exact broker
+operation/capabilities and schema contracts. The complete unfiltered pytest suite
+still runs after those guards, followed by package build, Alembic history and
+package/config import. No test selection or parallel workers were added to the
+full-suite stage. A failing guard stops the candidate before the expensive run.
+
+Each full check prints a private evidence directory, created under `/tmp` or
+`KODI_LAB_CHECK_EVIDENCE_PARENT` (an existing absolute, writable, non-symlink
+parent). It retains `stages.tsv`, contract/full-suite JUnit XML and pytest JSON.
+The JSON records case outcomes and durations for setup/call/teardown, cleanup
+outcomes, the minimum sampled scratch-filesystem free space, Linux peak process
+RSS in KiB and pytest exit status. Pytest prints its slowest 25 phases; focused
+lanes print ten. Read complete summaries and the process exit status before
+claiming a pass. An interrupted process can leave incomplete pytest artifacts.
+The TSV records completed stages, including failures; a successful pytest JSON
+alone does not establish that the later release stages passed.
+
+## Case scratch cleanup
+
+The test-only `tests.efficiency_plugin` recognizes only pytest's built-in
+function-scoped `tmp_path`. It captures the private root's device/inode and
+parent identity without adding files to that directory. After all fixture
+teardown has completed, it reclaims a root only when setup, call and teardown
+all passed, its identity/ownership/private permissions still match, and the
+pytest process has no other live threads or child processes. Unknown worker
+state retains scratch. Persistent workers can therefore limit reclamation;
+the JSON/terminal summaries show these retained cases.
+
+Descriptor-bound traversal handles ordinary read-only directories, unlinks
+symlinks without following them and never chmods regular files or hardlink
+targets. Replaced roots, custom `tmp_path` fixtures and session factory roots do
+not confer deletion authority. Unavailable/unsafe paths remain for normal
+run-owned cleanup. No worker is killed or joined by this plugin.
+
+Direct pytest runs retain failed/skipped cases. `--keep-passed-tmp` retains all
+successful cases; `@pytest.mark.keep_scratch` retains one case. Keep pytest's
+built-in `tmp_path_retention_policy=all`: its `failed` option can remove
+setup/teardown-failure evidence and miss read-only directory cleanup. The Lab
+plugin provides the phase-aware policy instead. Wrapper scripts still remove
+their own ephemeral run roots on exit; full checks retain failure traces in
+JUnit XML and stage/results metadata in the separate private evidence directory.
+Session data from `tmp_path_factory`, including migration templates, is preserved
+for its session lifetime.
+
+Full, focused, integration, smoke and fast wrappers use the same standard-library
+`OwnedScratch` traversal for final cleanup. They capture root and parent identity
+at creation, including snapshot fixtures, and never recursively chmod regular
+files. A shared temporary parent is permitted only for wrapper-created roots;
+the root must remain private and owned. Inaccessible directories or identity
+changes fail closed and are reported as retained, without a permission-rewrite
+fallback. Full-gate cleanup failures also make the command fail.
+
+The abandoned-root cleaner is dry-run by default. New wrapper markers bind root
+and parent identity, UID and live PID/start-time identity. Marker reads are bounded,
+nonblocking and no-follow; malformed numbers, nonfinite timestamps, unknown owner
+state, hardlinked or nonregular markers cannot authorize deletion. Legacy snapshot
+markers remain supported with the same opened-file checks and descriptor-bound
+removal. Run `--delete` only for the reviewed candidates. No production path,
+profile or container is a cleanup candidate.
+
+
+## Closed current-schema fixture pilot
+
+Only `tests/web/conftest.py` and the shared uploaded-ZIP fixture currently use
+`CurrentSchemaTemplate`. Each pytest session builds one unseeded ORM schema,
+closes every engine/SQLite handle, validates integrity and hashes the immutable
+template. Each test receives an exclusive private file copy with an integrity
+check, a fresh engine and the same per-case seeding/foreign-key behavior as
+before. Existing destinations, changed templates, symlinks and journal sidecars
+fail closed. No mutable database, engine, session, credentials or seed rows are
+shared. Alembic revision fixtures and migration-transition proofs are unchanged.
+
+A matched 51-case Web/ZIP pilot passed before and after: pytest time decreased
+from 16.12s to 10.89s, measured wall time from 21.47s to 16.19s, and end-of-run
+scratch from 102,155,361 bytes to 2,002,984 bytes. All 51 case roots were reclaimed;
+the remaining scratch included the session schema template. Peak process RSS was
+349,260 KiB before and 339,328 KiB after. This is one small pilot on the local
+host, not a full-suite speedup or peak-memory qualification.
 
 ## Idle-host baseline (2026-09-28)
 
