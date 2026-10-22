@@ -1092,6 +1092,17 @@ class InspectMcpWorkspaceDeploymentResult(StrictModel):
 class NativeZipObservationParams(StrictModel):
     operation_id: UUID
 
+    @field_validator("operation_id", mode="before")
+    @classmethod
+    def _canonical_uuid(cls, value: object) -> UUID:
+        # JSON carries UUIDs as strings; keep strict validation for every
+        # other type and require the same canonical spelling as other operations.
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str) and is_canonical_uuid(value):
+            return UUID(value)
+        raise ValueError("operation_id must be a canonical UUID string")
+
 
 class AddonZipInstallationParams(StrictModel):
     """Only installation, artifact, operation, and immutable container identity."""

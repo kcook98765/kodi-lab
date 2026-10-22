@@ -25,6 +25,7 @@ from kodi_lab.application.native_zip_installations import (
     NativeZipRequest,
     NativeZipStatus,
 )
+from kodi_lab.broker.errors import RemoteBrokerError
 from kodi_lab.mcp.authorization import McpAuthorizationError
 from kodi_lab.repository.server import (
     RangeNotSatisfiable,
@@ -139,6 +140,8 @@ def native_zip_router(
             raise HTTPException(403, error.code) from error
         except NativeZipError as error:
             raise HTTPException(409, str(error)) from error
+        except RemoteBrokerError as error:
+            raise HTTPException(503, error.code) from error
         except Exception as error:
             raise HTTPException(503, "native_zip_operation_unavailable") from error
 
