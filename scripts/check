@@ -14,18 +14,22 @@ total_started_at=$SECONDS
 check_tmpdir=""
 pytest_tmpdir=""
 snapshot_scratch_root=""
+evidence_root=""
+scratch_tokens=()
 cleanup() {
-    if [[ -n "$pytest_tmpdir" ]]; then
-        chmod -R u+rwX -- "$pytest_tmpdir" 2>/dev/null || true
-        rm -rf -- "$pytest_tmpdir"
-    fi
-    if [[ -n "$snapshot_scratch_root" ]]; then
-        chmod -R u+rwX -- "$snapshot_scratch_root" 2>/dev/null || true
-        rm -rf -- "$snapshot_scratch_root"
-    fi
-    if [[ -n "$check_tmpdir" ]]; then
-        rm -rf -- "$check_tmpdir"
-    fi
+    local status=$?
+    local token
+    for token in "${scratch_tokens[@]}"; do
+        if ! python3 scripts/test_scratch.py remove "$token"; then
+            if (( status == 0 )); then status=1; fi
+        fi
+    done
+    exit "$status"
+}
+register_scratch() {
+    local token
+    token="$(python3 scripts/test_scratch.py capture "$1" --owner-pid "$$")"
+    scratch_tokens+=("$token")
 }
 trap cleanup EXIT
 
@@ -35,6 +39,13 @@ if [[ "$snapshot_scratch_parent" != /* ]] \
     || [[ -L "$snapshot_scratch_parent" ]] \
     || [[ ! -w "$snapshot_scratch_parent" ]]; then
     echo "Snapshot test scratch parent must be an absolute, writable, non-symlink directory." >&2
+    exit 1
+fi
+
+evidence_parent="${KODI_LAB_CHECK_EVIDENCE_PARENT-/tmp}"
+if [[ "$evidence_parent" != /* ]] || [[ ! -d "$evidence_parent" ]] \
+    || [[ -L "$evidence_parent" ]] || [[ ! -w "$evidence_parent" ]]; then
+    echo "Check evidence parent must be an absolute, writable, non-symlink directory." >&2
     exit 1
 fi
 
@@ -51,19 +62,24 @@ else
     pytest_tmp_parent="${TMPDIR:-/tmp}"
     if [[ -d /dev/shm && -w /dev/shm ]] \
         && [[ "$(stat -f -c %T /dev/shm)" == "tmpfs" ]] \
-        && (( $(df -B1 --output=avail /dev/shm | tail -n 1) >= 1073741824 )); then
+        && (( $(df -B1 --output=avail /dev/shm | tail -n 1) >= 3221225472 )); then
         pytest_tmp_parent="/dev/shm"
     fi
 fi
-check_tmpdir="$(mktemp -d)"
-pytest_tmpdir="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
+
+check_tmpdir="$(mktemp -d --tmpdir="$pytest_tmp_parent" kodi-lab-check.XXXXXXXX)"
+register_scratch "$check_tmpdir"
+pytest_root="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
+register_scratch "$pytest_root"
+pytest_tmpdir="$pytest_root/pytest"
 snapshot_scratch_root="$(
     mktemp -d \
         --tmpdir="$snapshot_scratch_parent" \
         kodi-lab-snapshot-tests.XXXXXXXX
 )"
-chmod 700 -- "$snapshot_scratch_root"
-export KODI_LAB_TEST_SNAPSHOT_SCRATCH_ROOT="$snapshot_scratch_root"
+register_scratch "$snapshot_scratch_root"
+mkdir -m 700 -- "$snapshot_scratch_root/scratch"
+export KODI_LAB_TEST_SNAPSHOT_SCRATCH_ROOT="$snapshot_scratch_root/scratch"
 
 snapshot_free_bytes="$(df -B1 --output=avail "$snapshot_scratch_root" | tail -n 1)"
 snapshot_min_free_bytes="$(
@@ -75,9 +91,20 @@ if (( snapshot_free_bytes < snapshot_min_free_bytes )); then
     exit 1
 fi
 
+pytest_free_bytes="$(df -B1 --output=avail "$pytest_root" | tail -n 1)"
+pytest_min_free_bytes=$((snapshot_min_free_bytes + 1073741824))
+if (( pytest_free_bytes < pytest_min_free_bytes )); then
+    echo "Pytest scratch storage has ${pytest_free_bytes} bytes free; ${pytest_min_free_bytes} are required (production reserve plus test headroom)." >&2
+    exit 1
+fi
+
+evidence_root="$(mktemp -d --tmpdir="$evidence_parent" kodi-lab-check-results.XXXXXXXX)"
+chmod 700 -- "$evidence_root"
+printf 'check evidence: %s\n' "$evidence_root"
+
 printf 'pytest temp root: %s (%s bytes free)\n' \
     "$pytest_tmpdir" \
-    "$(df -B1 --output=avail "$pytest_tmpdir" | tail -n 1)"
+    "$(df -B1 --output=avail "$pytest_root" | tail -n 1)"
 printf 'snapshot scratch root: %s (%s bytes free)\n' \
     "$snapshot_scratch_root" \
     "$snapshot_free_bytes"
@@ -94,6 +121,7 @@ run_check() {
         status=$?
     fi
     local elapsed=$((SECONDS - started_at))
+    printf '%s\t%d\t%d\n' "$name" "$elapsed" "$status" >> "$evidence_root/stages.tsv"
     printf '<== %s: %dm%02ds (status %d)\n' \
         "$name" "$((elapsed / 60))" "$((elapsed % 60))" "$status"
     return "$status"
@@ -112,7 +140,9 @@ run_pytest() {
         --signal=TERM \
         --kill-after=30s \
         "${pytest_timeout_seconds}s" \
-        uv run --locked pytest --basetemp "$pytest_tmpdir"; then
+        uv run --locked pytest --basetemp "$pytest_tmpdir" \
+            --durations=25 --junitxml "$evidence_root/pytest.xml" \
+            --harness-report "$evidence_root/pytest.json"; then
         return 0
     else
         status=$?
@@ -123,10 +153,17 @@ run_pytest() {
     return "$status"
 }
 
-run_check "pytest" run_pytest
 run_check "Ruff format" uv run --locked ruff format --check .
 run_check "Ruff lint" uv run --locked ruff check .
 run_check "mypy" uv run --locked mypy src tests migrations
+run_check "contract guards" uv run --locked pytest -q --basetemp "$pytest_tmpdir" \
+    --junitxml "$evidence_root/contracts.xml" \
+    --harness-report "$evidence_root/contracts.json" \
+    tests/broker/test_authorization_dispatch.py::test_foundation_registry_contains_exact_operation_set \
+    tests/broker/test_docker_inventory_operation.py::test_capabilities_reports_exact_semantic_operations \
+    tests/test_foundation.py::test_migration_metadata_contains_core_storage_tables \
+    tests/runtime/test_ostree_installation_schema.py
+run_check "pytest" run_pytest
 run_check \
     "package build" \
     uv run --locked python -m build --no-isolation --outdir "$check_tmpdir/dist"

@@ -419,6 +419,76 @@ class SqliteAddonZipInstallationResolver:
                 "Canonical repository replacement state is unavailable."
             ) from error
 
+    def resolve_native_observation(
+        self, operation_id: str
+    ) -> tuple[AddonZipInstallationSpec, str]:
+        """Read-only native postcondition; never grants materialization authority."""
+        from datetime import UTC, datetime
+
+        from kodi_lab.storage.models import NativeZipInstallationRow
+
+        try:
+            identity = UUID(operation_id)
+            if str(identity) != operation_id:
+                raise ValueError("noncanonical operation")
+            with self._session_factory() as session:
+                row = session.get(NativeZipInstallationRow, operation_id)
+                if (
+                    row is None
+                    or row.state not in {"requested", "unverified"}
+                    or datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))
+                    <= datetime.now(UTC)
+                ):
+                    raise ValueError("native operation unavailable")
+                instance = ManagedInstanceRepository(session).get(UUID(row.target_id))
+                artifact = AddonZipArtifactRepository(session).get(
+                    UUID(row.artifact_id)
+                )
+                profile = (
+                    None
+                    if instance is None
+                    else RuntimeExecutionProfileRepository(session).get(
+                        instance.runtime_revision_id
+                    )
+                )
+            if (
+                instance is None
+                or artifact is None
+                or profile is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+                or str(instance.runtime_revision_id) != row.runtime_revision_id
+                or artifact.extension_classification
+                is not AddonZipExtensionClassification.KODI_REPOSITORY
+                or artifact.origin is not AddonZipOrigin.UPLOADED_ZIP
+            ):
+                raise ValueError("native artifact authority unavailable")
+            validated = revalidate_addon_zip_artifact(self._data_root, artifact)
+            return AddonZipInstallationSpec(
+                managed_instance_id=row.target_id,
+                artifact_id=row.artifact_id,
+                installation_operation_id=row.id,
+                runtime_revision_id=row.runtime_revision_id,
+                runtime_uid=profile.runtime_uid,
+                runtime_gid=profile.runtime_gid,
+                addon_id=artifact.addon_id,
+                addon_version=artifact.addon_version,
+                payload_manifest_digest=artifact.payload_manifest_digest,
+                payload_root=self._data_root
+                / "addon-zips"
+                / "artifacts"
+                / row.artifact_id
+                / "payload",
+                staging_root=self._data_root
+                / "addon-zips"
+                / "native-observation-unused",
+                entries=validated.entries,
+                application_started=False,
+            ), row.expected_container_id
+        except (SQLAlchemyError, OSError, ValueError) as error:
+            raise AddonZipInstallationStateError(
+                "Native observation authority is unavailable."
+            ) from error
+
     def resolve_enablement_verification(
         self,
         managed_instance_id: str,

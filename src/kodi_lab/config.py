@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
     web_bind_host: Literal["127.0.0.1", "10.251.0.10", "0.0.0.0"] | None = None
     web_allowed_hosts: tuple[str, ...] = ()
+    native_zip_base_url: str | None = None
     mcp_lan_url: str | None = None
     mcp_lan_ca_file: Path | None = None
     mcp_lan_http_enabled: bool = False
@@ -55,6 +56,41 @@ class Settings(BaseSettings):
     # validation bridges. An absent pool retains Docker's ordinary allocator.
     temporary_network_pool: str | None = None
     temporary_network_child_prefix: int = Field(default=24, ge=24, le=28)
+
+    @field_validator("native_zip_base_url")
+    @classmethod
+    def _native_zip_base(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or len(value) > 512
+            or any(ord(c) <= 32 or ord(c) >= 127 for c in value)
+        ):
+            raise ValueError("native ZIP base must be an explicit HTTP(S) Web origin")
+        _ = parsed.port
+        host = parsed.hostname
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if not all(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                for label in host.split(".")
+            ):
+                raise ValueError("native ZIP origin host must be canonical") from None
+        else:
+            if address.is_unspecified or address.is_multicast or address.version != 4:
+                raise ValueError("native ZIP origin must have a concrete IPv4 address")
+        return value.rstrip("/")
 
     @field_validator("mcp_lan_url")
     @classmethod

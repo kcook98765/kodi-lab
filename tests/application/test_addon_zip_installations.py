@@ -90,7 +90,6 @@ from kodi_lab.kodi.readiness import (
     UsabilityState,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     AddonRepositoryCandidateRow,
     AddonRepositoryMetadataSnapshotRow,
@@ -117,6 +116,7 @@ from kodi_lab.storage.repositories import (
     RepositoryReplacementOperationRepository,
     RepositoryReplacementPlanRepository,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 INSTANCE_ID = UUID("a8240000-0000-4000-8000-000000000001")
 ARTIFACT_ID = UUID("a8240000-0000-4000-8000-000000000002")
@@ -135,9 +135,11 @@ DEPLOYMENT_OPERATION_ID = UUID("a8240000-0000-4000-8000-00000000000a")
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
+def factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    current_schema.clone(tmp_path / "zip-install.db")
     engine = create_database_engine(f"sqlite:///{tmp_path / 'zip-install.db'}")
-    Base.metadata.create_all(engine)
     result = create_session_factory(engine)
     with result.begin() as session:
         session.add(

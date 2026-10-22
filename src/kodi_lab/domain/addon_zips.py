@@ -26,6 +26,7 @@ class AddonZipValidationState(StrEnum):
 
 class AddonZipExtensionClassification(StrEnum):
     PYTHON_VIDEO_PLUGIN = "python_video_plugin"
+    KODI_REPOSITORY = "kodi_repository"
 
 
 class AddonZipImportOperationState(StrEnum):

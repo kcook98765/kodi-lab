@@ -56,7 +56,6 @@ from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import X11_FRAME_MAGIC
 from kodi_lab.snapshot.storage import delete_snapshot_artifact
 from kodi_lab.storage.engine import create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ManagedInstanceRow,
@@ -73,6 +72,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeProjectionResult,
 )
 from kodi_lab.web.app import create_app
+from tests.efficiency import CurrentSchemaTemplate
 
 INSTANCE_ID = UUID("00000000-0000-4000-8000-000000000101")
 UNRELATED_INSTANCE_ID = UUID("00000000-0000-4000-8000-000000000102")
@@ -487,9 +487,11 @@ class FakeAddonInventoryAdapter:
 
 
 @pytest.fixture
-def database(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
+def database(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    current_schema.clone(tmp_path / "web.db")
     engine = create_engine(f"sqlite:///{tmp_path / 'web.db'}")
-    Base.metadata.create_all(engine)
     factory = create_session_factory(engine)
     seed_instance(factory)
     yield factory

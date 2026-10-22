@@ -8097,3 +8097,45 @@ class McpWorkspaceLaunchRow(Base):
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     started_at: Mapped[str | None] = mapped_column(String(27))
     completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class NativeZipInstallationRow(Base):
+    """Expiring target-bound original-ZIP delivery and native readback evidence."""
+
+    __tablename__ = "native_zip_installations"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="native_zip_request_identity"),
+        CheckConstraint(
+            "state IN ('requested','completed','failed','unverified')",
+            name="native_zip_state",
+        ),
+        CheckConstraint(
+            "length(expected_container_id)=64", name="native_zip_container"
+        ),
+        Index("ix_native_zip_expiry", "expires_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT")
+    )
+    credential_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_credentials.id", ondelete="RESTRICT")
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("managed_instances.target_id", ondelete="RESTRICT")
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT")
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    expected_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    stage_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    zip_get_requested_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)

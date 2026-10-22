@@ -296,6 +296,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "managed_container_inventory",
         "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
+        "observe_native_zip_installation",
         "observe_reviewed_runtime_installation",
         "ping",
         "provision_managed_container",

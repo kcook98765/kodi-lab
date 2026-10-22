@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 from typing import Literal, TypeVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ValidationError
 
@@ -90,6 +90,7 @@ from kodi_lab.broker.operations import (
     InspectRepositoryReplacementResult,
     ManagedContainerInventoryParams,
     ManagedContainerInventoryResult,
+    NativeZipObservationParams,
     ObserveManagedKodiRuntimeParams,
     ObserveManagedKodiRuntimeResult,
     PingResult,
@@ -982,6 +983,19 @@ class BrokerClient:
             raise ClientProtocolError(
                 "uploaded-ZIP destination result identity differs"
             )
+        return result
+
+    def observe_native_zip_installation(
+        self, operation_id: UUID
+    ) -> AddonZipDestinationResult:
+        result = self._call(
+            "observe_native_zip_installation",
+            NativeZipObservationParams(operation_id=operation_id),
+            AddonZipDestinationResult,
+            response_timeout=60.0,
+        )
+        if result.installation_operation_id != str(operation_id):
+            raise ClientProtocolError("Native ZIP operation identity differs")
         return result
 
     def apply_addon_zip_installation(

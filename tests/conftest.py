@@ -13,6 +13,9 @@ from uuid import uuid4
 import pytest
 
 from kodi_lab.snapshot.storage import MIN_FREE_BYTES
+from scripts.test_scratch import OwnedScratch
+
+pytest_plugins = ("tests.efficiency_plugin",)
 
 _SCRATCH_PARENT_ENV = "KODI_LAB_TEST_SNAPSHOT_SCRATCH_PARENT"
 _SCRATCH_ROOT_ENV = "KODI_LAB_TEST_SNAPSHOT_SCRATCH_ROOT"
@@ -58,7 +61,9 @@ def _write_marker(root: Path, run_id: str) -> None:
     marker.chmod(0o600)
 
 
-def _remove_owned_tree(path: Path, *, parent: Path, run_id: str) -> None:
+def _remove_owned_tree(
+    path: Path, *, parent: Path, run_id: str, owned: OwnedScratch
+) -> None:
     if path.parent != parent or path.is_symlink():
         raise RuntimeError(
             f"Refusing to remove unsafe snapshot test scratch path: {path}"
@@ -67,7 +72,20 @@ def _remove_owned_tree(path: Path, *, parent: Path, run_id: str) -> None:
     marker = path / _MARKER_NAME
     if marker.is_symlink() or not marker.is_file():
         raise RuntimeError(f"Snapshot test scratch marker is missing: {path}")
-    document = json.loads(marker.read_text())
+    fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_nlink != 1
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_size > 8192
+        ):
+            raise RuntimeError("Snapshot test scratch marker is unsafe")
+        document = json.loads(stream.read(8193))
+    if not isinstance(document, dict):
+        raise RuntimeError("Snapshot test scratch marker is invalid")
     if (
         document.get("schema") != 1
         or document.get("kind") != "kodi-lab-snapshot-test-scratch"
@@ -76,7 +94,7 @@ def _remove_owned_tree(path: Path, *, parent: Path, run_id: str) -> None:
         or document.get("root") != str(path)
     ):
         raise RuntimeError(f"Snapshot test scratch marker is invalid: {path}")
-    shutil.rmtree(path)
+    owned.remove()
 
 
 @pytest.fixture(scope="session")
@@ -100,10 +118,11 @@ def snapshot_scratch_root() -> Iterator[Path]:
 
     _validate_private_directory(root)
     run_id = str(uuid4())
+    owned = OwnedScratch.capture(root, root.parent, private_parent=False)
     _write_marker(root, run_id)
     if shutil.disk_usage(root).free < MIN_FREE_BYTES:
         if owns_root:
-            _remove_owned_tree(root, parent=root.parent, run_id=run_id)
+            _remove_owned_tree(root, parent=root.parent, run_id=run_id, owned=owned)
         raise pytest.UsageError(
             "Snapshot test scratch storage does not satisfy the production "
             f"{MIN_FREE_BYTES}-byte free-space reserve"
@@ -113,7 +132,7 @@ def snapshot_scratch_root() -> Iterator[Path]:
         yield root
     finally:
         if owns_root:
-            _remove_owned_tree(root, parent=root.parent, run_id=run_id)
+            _remove_owned_tree(root, parent=root.parent, run_id=run_id, owned=owned)
 
 
 @pytest.fixture
@@ -121,8 +140,11 @@ def snapshot_data_root(snapshot_scratch_root: Path) -> Iterator[Path]:
     run_id = str(uuid4())
     path = snapshot_scratch_root / f"case.{run_id}"
     path.mkdir(mode=0o700)
+    owned = OwnedScratch.capture(path, snapshot_scratch_root)
     _write_marker(path, run_id)
     try:
         yield path
     finally:
-        _remove_owned_tree(path, parent=snapshot_scratch_root, run_id=run_id)
+        _remove_owned_tree(
+            path, parent=snapshot_scratch_root, run_id=run_id, owned=owned
+        )

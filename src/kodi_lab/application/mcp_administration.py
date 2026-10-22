@@ -76,6 +76,7 @@ EXPLICIT_SOURCE_CAPTURE_PERMISSIONS = frozenset(
     {"development_source.inspect", "workspace.capture"}
 )
 EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS = frozenset({"managed.lifecycle"})
+EXPLICIT_NATIVE_ZIP_PERMISSIONS = frozenset({"addon.install"})
 
 _BUILTINS = (
     (
@@ -405,6 +406,7 @@ class McpAdministrationService:
                     )
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
+                    | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                 )
                 if not template_permissions.issubset(known_permissions):
                     raise McpAdministrationError("mcp_preset_template_invalid")
@@ -412,6 +414,7 @@ class McpAdministrationService:
                 opt_in = (
                     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
+                    | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                     if template_preset_id
                     in {ADDON_DEVELOPMENT_PRESET_ID, FULL_LAB_CONTROL_PRESET_ID}
                     and permissions is not None

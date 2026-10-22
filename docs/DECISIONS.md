@@ -6556,3 +6556,33 @@ uses its loopback backend and checks LAN forwarding separately. Web diagnostics
 independently verify the advertised checksum with a bounded no-redirect request.
 DNS/proxy origins need not resolve to a host interface; no address is inferred
 or rewritten. Existing origin migration/version and client-recovery rules apply.
+
+## D-0440: Passive repository ZIP admission and native delivery are separate
+
+The shared ZIP importer may classify a strictly validated passive repository
+with explicit versioned HTTPS directories, strong checksum/package hashes and
+only the bundled xbmc.addon dependency. D-0163's video-only artifact admission
+is extended for this type; video materialization, enablement and smoke admission
+remain unchanged. D-0164 continues to describe materialization accurately.
+
+Native installation is operator-assisted Kodi Add-on Browser Install from ZIP,
+consuming a temporary original-ZIP HTTP source. A delivery lease references the
+immutable original without a new ZIP copy or profile extraction. It expires in
+15 minutes, is quota/history bounded, and is served only to the exact currently
+observed managed peer/container under the owner's current authority. Source-IP
+hiding proxies/NAT are unsupported and fail closed. A disabled-by-default Web
+origin setting must be explicitly configured by an administrator.
+
+The HTTP API requires an existing client credential, explicit addon.install in
+both presets and an independent exact disposable-target grant. No built-in
+preset, current client or MCP tool catalog gains authority. Read-only broker
+payload observation and Kodi exact enabled ID/version/type must both agree
+before completion. Requested, completed, failed and unverified are distinct;
+staging, download and GUI dispatch never prove installation. Interactive waiting
+does not reserve lifecycle authority; identity drift fails confirmation.
+
+No general builtin, filesystem, shell or Docker mutation surface is added.
+Native repository downloads do not inherit Lab's HTTPS fetcher/ZIP limits or
+establish network isolation. Repository activation and refresh retain separate
+trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
+configuration, compatibility and rollback requirements.

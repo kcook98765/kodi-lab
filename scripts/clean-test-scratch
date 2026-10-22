@@ -6,26 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import stat
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+from test_scratch import OwnedScratch, process_start_ticks, sweep
+
 PREFIX = "kodi-lab-snapshot-tests."
 MARKER = ".kodi-lab-test-scratch.json"
-
-
-def process_start_ticks(pid: int) -> int | None:
-    try:
-        raw = Path(f"/proc/{pid}/stat").read_text()
-    except (FileNotFoundError, PermissionError, ProcessLookupError):
-        return None
-    fields_after_name = raw[raw.rfind(")") + 2 :].split()
-    if len(fields_after_name) < 20:
-        return None
-    return int(fields_after_name[19])
 
 
 def load_candidate(path: Path, parent: Path) -> dict[str, Any] | None:
@@ -33,7 +23,23 @@ def load_candidate(path: Path, parent: Path) -> dict[str, Any] | None:
         metadata = path.stat(follow_symlinks=False)
         marker = path / MARKER
         marker_metadata = marker.stat(follow_symlinks=False)
-        document = json.loads(marker.read_text())
+        owned = OwnedScratch.capture(path, parent, private_parent=False)
+        fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_uid != os.getuid()
+                or stat.S_IMODE(opened.st_mode) != 0o600
+                or opened.st_nlink != 1
+                or (opened.st_dev, opened.st_ino)
+                != (marker_metadata.st_dev, marker_metadata.st_ino)
+                or opened.st_size > 8192
+            ):
+                return None
+            document = json.loads(stream.read(8193))
+        if not isinstance(document, dict):
+            return None
     except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
         return None
     if (
@@ -45,14 +51,19 @@ def load_candidate(path: Path, parent: Path) -> dict[str, Any] | None:
         or marker.is_symlink()
         or not stat.S_ISREG(marker_metadata.st_mode)
         or marker_metadata.st_uid != os.getuid()
+        or marker_metadata.st_nlink != 1
+        or stat.S_IMODE(marker_metadata.st_mode) != 0o600
         or document.get("schema") != 1
         or document.get("kind") != "kodi-lab-snapshot-test-scratch"
         or document.get("uid") != os.getuid()
         or document.get("root") != str(path)
-        or not isinstance(document.get("pid"), int)
-        or not isinstance(document.get("process_start_ticks"), int)
+        or type(document.get("pid")) is not int
+        or document["pid"] <= 0
+        or type(document.get("process_start_ticks")) is not int
+        or document["process_start_ticks"] <= 0
     ):
         return None
+    document["_owned"] = owned
     return document
 
 
@@ -79,17 +90,22 @@ def main() -> int:
     ):
         parser.error("parent and minimum age must be safe")
 
-    found = 0
-    removed = 0
+    found, removed = sweep(parent, args.minimum_age_seconds, delete=args.delete)
     now = time.time()
     for path in sorted(parent.glob(f"{PREFIX}*")):
         document = load_candidate(path, parent)
         if document is None:
+            if (path / ".kodi-lab-run-scratch.json").exists():
+                continue
             print(f"skip unvalidated: {path}", file=sys.stderr)
             continue
         age = now - path.stat(follow_symlinks=False).st_mtime
         pid = document["pid"]
-        live = process_start_ticks(pid) == document["process_start_ticks"]
+        try:
+            live = process_start_ticks(pid) == document["process_start_ticks"]
+        except (OSError, ValueError):
+            print(f"skip unknown owner state: {path}", file=sys.stderr)
+            continue
         if live:
             print(f"skip live pid {pid}: {path}")
             continue
@@ -98,7 +114,11 @@ def main() -> int:
             continue
         found += 1
         if args.delete:
-            shutil.rmtree(path)
+            try:
+                document["_owned"].remove()
+            except (OSError, ValueError):
+                print(f"retained inaccessible: {path}", file=sys.stderr)
+                continue
             removed += 1
             print(f"removed: {path}")
         else:

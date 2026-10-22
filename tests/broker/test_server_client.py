@@ -94,6 +94,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "managed_container_inventory",
                 "observe_addon_zip_destination",
                 "observe_managed_kodi_runtime",
+                "observe_native_zip_installation",
                 "observe_reviewed_runtime_installation",
                 "ping",
                 "provision_managed_container",
