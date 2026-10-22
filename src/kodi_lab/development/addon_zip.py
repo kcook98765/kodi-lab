@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Literal
 from uuid import UUID
 
+from kodi_lab.development.repository_zip import repository_zip_urls
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
     DevelopmentSourceValidationError,
@@ -852,16 +853,27 @@ def validate_and_publish_addon_zip(
                     "addon_zip_id_directory_mismatch",
                     "Top-level directory must exactly equal the add-on ID.",
                 )
+            classification = AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN
             library = copied_video_plugin_library(observation)
             library_entry = None if library is None else entries_by_path.get(library)
-            if (
+            if "xbmc.addon.repository" in observation.extension_types:
+                try:
+                    repository_zip_urls(observation.addon_id, descriptor)
+                except ValueError as error:
+                    raise AddonZipValidationError(
+                        "addon_zip_unsupported_addon_type",
+                        "Repository descriptor is unsupported or unsafe.",
+                    ) from error
+                classification = AddonZipExtensionClassification.KODI_REPOSITORY
+            elif (
                 library is None
                 or library_entry is None
                 or library_entry.entry_type != "file"
             ):
                 raise AddonZipValidationError(
                     "addon_zip_unsupported_addon_type",
-                    "Only a non-service Python video plugin is supported.",
+                    "Only a non-service Python video plugin or passive repository "
+                    "is supported.",
                 )
             ordered = tuple(
                 sorted(
@@ -919,7 +931,7 @@ def validate_and_publish_addon_zip(
             addon_id=observation.addon_id,
             addon_name=observation.observed_name,
             addon_version=observation.observed_version,
-            extension_classification=AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN,
+            extension_classification=classification,
             dependencies=tuple(
                 AddonZipDependency(
                     item.dependency_id, item.version, item.minversion, item.optional
@@ -1065,6 +1077,28 @@ def revalidate_addon_zip_artifact(
                 observed_paths.add((relative_root / name).as_posix())
         if observed_paths != expected_paths:
             raise OSError("payload inventory changed")
+        # Classification is independently re-derived, not trusted from a row.
+        descriptor_entry = next((e for e in entries if e.path == "addon.xml"), None)
+        if descriptor_entry is None or descriptor_entry.size > MAX_ADDON_XML_BYTES:
+            raise OSError("artifact descriptor is unavailable")
+        descriptor_fd = os.open(payload_root / "addon.xml", _FILE_READ_FLAGS)
+        try:
+            descriptor = os.read(descriptor_fd, MAX_ADDON_XML_BYTES + 1)
+        finally:
+            os.close(descriptor_fd)
+        observation = parse_captured_addon_xml(artifact.addon_id, descriptor)
+        if (
+            observation.addon_id != artifact.addon_id
+            or observation.observed_version != artifact.addon_version
+        ):
+            raise OSError("artifact descriptor identity changed")
+        if (
+            artifact.extension_classification
+            is AddonZipExtensionClassification.KODI_REPOSITORY
+        ):
+            repository_zip_urls(artifact.addon_id, descriptor)
+        elif copied_video_plugin_library(observation) not in expected_paths:
+            raise OSError("artifact video admission changed")
         original_digest = hashlib.sha256()
         original_fd = os.open(original, _FILE_READ_FLAGS)
         try:

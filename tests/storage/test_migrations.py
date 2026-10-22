@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0078_workspace_deploy_recovery",)
+        ).fetchone() == ("0079_native_zip_installation",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -414,6 +414,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_repository_refresh_operations",
         "addon_repository_sources",
         "addon_zip_artifacts",
+        "native_zip_installations",
         "addon_zip_enablement_operations",
         "addon_zip_import_operations",
         "addon_zip_installation_evidence",

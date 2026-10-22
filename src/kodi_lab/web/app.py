@@ -310,6 +310,7 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.native_zip_installations import NativeZipInstallationService
 from kodi_lab.application.official_bridge_builds import recognize_official_bridge
 from kodi_lab.application.production_capability_amendments import (
     ProductionCapabilityAmendmentError,
@@ -548,6 +549,10 @@ from kodi_lab.web.admin_views import (
     admin_view_return_path,
 )
 from kodi_lab.web.kodi_views import KodiViews
+from kodi_lab.web.native_zip_installations import (
+    NativeZipBodyLimitMiddleware,
+    native_zip_router,
+)
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -2202,6 +2207,7 @@ def create_app(
         ],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
+    app.add_middleware(NativeZipBodyLimitMiddleware)
     templates = Jinja2Templates(
         directory=_WEB_ROOT / "templates", context_processors=[admin_view_context]
     )
@@ -7294,6 +7300,19 @@ def create_app(
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.deprovision(instance_id)
 
+    app.include_router(
+        native_zip_router(
+            NativeZipInstallationService(
+                session_factory,
+                broker,
+                mcp_authorization,
+                data_root=settings.data_root,
+                base_url=settings.native_zip_base_url,
+                inventory_factory=addon_inventory_adapter_factory,
+            ),
+            McpAuthenticationService(session_factory),
+        )
+    )
     return app
 
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import (
+    AddonZipExtensionClassification,
     AddonZipImportOperation,
     AddonZipImportOperationPhase,
     AddonZipImportOperationState,
@@ -36,6 +37,9 @@ class AddonZipArtifactSummary(BaseModel):
     member_count: int = Field(ge=1)
     origin: AddonZipOrigin
     validation_state: AddonZipValidationState
+    extension_classification: AddonZipExtensionClassification = (
+        AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN
+    )
     imported_at: datetime
     latest_installation_state: AddonZipInstallationOperationState | None = None
     latest_installation_phase: AddonZipInstallationOperationPhase | None = None
@@ -83,6 +87,7 @@ class AddonZipPresentationService:
                         member_count=artifact.member_count,
                         origin=artifact.origin,
                         validation_state=artifact.validation_state,
+                        extension_classification=artifact.extension_classification,
                         imported_at=artifact.imported_at,
                         latest_installation_state=(
                             None if latest is None else latest.state

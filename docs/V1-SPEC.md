@@ -1254,6 +1254,12 @@ Kodi's native Install-from-ZIP installer and grants no replacement, upgrade,
 enablement, execution, dependency/repository, bind, caller-path, or generic
 filesystem/JSON-RPC authority. Those capabilities require later explicit gates.
 
+D-0440 adds separate passive-repository artifact admission and an opt-in,
+expiring original-ZIP delivery API for Kodi's native operator-driven chooser.
+It does not generalize the video materializer. See
+[NATIVE-ZIP-INSTALLATION.md](NATIVE-ZIP-INSTALLATION.md) for exact target and
+installation permission requirements, confirmation, expiry and native limits.
+
 Phase 0 — Repository foundation  
 Phase 1 — Core domain/storage  
 Phase 2 — Restricted container broker  

@@ -165,6 +165,7 @@ def test_upload_is_async_filename_free_and_presents_only_safe_metadata(
         "member_count",
         "origin",
         "validation_state",
+        "extension_classification",
         "imported_at",
         "latest_installation_state",
         "latest_installation_phase",
@@ -252,3 +253,34 @@ def test_unsafe_zip_uploads_fail_validation_without_catalog_publication(
     assert client.get("/api/addon-zips").json() == []
     staging = data_root / "addon-zips" / "staging"
     assert list(staging.iterdir()) == []
+
+
+def test_repository_upload_is_typed_without_enabling_video_installation(
+    client: TestClient,
+    data_root: Path,
+) -> None:
+    from tests.development.test_repository_zip import REPO_ID, repository_zip
+
+    data_root.mkdir(mode=0o700)
+    csrf = login(client)
+    response = client.post(
+        "/api/addon-zips",
+        files={"zip": ("repository.zip", repository_zip(), "application/zip")},
+        data={"logical_label": "Repository fixture"},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    operation = _wait_for_import(client, response.json()["status_url"])
+    assert operation["state"] == "succeeded"
+    artifacts = client.get("/api/addon-zips").json()
+    assert artifacts[0]["addon_id"] == REPO_ID
+    assert artifacts[0]["extension_classification"] == "kodi_repository"
+    page = client.get("/addon-zips")
+    assert "Use the separately authorized native ZIP workflow" in page.text
+    denied = client.post(
+        f"/api/instances/{INSTANCE_ID}/addon-zips/{operation['artifact_id']}/install",
+        json={},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "addon_zip_installation_unsupported"

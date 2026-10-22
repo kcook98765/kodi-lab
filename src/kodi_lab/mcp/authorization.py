@@ -59,6 +59,8 @@ from kodi_lab.mcp.registry import (
     McpToolDefinition,
     McpToolRegistry,
     TargetClass,
+    ToolEffect,
+    ToolRateClass,
     ToolScope,
 )
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
@@ -466,6 +468,81 @@ class McpAuthorizationService:
                     None if acknowledgement is None else UUID(acknowledgement.id)
                 ),
             )
+
+    def recheck_native_zip_installation(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        target_id: UUID,
+        *,
+        require_running: bool = True,
+        runtime_revision_id: str | None = None,
+    ) -> None:
+        """Pure database admission for serialized publication/completion."""
+        client = session.get(McpClientRow, str(principal.client_id))
+        target = session.get(TargetRow, str(target_id))
+        instance = session.get(ManagedInstanceRow, str(target_id))
+        grant = session.get(
+            McpClientTargetGrantRow,
+            {"client_id": str(principal.client_id), "target_id": str(target_id)},
+        )
+        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+        if client is None or not client.enabled:
+            raise McpAuthorizationError("permission_denied")
+        self._require_current_credential(session, principal, client)
+        if (
+            target is None
+            or target.target_type is not TargetType.MANAGED
+            or instance is None
+            or instance.instance_type is not InstanceType.DISPOSABLE
+            or grant is None
+            or assignment is None
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+        if "addon.install" not in self._permissions(
+            session, client.preset_id
+        ).intersection(self._permissions(session, assignment.preset_id)):
+            raise McpAuthorizationError("permission_denied")
+        if require_running and instance.runtime_state.value != "running":
+            raise McpAuthorizationError("target_not_running")
+        if (
+            runtime_revision_id is not None
+            and instance.runtime_revision_id != runtime_revision_id
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+
+    def authorize_native_zip_installation(
+        self, principal: McpPrincipal, target_id: UUID, *, require_running: bool = True
+    ) -> None:
+        """HTTP native-delivery API authority; not an advertised MCP tool.
+
+        This opt-in permission is deliberately absent from every built-in preset.
+        The common target grant/preset/capability checks still apply.
+        """
+        with self._session_factory() as session:
+            self.recheck_native_zip_installation(
+                session, principal, target_id, require_running=require_running
+            )
+        self._authorize_target_definition(
+            principal,
+            McpToolDefinition(
+                name="native_zip_installation",
+                schema_revision=1,
+                permissions=frozenset({"addon.install"}),
+                effect=ToolEffect.MUTATING,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset({"addon_inventory"}),
+                required_states=frozenset({"running", "ready", "reconciled"})
+                if require_running
+                else frozenset(),
+                rate_class=ToolRateClass.DEVELOPMENT_DEPLOY,
+                adapter="native_zip.operator_install",
+                production_eligible=False,
+                target_scope_required=True,
+                scope=ToolScope.TARGET,
+            ),
+            target_id,
+        )
 
     def authorize_target_eligibility(
         self, principal: McpPrincipal, tool_name: str, target_id: UUID

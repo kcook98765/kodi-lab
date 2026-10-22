@@ -18,6 +18,7 @@ def _isolate_settings_environment(
     monkeypatch.delenv("KODI_LAB_WEB_HOST", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_BIND_HOST", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("KODI_LAB_NATIVE_ZIP_BASE_URL", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_PORT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_COOKIE_SECURE", raising=False)
     monkeypatch.delenv("KODI_LAB_TRUSTED_CUSTOM_BUILDS_ENABLED", raising=False)
@@ -42,6 +43,7 @@ def test_configuration_uses_documented_roots(
     assert settings.web_host == "127.0.0.1"
     assert settings.effective_web_bind_host == "127.0.0.1"
     assert settings.web_allowed_hosts == ()
+    assert settings.native_zip_base_url is None
     assert settings.web_port == 8100
     assert settings.web_cookie_secure is False
     assert settings.trusted_custom_builds_enabled is False
@@ -222,6 +224,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "addon_zip_installation_evidence",
         "addon_zip_installation_operations",
         "addon_zip_smoke_test_operations",
+        "native_zip_installations",
         "agent_workspace_creation_operations",
         "agent_workspace_capture_operations",
         "agent_workspace_cleanup_operations",

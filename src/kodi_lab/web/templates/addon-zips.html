@@ -3,7 +3,7 @@
 {% block title %}Uploaded ZIPs · Kodi Lab{% endblock %}
 {% block content %}
       <h1>Uploaded ZIPs</h1>
-      <p class="secondary">Accepted immutable uploaded ZIP artifacts. Installation is Lab-controlled validated materialization, not Kodi's native Install-from-ZIP path.</p>
+      <p class="secondary">Accepted immutable uploaded ZIP artifacts. Video plugins use the Lab-controlled installation workflow. Repository packages require the separately authorized Kodi-native installation workflow.</p>
       <form id="addon-zip-upload" data-csrf-token="{{ csrf_token }}">
         <label>Logical label <input name="logical_label" required maxlength="256"></label>
         <label>ZIP <input name="zip" type="file" accept=".zip,application/zip" required></label>
@@ -21,8 +21,9 @@
           <dt>Uncompressed size</dt><dd>{{ artifact.total_uncompressed_bytes }} bytes</dd>
           <dt>Entries</dt><dd>{{ artifact.member_count }}</dd>
           <dt>Origin</dt><dd>Uploaded ZIP</dd>
+          <dt>Type</dt><dd>{% if artifact.extension_classification == 'kodi_repository' %}Repository add-on{% else %}Python video plugin{% endif %}</dd>
           <dt>Validation</dt><dd>{{ artifact.validation_state }}</dd>
-          <dt>Latest installation</dt><dd>{% if artifact.latest_installation_state %}{{ artifact.latest_installation_state }} / {{ artifact.latest_installation_phase }}{% else %}Never requested{% endif %}</dd>
+          <dt>Latest installation</dt><dd>{% if artifact.extension_classification == 'kodi_repository' %}Use the separately authorized native ZIP workflow{% elif artifact.latest_installation_state %}{{ artifact.latest_installation_state }} / {{ artifact.latest_installation_phase }}{% else %}Never requested{% endif %}</dd>
         </dl>
       </article>
       {% else %}<p>No uploaded ZIP artifacts have been accepted.</p>{% endfor %}

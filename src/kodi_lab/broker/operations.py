@@ -325,7 +325,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=37)
+    operations: list[str] = Field(max_length=38)
     protocol_version: Literal[1]
 
 
@@ -1087,6 +1087,10 @@ class InspectMcpWorkspaceDeploymentResult(StrictModel):
     installed_manifest_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     matches_requested: bool
     matches_prior: bool
+
+
+class NativeZipObservationParams(StrictModel):
+    operation_id: UUID
 
 
 class AddonZipInstallationParams(StrictModel):
@@ -3814,6 +3818,43 @@ def build_foundation_registry(
             "broker_addon_zip_smoke_operation_id": result.smoke_operation_id,
             "broker_addon_zip_destination_state": result.destination_state,
             "broker_addon_zip_destination_matched": result.matched,
+        },
+    )
+
+    def observe_native_zip_installation(
+        params: NativeZipObservationParams,
+    ) -> AddonZipDestinationResult:
+        try:
+            spec, container_id = zip_resolver.resolve_native_observation(
+                str(params.operation_id)
+            )
+            outcome = zip_provider.observe_addon_zip_destination(
+                spec=spec, expected_container_id=container_id
+            )
+            return AddonZipDestinationResult(
+                managed_instance_id=outcome.managed_instance_id,
+                artifact_id=outcome.artifact_id,
+                installation_operation_id=outcome.installation_operation_id,
+                runtime_revision_id=outcome.runtime_revision_id,
+                container_id=outcome.container_id,
+                destination_state=outcome.state,
+                matched=outcome.matched,
+            )
+        except Exception as error:
+            raise OperationError(
+                "native_zip_observation_unavailable",
+                "Native ZIP readback could not be verified.",
+            ) from error
+
+    registry.register(
+        name="observe_native_zip_installation",
+        params_model=NativeZipObservationParams,
+        result_model=AddonZipDestinationResult,
+        handler=observe_native_zip_installation,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_native_zip_operation_id": result.installation_operation_id,
+            "broker_native_zip_matched": result.matched,
         },
     )
 
