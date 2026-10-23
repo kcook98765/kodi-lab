@@ -20,6 +20,9 @@ review/approval over the Phase 9 workflow. It adds no source registration, exter
 target, shell, Git, Docker, raw filesystem, arbitrary testing, arbitrary
 add-on invocation, raw JSON-RPC or arbitrary command authority.
 
+For the ordinary edit, stage, validate, deploy, launch and observe sequence,
+start with the [managed agent quick start](MANAGED-AGENT-LOOP.md).
+
 ## Authority model
 
 `workspace.inspect`, `workspace.edit`, `workspace.deploy`,
