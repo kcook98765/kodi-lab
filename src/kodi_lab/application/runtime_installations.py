@@ -138,6 +138,7 @@ class RuntimeInstallationView:
     created_at: str | None = None
     phase_started_at: str | None = None
     completed_at: str | None = None
+    managed_instance_name: str | None = None
 
 
 class RuntimeInstallationService:
@@ -471,6 +472,11 @@ class RuntimeInstallationService:
             if generation == "piers"
             else f"Kodi {major} — {generation.capitalize()}",
             version=stable_version,
+            managed_instance_name=(
+                "Kodi 22 Piers RC1"
+                if generation == "piers"
+                else f"{recipe.display_generation} Lab"
+            ),
             status="not_installed",
             phase="Not installed",
             action="install",

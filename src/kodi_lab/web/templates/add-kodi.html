@@ -13,6 +13,10 @@
 {% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}"{% if not development_view %} data-standard-view{% endif %}{% endblock %}
 {% block content %}
       <h1>Add Kodi</h1>
+      {% if development_view %}<section aria-labelledby="managed-kodi-choice-heading">
+        <h2 id="managed-kodi-choice-heading">Create a managed development Kodi</h2>
+        <p>For an isolated Kodi managed by this Lab, <a href="/runtimes#managed-setup-heading">start guided managed setup</a>. Choose a reviewed version, review its canonical name, then prepare and start it in separate steps. The connection form below is for Kodi running elsewhere.</p>
+      </section>{% endif %}
       <details class="household-details kodi-installation" data-installation>
         <summary>Install Kodi Lab Bridge</summary>
         <p>Follow these steps on Kodi before entering a pairing code below. The same Bridge works for Home and Development Kodi.</p>

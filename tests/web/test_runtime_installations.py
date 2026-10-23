@@ -100,7 +100,8 @@ def test_remote_only_page_has_three_unavailable_choices(
     assert "data-install-action" not in primary
     assert "Piers" not in primary
     assert "several GB of Docker storage" in primary
-    assert "Start Kodi" not in primary
+    assert "Each step requires a separate action" in primary
+    assert 'data-instance-action="start"' not in primary
 
 
 def test_install_api_auth_origin_csrf_body_and_polling(

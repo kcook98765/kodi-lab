@@ -90,6 +90,12 @@
           {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
         </dl>
         {% if detail.runtime.failure_detail %}<p class="error" role="alert">{{ detail.runtime.failure_detail }}</p>{% endif %}
+        <details><summary>Technical state codes</summary><dl>
+          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
+          <dt>{{ label }}</dt><dd><code>{{ value }}</code></dd>
+          {% endfor %}
+          {% if detail.runtime.failure_code %}<dt>Failure code</dt><dd><code>{{ detail.runtime.failure_code }}</code></dd>{% endif %}
+        </dl></details>
         <h3>Screen preview</h3>
         <p class="secondary">Read-only Kodi screenshots. Refresh pauses while this tab is hidden.</p>
         <button type="button" data-ui-state-inspect>Inspect current window and selection</button>
