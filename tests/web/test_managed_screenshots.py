@@ -1,4 +1,8 @@
+import base64
+import json
+import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -159,6 +163,43 @@ def test_missing_cache_file_is_safe_and_not_recreated(
     assert latest.status_code == 503
     assert latest.json()["error"]["code"] == "screenshot_capture_unavailable"
     assert not path.exists()
+
+
+def test_screen_preview_has_one_refreshable_capture_summary(client: TestClient) -> None:
+    csrf = login(client)
+    make_visual_ready(client, csrf)
+    empty_page = client.get(f"/instances/{INSTANCE_ID}").text
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    capture_url = f"/api/instances/{INSTANCE_ID}/screenshots"
+    first = client.post(capture_url, json={}, headers=headers)
+    assert first.status_code == 200
+    screenshot = first.json()["screenshot"]
+    cached_page = client.get(f"/instances/{INSTANCE_ID}").text
+    timestamp = str(datetime.fromisoformat(screenshot["captured_at"]))
+    # A second, page-load-only copy can contradict the refreshed image/metadata.
+    assert cached_page.count(timestamp) == 1
+    assert cached_page.count(f"{screenshot['width']}\u00d7{screenshot['height']}") == 1
+    assert cached_page.count(f"{screenshot['byte_size']} bytes") == 1
+    assert "data-screenshot-metadata" in cached_page
+
+    if destination := os.getenv("KODI_LAB_SCREENSHOT_BROWSER_EVIDENCE"):
+        second = client.post(capture_url, json={}, headers=headers)
+        assert second.status_code == 200
+        png = client.get(f"{capture_url}/latest")
+        assert png.status_code == 200
+        root = Path(destination)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "screenshot-fixture.json").write_text(
+            json.dumps(
+                {
+                    "target": str(INSTANCE_ID),
+                    "pages": {"empty": empty_page, "cached": cached_page},
+                    "previous_timestamp": timestamp,
+                    "capture": second.json(),
+                    "png": base64.b64encode(png.content).decode("ascii"),
+                }
+            )
+        )
 
 
 def test_instance_detail_presents_manual_screenshot_without_remote_controls(
