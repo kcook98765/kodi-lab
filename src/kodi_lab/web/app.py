@@ -553,6 +553,12 @@ from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
 )
+from kodi_lab.web.presentation import (
+    ERROR_MESSAGES,
+    STATE_LABELS,
+    managed_next_step,
+    state_label,
+)
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -2214,6 +2220,12 @@ def create_app(
     # Older host processes can share the templates without these new routes.
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
+    templates.env.globals.update(
+        state_labels=STATE_LABELS,
+        error_messages=ERROR_MESSAGES,
+        state_label=state_label,
+        managed_next_step=managed_next_step,
+    )
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
     app.router.routes.append(
         Route(

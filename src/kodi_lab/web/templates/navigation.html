@@ -19,7 +19,7 @@
   {% endif %}
   <nav id="admin-navigation" class="admin-navigation" aria-label="Main navigation" data-admin-navigation>
     <ul>
-      {% for section, label, destination in [('home', 'Home', '/'), ('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development', '/development'), ('settings', 'Settings', '/settings')] %}
+      {% for section, label, destination in [('home', 'Home', '/'), ('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development', '/development'), ('settings', 'Advanced', '/settings')] %}
       {% if section != 'development' or development_view %}<li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>{% endif %}
       {% endfor %}
     </ul>

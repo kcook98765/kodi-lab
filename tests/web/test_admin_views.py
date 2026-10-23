@@ -37,7 +37,8 @@ def test_first_use_standard_and_full_development(client: TestClient) -> None:
     assert "hidden data-managed-deep-link" in client.get("/").text
     assert 'id="development-kodi-heading"' not in client.get("/kodi").text
     assert "Create custom preset" not in client.get("/mcp-clients").text
-    assert "workspace" not in client.get("/settings").text.lower()
+    assert 'href="/development"' in client.get("/settings").text
+    assert "workspaces" in client.get("/settings").text.lower()
     assert 'data-mode-controls disabled aria-describedby="mode-help" hidden' in (
         client.get("/add-kodi").text
     )

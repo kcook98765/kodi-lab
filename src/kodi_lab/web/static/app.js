@@ -38,8 +38,13 @@ function updateCard(status) {
   const card = document.querySelector(`[data-instance-id="${CSS.escape(status.managed_instance_id)}"]`);
   if (!card) return;
   for (const field of fields) {
+    const technical = card.querySelector(`[data-technical-field="${field}"]`);
+    if (technical) technical.textContent = String(status[field]);
     const node = card.querySelector(`[data-field="${field}"]`);
-    if (node) node.textContent = String(status[field]);
+    if (node) {
+      if (node.hasAttribute("data-ui-state")) window.KodiLabPresentation.render(node, String(status[field]));
+      else node.textContent = String(status[field]);
+    }
   }
   const failure = card.querySelector('[data-field="failure_detail"]');
   failure.textContent = status.failure_detail || "";
@@ -140,36 +145,10 @@ async function refresh() {
     await Promise.all(Array.from(document.querySelectorAll("[data-instance-id]"), refreshReconstructionStatus));
     showError("");
   } catch (_error) {
-    showError("Status refresh is temporarily unavailable.");
+    for (const control of document.querySelectorAll("button[data-action]")) control.disabled = true;
+    showError("Status refresh is temporarily unavailable. Open the instance to review current status before changing it.");
   }
 }
-
-async function act(card, action) {
-  for (const button of card.querySelectorAll("button[data-action]")) button.disabled = true;
-  try {
-    const id = card.dataset.instanceId;
-    const response = await fetch(`/api/instances/${encodeURIComponent(id)}/${action}`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": csrf},
-      body: "{}"
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error?.message || "Lifecycle action failed.");
-    updateCard(body);
-    showError("");
-  } catch (error) {
-    showError(error instanceof Error ? error.message : "Lifecycle action failed.");
-    await refresh();
-  }
-}
-
-document.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  const card = button.closest("[data-instance-id]");
-  if (card) void act(card, button.dataset.action);
-});
 
 window.addEventListener("hashchange", openManagedFragment);
 openManagedFragment();
