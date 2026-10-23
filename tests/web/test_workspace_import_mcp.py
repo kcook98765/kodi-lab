@@ -72,6 +72,8 @@ def test_reviewed_import_round_trip_over_mcp(client: TestClient) -> None:
     assert not preview_result.get("isError")
     preview = preview_result["structuredContent"]
     assert preview["eligible"] and len(preview["files"]) == 2
+    assert preview["max_file_bytes"] == 262_144
+    assert preview["max_changed_files"] == 32
     arguments = {
         "workspace_id": str(creation.workspace_id),
         "expected_generation": 0,

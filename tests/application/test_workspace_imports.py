@@ -15,6 +15,7 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
 )
 from kodi_lab.application.workspace_imports import (
+    MAX_IMPORT_FILE_BYTES,
     ImportApplyInput,
     ImportInput,
     WorkspaceImportService,
@@ -183,7 +184,7 @@ def test_preview_explains_policy_rejections(
         (source / "new").mkdir()
         (source / "new/helper.py").write_text("helper\n")
     elif change == "large":
-        (source / "default.py").write_text("a" * (48 * 1024 + 1))
+        (source / "default.py").write_text("a" * (MAX_IMPORT_FILE_BYTES + 1))
     elif change == "mode":
         (source / "default.py").chmod(0o755)
     else:

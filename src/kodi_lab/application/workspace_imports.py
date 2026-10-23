@@ -37,7 +37,7 @@ from kodi_lab.workspace.storage import (
 )
 
 MAX_IMPORT_FILES = 32
-MAX_IMPORT_FILE_BYTES = 48 * 1024
+MAX_IMPORT_FILE_BYTES = 256 * 1024
 MAX_IMPORT_RECEIPTS = 64
 IMPORT_FREE_RESERVE = 2 * 1024**3
 ImportState = Literal["applying", "succeeded", "failed", "reconciliation_required"]
@@ -111,6 +111,8 @@ class ImportPreview(BaseModel):
     workspace_digest: str
     preview_digest: str
     eligible: bool
+    max_file_bytes: int = Field(ge=1)
+    max_changed_files: int = Field(ge=1)
     files: tuple[ImportFile, ...]
 
 
@@ -227,6 +229,8 @@ class WorkspaceImportService:
                     workspace_digest=current.digest,
                     preview_digest=digest,
                     eligible=bool(files) and not any(f.rejection for f in files),
+                    max_file_bytes=MAX_IMPORT_FILE_BYTES,
+                    max_changed_files=MAX_IMPORT_FILES,
                     files=files,
                 ),
                 payloads,
