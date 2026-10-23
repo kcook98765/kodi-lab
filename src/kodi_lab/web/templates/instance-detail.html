@@ -103,11 +103,6 @@
         <dl>
           <dt>Capability</dt><dd>{{ 'Supported' if visual.screenshot_supported else 'Not supported in this slice' }}</dd>
           <dt>Available now</dt><dd>{{ 'Yes' if visual.screenshot_available_now else 'No' }}</dd>
-          {% if visual.latest_capture_available %}
-          <dt>Captured</dt><dd data-screenshot-captured-at>{{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago)</dd>
-          <dt>Dimensions</dt><dd data-screenshot-dimensions>{{ visual.width }}×{{ visual.height }}</dd>
-          <dt>Size</dt><dd data-screenshot-size>{{ visual.byte_size }} bytes</dd>
-          {% endif %}
         </dl>
         <p data-screenshot-metadata class="secondary">{% if visual.latest_capture_available %}Captured {{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago) · {{ visual.width }}×{{ visual.height }} · {{ visual.byte_size }} bytes{% else %}No current screenshot metadata.{% endif %}</p>
         <div data-screenshot-image-container{% if not visual.latest_capture_available %} hidden{% endif %}>
