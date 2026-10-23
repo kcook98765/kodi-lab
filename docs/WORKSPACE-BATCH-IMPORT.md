@@ -12,15 +12,16 @@ the workspace binding. Existing presets gain no permissions automatically.
 1. Read the current workspace generation using `workspace_status`.
 2. Call `workspace_import_preview` with `workspace_id` and that
    `expected_generation`. Review its file paths, sizes, SHA256 values and policy
-   rejections. An eligible preview returns `source_digest` and `preview_digest`.
+   rejections. `max_file_bytes` and `max_changed_files` advertise the enforced
+   limits, including on ineligible previews. An eligible preview returns `source_digest` and `preview_digest`.
 3. Call `workspace_import` with those same fields and a fresh UUID `request_id`.
    All accepted bytes publish as exactly one new generation. The original
    baseline and unrelated private edits remain intact.
 4. Validate the returned generation, deploy that exact generation, and perform
    runtime checks through their existing separate operations.
 
-The initial implementation accepts at most 32 changed entries and UTF-8 files
-up to 48 KiB each. Parents must already exist in the workspace. Deletions,
+The importer accepts at most 32 changed entries and UTF-8 files
+up to 256 KiB (262,144 bytes) each. Parents must already exist in the workspace. Deletions,
 directory/file transitions, executable-mode changes, changed add-on identity,
 binary files and overlaps with private edits are rejected. A rejected batch
 does not partly apply. A changed source or workspace requires a fresh preview.
