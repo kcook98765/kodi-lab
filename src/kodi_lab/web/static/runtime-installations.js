@@ -17,6 +17,31 @@
   let timer;
   let retryDelay = 3000;
   const busyStates = ["pending", "acquiring", "assembling", "validating"];
+  const review = document.querySelector("[data-install-review]");
+  const approve = document.querySelector("[data-install-approved]");
+  const confirm = document.querySelector("[data-install-confirm]");
+  const cancel = document.querySelector("[data-install-cancel]");
+  const choice = document.querySelector("[data-setup-version]");
+  const name = document.querySelector("[data-setup-name]");
+  let pending = null;
+  const cardFor = generation => root.querySelector(`[data-generation="${generation}"]`);
+  choice?.addEventListener("change", () => {
+    const card = cardFor(choice.value);
+    name.textContent = card ? `Canonical instance name: ${card.dataset.instanceName}` : "Choose a version to review the instance name.";
+  });
+  document.querySelector("[data-setup-show]")?.addEventListener("click", () => {
+    const card = cardFor(choice.value);
+    if (!card) { choice.focus(); return; }
+    card.tabIndex = -1;
+    card.focus();
+    card.scrollIntoView({block:"start"});
+  });
+  cancel?.addEventListener("click", () => {
+    pending = null;
+    review.hidden = true;
+    approve.checked = false;
+    choice.focus();
+  });
   function schedule() {
     clearTimeout(timer);
     if (document.hidden) return;
@@ -39,6 +64,8 @@
     const card = root.querySelector(`[data-generation="${item.generation}"]`);
     if (!card) return;
     card.dataset.state = item.status;
+    const operation = card.querySelector("[data-install-operation]");
+    if (operation) operation.textContent = item.operation_id || "No operation recorded";
     const progress = card.querySelector("[data-install-progress]");
     const duration = card.querySelector("[data-install-duration]");
     if (progress) progress.hidden = !busyStates.includes(item.status);
@@ -48,7 +75,7 @@
     card.querySelector(".runtime-install-message").textContent = item.failure_message || "";
     card.querySelector(".runtime-install-note").textContent = item.note || "";
     const actions = card.querySelector(".runtime-install-action");
-    const actionKey = `${item.action}:${item.managed_instance_url || ""}`;
+    const actionKey = `${item.action}:${item.managed_instance_url || ""}:${card.dataset.uncertain || ""}`;
     if (actions.dataset.renderKey === actionKey) return;
     const restoreFocus = actions.contains(document.activeElement);
     actions.dataset.renderKey = actionKey;
@@ -67,6 +94,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.installAction = item.action;
+      button.disabled = card.dataset.uncertain === "true";
       button.textContent = item.action === "create" ? "Create managed instance" : item.action[0].toUpperCase() + item.action.slice(1);
       actions.append(button);
     }
@@ -89,9 +117,38 @@
   }
 
   root.addEventListener("click", async (event) => {
+    const recovery = event.target.closest("button[data-install-recover]");
+    if (recovery && !submitting && !refreshing) {
+      recovery.disabled = true;
+      try {
+        // A reload re-observes durable progress; it never replays a mutation.
+        await refresh();
+        window.location.reload();
+      } catch (_) { showError("Saved setup could not be inspected. Keep this operation and check your session and broker connection."); }
+      finally { recovery.disabled = false; }
+      return;
+    }
     const button = event.target.closest("button[data-install-action]");
-    if (!button || submitting) return;
+    if (!button || submitting || button.disabled) return;
     const card = button.closest("[data-generation]");
+    if (card.dataset.uncertain === "true") return;
+    pending = {generation:card.dataset.generation, action:button.dataset.installAction};
+    approve.checked = false;
+    document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Canonical instance name: ${card.dataset.instanceName} · Action: ${pending.action}.`;
+    review.hidden = false;
+    review.focus();
+    review.scrollIntoView({block:"center"});
+  });
+  confirm?.addEventListener("click", async () => {
+    if (!pending || submitting) return;
+    if (!approve.checked) { approve.focus(); return; }
+    const selected = pending;
+    const card = cardFor(selected.generation);
+    const button = card?.querySelector(`button[data-install-action="${selected.action}"]`);
+    if (!button || button.disabled || card.dataset.uncertain === "true") {
+      showError("The setup state changed. Inspect its current phase and review the available action again.");
+      return;
+    }
     const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
     if (acknowledgement && !acknowledgement.checked) {
       showError("Acknowledge that Kodi 22 RC1 is prerelease development software before continuing.");
@@ -100,24 +157,39 @@
     }
     submitting = true;
     button.disabled = true;
+    confirm.disabled = true;
+    review.hidden = true;
+    pending = null;
     showError("");
     try {
       const response = await fetch(
         button.dataset.installAction === "create" ? `/api/runtime-installations/${card.dataset.generation}/instances` : `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
         { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token, ...(acknowledgement ? {"Content-Type": "application/json"} : {}) }, ...(acknowledgement ? {body: acknowledgement.dataset.scope} : {}) },
       );
-      if (response.ok) render(await response.json());
+      if (response.ok) {
+        render(await response.json());
+        const phase = card.querySelector(".runtime-install-phase");
+        phase.tabIndex = -1;
+        phase.focus();
+      }
       else {
         const data = await response.json().catch(() => ({}));
-        showError(failures[data.detail] || "Installation was refused. Check your session and the runtime status, then try again.");
+        card.dataset.uncertain = "true";
+        card.querySelector("[data-install-recover]").hidden = false;
+        showError(failures[data.detail] || "Setup was not confirmed. Inspect saved progress before approving another action.");
         await refresh().catch(() => {});
       }
     } catch (_) {
-      showError("Could not contact Kodi Lab. Check the connection and refresh the status before retrying.");
+      card.dataset.uncertain = "true";
+      card.querySelector("[data-install-recover]").hidden = false;
+      showError("The setup outcome could not be confirmed. No retry was sent. Inspect saved progress and the original operation before another action.");
       await refresh().catch(() => {});
     } finally {
       submitting = false;
-      button.disabled = false;
+      button.disabled = card.dataset.uncertain === "true";
+      confirm.disabled = false;
+      approve.checked = false;
+      if (card.dataset.uncertain === "true") card.querySelector("[data-install-recover]").focus();
       schedule();
     }
   });

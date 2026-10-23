@@ -7,13 +7,33 @@
 {% block content %}
       <h1>Reviewed runtimes</h1>
       <p><a href="/#instances">Managed instances</a></p>
+      <section aria-labelledby="managed-setup-heading">
+        <h2 id="managed-setup-heading">Guided managed Kodi setup</h2>
+        <ol>
+          <li>Choose a reviewed version below and review its canonical instance name.</li>
+          <li>Review and approve installation. The runtime is downloaded and validated; stable versions create their stopped instance automatically. Preview offers a separate Create managed instance step after validation.</li>
+          <li>Open the managed instance, choose <strong>Prepare runtime</strong>, review its stopped state, then choose <strong>Start Kodi</strong>. Each step requires a separate action.</li>
+        </ol>
+        <label>1. Kodi version <select data-setup-version><option value="">Choose a version…</option>{% for item in installations %}<option value="{{ item.generation }}">{{ item.display_name }} · {{ item.version }}</option>{% endfor %}</select></label>
+        <p data-setup-name role="status">Choose a version to review the instance name.</p>
+        <p>Names for this guided setup are fixed by the reviewed recipe. Existing instances retain their exact identity and runtime pin. This guide does not rename or replace them.</p>
+        <button type="button" data-setup-show>Show version and next step</button>
+      </section>
+      <section data-install-review aria-labelledby="install-review-heading" tabindex="-1" hidden>
+        <h2 id="install-review-heading">2. Review this setup action</h2>
+        <p data-install-review-summary></p>
+        <p class="notice">Installation may download several GB. It does not start your managed Kodi or grant an agent access. A partial or failed setup remains available for inspection; no mutation is retried automatically.</p>
+        <label><input type="checkbox" data-install-approved> I reviewed this version, canonical name and action.</label>
+        <button type="button" data-install-confirm>Approve this setup action</button>
+        <button type="button" data-install-cancel>Cancel review</button>
+      </section>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
       <p>Install acquires and validates the approved runtime, then makes a stopped managed instance available. Open the instance to provision and start it using the existing lifecycle controls.</p>
       <p>The technical matrix describes recorded runtime eligibility. Installation also requires a compatible, reachable broker and verified local runtime files.</p>
       <p class="error" role="alert" data-runtime-install-error hidden></p>
       <div class="runtime-install-grid" data-runtime-installations>
         {% for item in installations %}
-        <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}">
+        <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}" data-instance-name="{{ item.managed_instance_name }}" data-version="{{ item.version }}">
           <h2>{{ item.display_name }}</h2>
           <p class="secondary">{{ item.version }}</p>
           {% if item.preview_acknowledgement %}
@@ -28,12 +48,15 @@
           <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>
           <p class="runtime-install-message">{{ item.failure_message or '' }}</p>
           <p class="runtime-install-note">{{ item.note or '' }}</p>
+          <p>Canonical name: <strong>{{ item.managed_instance_name }}</strong></p>
+          <button type="button" data-install-recover hidden>Inspect saved setup before another action</button>
           <div class="runtime-install-action">
             {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open managed instance</a>
             {% elif item.action in ('install', 'retry', 'reacquire') %}<button type="button" data-install-action="{{ item.action }}">{{ item.action|capitalize }}</button>{% endif %}
             {% if item.action == 'create' %}<button type="button" data-install-action="create">Create managed instance</button>{% endif %}
             {% if item.managed_instance_url and item.action != 'open' %}<a href="{{ item.managed_instance_url }}">View existing pinned instance</a>{% endif %}
           </div>
+          <details><summary>Saved setup and recovery</summary><p>Operation: <code data-install-operation>{{ item.operation_id or 'No operation recorded' }}</code></p><p>Return to this page to inspect saved installation progress. If a request was interrupted, inspect the original operation and its current phase before approving another action. Failed preparation or start is reviewed on the exact instance's status and history page.</p></details>
           {% if item.technical_details %}
           <details>
             <summary>Technical details</summary>
