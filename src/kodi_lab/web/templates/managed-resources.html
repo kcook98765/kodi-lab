@@ -14,6 +14,32 @@
   <p role="status" data-resource-message></p>
 </form>
 <p>Lowering the limit applies to new starts. Existing running instances stay available. Passive status, log and screenshot refreshes do not count as activity.</p>
+<section id="cleanup-review" aria-labelledby="cleanup-review-heading">
+<h2 id="cleanup-review-heading">Review managed resources before cleanup</h2>
+<p>No resources are selected automatically. Review one exact managed instance, its current state and retained data before using its existing confirmation page. This page never prunes Docker resources.</p>
+<p>Supported usage: running slots above and recorded snapshot archive sizes below. Container writable-layer, image and volume disk usage are unavailable through the current broker; no estimate is presented as reclaimable space.</p>
+<div class="matrix-table-wrap">
+<table>
+  <caption>Managed instances and recorded retained snapshots</caption>
+  <thead><tr><th scope="col">Instance</th><th scope="col">Observed state</th><th scope="col">Recorded snapshot usage</th><th scope="col">Cleanup review</th></tr></thead>
+  <tbody>
+  {% for instance in instances %}
+  {% set runtime = instance.runtime %}
+  {% set known = namespace(bytes=0, unknown=0) %}
+  {% for snapshot in instance.snapshots %}{% if snapshot.archive_size is none %}{% set known.unknown = known.unknown + 1 %}{% else %}{% set known.bytes = known.bytes + snapshot.archive_size %}{% endif %}{% endfor %}
+  <tr>
+    <th scope="row"><a href="/instances/{{ instance.id }}">{{ instance.name }}</a></th>
+    <td>{% if instance.mutation_active %}Operation in progress — cleanup blocked{% elif runtime %}<span data-ui-state="{{ runtime.container_state }}">{{ runtime.container_state }}</span>{% else %}Unknown — cleanup blocked{% endif %}</td>
+    <td>{{ instance.snapshots|length }} snapshot(s), {{ known.bytes }} known archive bytes{% if known.unknown %}; {{ known.unknown }} archive size(s) unavailable{% endif %}. Historical recorded sizes; disk is not measured here.</td>
+    <td>{% if runtime and runtime.container_state == 'stopped' and runtime.allowed_actions and not instance.mutation_active %}<a href="/instances/{{ instance.id }}#instance-controls-heading">Review runtime removal</a> · <a href="/instances/{{ instance.id }}/delete">Review instance deletion</a>{% else %}Stop safely and resolve unknown or active operations before cleanup. <a href="/instances/{{ instance.id }}">Review status and history</a>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="4">No managed instances to review.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="notice">Runtime removal discards writable container data. Instance deletion also removes the registration and requires a choice to preserve or permanently delete snapshots. Preserved snapshots from deleted instances are historical artifacts and cannot be restored in v1. Review notes and development work before approving either action.</p>
+<p><a href="/agent-workspaces">Review workspace retention and cleanup</a> — abandonment preserves files until explicit cleanup; cleanup permanently removes that workspace's baseline and editable tree while retaining durable history. <a href="/snapshots/preserved">Review preserved snapshots</a> — each deletion uses its existing explicit confirmation.</p>
+</section>
 <h2>Instance idle settings</h2>
 <p>New instances enroll automatically. Enroll existing instances explicitly. Playback, active or unresolved operations, recent use and keep-awake holds protect an instance from automatic stopping.</p>
 {% for instance in instances %}

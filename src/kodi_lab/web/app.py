@@ -531,6 +531,7 @@ from kodi_lab.storage.managed_activity import (
 )
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
     RepositoryWorkspaceDeploymentRow,
@@ -3221,7 +3222,7 @@ def create_app(
             {"csrf_token": authenticated.csrf_token},
         )
 
-    def managed_resource_data() -> dict[str, Any]:
+    def managed_resource_data(*, cleanup_review: bool = False) -> dict[str, Any]:
         with session_factory.begin() as session:
             policy = managed_resource_policy(session)
             saved_policy = {
@@ -3242,6 +3243,19 @@ def create_app(
             capacity = context.managed_resources.capacity().model_dump(mode="json")
         except Exception:
             capacity = None
+        runtime_statuses = {
+            item.managed_instance_id: item
+            for item in (context.status.list_statuses() if cleanup_review else [])
+        }
+        with session_factory() as session:
+            busy_instances = {
+                UUID(item.managed_instance_id)
+                for item in (
+                    session.scalars(select(ManagedInstanceMutationLeaseRow))
+                    if cleanup_review
+                    else []
+                )
+            }
         return {
             "policy": saved_policy,
             "capacity": capacity,
@@ -3250,6 +3264,17 @@ def create_app(
                     "id": item.id,
                     "name": item.name,
                     "status": context.managed_resources.status(UUID(item.id)),
+                    **(
+                        {
+                            "runtime": runtime_statuses.get(UUID(item.id)),
+                            "mutation_active": UUID(item.id) in busy_instances,
+                            "snapshots": context.snapshot_status.list_for_instance(
+                                UUID(item.id)
+                            ),
+                        }
+                        if cleanup_review
+                        else {}
+                    ),
                 }
                 for item in targets
             ],
@@ -3267,7 +3292,7 @@ def create_app(
             request,
             "managed-resources.html",
             {
-                **managed_resource_data(),
+                **managed_resource_data(cleanup_review=True),
                 "csrf_token": authenticated.csrf_token,
             },
         )
