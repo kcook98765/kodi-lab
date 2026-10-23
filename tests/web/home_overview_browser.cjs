@@ -35,6 +35,8 @@ const assets = path.resolve(__dirname, '../../src/kodi_lab/web/static');
       assert.equal(await page.getByRole('heading',{name:'System overview',exact:true}).count(),1);
       assert.equal(await page.getByRole('heading',{name:'Managed Kodi at a glance',exact:true}).count(),1);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      const countColumns = await page.locator(".home-counts").evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(" ").length);
+      assert.ok(countColumns >= 2, "Home counts remain a compact grid despite shared definition-list rules");
       await page.getByRole('link',{name:'Skip to content'}).focus();
       await page.keyboard.press('Enter');
       assert.equal(await page.locator('#main-content').evaluate(el=>el===document.activeElement),true);
