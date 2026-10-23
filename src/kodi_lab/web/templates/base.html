@@ -8,9 +8,11 @@
     <title>{% block title %}Kodi Lab{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
     {% if shared_navigation_enabled %}<script src="{{ url_for('static', path='/navigation.js') }}" defer></script>{% endif %}
+    <script src="{{ url_for('static', path='/presentation.js') }}" defer></script>
     {% block head %}{% endblock %}
   </head>
   <body class="{% if shared_navigation_enabled %}admin-layout {% endif %}{% block body_class %}{% endblock %}">
+    <template id="state-copy">{{ {"states": state_labels|default({}), "errors": error_messages|default({})}|tojson }}</template>
     <a class="skip-link" href="#main-content">Skip to content</a>
     {% include 'navigation.html' %}
     <div class="admin-workarea">

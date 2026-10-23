@@ -305,3 +305,16 @@ dd { margin: 0; }
   .agents-page select { width: 100%; }
   .agents-page [data-target-policy] select { display: block; margin: .5rem 0; }
 }
+
+/* Home summaries remain useful before opening technical controls. */
+.home-overview { margin: 1.5rem 0; }
+.home-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 1rem; }
+.home-counts > div { padding: .75rem; border: 1px solid #8887; border-radius: .35rem; min-width: 0; }
+.home-counts dd { font-size: 1.6rem; margin-top: .5rem; }
+.home-next-step { border-left: .2rem solid currentColor; padding-left: .65rem; }
+.home-page .technical-details { margin: 1rem 0; }
+.home-page .technical-details dl { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .home-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-page dl:not(.home-counts) { grid-template-columns: minmax(0, 1fr); }
+}
