@@ -103,6 +103,20 @@ def test_home_failure_guidance_does_not_offer_retry(
     assert "Retained failure code" in details
 
 
+def test_stored_reset_failure_is_counted_and_visible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    login(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    reset = context.reset_status.list_statuses()[0].model_copy(
+        update={"failure_reason": "Retained reset failure"}
+    )
+    monkeypatch.setattr(context.reset_status, "list_statuses", lambda: [reset])
+    primary = client.get("/").text.split('<details id="managed-details"', 1)[0]
+    assert "<dt>Needs review</dt><dd>1</dd>" in primary
+    assert "previous reset or reconstruction needs review" in primary
+
+
 def test_advanced_destinations_available_in_both_views(client: TestClient) -> None:
     login(client)
     for mode in ("standard", "development"):

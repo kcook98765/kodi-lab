@@ -17,9 +17,11 @@
       {% set overview = namespace(ready=0, stopped=0, attention=0) %}
       {% for instance in instances %}
         {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
+        {% set reset = reset_statuses.get(instance.managed_instance_id) %}
+        {% set reconstruction = reconstruction_statuses.get(instance.managed_instance_id) %}
         {% if instance.usability_state == 'usable' %}{% set overview.ready = overview.ready + 1 %}{% endif %}
         {% if instance.container_state in ['stopped', 'exited', 'created', 'missing'] %}{% set overview.stopped = overview.stopped + 1 %}{% endif %}
-        {% if instance.failure_code or instance.failure_detail or (reconciliation and reconciliation.required) %}{% set overview.attention = overview.attention + 1 %}{% endif %}
+        {% if instance.failure_code or instance.failure_detail or (reconciliation and reconciliation.required) or (reset and (reset.failure_reason or reset.reconciliation_required)) or (reconstruction and reconstruction.failure_reason) %}{% set overview.attention = overview.attention + 1 %}{% endif %}
       {% endfor %}
       <section aria-labelledby="system-overview-heading" class="home-overview">
         <h2 id="system-overview-heading">System overview</h2>
@@ -50,7 +52,8 @@
             <p>{{ state_label(instance.container_state) }}</p>
             {% if reconciliation and reconciliation.required %}<p class="reconciliation-warning">An earlier operation needs review. Automatic recovery will not repeat it.</p>{% endif %}
             {% if instance.failure_code %}<p class="error">{{ error_messages.get(instance.failure_code, 'A status check needs attention. Review the instance diagnostics.') }}</p>{% endif %}
-            {% if next_step %}<p class="home-next-step">{{ next_step }}</p>{% endif %}
+            {% if (reset and (reset.failure_reason or reset.reconciliation_required)) or (reconstruction and reconstruction.failure_reason) %}<p class="error">A previous reset or reconstruction needs review. Open the instance to inspect the retained outcome before continuing.</p>
+            {% elif next_step %}<p class="home-next-step">{{ next_step }}</p>{% endif %}
             <a class="button-link" href="/instances/{{ instance.managed_instance_id }}" aria-label="Open managed Kodi: {{ instance.name }}">Open instance</a>
           </li>
         {% else %}
