@@ -61,7 +61,7 @@
         metadata.textContent = `Captured ${screenshot.captured_at} (${screenshot.age_seconds} seconds ago) · ${screenshot.width}×${screenshot.height} · ${screenshot.byte_size} bytes`;
       }
       section.querySelector("[data-screenshot-empty]")?.remove();
-      const uiState = section.querySelector("[data-ui-state]");
+      const uiState = section.querySelector("[data-ui-observation]");
       if (uiState) {
         try {
           const observed = await fetch(`/api/instances/${section.dataset.instanceId}/ui-state`, { credentials: "same-origin" });
@@ -84,6 +84,22 @@
       schedule();
     }
   }
+
+  const inspect = section.querySelector("[data-ui-state-inspect]");
+  inspect?.addEventListener("click", async () => {
+    if (inspect.disabled) return;
+    inspect.disabled = true;
+    const uiState = section.querySelector("[data-ui-observation]");
+    uiState.textContent = "Inspecting the current Kodi window…";
+    try {
+      const response = await fetch(`/api/instances/${section.dataset.instanceId}/ui-state`, {credentials:"same-origin"});
+      if (!response.ok) throw new Error("UI state is currently unavailable. Check Kodi readiness and access policy.");
+      const ui = await response.json();
+      uiState.textContent = `Window: ${ui.window.label || ui.window.id || "Unavailable"} · Selected item: ${ui.selected_item.label || "Unavailable"}`;
+    } catch (error) {
+      uiState.textContent = error instanceof Error ? error.message : "UI state could not be inspected.";
+    } finally { inspect.disabled = false; }
+  });
 
   button.addEventListener("click", capture);
   pause?.addEventListener("click", () => {
