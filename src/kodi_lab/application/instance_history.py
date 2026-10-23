@@ -86,6 +86,7 @@ class ManagedInstanceDetail(BaseModel):
     addons: ManagedInstanceAddonInventory
     recent_activity: list[ManagedInstanceActivityItem] = Field(max_length=10)
     reconciliation: ManagedInstanceReconciliationStatus
+    mutation_active: bool = False
 
 
 class DeletedManagedInstanceSummary(BaseModel):
@@ -373,6 +374,7 @@ class ManagedInstanceDetailService:
                 instance_id, limit=10
             ),
             reconciliation=reconciliation,
+            mutation_active=active_mutation,
         )
 
 

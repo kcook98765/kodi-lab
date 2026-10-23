@@ -2,6 +2,7 @@
 {% set nav_section = 'development' %}
 {% block title %}{{ detail.runtime.name }} · Kodi Lab{% endblock %}
 {% block head %}
+<script src="{{ url_for('static', path='/instance-controls.js') }}" defer></script>
 <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
 <script src="{{ url_for('static', path='/reviewed-bridge.js') }}" defer></script>
 <script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>
@@ -16,21 +17,41 @@
 {% endblock %}
 {% block content %}
       <h1>{{ detail.runtime.name }}</h1>
-      <p class="secondary">{{ detail.runtime.managed_instance_id }}</p>
+      <section aria-labelledby="instance-controls-heading" data-instance-controls="{{ detail.runtime.managed_instance_id }}" data-mutation-active="{{ 'true' if detail.mutation_active else 'false' }}">
+        <h2 id="instance-controls-heading">Manage this Kodi</h2>
+        <p>Each action is a separate request. Provision creates the stopped runtime; Start runs Kodi; Stop preserves its profile. No action is retried automatically.</p>
+        <div class="actions">
+          {% for action in ['provision', 'start', 'stop'] %}
+          <button type="button" data-instance-action="{{ action }}"{% if action not in detail.runtime.allowed_actions or detail.mutation_active %} hidden disabled{% endif %}>{{ 'Prepare runtime' if action == 'provision' else action|capitalize ~ ' Kodi' }}</button>
+          {% endfor %}
+          <button type="button" data-instance-status-refresh>Refresh status</button>
+        </div>
+        <p data-instance-control-status role="status">Actions use the latest verified state. Refresh after changes made elsewhere.</p>
+        <details>
+          <summary>Reset, remove runtime or delete instance</summary>
+          <p class="notice">These actions can discard development data. Review the exact instance and consequences before confirming. Unknown or busy state blocks destructive controls.</p>
+          <p>Reset replaces this disposable profile with its pinned fixture or a clean profile. Removing the runtime discards its writable container but retains the instance registration and separately stored snapshots. Deleting the instance also removes its registration and requires an explicit snapshot retention choice.</p>
+          <div data-instance-destructive{% if detail.runtime.container_state != 'stopped' or detail.mutation_active or detail.reconciliation.blocking or not detail.runtime.allowed_actions %} hidden{% endif %}>
+            <a href="/instances/{{ detail.runtime.managed_instance_id }}/reset">Review reset eligibility</a> ·
+            <a href="/instances/{{ detail.runtime.managed_instance_id }}/delete">Review instance deletion</a>
+            <form data-deprovision-confirm>
+              <label><input type="checkbox" required data-deprovision-approved> I approve removing this instance's stopped runtime and discarding its writable container data.</label>
+              <button type="submit" data-instance-action="deprovision"{% if 'deprovision' not in detail.runtime.allowed_actions or detail.mutation_active %} hidden disabled{% endif %}>Remove runtime</button>
+            </form>
+          </div>
+        </details>
+      </section>
       <p data-resource-instance="{{ detail.runtime.managed_instance_id }}">Idle stop: {{ 'enrolled' if resource_status.enrolled else 'not enrolled' }}{% if resource_status.last_stop_reason %}. Last stopped: {{ resource_status.last_stop_reason }} at {{ resource_status.last_stopped_at }}{% endif %}.</p>
       <p><a href="/managed-resources#instance-{{ detail.runtime.managed_instance_id }}">Resource and keep-awake settings</a></p>
-      <dl>
-        <dt>Exact runtime</dt><dd>Kodi {{ detail.runtime.kodi_version }} · revision {{ detail.runtime.runtime_revision_number }} ({{ detail.runtime.runtime_revision_id }})</dd>
-        <dt>Instance type</dt><dd>{{ detail.instance_type }}</dd>
-        <dt>Fixture</dt><dd>{% if detail.fixture %}{{ detail.fixture.slug }} v{{ detail.fixture.fixture_version }} ({{ detail.fixture.size_category }}, {{ detail.fixture.content_category }}){% else %}None{% endif %}</dd>
-        <dt>Provisioning</dt><dd>{{ detail.runtime.provision_state }}</dd>
-        <dt>Container</dt><dd>{{ detail.runtime.container_state }}</dd>
-        <dt>Kodi process</dt><dd>{{ detail.runtime.process_state }}</dd>
-        <dt>JSON-RPC</dt><dd>{{ detail.runtime.jsonrpc_state }}</dd>
-        <dt>Usability</dt><dd>{{ detail.runtime.usability_state }}</dd>
-        <dt>Readiness</dt><dd>{{ detail.runtime.readiness_state }}</dd>
-        {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
-      </dl>
+      <details>
+        <summary>Advanced instance identity and runtime pin</summary>
+        <dl>
+          <dt>Instance ID</dt><dd>{{ detail.runtime.managed_instance_id }}</dd>
+          <dt>Exact runtime</dt><dd>Kodi {{ detail.runtime.kodi_version }} · revision {{ detail.runtime.runtime_revision_number }} ({{ detail.runtime.runtime_revision_id }})</dd>
+          <dt>Instance type</dt><dd>{{ detail.instance_type }}</dd>
+          <dt>Fixture</dt><dd>{% if detail.fixture %}{{ detail.fixture.slug }} v{{ detail.fixture.fixture_version }} ({{ detail.fixture.size_category }}, {{ detail.fixture.content_category }}){% else %}None{% endif %}</dd>
+        </dl>
+      </details>
       {% if detail.reconciliation.required %}
       <section class="reconciliation-warning" role="alert">
         <h2>Operator reconciliation required</h2>
@@ -60,9 +81,19 @@
       </section>
       {% endif %}
       <section id="visual-access" data-instance-id="{{ detail.runtime.managed_instance_id }}">
-        <h2>Screen preview</h2>
+        <h2>Monitor Kodi and inspect its screen</h2>
+        <p>Status is a point-in-time observation. A running container alone does not prove Kodi is ready.</p>
+        <dl>
+          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
+          <dt>{{ label }}</dt><dd data-ui-state="{{ value }}">{{ value }}</dd>
+          {% endfor %}
+          {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
+        </dl>
+        {% if detail.runtime.failure_detail %}<p class="error" role="alert">{{ detail.runtime.failure_detail }}</p>{% endif %}
+        <h3>Screen preview</h3>
         <p class="secondary">Read-only Kodi screenshots. Refresh pauses while this tab is hidden.</p>
-        <p class="secondary" data-ui-state>UI state has not been inspected.</p>
+        <button type="button" data-ui-state-inspect>Inspect current window and selection</button>
+        <p class="secondary" data-ui-observation role="status">UI state has not been inspected.</p>
         <dl>
           <dt>Capability</dt><dd>{{ 'Supported' if visual.screenshot_supported else 'Not supported in this slice' }}</dd>
           <dt>Available now</dt><dd>{{ 'Yes' if visual.screenshot_available_now else 'No' }}</dd>
