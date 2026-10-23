@@ -82,7 +82,7 @@
         </section>
         <h3 data-agent-config-title>Configuration template</h3>
         <p data-agent-config-help>This template contains a placeholder. Issue a token to fill it in, or replace the placeholder in your agent's protected settings.</p>
-        <pre id="agent-config" tabindex="0" aria-label="MCP server configuration template">{% if agent_configuration is defined %}{{ agent_configuration | tojson(indent=2) }}{% else %}{
+        <pre id="agent-config" tabindex="0" role="region" aria-label="MCP server configuration template">{% if agent_configuration is defined %}{{ agent_configuration | tojson(indent=2) }}{% else %}{
   "command": "kodi-lab-mcp-stdio",
   "args": [],
   "env": {

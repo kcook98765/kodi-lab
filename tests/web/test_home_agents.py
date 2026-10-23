@@ -17,6 +17,7 @@ from kodi_lab.domain import ExternalObservationState
 from kodi_lab.mcp.stdio_proxy import load_configuration
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import ExternalKodiTargetRow
+from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE
 from tests.web.conftest import INSTANCE_ID, ORIGIN, login
 from tests.web.test_kodi_views import household as household
 
@@ -179,6 +180,21 @@ def test_agents_requires_deliberate_preset_and_supported_config(
         1
     )
     assert "LAN Web address is not supported" in page
+
+
+@pytest.mark.parametrize("view", ["standard", "development"])
+def test_agent_configuration_is_a_named_keyboard_region(
+    client: TestClient, view: str
+) -> None:
+    login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, view)
+    page = client.get("/mcp-clients").text
+    configuration = re.search(r'<pre id="agent-config"([^>]*)>', page)
+    assert configuration is not None
+    attributes = configuration.group(1)
+    assert 'role="region"' in attributes
+    assert 'tabindex="0"' in attributes
+    assert 'aria-label="MCP server configuration template"' in attributes
 
 
 def test_agents_get_preserves_authority_and_never_recovers_token(
