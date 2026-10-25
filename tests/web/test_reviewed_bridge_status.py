@@ -29,3 +29,37 @@ def test_reviewed_bridge_browser_bounds_and_uncertain_request_safety() -> None:
         text=True,
         timeout=15,
     )
+
+
+def test_reviewed_bridge_continuation_requires_auth_csrf_and_generation(
+    client: TestClient,
+) -> None:
+    from tests.web.conftest import ORIGIN
+
+    path = f"/api/instances/{INSTANCE_ID}/reviewed-bridge/resume"
+    assert (
+        client.post(path, json={"expected_generation": 1}, headers=ORIGIN).status_code
+        == 401
+    )
+    csrf = login(client)
+    assert (
+        client.post(path, json={"expected_generation": 1}, headers=ORIGIN).status_code
+        == 403
+    )
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    assert client.post(path, json={}, headers=headers).status_code == 422
+    assert (
+        client.post(path, json={"expected_generation": 0}, headers=headers).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            path, json={"expected_generation": 1, "force": True}, headers=headers
+        ).status_code
+        == 422
+    )
+    # No prepared reviewed binding exists; continuation cannot install implicitly.
+    assert (
+        client.post(path, json={"expected_generation": 1}, headers=headers).status_code
+        == 409
+    )

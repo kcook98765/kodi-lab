@@ -36,7 +36,7 @@ function boot(initial = "prepared") {
         if (scenario.postFailure) throw new Error("lost response");
         return {ok: !scenario.detail, json: async () => ({detail: scenario.detail})};
       }
-      return {ok: !scenario.getFailure, json: async () => ({state: scenario.state})};
+      return {ok: !scenario.getFailure, json: async () => ({state: scenario.state, generation: scenario.generation, resume_available: scenario.resume})};
     },
   });
   return {install, refresh, status, requests, timers, scenario, document, listeners, windowListeners,
@@ -70,6 +70,18 @@ function boot(initial = "prepared") {
     assert.equal(panel.timers.size, 0);
     if (initial === "uninstalled") assert.match(panel.status.textContent, /No Bridge trust is recorded/);
   }
+  const resumable = boot();resumable.scenario.resume = true;resumable.scenario.generation = 7;await flush();
+  assert.equal(resumable.install.disabled, false);
+  assert.equal(resumable.install.textContent, 'Continue Bridge setup');
+  assert.match(resumable.status.textContent, /without another restart.*prompts/);
+  resumable.scenario.state = 'active';
+  await resumable.install.click();
+  const continuation = resumable.requests.find(r => r.options.method);
+  assert.equal(continuation.url, '/api/instances/target-fixture/reviewed-bridge/resume');
+  assert.deepEqual(JSON.parse(continuation.options.body), {expected_generation: 7});
+  assert.equal(resumable.requests.filter(r => r.options.method).length, 1);
+  const unsafeGeneration = boot();unsafeGeneration.scenario.resume = true;unsafeGeneration.scenario.generation = -1;await flush();
+  assert.equal(unsafeGeneration.install.disabled, true);
   const success = boot("uninstalled");await flush();
   success.scenario.state = "prepared";
   await success.install.click();

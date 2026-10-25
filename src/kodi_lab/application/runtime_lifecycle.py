@@ -199,6 +199,23 @@ class ManagedRuntimeLifecycleService:
 
         return self._run(instance_id, ManagedInstanceLifecycleKind.START, install)
 
+    def resume_reviewed_bridge(
+        self, instance_id: UUID, *, expected_generation: int
+    ) -> ManagedRuntimeStatus:
+        """Complete matching prepared trust synchronously under the lifecycle lease."""
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        self._require_no_reset(instance_id)
+
+        def resume(target_id: UUID, _profile: RuntimeExecutionProfile) -> None:
+            if self._bridge_trust is None:
+                raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
+            self._bridge_trust.resume_reviewed(
+                target_id, expected_generation=expected_generation
+            )
+
+        return self._run(instance_id, ManagedInstanceLifecycleKind.START, resume)
+
     def _start(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
         try:
