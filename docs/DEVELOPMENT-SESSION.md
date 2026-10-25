@@ -361,3 +361,15 @@ Current application/broker state requires migration0085; there is no missing-tab
 fallback. Unknown or changed selection preserves the operation fence. Positive
 unclaimed container drift can still use the existing exact scoped refusal path.
 This changes no agent grants or Bridge trust and does not enable or start Kodi.
+
+### Selected-source enablement scope
+
+Existing Web-admin enablement of a copied source is narrowed to the selected
+source, target and runtime while session policy is active. Its initial claim is
+metadata-only. Before native enablement it checks the observed running profile
+and the same originally selected generation, while preserving all copied-tree,
+identity, dependency and enabled-state checks. Preflight/mutation markers require
+and renew the original unexpired typed lease; they cannot borrow foreign authority. Changed selection before dispatch
+fails; uncertain native dispatch still requires existing reconciliation. It does
+not create a new guided enablement action, automatically enable an add-on, change
+permissions or treat historical enabled state as current proof.
