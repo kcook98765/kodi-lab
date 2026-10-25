@@ -1,5 +1,62 @@
 # Kodi Lab development program #54
 
+## Source integration completion — 2026-10-25
+
+All application/documentation feature PRs #55–#60 and #62–#82 have merged through
+normal GitHub merge commits in the reviewed dependency order. This final ledger
+PR #61 completes the 28-PR integration. The source-complete main before this
+ledger-only merge is `24b89559b0b2e0ab3edbc98e12227b4ee0981c4c`. The final immutable main SHA including
+#61 is recorded in the [issue #54 final merge report](https://github.com/kcook98765/kodi-lab/issues/54)
+and the [completed ledger PR #61](https://github.com/kcook98765/kodi-lab/pull/61).
+A commit cannot contain its own resulting hash; those two GitHub records provide
+that final identity without changing qualified application bytes.
+
+**RELEASE PASS:** 5,763 passed, 38 unchanged gated skips, 5,801 collected,
+34m20s complete gate (2059.79s wrapper), all eight stages zero.
+Frozen reviewed candidate `133c0dd0f01603efff4940a6d63ed666a7fce0d0`, tree `e724dc6e6e2770a040aada7c06c7703afe326fcc`. Full test selection
+and exact skip identities match prior qualified ba215e6. All 1,819 tracked entries
+were frozen; executable source, tests/assertions, migrations, gate scripts,
+packaging and configuration remain byte-identical through the final merges.
+Final follow-up edits are limited to the four program-report Markdown files.
+
+**FOCUSED PASS:** 39 cases across nine explicitly selected route/component and
+migration modules, Ruff and strict mypy, 91.7s. Strict full-gate mypy checked
+752 files; all six early exact broker/schema guards passed. Migrations 0080–0085
+retain one linear head and their direct upgrade, integrity/FK, empty downgrade,
+full-history and populated-evidence downgrade-refusal proofs. No production
+migration ran and no check or assertion was weakened.
+
+History adjustments replay only #69's actual feature commits and the later
+feature stack, retaining original authors/messages and stable feature patch IDs.
+Original local branches/worktrees remain unchanged. Ordinary resolution retained
+all independent decision records and all four stopped-diagnostics/capability
+route functions. No production code or regression assertion required an
+integration fix. The final executable tree also matches ba215e6 exactly.
+
+Preservation checks before/during/after qualification match all 55 original
+worktrees, stash, three historical untracked test files, all 210 original
+containers (including all four running containers), volumes/networks and retained
+log branch 3dddbc2. The final main worktree receives only its authorized fast-forward;
+existing development worktrees are preserved. Final post-merge verification is
+published in issue #54 with the exact final main SHA.
+
+**Completed:** source integration, normal GitHub merges and source-level release
+qualification. **Not performed:** deployment, production migration, changes to
+grants/credentials or existing Docker/Kodi resources, release publication, real
+Kodi acceptance or Windows testing. Optional #52/#18/#53 work and #47/#48 remain
+separate. The program issue remains open for the separately authorized phases.
+
+See [the complete integration report](PROGRAM-54-MERGE-REPORT.md) for exact original/final heads, order and merge inventory.
+
+
+## Current authorized integration
+
+The 2026-10-25 operator kickoff authorizes review and merge of all PRs #55–#82.
+See [the integration report](PROGRAM-54-MERGE-REPORT.md) for the exact inventory,
+dependency order, security review, history adjustments and final validation.
+Earlier pending/unauthorized statements below describe their historical phase.
+Deployment, production migrations and native/platform acceptance remain separate.
+
 Coordination: <https://github.com/kcook98765/kodi-lab/issues/54>.
 This ledger records source qualification, not deployment or native acceptance.
 

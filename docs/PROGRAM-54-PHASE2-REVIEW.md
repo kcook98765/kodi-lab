@@ -1,5 +1,18 @@
 # Program #54 Phase 2 integration review
 
+## Integration completed — 2026-10-25
+
+All 28 PRs #55–#82 are accounted for by the final ledger merge #61. Source-level **RELEASE PASS**: 5,763 passed, 38 unchanged gated skips, 34m20s; all eight stages passed. Source-complete main before the ledger-only merge: `24b89559b0b2e0ab3edbc98e12227b4ee0981c4c`. The final immutable main SHA and preservation proof are recorded in [issue #54](https://github.com/kcook98765/kodi-lab/issues/54) and [the complete integration report](PROGRAM-54-MERGE-REPORT.md). Deployment, production migrations and native/Windows acceptance remain separately authorized phases. Historical entries below retain their earlier status and pins.
+
+
+## Current merge review
+
+The 2026-10-25 operator kickoff authorizes review and merge of all PRs #55–#82.
+See [the integration report](PROGRAM-54-MERGE-REPORT.md) for the exact inventory,
+dependency order, security review, history adjustments and final validation.
+Earlier pending/unauthorized statements below describe their historical phase.
+Deployment, production migrations and native/platform acceptance remain separate.
+
 See the [current source status checklist](PROGRAM-54-PHASE2-STATUS.md) for resolved prerequisites and pending decisions. The entries below retain their milestone context.
 
 Current combined source qualification: **RELEASE PASS**, `ba215e6` / `d6b7669`,
