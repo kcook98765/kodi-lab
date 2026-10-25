@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -31,6 +31,7 @@ from kodi_lab.storage.repositories import AgentWorkspaceRepository, _timestamp_t
 from kodi_lab.workspace.batch_import import switch_import_tree
 from kodi_lab.workspace.storage import (
     AgentWorkspaceReconciliationRequired,
+    AgentWorkspaceStorageError,
     _storage_root,
     normalize_workspace_relative_path,
     workspace_coordination_lock,
@@ -67,10 +68,32 @@ class WorkspaceImportError(RuntimeError):
     """Only server-owned bounded error codes cross the MCP boundary."""
 
 
+class ImportResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, max_length=512)
+    choice: Literal["keep_private", "take_source"]
+
+
 class ImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workspace_id: UUID
     expected_generation: int = Field(ge=0)
+    mode: Literal["changes", "reviewed_tree"] = "changes"
+    resolutions: tuple[ImportResolution, ...] = Field(default=(), max_length=32)
+
+    @model_validator(mode="after")
+    def validate_resolutions(self) -> ImportInput:
+        paths = [item.path for item in self.resolutions]
+        if len(set(paths)) != len(paths) or (paths and self.mode != "reviewed_tree"):
+            raise ValueError("Unique resolutions require reviewed_tree mode.")
+        for path in paths:
+            try:
+                parts = normalize_workspace_relative_path(path, allow_root=False)
+                if any(part in {".git", ".hg", ".svn"} for part in parts):
+                    raise ValueError("Resolution path is invalid.")
+            except AgentWorkspaceStorageError as error:
+                raise ValueError("Resolution path is invalid.") from error
+        return self
 
 
 class ImportApplyInput(ImportInput):
@@ -82,10 +105,16 @@ class ImportApplyInput(ImportInput):
 class ImportFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(max_length=512)
-    operation: Literal["added", "modified", "deleted", "type_changed"]
+    operation: Literal[
+        "added", "modified", "deleted", "type_changed", "retained_private"
+    ]
     size: int
     sha256: str | None
     mode: int = Field(default=0o644, ge=0, le=0o777)
+    preimage_sha256: str | None = None
+    preimage_size: int | None = None
+    preimage_mode: int | None = None
+    resolution: Literal["keep_private", "take_source"] | None = None
     rejection: (
         Literal[
             "deletion_unsupported",
@@ -111,6 +140,8 @@ class ImportPreview(BaseModel):
     workspace_digest: str
     preview_digest: str
     eligible: bool
+    mode: Literal["changes", "reviewed_tree"] = "changes"
+    matches_source: bool = False
     max_file_bytes: int = Field(ge=1)
     max_changed_files: int = Field(ge=1)
     files: tuple[ImportFile, ...]
@@ -127,6 +158,26 @@ class ImportResult(BaseModel):
     tree_digest: str | None
     source_digest: str
     files: tuple[ImportFile, ...]
+    mode: Literal["changes", "reviewed_tree"] = "changes"
+    matches_source: bool = False
+
+
+def _receipt(
+    row: WorkspaceImportOperationRow,
+) -> tuple[ImportInput, tuple[ImportFile, ...]]:
+    """Read original list receipts and versioned reviewed-tree lineage."""
+    document = json.loads(row.files_json)
+    if isinstance(document, list):
+        options = ImportInput(
+            workspace_id=UUID(row.workspace_id), expected_generation=row.generation
+        )
+        files = document
+    elif isinstance(document, dict) and document.get("version") == 2:
+        options = ImportInput.model_validate(document["input"])
+        files = document["files"]
+    else:
+        raise WorkspaceImportError("workspace_import_reconciliation_required")
+    return options, tuple(ImportFile.model_validate(item) for item in files)
 
 
 class WorkspaceImportService:
@@ -138,7 +189,7 @@ class WorkspaceImportService:
     @contextmanager
     def _plan(
         self, operation: ImportInput
-    ) -> Iterator[tuple[ImportPreview, dict[str, bytes]]]:
+    ) -> Iterator[tuple[ImportPreview, dict[str, bytes | None]]]:
         development_root = self._workspaces._development_root
         if development_root is None:
             raise WorkspaceImportError("workspace_import_source_unavailable")
@@ -198,16 +249,22 @@ class WorkspaceImportService:
                     .order_by(WorkspaceImportOperationRow.generation)
                 ).all()
                 for prior in history:
-                    for item in json.loads(prior.files_json):
-                        tracked[item["path"]] = DevelopmentTreeEntry(
-                            path=item["path"],
+                    _options, prior_files = _receipt(prior)
+                    for item in prior_files:
+                        if item.operation == "retained_private":
+                            continue
+                        if item.operation == "deleted":
+                            tracked.pop(item.path, None)
+                            continue
+                        tracked[item.path] = DevelopmentTreeEntry(
+                            path=item.path,
                             entry_type="file",
-                            mode=item["mode"],
-                            size=item["size"],
-                            sha256=item["sha256"],
+                            mode=item.mode,
+                            size=item.size,
+                            sha256=item.sha256,
                         )
             files, payloads = self._changes(
-                tracked, current, captured, staged, source.addon_id
+                tracked, current, captured, staged, source.addon_id, operation
             )
             material = {
                 "workspace_id": str(workspace.id),
@@ -216,6 +273,13 @@ class WorkspaceImportService:
                 "source_digest": captured.digest,
                 "workspace_digest": current.digest,
                 "files": [item.model_dump() for item in files],
+                "mode": operation.mode,
+                "resolutions": [
+                    item.model_dump()
+                    for item in sorted(
+                        operation.resolutions, key=lambda item: item.path
+                    )
+                ],
             }
             digest = hashlib.sha256(
                 json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
@@ -229,6 +293,14 @@ class WorkspaceImportService:
                     workspace_digest=current.digest,
                     preview_digest=digest,
                     eligible=bool(files) and not any(f.rejection for f in files),
+                    mode=operation.mode,
+                    matches_source=(
+                        operation.mode == "reviewed_tree"
+                        and not any(
+                            f.rejection or f.operation == "retained_private"
+                            for f in files
+                        )
+                    ),
                     max_file_bytes=MAX_IMPORT_FILE_BYTES,
                     max_changed_files=MAX_IMPORT_FILES,
                     files=files,
@@ -243,7 +315,8 @@ class WorkspaceImportService:
         source: DevelopmentTreeManifest,
         staged: Path,
         addon_id: str,
-    ) -> tuple[tuple[ImportFile, ...], dict[str, bytes]]:
+        operation: ImportInput,
+    ) -> tuple[tuple[ImportFile, ...], dict[str, bytes | None]]:
         original, private, incoming = (
             tracked,
             current.by_path(),
@@ -251,13 +324,27 @@ class WorkspaceImportService:
         )
         changed = [
             p
-            for p in sorted(original.keys() | incoming.keys())
+            for p in sorted(
+                original.keys()
+                | incoming.keys()
+                | (private.keys() if operation.mode == "reviewed_tree" else set())
+            )
             if original.get(p) != incoming.get(p)
+            or (operation.mode == "reviewed_tree" and private.get(p) != incoming.get(p))
         ]
         if len(changed) > MAX_IMPORT_FILES:
             raise WorkspaceImportError("workspace_import_batch_too_large")
         files: list[ImportFile] = []
-        payloads: dict[str, bytes] = {}
+        payloads: dict[str, bytes | None] = {}
+        resolutions = {item.path: item.choice for item in operation.resolutions}
+        conflicts = {
+            path
+            for path in changed
+            if private.get(path) != original.get(path)
+            and private.get(path) != incoming.get(path)
+        }
+        if resolutions.keys() - conflicts:
+            raise WorkspaceImportError("workspace_import_policy_rejected")
         for path in changed:
             normalize_workspace_relative_path(path, allow_root=False)
             before, after, local = (
@@ -267,7 +354,12 @@ class WorkspaceImportService:
             )
             # Unchanged directory entries need no write. New directories would
             # expand the existing text-edit rule that the parent must exist.
-            if after is not None and after.entry_type == "directory" and before is None:
+            if (
+                operation.mode == "changes"
+                and after is not None
+                and after.entry_type == "directory"
+                and before is None
+            ):
                 continue
             item = ImportFile(
                 path=path,
@@ -275,20 +367,40 @@ class WorkspaceImportService:
                 size=0 if after is None else after.size,
                 sha256=None if after is None else after.sha256,
                 mode=0o644 if after is None else after.mode,
+                preimage_sha256=None if local is None else local.sha256,
+                preimage_size=None if local is None else local.size,
+                preimage_mode=None if local is None else local.mode,
+                resolution=resolutions.get(path),
             )
-            if after is None:
+            if after is None and operation.mode == "changes":
                 item.operation, item.rejection = "deleted", "deletion_unsupported"
-            elif after.entry_type != "file" or (
-                before is not None and before.entry_type != "file"
+            elif any(
+                entry is not None and entry.entry_type != "file"
+                for entry in (before, after, local)
             ):
                 item.operation, item.rejection = (
                     "type_changed",
                     "type_change_unsupported",
                 )
-            elif local != before:
+            elif (
+                operation.mode == "reviewed_tree"
+                and path in conflicts
+                and item.resolution is None
+            ) or (operation.mode == "changes" and local != before):
                 item.rejection = "private_edit_overlap"
-            elif (before is not None and after.mode != before.mode) or (
-                before is None and after.mode != 0o644
+            elif item.resolution == "keep_private":
+                item.operation = "retained_private"
+                item.size = 0 if local is None else local.size
+                item.sha256 = None if local is None else local.sha256
+                item.mode = 0o644 if local is None else local.mode
+            elif after is None:
+                item.operation = "deleted"
+                if path == "addon.xml":
+                    item.rejection = "identity_change"
+                elif local is not None:
+                    payloads[path] = None
+            elif (local is not None and after.mode != local.mode) or (
+                local is None and after.mode != 0o644
             ):
                 item.rejection = "mode_change_unsupported"
             elif "/" in path and private.get(path.rsplit("/", 1)[0]) is None:
@@ -330,6 +442,7 @@ class WorkspaceImportService:
 
     @staticmethod
     def _result(row: WorkspaceImportOperationRow, source_id: UUID) -> ImportResult:
+        options, files = _receipt(row)
         return ImportResult(
             workspace_id=UUID(row.workspace_id),
             source_id=source_id,
@@ -339,8 +452,12 @@ class WorkspaceImportService:
             generation=row.generation + (row.state == "succeeded"),
             tree_digest=row.result_digest if row.state == "succeeded" else None,
             source_digest=row.source_digest,
-            files=tuple(
-                ImportFile.model_validate(item) for item in json.loads(row.files_json)
+            files=files,
+            mode=options.mode,
+            matches_source=(
+                row.state == "succeeded"
+                and options.mode == "reviewed_tree"
+                and not any(item.operation == "retained_private" for item in files)
             ),
         )
 
@@ -469,6 +586,7 @@ class WorkspaceImportService:
                     )
                 )
                 if prior is not None:
+                    prior_options, _prior_files = _receipt(prior)
                     if (
                         prior.workspace_id,
                         prior.generation,
@@ -479,6 +597,15 @@ class WorkspaceImportService:
                         operation.expected_generation,
                         operation.source_digest,
                         operation.preview_digest,
+                    ) or prior_options != ImportInput.model_validate(
+                        operation.model_dump(
+                            include={
+                                "workspace_id",
+                                "expected_generation",
+                                "mode",
+                                "resolutions",
+                            }
+                        )
                     ):
                         raise WorkspaceImportError("workspace_import_request_conflict")
                     if prior.state in {"applying", "reconciliation_required"}:
@@ -493,6 +620,24 @@ class WorkspaceImportService:
                     raise WorkspaceImportError("workspace_import_preview_changed")
                 if not preview.eligible:
                     raise WorkspaceImportError("workspace_import_policy_rejected")
+                lineage = json.dumps(
+                    {
+                        "version": 2,
+                        "input": operation.model_dump(
+                            mode="json",
+                            include={
+                                "workspace_id",
+                                "expected_generation",
+                                "mode",
+                                "resolutions",
+                            },
+                        ),
+                        "files": [item.model_dump() for item in preview.files],
+                    },
+                    separators=(",", ":"),
+                )
+                if len(lineage) > 49152:
+                    raise WorkspaceImportError("workspace_import_batch_too_large")
                 with self._sessions.begin() as session:
                     count = (
                         session.scalar(
@@ -517,10 +662,7 @@ class WorkspaceImportService:
                         preview_digest=preview.preview_digest,
                         prior_digest=preview.workspace_digest,
                         result_digest=None,
-                        files_json=json.dumps(
-                            [item.model_dump() for item in preview.files],
-                            separators=(",", ":"),
-                        ),
+                        files_json=lineage,
                         state="applying",
                         created_at=_timestamp_to_text(self._workspaces._clock()),
                     )
@@ -552,6 +694,9 @@ class WorkspaceImportService:
                         UUID(row.id),
                         files,
                         expected_digest=preview.workspace_digest,
+                        exact_source_digest=preview.source_digest
+                        if preview.matches_source
+                        else None,
                         prepared=prepared,
                     ) as digest:
                         authorize()
