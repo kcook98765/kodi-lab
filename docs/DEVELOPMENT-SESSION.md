@@ -302,3 +302,21 @@ request replay remains historical and never redispatches; recovery keeps its
 original scope. Existing inactive-policy and external paths retain their
 semantics. Receipt selection supplies no permission or live proof. Each later
 operation still verifies current identity, copied bytes, readiness and grants.
+
+
+## Stopped source-copy queue identity
+
+New registered-source copy queues retain the stopped container identity observed
+when queued, using the existing operation field. Acquire preserves that pin,
+rechecks runtime/type/attachment and claims the same exact unclaimed mutation and
+heavy-operation reservations in one writer transaction. A positive profile or
+scope change fails the unclaimed request without copying into its replacement.
+Only its exact unclaimed reservations are released. Claimed/running/foreign or
+malformed work remains fenced; unknown inventory is not treated as completion.
+
+A trusted queue precondition can bind a future guided action to the selected
+session before any operation/lease reservation. This does not add an endpoint,
+permission, request-id/replay guarantee or automatic source setup. Existing legacy
+nullable queue rows keep claim-time binding; they do not gain retrospective queue
+identity proof. The existing source executor remains the only worker. A guided
+copy action still needs durable request attribution and current session admission.

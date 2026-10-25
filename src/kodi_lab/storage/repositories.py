@@ -6985,6 +6985,7 @@ class _DevelopmentSourceDeploymentOperationRepositoryBase:
                 requested_at=_timestamp_to_text(operation.requested_at),
                 state=operation.state,
                 phase=operation.phase,
+                expected_container_id=operation.expected_container_id,
                 reconciliation_required=operation.reconciliation_required,
             )
         )
@@ -8043,6 +8044,15 @@ class DevelopmentSourceDeploymentOperationRepository(
                 DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
                 DevelopmentSourceDeploymentOperationRow.state
                 == DevelopmentSourceDeploymentOperationState.QUEUED,
+                (
+                    DevelopmentSourceDeploymentOperationRow.expected_container_id.is_(
+                        None
+                    )
+                    | (
+                        DevelopmentSourceDeploymentOperationRow.expected_container_id
+                        == expected_container_id
+                    )
+                ),
             )
             .values(
                 state=DevelopmentSourceDeploymentOperationState.RUNNING,
