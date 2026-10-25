@@ -5,6 +5,11 @@ This ledger records source qualification, not deployment or native acceptance.
 
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
+- Settled shared-native-boundary candidate **RUNNING**: `ba215e6`, tree
+  `d6b7669`, starting11:55UTC. It composes source82 `683c2c5`, guide80 and report
+  snapshot5420c39;1,817tracked entries/11changedSHA. No result yet. c788 remains
+  the latest verified RELEASE PASS; later81/82 results are integration only.
+
 - Latest completed combined qualification: **RELEASE PASS**, commit
   `c788a3166002ea171074d08f8363a827fb1e3da0`, tree
   `4211e3d7bda1b32b38e2044111e45d19959248a2`: **5,703 passed / 38 gated skips /
@@ -1353,3 +1358,39 @@ in the frozen candidate. Existing scoped/runtime/native/Windows operational
 acceptance and approval decisions remain distinct. The Bridge inner-scope review
 must respect existing one-profile/broker identity/START lease/trust generation
 invariants; no redundant new manager/migration has been introduced.
+
+
+### Settled single-session authority composition frozen for full qualification
+
+Frozen/pushed `qualification/54-single-session-20261025`, worktree
+`54-single-session-qualification-20261025`, commit
+`ba215e6d62dac996cfdf12e9df102bc1b16b6a99`, tree
+`d6b76696e2eb7dbca0d115493bd0b137e4ae4862`. Source82 final683c2c5 includes81;
+independent guide80 was composed as5a238ac without conflict. README matches80;
+the complete appended selected-enablement/smoke session sections from81/82 were
+SHA-verified unchanged. Current ledger/review snapshot5420c39 is included. Manifest
+records all1,817tracked entries,11changed-file SHA256 values versus successfulc788,
+no deletions, source/guide/report heads and composition proof.
+
+Provenance preflight correctly noted that c788 itself is a sibling report-snapshot
+commit, not an ancestor of source81/82. The check now verifies the qualified
+functional head6aaa097 is an ancestor and that c788 differs from that head only
+in the two report files. The exact comparison still uses the actual qualified
+c788 tree. No source was rewritten to manufacture ancestry or qualification.
+This verification happened before the gate; no failed full attempt was created.
+
+One unchanged full gate started11:55UTC using standard auto tmpfs and separate
+snapshot scratch, all stages/security/schema/native gates, unchanged reserves and
+2,400s watchdog. No competing tests, native/DinD/acquisition acceptance or source
+churn. Private `single-session-release-result.json`, source manifest/full log/
+result folder retain the attempt. **No result yet**; c788 remains latestverified
+RELEASE PASS. Follow completed exit/stages/cleanup and independent source proof
+before assigning another result. Guide/81/82 do not inherit c788.
+
+The separate inner-Bridge scope review remains bounded: current one-provisioned-
+profile admission, exact broker container identity, owned START action and exact
+prepared trust generation already exclude ordinary foreign-live-profile paths.
+Do not add redundant state/migration merely for an impossible normal transition.
+Native prompt and supported exact-version/platform acceptance still require
+separate authorization/evidence. No new Bridge implementation or acceptance is
+claimed. All grouped operational/security-design decisions remain unchanged.
