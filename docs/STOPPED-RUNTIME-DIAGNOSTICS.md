@@ -39,3 +39,101 @@ bounded fixed-artifact reads, exact operation lineage, private retention and a
 reviewed agent-access/redaction policy. Original native crash causality remains
 unknown. Do not use this metadata read alone to justify profile disposal or claim
 that #50, Fresh Test, version switching or native/platform acceptance is complete.
+
+## Select and retain stopped log excerpts
+
+The Web administrator can open `/instances/{id}/diagnostics` to save an exact
+stopped test, and `/diagnostics` to review retained captures. Ordinary forms
+carry a durable request ID: repeating the same form returns that capture and
+does not repeat the read. The JSON equivalent is
+`POST /api/instances/{id}/diagnostic-captures`, with a request UUID, displayed
+expected runtime/container, optional exact deployment operation UUID, and
+`retain_redacted_logs: true`. Authentication, same-origin and CSRF checks apply.
+No MCP tool, preset or grant is added.
+
+The broker reads the four fixed internal files already covered by the
+preserved log-retention branch: current/previous Kodi logs, internal
+`kodi-stdout.log` and `xvfb.log`. It requires the current disposable target,
+immutable image pin, standard UID/GID 1000 layout, an unchanged stopped identity,
+and a private profile without configured shared mounts/privileged/host-PID mode.
+Every fixed ancestor uses HEAD path-stat; symlink/type/mode/name checks precede
+a single-file TAR read. Source files are bounded to 1 MiB each; archives have
+an additional fixed 64 KiB header budget. Each returned excerpt is at most 4 KiB
+of UTF-8 after redaction of the complete bounded input. Oversized logs return
+`too_large` without downloading or trimming them. Missing, unsafe, changed and
+unavailable are separate states. No recipe, rotation configuration or existing
+file is modified. Archive reads can make the Engine mount its own stopped
+filesystem view internally; this is not a new container, caller-selected mount,
+process launch or installed-byte mutation.
+
+The fifth artifact is a fixed Docker stdout/stderr window: at most 200 lines,
+timestamps included, without following the stream. The encoded response is
+bounded to 64 KiB before strict non-TTY multiplex decoding (or a bounded raw
+TTY response), full-window redaction and a 4 KiB retained tail. Oversized,
+malformed or unavailable responses return an explicit artifact state without
+retaining an unsafe partial body. Docker's `source_size_bytes` counts the
+decoded returned window, not all historical output. A bounded window does not
+establish rotation, full-history coverage or crash cause. No logging driver or
+rotation setting is changed. Schema-2 captures include all five fixed artifact
+states; schema-1 captures remain readable with their Docker output explicitly
+uncollected. A reader that supports schema 2 is required for those new bodies.
+
+The installed SDK's generic archive iterator disables socket timeouts. This
+reader instead uses fixed raw HTTP endpoints and bounded `read1` calls, per-call
+timeouts, an overall observation budget and explicit response closure. The
+installed SDK is exercised against a local HTTP fixture as well as the real
+privileged broker socket protocol. Those are source/transport fixtures, not
+native Docker/Kodi or Windows acceptance. The reviewed
+[Moby path-stat implementation](https://github.com/moby/moby/blob/v28.5.1/daemon/containerfs_linux.go)
+uses `Lstat` and reports symlink metadata; the
+[archive implementation](https://github.com/moby/moby/blob/v28.5.1/daemon/archive_unix.go)
+retains its container lock while streaming. No raw Docker option or path is
+accepted from a caller.
+
+A capture can name an existing terminal direct managed workspace deployment
+only when its target, runtime and original container match exactly. The saved
+context includes workspace generation and add-on identity. This establishes
+**same-container association after that operation**, not causality or a complete
+per-operation log window. An unbound capture remains explicitly unbound; no
+latest/nearby deployment is guessed. Retained reconciliation fences remain and
+are never cleared or borrowed as mutation authority. Independent file reads do
+not establish a transactionally consistent bundle. Exit/OOM remain observations;
+cause and unobserved rotation remain unknown.
+
+### Private retention policy
+
+Migration 0081 adds only `managed_diagnostic_captures`, initially empty, after
+0080. Historical IDs have no live-resource foreign key, so a selected capture
+survives target/runtime/profile removal. Each redacted JSON payload is bounded
+to 49,152 UTF-8 bytes in application admission and the actual SQLite constraint.
+At most 64 retained/pending bodies and 256 total history rows are admitted;
+one global capture can be pending. Claims and capacity share a SQLite writer
+transaction. The unchanged 2 GiB storage reserve applies before admission to
+both the configured data root and the actual SQLite database filesystem. These
+are logical admission limits, not a physical database-file quota.
+Capacity failure never prunes or overwrites previous evidence.
+
+Captures are marked for review after 30 days and remain until explicitly
+discarded. There is no automatic expiry, sweep, idle deletion or scheduler.
+Body reads are Web-admin-only, non-cacheable and escaped in HTML; bodies never
+enter ordinary audit fields. Recognized token/password/userinfo patterns are
+redacted before truncation, but arbitrary sensitive values cannot be universally
+identified. Review saved excerpts before sharing them. No agent access is
+inferred from existing deployment or inspection grants.
+
+Discard requires the exact displayed state and payload digest plus explicit
+confirmation/CSRF. The body is removed while identity, digest and terminal
+history remain. Abandoning a pending **read** prevents its late result from
+publishing. It does not settle an uncertain Docker create, remove a Kodi
+resource, clear a lease/fence or authorize profile disposal. Cancellation after
+a committed publication cannot erase that receipt. Lost/failed requests remain
+inspectable by their durable identity; retries cannot bind the same request ID
+to another target/container/operation. Populated capture history refuses a
+lossy downgrade; no production migration is performed by this source work.
+Known broker failures use fixed reason codes; raw exception messages never
+become saved diagnostic error text. Retention and discard acknowledgements
+require actual JSON booleans, not coercible numbers or strings.
+
+Native crash-report discovery remains uncollected. Its availability must not be
+inferred from empty/missing excerpts. Fixed bounded capture is not native crash
+causality, symbolication, complete #50 acceptance or permission for Fresh/Switch.

@@ -25,6 +25,7 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -381,6 +382,13 @@ from kodi_lab.application.reset_operations import (
 from kodi_lab.application.reset_status import (
     ManagedInstanceResetStatus,
     ResetStatusService,
+)
+from kodi_lab.application.retained_diagnostics import (
+    DiagnosticCaptureInput,
+    DiagnosticCaptureSummary,
+    DiagnosticDiscardInput,
+    RetainedDiagnosticsError,
+    RetainedDiagnosticsService,
 )
 from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
@@ -1202,12 +1210,31 @@ class HistoricalContainmentRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class DiagnosticCaptureForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_runtime_revision_id: UUID
+    expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    capture_ack: Literal["yes"]
+    deployment_operation_id: str = Field(default="", max_length=36)
+
+
+class DiagnosticDiscardForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    expected_state: Literal["capturing", "retained", "failed"]
+    expected_payload_sha256: str = Field(default="", max_length=64)
+    discard_ack: Literal["yes"]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
     auth: WebAuthenticationService
     throttler: LoginThrottler
     status: ManagedRuntimeStatusService
+    retained_diagnostics: RetainedDiagnosticsService
     lifecycle: ManagedRuntimeLifecycleService
     managed_resources: ManagedResourceService
     managed_agent_lifecycle: ManagedAgentLifecycleService
@@ -2020,6 +2047,9 @@ def create_app(
         session_factory, activity, snapshot_status
     )
     context = WebApplicationContext(
+        retained_diagnostics=RetainedDiagnosticsService(
+            session_factory, broker, data_root=settings.data_root
+        ),
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
@@ -7428,6 +7458,195 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
             },
         )
+
+    @app.exception_handler(RetainedDiagnosticsError)
+    async def retained_diagnostics_failure(
+        _request: Request, error: RetainedDiagnosticsError
+    ) -> Response:
+        return JSONResponse(
+            status_code=404 if error.code == "diagnostic_capture_not_found" else 409,
+            content={"detail": error.code},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post(
+        "/api/instances/{instance_id}/diagnostic-captures",
+        response_model=DiagnosticCaptureSummary,
+    )
+    def retain_stopped_diagnostics(
+        instance_id: UUID,
+        body: DiagnosticCaptureInput,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.capture(instance_id, body)
+
+    @app.get("/api/diagnostic-captures", response_model=list[DiagnosticCaptureSummary])
+    def diagnostic_capture_list(
+        target_id: UUID | None = None,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[DiagnosticCaptureSummary]:
+        return context.retained_diagnostics.list(target_id)
+
+    @app.get(
+        "/api/diagnostic-captures/{capture_id}", response_model=DiagnosticCaptureSummary
+    )
+    def diagnostic_capture_status(
+        capture_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.status(capture_id)
+
+    @app.get("/api/diagnostic-captures/{capture_id}/evidence")
+    def diagnostic_capture_evidence(
+        capture_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        evidence = context.retained_diagnostics.read(capture_id)
+        return JSONResponse(
+            evidence.model_dump(mode="json"),
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.post(
+        "/api/diagnostic-captures/{capture_id}/discard",
+        response_model=DiagnosticCaptureSummary,
+    )
+    def discard_diagnostic_capture(
+        capture_id: UUID,
+        body: DiagnosticDiscardInput,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.discard(capture_id, body)
+
+    @app.get("/diagnostics", response_class=HTMLResponse)
+    def diagnostic_capture_index(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "diagnostics.html",
+            {
+                "captures": context.retained_diagnostics.list(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/instances/{instance_id}/diagnostics", response_class=HTMLResponse)
+    def stopped_diagnostic_capture_page(
+        request: Request, instance_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        with session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail="managed_instance_not_found")
+        inventory = broker.managed_container_inventory(
+            managed_instance_id=str(instance_id)
+        ).containers
+        selected = (
+            inventory[0]
+            if len(inventory) == 1
+            and inventory[0].runtime_revision_id == str(instance.runtime_revision_id)
+            and inventory[0].runtime_state is ContainerRuntimeState.STOPPED
+            else None
+        )
+        return templates.TemplateResponse(
+            request,
+            "diagnostics.html",
+            {
+                "captures": context.retained_diagnostics.list(instance_id),
+                "target_id": instance_id,
+                "runtime_revision_id": instance.runtime_revision_id,
+                "container_id": None if selected is None else selected.container_id,
+                "request_id": uuid4(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/diagnostics/{capture_id}", response_class=HTMLResponse)
+    def diagnostic_capture_page(request: Request, capture_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        capture = context.retained_diagnostics.status(capture_id)
+        evidence = (
+            context.retained_diagnostics.read(capture_id)
+            if capture.state == "retained"
+            else None
+        )
+        return templates.TemplateResponse(
+            request,
+            "diagnostic-evidence.html",
+            {
+                "capture": capture,
+                "evidence": evidence,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def diagnostic_form_authority(
+        request: Request, authenticated: AuthenticatedWebSession, csrf: str
+    ) -> None:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf):
+            raise HTTPException(status_code=403)
+
+    @app.post("/instances/{instance_id}/diagnostics")
+    def stopped_diagnostic_capture_form(
+        request: Request,
+        instance_id: UUID,
+        body: DiagnosticCaptureForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        diagnostic_form_authority(request, authenticated, body.csrf_token)
+        try:
+            operation_id = (
+                UUID(body.deployment_operation_id)
+                if body.deployment_operation_id
+                else None
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="invalid_deployment_operation"
+            ) from None
+        capture = context.retained_diagnostics.capture(
+            instance_id,
+            DiagnosticCaptureInput(
+                request_id=body.request_id,
+                expected_runtime_revision_id=body.expected_runtime_revision_id,
+                expected_container_id=body.expected_container_id,
+                deployment_operation_id=operation_id,
+                retain_redacted_logs=True,
+            ),
+        )
+        return RedirectResponse(f"/diagnostics/{capture.capture_id}", status_code=303)
+
+    @app.post("/diagnostics/{capture_id}/discard")
+    def discard_diagnostic_capture_form(
+        request: Request,
+        capture_id: UUID,
+        body: DiagnosticDiscardForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        diagnostic_form_authority(request, authenticated, body.csrf_token)
+        context.retained_diagnostics.discard(
+            capture_id,
+            DiagnosticDiscardInput(
+                expected_state=body.expected_state,
+                expected_payload_sha256=body.expected_payload_sha256 or None,
+                confirm_discard=True,
+            ),
+        )
+        return RedirectResponse(f"/diagnostics/{capture_id}", status_code=303)
 
     @app.get("/api/instances/{instance_id}/reviewed-bridge")
     def reviewed_managed_bridge_status(
