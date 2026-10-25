@@ -5,6 +5,11 @@ This ledger records source qualification, not deployment or native acceptance.
 
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
+- New frozen combined gate **RUNNING** at `c788a31`, tree `4211e3d`, starting
+  10:47 UTC. It includes #74's fixture correction and #75–#79, with current
+  ledger snapshot `96e8c5d`, 1,815 tracked entries and 61 changed SHA values.
+  No result yet. Existing successful/failed pins remain separately recorded.
+
 - Latest successful combined qualification: `cbc8894`, **RELEASE PASS**,
   5,515 passed / 38 gated skips / 32m12s. Phase 1 remains separately pinned
   at `02c4054`, 5,234 / 38 / 29m59s; later focused additions never inherit it.
@@ -1129,3 +1134,24 @@ retain exact commit/tree/all tracked entries/changed-file SHA manifest and curre
 ledger snapshot, use standard auto tmpfs plus separate snapshot scratch, and run
 all unchanged release stages without competing tests. Keep557dcdd failed and
 CBC/Phase1 successful pins distinct. Do not merge/deploy or migrate running Lab.
+
+### Guided session composition frozen for full qualification
+
+Frozen/pushed branch `qualification/54-guided-session-20261025`, worktree
+`54-guided-session-qualification-20261025`, commit
+`c788a3166002ea171074d08f8363a827fb1e3da0`, tree
+`4211e3d7bda1b32b38e2044111e45d19959248a2`. Source is draft#79 head
+`6aaa097d62a235a291274ce04bcc41c6ad5670c0`, plus the exact two durable report
+files from ledger snapshot `96e8c5d`. The manifest retains all1,815 tracked entries,
+61 changed-file SHA256 values relative to last successfulCBC, and no deletions.
+It includes failed557's code plus separately corrected historical fixture and
+#75–#79; no prior failed/successful qualification is transferred to this pin.
+
+One unchanged full `scripts/check` began at10:47 UTC using standard harness
+auto-selected pytest scratch and separate snapshot scratch. All stages, reserves,
+2,400s pytest watchdog, gated native cases and security/schema checks remain.
+No competing tests or native/DinD/acquisition acceptance are running. The private
+`guided-session-release-result.json`, source manifest, full log and result-folder
+stage/report files retain the exact attempt. Source remains frozen. Report the
+actual exit/stages/cleanup and reverify manifest before assigning RELEASE PASS.
+No result is available at this checkpoint; do not infer release/native acceptance.

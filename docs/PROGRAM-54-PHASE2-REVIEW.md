@@ -203,3 +203,10 @@ schema/tool/grant or runtime operation.29 focused+293 interactions passed159.7s;
 final19-case focused module adds two later race/lost-completion-ack proofs7.3s.
 No RELEASE PASS yet. Review order #74→#75→#76→#77→#78→#79. Freeze a settled
 composition next, without merging PRs or changing production resources.
+
+
+Frozen combined source candidate `c788a31` / tree `4211e3d` (draft#79 plus
+ledger96e8c5d snapshot) began one full gate at10:47UTC. Manifest:1,815 tracked
+entries,61 changed SHA values,no deletions. #74fixture correction and#75–#79
+are included. No result yet; never inherit successfulCBC/Phase1 or erase failed557.
+No competing tests, no merge/deployment/migration/native operational acceptance.
