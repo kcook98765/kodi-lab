@@ -133,3 +133,129 @@ remain explicit later qualifications.
 
 No automatic issue closure, merge, deployment, security-grant migration,
 production mutation or deletion of existing resources follows from these PRs.
+
+## Additional single-session implementation findings
+
+`runtime/lab.py::canonical_id()` derives curated targets with UUID5 and reviewed
+recipe targets with `recipe_target_id()`. They are distinct exact identities;
+`ManagedInstanceService._validate_selection()` rejects an incompatible release.
+Use a logical session pointer over those identities instead of repinning a
+single target across Kodi releases. `runtime_lifecycle.py::_deprovision()`
+requires stopped state and invalidates source/ZIP evidence and Bridge trust.
+`reset.py::_reset_locked()` already sequences stop, invalidation, deprovision,
+absence verification and exact-pin provision; it does not provide cross-target
+exclusivity. Reusing its phases requires durable operation ownership, not simply
+calling reset from a new page.
+
+The smallest proposed coordinator persists one logical session generation and
+its exact target/runtime/container, selected source/workspace and current typed
+operation/phase. An opt-in policy must be checked by provision/reset and every
+start path, including Advanced Web controls, agent lifecycle, deployment restart
+and the broker admission boundary. A page-level inventory check has a race with
+those paths. Existing unrelated provisioned containers should cause a clear
+conflict, preserving them until separate operator action; their stopped state
+does not make them disposable by this session.
+
+Suggested durable sequence: review prerequisites/evidence and data loss → claim
+the session generation → stop/verify the old exact container → retain selected
+evidence → retire through supported lifecycle → prove absence → provision the
+chosen approved cached exact runtime → establish native and reviewed Bridge
+readiness independently → perform stopped source baseline copy → start/enable →
+deploy the validated workspace. Each irreversible dispatch needs a persisted
+phase first. An uncertain dispatch remains blocked for inspection; never
+provision another container on an assumed timeout. Stop/resume alone retains the
+same profile. Only explicit Fresh Test/Switch advances to a replacement profile.
+
+No target/source/workspace grant is inherited by selecting a version. Existing
+`managed.lifecycle` only resumes/releases an already provisioned granted target;
+it does not become create/reset/delete authority. Reuse Web administration for
+preparation. Tests must race two prepares, Advanced provision vs prepare, agent
+start vs switch, restart after each dispatch marker, changed identity and
+uncertain retirement, and prove that workspace/history/evidence survive. New
+durable vocabulary needs its own migration and migration-transition proofs.
+
+## Convenience API feasibility review
+
+This additional review is read-only. No settings/ZIP capability, grant, Bridge
+build, target configuration or installation was changed.
+
+For #52, `ManagedLaunchBridgeService.binding()/call()` and managed Bridge trust
+already supply reviewed identity/generation rechecks; `narrow_bridge.py` has a
+closed operation set and no add-on-settings setter. A future operation should
+derive the active deployment's add-on and target from a durable session binding,
+not guess the latest deployment when a workspace has several version histories.
+It needs an explicitly reviewed runtime-settings permission; workspace file-edit
+authority alone is not that permission. A first slice can accept a bounded set
+of artifact-reviewed ordinary setting IDs/types, use a fixed Kodi API call,
+return per-key application/readback outcomes without batch-atomicity claims,
+exclude secrets and avoid values in audits/replay caches. Do not install,
+enable, restart or navigate as a side effect.
+
+Matrix already exposes typed add-on settings accessors; Nexus introduces the
+`getSettings()` wrapper and deprecates older typed accessors. This supports a
+small version-aware adapter proposal, not a runtime compatibility claim.
+Primary sources:
+[19.5 Addon.h](https://github.com/xbmc/xbmc/blob/19.5-Matrix/xbmc/interfaces/legacy/Addon.h),
+[20.5 Addon.h](https://github.com/xbmc/xbmc/blob/20.5-Nexus/xbmc/interfaces/legacy/Addon.h).
+Qualification still needs each exact supported Bridge/runtime pin, denied/stale
+scope, partial failure, per-key readback and secret-exclusion tests.
+
+For #53, `InstallFromZip` ignores its parameter vector and enters the Add-on
+Browser dialog in the checked official source tags:
+[19.5](https://github.com/xbmc/xbmc/blob/19.5-Matrix/xbmc/interfaces/builtins/AddonBuiltins.cpp),
+[20.5](https://github.com/xbmc/xbmc/blob/20.5-Nexus/xbmc/interfaces/builtins/AddonBuiltins.cpp),
+[21.3](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/builtins/AddonBuiltins.cpp),
+[22.0rc1](https://github.com/xbmc/xbmc/blob/22.0rc1-Piers/xbmc/interfaces/builtins/AddonBuiltins.cpp).
+The documented Addons JSON-RPC namespaces provide enumeration, execution and
+enablement, not a ZIP-install method:
+[Matrix](https://kodi.wiki/view/JSON-RPC_API/v12#Addons),
+[Nexus](https://kodi.wiki/view/JSON-RPC_API/v13#Addons),
+[Omega](https://kodi.wiki/view/JSON-RPC_API/v13.5#Addons),
+[Piers](https://kodi.wiki/view/JSON-RPC_API/v13.11#Addons).
+
+Inference: one unattended native ZIP install cannot be built by adding a path
+argument to that builtin or wrapping the existing JSON-RPC add-on methods.
+Current Lab native delivery is narrower still: `NativeZipInstallationService`
+validates passive repository artifacts, requires an absent destination and
+independent `addon.install` authority, and observes operator-driven installation.
+It does not upgrade an arbitrary active workspace add-on. Preserve that path as
+the supported assisted alternative. A proposed one-call workflow would need a
+separately reviewed bounded GUI route or an upstream supported API, artifact/
+workspace lineage and upgrade semantics, and real prompt/dependency/version
+qualification. Opening the picker, downloading a ZIP or extracting its files
+does not establish native completion. No such unattended route was implemented.
+
+## Next exact-tree staging slice (#45)
+
+Keep the current add/replace contract as the default. A deliberately reviewed
+deletion mode should bind each removal to its current preimage, the source
+snapshot, workspace generation and preview digest. Start with tracked ordinary
+files; preserve manifest identity, type/mode limits, quotas and grants. Deletions
+count toward the bounded batch. Unsupported directory transitions must remain
+explicit instead of leaving empty directories while claiming an exact tree.
+
+`WorkspaceImportService._changes()` currently compares tracked/source paths and
+rejects removals before overlap handling. An exact-tree assessment must also
+include private-only paths. Default overlaps remain rejections. Any explicit
+keep-private/take-source resolution must be included in the reviewed digest and
+rechecked against the private preimage at apply time; a kept private path means
+the result is a reviewed merge, not an exact source tree.
+
+`workspace/batch_import.py::switch_import_tree()` currently accepts only byte
+replacements. Extend its internal staged operations with bounded removals, using
+the same descriptor-bound parent traversal and atomic full-tree exchange.
+Delete only in the private staged copy, retain the old tree and original
+baseline, and prove complete expected results before publication. An uncertain
+database publication retains both trees and reconciliation rather than guessing
+rollback. Existing import-history reconstruction assumes every postimage is a
+file; removals need explicit tombstone handling and versioned lineage instead of
+constructing a fictitious file entry with a null hash.
+
+Acceptance should reproduce the synthetic 80→78 shape (69 unchanged, 7 modified,
+2 added, 4 removed) with exact hashes and retained prior history, plus explicit
+private conflicts, stale source/generation/preimage, concurrent import/edit,
+unsafe path/type/mode, interrupted exchange/publication and replay. Reuse
+`tests/application/test_workspace_imports.py`, `test_workspace_import_limits.py`,
+`tests/web/test_workspace_import_mcp.py` and
+`tests/storage/test_workspace_import_migration.py`. This is the next proposed
+implementation slice, not an implemented API or native acceptance claim.

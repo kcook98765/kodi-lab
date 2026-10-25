@@ -106,13 +106,35 @@ Increment status (broader combined qualification remains pending):
 
 | Increment | Isolated branch/worktree | Status |
 | --- | --- | --- |
-| #54 fixture performance | `program/54-test-performance-20261024`, `/home/kyle/kodi-lab-worktrees/54-test-performance-20261024` | INTEGRATION PASS for matched 269-case lane before/after; FOCUSED PASS for all nine changed modules individually (235 cases) plus the 15 existing template/cleanup proofs, Ruff/mypy, 43.2s. Non-fixture behavior ASTs match main in all nine modules. |
-| #44 failed-copy recovery | `fix/44-fence-post-copy-failure-20261024`, `/home/kyle/kodi-lab-worktrees/44-post-copy-failure-20261024` | FOCUSED PASS: 31 application and 5 Web cases individually, Ruff/mypy, 19.5s. Broker interaction qualification next. Retains fence after inventory failure; explicit historical verified-copy enrollment; existing broker full-tree proof; exact history action. |
+| #54 fixture performance | `program/54-test-performance-20261024`, `/home/kyle/kodi-lab-worktrees/54-test-performance-20261024` | Code commit `c156e79`; [draft PR #56](https://github.com/kcook98765/kodi-lab/pull/56). INTEGRATION PASS for matched 269-case lane before/after; FOCUSED PASS for all nine changed modules individually (235 cases) plus 15 existing template/cleanup proofs, Ruff/mypy, 43.2s. Non-fixture behavior ASTs match main in all nine modules. |
+| #44 failed-copy recovery | `fix/44-fence-post-copy-failure-20261024`, `/home/kyle/kodi-lab-worktrees/44-post-copy-failure-20261024` | Commit `4c2f681`; [draft PR #58](https://github.com/kcook98765/kodi-lab/pull/58). INTEGRATION PASS: 31 application and 5 Web cases individually, then 121 workspace/broker interactions, Ruff/mypy, 58.9s. Retains the inventory-failure fence and uses explicit historical enrollment plus the existing full-tree proof. |
 | #49 Bridge status | `fix/49-bridge-status-20261024`, `/home/kyle/kodi-lab-worktrees/49-bridge-status-20261024` | Commit `a77607f`; [draft PR #55](https://github.com/kcook98765/kodi-lab/pull/55). FOCUSED PASS: new 2-case module plus 6 existing control tests, each individually, Ruff/mypy and JS syntax. Lanes 23.6s and 8.3s; pytest 1.22s and 3.24s. Broader combined qualification pending. |
-| #46 baseline diagnosis | `fix/46-managed-baseline-reasons-20261024`, `/home/kyle/kodi-lab-worktrees/46-baseline-reasons-20261024` | Draft: bounded missing/stale/unknown/runtime-mismatch reasons survive MCP; existing admission unchanged; full preflight remains later. |
+| #46 baseline diagnosis | `fix/46-managed-baseline-reasons-20261024`, `/home/kyle/kodi-lab-worktrees/46-baseline-reasons-20261024` | Commit `98d382a`; [draft PR #57](https://github.com/kcook98765/kodi-lab/pull/57). FOCUSED PASS: 5 application and 3 Web/actual modern-and-legacy MCP cases individually, Ruff/mypy, 10.0s. Admission predicates unchanged; the complete observation-only preflight remains later. |
+| #54 retained-report utility | `perf/54-report-summary-20261024`, `/home/kyle/kodi-lab-worktrees/54-report-summary-20261024` | Commit `113111e`; [PR #59](https://github.com/kcook98765/kodi-lab/pull/59). FOCUSED PASS: 19 cases, Ruff/mypy, 2.1s. Real before/after 247-case JSON reports summarized without rerunning tests. Independent of the frozen combined candidate. |
 
-No merges or running-installation changes authorized. These branches remain
-independent of the profiling worktree while its baseline is running.
+No merges or running-installation changes authorized. Each increment remains
+isolated; main's timed baseline ended before the matched measurements.
+
+Combined qualification is running at exact commit
+`02c4054616598df41edb89cda955a4aa6095157f`, tree
+`1cdb95bff744d012faace9f05417191a42a375cc`, in
+`/home/kyle/kodi-lab-worktrees/54-batch-qualification-20261024`, branch
+`qualification/54-batch-20261024`. The four source increments were copied into
+that isolated candidate with ordinary cherry-picks; no PR or main merge occurred.
+The candidate remains unchanged during its full gate. The documented timeout
+override is 2,400 seconds for pytest, justified by main's 900-second timeout.
+Log: `candidate-release.log`; exact source/tree and changed-file SHA256 manifest:
+`qualification-source-manifest.json` in the durable evidence directory. Ruff,
+full mypy and six contract guards have passed; the full pytest result is pending.
+No live Kodi/DinD/acquisition acceptance is running. The standalone report
+utility has its own small focused qualification and is outside this candidate.
+
+Read-only follow-up audits completed during qualification: exact canonical/
+recipe identity and admission gaps for #51; Kodi 19.5/20.5/21.3/22.0rc1 source
+inspection of native ZIP builtin behavior; settings API/permission dependencies
+for #52; and the next bounded deletion/lineage/resolution slice for #45. Primary
+source links and proposal/evidence limits are in `PROGRAM-54-AUDIT.md`. None of
+these later features was implemented or granted by the audit.
 
 Existing #50-related log work is preserved on
 `feat/nexus-closed-log-retention-20261023` (`09d847e`, `3dddbc2`), outside current
