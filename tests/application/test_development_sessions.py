@@ -259,7 +259,7 @@ def test_all_starts_use_session_identity_while_stop_preserves_the_profile(
     assert calls == ["start"]
 
 
-def test_uncertain_provision_survives_restart_and_requires_absence_review(
+def test_uncertain_provision_survives_restart_and_is_not_freed_by_absence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     state = environment(tmp_path, monkeypatch)
@@ -289,13 +289,17 @@ def test_uncertain_provision_survives_restart_and_requires_absence_review(
         assert retained is not None and retained.phase == "uncertain"
         operation_id = UUID(retained.operation_id)
     state.dispatch()
-    with pytest.raises(DevelopmentSessionConflict, match="busy"):
-        restarted.reconcile_absent_provision(fixture.TARGET_ID, operation_id)
-    state.records.clear()  # fixture represents separately verified external retirement
-    restarted.reconcile_absent_provision(fixture.TARGET_ID, operation_id)
-    resumed = restarted.status()
-    assert resumed is not None and resumed.phase == "reserved"
-    assert state.provision().container_id == fixture.CONTAINER_ID
+    with pytest.raises(DevelopmentSessionConflict, match="requires_review"):
+        restarted.close_absent(1)
+    state.records.clear()
+    # Absence cannot prove that an accepted daemon create will not finish late.
+    with pytest.raises(DevelopmentSessionConflict, match="requires_review"):
+        restarted.close_absent(1)
+    with state.env.sessions() as session:
+        retained = session.get(ManagedProvisionReservationRow, str(fixture.TARGET_ID))
+        assert retained is not None and retained.operation_id == str(operation_id)
+    with pytest.raises(ManagedCapacityError, match="requires_reconciliation"):
+        state.provision()
 
 
 def test_missing_container_does_not_silently_allow_an_advanced_replacement(
@@ -414,3 +418,24 @@ def test_container_created_outside_reserved_dispatch_cannot_be_adopted(
         state.provision(unowned_retry)
     assert state.service.status().phase == "uncertain"
     assert len(state.records) == 1
+
+
+def test_definite_image_preflight_failure_does_not_leave_an_uncertain_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.broker.errors import RuntimeImageUnavailableError
+
+    state = environment(tmp_path, monkeypatch)
+    state.service.reserve(state.request)
+
+    def no_image() -> Any:
+        raise RuntimeImageUnavailableError("cached image disappeared before create")
+
+    with pytest.raises(RuntimeImageUnavailableError):
+        state.provision(no_image)
+    assert state.service.status().phase == "reserved"
+    with state.env.sessions() as session:
+        assert (
+            session.get(ManagedProvisionReservationRow, str(fixture.TARGET_ID)) is None
+        )
+    assert state.provision().created

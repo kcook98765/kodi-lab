@@ -23,6 +23,8 @@ provision therefore cannot race a new session's apparent empty inventory. A sess
 also constrains existing Advanced, reset and agent start paths at the broker; a
 page-only guard or max_running=1 would leave a second stopped container possible.
 Uncertain reservations survive process restart and never expire into a free slot.
+Only known network/image preflight errors, raised before any create, release their
+reservation and retain the prior session phase.
 
 Phases are reserved → provisioning → bound, or uncertain after an unverified
 outcome. Binding requires the exact post-provision target/runtime/container/image
@@ -31,9 +33,14 @@ selected profile can stop/resume without advancing session generation. If it
 vanishes, an Advanced retry cannot silently replace it. An explicit absent/idle
 close retains generation history and allows a new deliberate reservation.
 
-A Web-owned absence review can clear a matching uncertain provision reservation
-only after trusted inventory proves no managed container exists and all relevant
-leases/start reservations are absent. It never deletes or adopts a container.
+An uncertain provision cannot be released merely because inventory is currently
+empty: an accepted daemon create may still complete after a transport timeout.
+The reservation remains fenced across restart, even after the application lease
+ends. A future supported settlement review needs independently verified dispatch
+completion, not an operator checkbox or inferred timeout. No automatic expiry or
+absence-only clearing API is provided. An ordinary reserved/bound session can
+close only with proven absence and no pending reservation/lease.
+
 Workspace/source/history remain outside the profile. Workspace cleanup refuses
 session references before removing bytes. Retained generations are capped at 256;
 capacity exhaustion requires review, not automatic history deletion.

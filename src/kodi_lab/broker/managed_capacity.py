@@ -22,6 +22,9 @@ from kodi_lab.broker.errors import (
     ContainerStateNotReconcilableError,
     DockerInventoryReadError,
     ManagedContainerNotFoundError,
+    ManagedNetworkConflictError,
+    ManagedNetworkUnavailableError,
+    RuntimeImageUnavailableError,
     RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
@@ -151,6 +154,14 @@ class ManagedCapacityAdmission:
                     raise ManagedCapacityError("managed_provision_result_unverified")
             self._finish_provision(instance_id, operation_id, result)
             return result
+        except (
+            ManagedNetworkUnavailableError,
+            ManagedNetworkConflictError,
+            RuntimeImageUnavailableError,
+        ):
+            # These provider exceptions are raised before any Docker create.
+            self._finish_provision(instance_id, operation_id, None, safe_failure=True)
+            raise
         except BaseException:
             self._finish_provision(instance_id, operation_id, None)
             raise
@@ -160,6 +171,8 @@ class ManagedCapacityAdmission:
         instance_id: str,
         operation_id: str,
         result: ProvisionedManagedContainerRecord | None,
+        *,
+        safe_failure: bool = False,
     ) -> None:
         with self._sessions.begin() as session:
             row = session.get(ManagedProvisionReservationRow, instance_id)
@@ -175,11 +188,18 @@ class ManagedCapacityAdmission:
             ):
                 raise ManagedCapacityError("development_session_requires_review")
             if current is not None:
-                current.phase = "bound" if result is not None else "uncertain"
+                current.phase = (
+                    "bound"
+                    if result is not None
+                    or (safe_failure and current.container_id is not None)
+                    else "reserved"
+                    if safe_failure
+                    else "uncertain"
+                )
                 if result is not None:
                     current.container_id = result.container_id
                 current.updated_at = timestamp(self._clock())
-            if result is None:
+            if result is None and not safe_failure:
                 row.phase = "uncertain"
             else:
                 session.delete(row)
