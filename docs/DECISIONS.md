@@ -6787,3 +6787,28 @@ reports and rotation remain unobserved. Check the reserve on both the data-root
 and actual database filesystems; sanitize failures to fixed safe reason codes.
 No caller-selected stream options, generic artifact paths or agent body access
 are introduced.
+
+## D-0451: Durable single-session replacement reviews hold selected evidence
+
+For #51, save one bounded explicit Fresh/Switch review against the exact stopped
+current session, workspace generation/tree, immutable next cached runtime and
+1–8 selected retained capture IDs/digests. Preserve source/add-on binding. The
+SQLite writer transaction checks shared busy/uncertainty, stored reconciliation,
+the sole stopped container, cached runtime eligibility and complete bounded
+capture integrity before recording its evidence holds. At most one open review
+and 128 history records; refuse capacity/storage failure without pruning.
+
+Keep review separate from lifecycle execution and final disposal confirmation.
+No background worker runs the plan; no grants, Bridge trust or deployment
+baselines are inherited. Saved facts may become stale and must be rechecked by
+future execution. Existing lifecycle history does not contain the exact old
+container retirement witness needed for atomic replacement. Absence or timeout
+cannot settle an uncertain create.
+
+New empty migration 0082 adds review/hold history after diagnostic retention.
+Explicit discard and review claim serialize on the same SQLite writer boundary.
+Open holds protect selected bodies; an exact digest-bound cancellation releases
+only its own holds while keeping history and the current session/profile.
+Cancellation never clears a reconciliation or create fence. No automatic expiry,
+history pruning, profile removal, agent permission or MCP tool is introduced.
+Retain schema/reader compatibility and refuse lossy populated downgrades.
