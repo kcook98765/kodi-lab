@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Capability prerequisites — Kodi Lab{% endblock %}
+{% block content %}
+<h1>Capability prerequisites</h1>
+<p>This view reads saved setup information. Kodi, its current container and any dialogs have not been checked. Each action still checks its own permissions, identity and readiness.</p>
+<p>Native controls, screenshots and direct workspace deployment have their own requirements. Bridge recovery does not prove these actions are ready.</p>
+<dl>
+  <dt>Kodi release</dt><dd>{{ assessment.kodi_release or 'unknown' }}</dd>
+  <dt>Saved Bridge trust</dt><dd>{{ assessment.trust_state }}{% if assessment.trust_generation %} (generation {{ assessment.trust_generation }}){% endif %}</dd>
+  <dt>Reviewed Bridge version available</dt><dd>{{ assessment.candidate_addon_version or 'unavailable' }}; this does not prove installation</dd>
+  <dt>Last authenticated Bridge</dt><dd>{{ assessment.last_authenticated_addon_version or 'unknown' }}{% if assessment.last_authenticated_at %}, {{ assessment.last_authenticated_at }}{% endif %}; current availability is unknown</dd>
+</dl>
+{% set capability_labels = {'ui_inspection': 'Inspect the Kodi UI', 'log_read': 'Read Kodi logs', 'manifest_launch': 'Launch a development add-on entry', 'screenshot': 'Capture a screenshot', 'native_remote': 'Use native remote controls', 'direct_workspace_deployment': 'Deploy a workspace directly'} %}
+{% set state_labels = {'present': 'Recorded; needs a current check', 'blocked': 'Needs setup or review', 'unknown': 'Needs observation', 'not_required': 'Bridge not required'} %}
+{% set reason_labels = {'native_fallback_requires_observation': 'Native UI inspection may be available; check Kodi first.', 'bridge_recovery_required': 'Saved Bridge setup needs recovery.', 'bridge_identity_invalid': 'Saved Bridge identity could not be validated.', 'bridge_runtime_mismatch': 'Saved Bridge trust belongs to a different runtime.', 'bridge_not_paired': 'There is no saved Bridge trust for log inspection.', 'stored_identity_requires_observation': 'Approved identity was saved; current availability is unknown.', 'log_capability_missing': 'The saved Bridge identity does not advertise log inspection.', 'launch_upgrade_required': 'Launch needs the current reviewed Bridge build.', 'bridge_independent': 'This action checks its own independent requirements.'} %}
+<table>
+  <thead><tr><th>Capability</th><th>Saved Bridge prerequisite</th><th>Reason</th><th>Current readiness</th></tr></thead>
+  <tbody>{% for check in assessment.checks %}<tr><td>{{ capability_labels[check.capability] }}</td><td>{{ state_labels[check.bridge_prerequisite] }}</td><td>{{ reason_labels[check.reason] }}</td><td>{{ check.live_readiness }}</td></tr>{% endfor %}</tbody>
+</table>
+{% if assessment.next_action == 'resume_reviewed_bridge' %}
+<p>A saved reviewed preparation can be continued through the instance Bridge controls while Kodi is running. Continuation verifies the current generation, container and reviewed identity before establishing trust.</p>
+{% elif assessment.next_action == 'review_history' %}
+<p>Saved active trust could not be validated against the current runtime. Review instance history and supported Bridge recovery.</p>
+{% elif assessment.next_action == 'review_bridge' %}
+<p>Review the instance Bridge controls for supported installation or recovery. A missing trust record does not prove that the add-on is absent. UI inspection may use native fallback when no trust record exists.</p>
+{% else %}
+<p>Use the instance controls to inspect current native status, then invoke the needed capability. Saved trust alone does not establish current availability or resolve a native prompt.</p>
+{% endif %}
+<p><a href="/instances/{{ assessment.target_id }}">Open instance controls</a> · <a href="/instances/{{ assessment.target_id }}/history">Review history</a></p>
+{% endblock %}

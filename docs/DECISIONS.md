@@ -6732,3 +6732,22 @@ Coordinate retention with preserved 09d847e/3dddbc2 without changing their bytes
 Historical operation association, private artifact retention, agent log-body
 access/redaction and native symbolication remain subsequent work, not implied by
 this metadata-only foundation.
+
+## D-0449: Saved capability prerequisites are separate from live readiness
+
+For #49/#51, one read-only managed-target service projects durable runtime and
+Bridge prerequisites into authenticated Web HTML/JSON. It has only the session
+factory and executes SELECTs; no runtime getter, broker, secret store, native
+adapter, readiness registry or trust repair participates. Candidate and approved
+historical resident versions remain separate. Native readiness, current
+container binding, prompt state and every capability's live readiness stay
+unknown. A saved prerequisite is never operation authority or a reservation.
+
+Reuse the existing approved identity predicates with historical approval for
+observation/logs and current approval for launch. No-record native fallback,
+non-active/drifted trust denial, missing log capability and launch-upgrade reasons
+remain distinct. Screenshots/native remote/direct deployment stay independent.
+Prepared reviewed intent can point to the existing Web continuation but cannot
+prove eligibility; that mutation rechecks all live ownership/generation/identity
+conditions. Do not infer installed bytes from prepared state or a candidate pin,
+or unattended completion from active trust. No new MCP access or grants.
