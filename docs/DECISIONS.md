@@ -6557,6 +6557,28 @@ independently verify the advertised checksum with a bounded no-redirect request.
 DNS/proxy origins need not resolve to a host interface; no address is inferred
 or rewritten. Existing origin migration/version and client-recovery rules apply.
 
+### 2026-10-24 addendum: verified-copy inventory failures (#44)
+
+Successful process containment after an inventory failure does not acknowledge
+the installed tree's provenance. Such deployments retain reconciliation until
+the existing stopped-tree verifier records requested/prior containment.
+
+For historical terminal failures, an explicit Web administrator inspection may
+enroll only an inventory-phase `deployment_verification_failed` with complete
+ordered copy/start markers, source/destination digests and an original container
+binding. Under the workspace lock and a serialized database transaction, recheck
+unchanged workspace/source identity and digest, pre-operation baseline/runtime
+binding, and absence of another lease or unresolved operation. Persist the
+reconciliation fence before broker observation. Interruption therefore remains
+blocked and resumable; no new lease kind or permission is introduced.
+
+The ordinary full stopped-tree proof remains mandatory before a contained failed
+receipt can become prior-copy evidence. A later no-write conflict neither erases
+the earlier receipt nor becomes trusted itself. Preserve original request,
+generation, completion timestamp and failure cause; recovery time does not reorder
+historical copy lineage. Inspection never starts, copies, resets or replays a
+deployment, and never establishes native readiness or successful deployment.
+
 ## D-0440: Passive repository ZIP admission and native delivery are separate
 
 The shared ZIP importer may classify a strictly validated passive repository
@@ -6587,6 +6609,37 @@ establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
 
+## D-0443: Opt-in reviewed-tree imports with removal lineage (#45)
+
+- Context: the add/replace importer cannot represent reviewed source removals or
+  resolve private overlaps, blocking a persistent single-add-on workspace.
+- Decision: retain default changes mode. Opt-in reviewed_tree assesses private-only
+  paths and requires explicit per-path keep_private/take_source choices. Preview
+  digests bind all choices and preimages; apply recaptures under the existing
+  exclusive workspace lock and preserves grants, generation, identity and quotas.
+  Only an eligible plan without retained private differences claims exact source
+  equality, proved by complete staged digest before atomic exchange.
+- Ordinary file removals affect staged bytes only. Unsupported directory/type/mode
+  transitions remain rejected. Retain original baseline and old tree; versioned
+  JSON receipts carry tombstones and replay input while reading old list receipts.
+  No new persisted enum, migration or grant. Existing receipt capacity/cleanup and
+  populated-data downgrade refusals remain. Older code cannot consume new receipts.
+- Publication uncertainty retains both trees and reconciliation; replay proves the
+  durable tree/journal without capturing newer source. No force import, implicit
+  conflict adoption, profile reset, deployment or native-acceptance claim.
+
+### Publication cancellation addendum
+
+A reproduced post-commit cancellation could previously roll back only the private
+filesystem while durable generation/digest had advanced. Before permitting rollback,
+read the exact journal/workspace publication state. Confirmed commits keep their
+receipt/tree; confirmed unpublished ordinary failures retain normal rollback;
+unknown outcomes preserve both trees and quarantine either the original or already
+advanced generation. Replay must prove both full trees and may acknowledge an
+already committed generation without another increment. Preserve the ordinary
+failure, stale-input, authorization and legacy-receipt checks; no migration or
+new grant is introduced.
+
 ## D-0444: Separate durable deployment scope from runtime eligibility (#46)
 
 A shared read-only durable prerequisite service serves authenticated Web and the
@@ -6604,3 +6657,27 @@ where available; checked_at is assessment time. Unknown/stale digests and prior
 workspace receipt bindings remain distinguishable. No durable-only result claims
 ready or reserves a future operation. Unsupported external/repository assessments
 stay unknown. Closed reason/action arrays omit global and foreign operation IDs.
+
+## D-0446: Durable opt-in session reservation and shared provision admission (#51)
+
+Reuse canonical exact targets and one persistent add-on workspace; do not create a
+pool or scheduler. A singleton active-generation pointer opts into one provisioned
+container, including stopped containers. Initial claim refuses all existing managed
+containers and in-flight reservations/leases. Session history retains exact source,
+workspace, runtime and container identity outside disposable profiles.
+
+Every production broker provision now records a pre-dispatch slot, even outside
+sessions, serialized with session claims and existing start reservations using
+BEGIN IMMEDIATE. Thus an already dispatched Advanced operation cannot be mistaken
+for an empty slot. Active policy also constrains all broker starts/provisions;
+unknown/uncertain state remains blocked across restart. Reuse existing running
+capacity, per-instance leases, runtime eligibility and identity proofs.
+
+Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
+post-create inventory binds the session; explicit absent/idle close retains its
+history. Uncertain provision remains fenced even on current absence; timeout/absence does
+not prove daemon dispatch settlement. No absence-only clearing API is exposed.
+Workspace cleanup refuses referenced history. No automatic idle deletion, grant
+inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
+Migration 0080 is additive/empty by default and refuses populated evidence loss.
+Full Web composition and diagnostic retention remain separate prerequisite slices.

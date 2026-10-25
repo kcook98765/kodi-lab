@@ -233,6 +233,90 @@ class ManagedStartReservationRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class DevelopmentSessionRow(Base):
+    """Retained logical session generation; no runtime readiness is implied."""
+
+    __tablename__ = "development_sessions"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="development_session_request"),
+        CheckConstraint("generation > 0", name="development_session_generation"),
+        CheckConstraint(
+            "phase IN ('reserved','provisioning','bound','uncertain','closed')",
+            name="development_session_phase",
+        ),
+        CheckConstraint(
+            "container_id IS NULL OR length(container_id)=64",
+            name="development_session_container",
+        ),
+        CheckConstraint(
+            "phase != 'bound' OR container_id IS NOT NULL",
+            name="development_session_bound",
+        ),
+    )
+    generation: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class DevelopmentSessionPolicyRow(Base):
+    """Presence of an active generation opts into one provisioned environment."""
+
+    __tablename__ = "development_session_policy"
+    __table_args__ = (CheckConstraint("id=1", name="development_session_singleton"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    active_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation", ondelete="RESTRICT")
+    )
+
+
+class ManagedProvisionReservationRow(Base):
+    """Every broker provision reserves before dispatch, including outside sessions."""
+
+    __tablename__ = "managed_provision_reservations"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('reserved','uncertain')", name="managed_provision_phase"
+        ),
+        CheckConstraint(
+            "length(runtime_revision_id)=36 AND length(operation_id)=36",
+            name="managed_provision_binding",
+        ),
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    session_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation", ondelete="RESTRICT")
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class ManagedAgentLifecycleRequestRow(Base):
     """Exact client/request ownership binds replay to one lifecycle operation."""
 

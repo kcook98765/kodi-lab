@@ -46,7 +46,6 @@ from kodi_lab.kodi.addons import (
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiApplicationIdentity
 from kodi_lab.storage.engine import create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     AddonZipArtifactRow,
     AddonZipInstallationEvidenceRow,
@@ -60,6 +59,7 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 INSTANCE_ID = UUID("81000000-0000-4000-8000-000000000001")
 REVISION_ID = UUID("81000000-0000-4000-8000-000000000002")
@@ -74,9 +74,12 @@ NOW = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
-    engine = create_engine(f"sqlite:///{tmp_path / 'inventory.db'}")
-    Base.metadata.create_all(engine)
+def factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    database_path = tmp_path / "inventory.db"
+    current_schema.clone(database_path)
+    engine = create_engine(f"sqlite:///{database_path}")
     result = create_session_factory(engine)
     with result.begin() as session:
         session.add(

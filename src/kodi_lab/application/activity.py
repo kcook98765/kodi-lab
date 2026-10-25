@@ -54,6 +54,7 @@ from kodi_lab.storage.repositories import (
     SnapshotDeleteOperationRepository,
     SnapshotRestoreOperationRepository,
 )
+from kodi_lab.storage.workspace_deployments import failed_verified_workspace_copy
 
 
 class ManagedInstanceActivityKind(StrEnum):
@@ -90,6 +91,7 @@ class ManagedInstanceActivityItem(BaseModel):
     state: str = Field(max_length=32)
     summary: str = Field(max_length=256)
     reconciliation_required: bool
+    deployment_recovery_available: bool = False
     snapshot_uuid: UUID | None = None
     lifecycle_kind: ManagedInstanceLifecycleKind | None = None
     preserve_snapshots: bool | None = None
@@ -206,6 +208,9 @@ class ManagedInstanceActivityService:
                     )[:256],
                     reconciliation_required=workspace_deployment.state
                     in {"ambiguous", "reconciliation_required"},
+                    deployment_recovery_available=failed_verified_workspace_copy(
+                        workspace_deployment
+                    ),
                 )
             )
         for launch in session.scalars(

@@ -25,7 +25,10 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     TargetRow,
 )
-from kodi_lab.storage.workspace_deployments import prior_workspace_copy
+from kodi_lab.storage.workspace_deployments import (
+    failed_verified_workspace_copy,
+    prior_workspace_copy,
+)
 from kodi_lab.workspace.storage import workspace_coordination_lock
 
 
@@ -81,6 +84,7 @@ class WorkspaceDeploymentRecoveryService:
         reason: str,
         *,
         replayed: bool = False,
+        next_action: str | None = None,
     ) -> WorkspaceDeploymentRecoveryResult:
         return WorkspaceDeploymentRecoveryResult(
             deployment_id=UUID(row.id),
@@ -90,12 +94,15 @@ class WorkspaceDeploymentRecoveryService:
             generation=row.generation,
             outcome=outcome,
             reason=reason,
-            next_action="Review status, start explicitly, then deploy with a NEW "
-            "request ID; containment is not deployment success."
-            if outcome.startswith("contained_")
-            else "Stop the exact target through Web controls, then recheck. "
-            "If evidence still fails, inspect retained workspace/baseline and "
-            "broker diagnostics; do not reset or replay deployment.",
+            next_action=next_action
+            or (
+                "Review status, start explicitly, then deploy with a NEW "
+                "request ID; containment is not deployment success."
+                if outcome.startswith("contained_")
+                else "Stop the exact target through Web controls, then recheck. "
+                "If evidence still fails, inspect retained workspace/baseline and "
+                "broker diagnostics; do not reset or replay deployment."
+            ),
             failed_phase=row.failure_phase,
             failure_cause=row.failure_cause or row.failure_code,
             replayed=replayed,
@@ -139,7 +146,75 @@ class WorkspaceDeploymentRecoveryService:
             row, _instance = self._scope(session, target_id, operation_id)
             workspace_id = UUID(row.workspace_id)
         with workspace_coordination_lock(self._data_root, workspace_id, exclusive=True):
+            refused = self._enroll_failed_copy(target_id, operation_id)
+            if refused is not None:
+                return refused
             return self._reconcile_locked(target_id, operation_id)
+
+    def _enroll_failed_copy(
+        self, target_id: UUID, operation_id: UUID
+    ) -> WorkspaceDeploymentRecoveryResult | None:
+        """Fence a historical verified-copy failure before any broker inspection.
+
+        This is explicit administrator admission, not adoption as trusted prior
+        evidence. An interruption leaves a durable reconciliation fence. The
+        ordinary recovery path must still verify the complete stopped tree.
+        """
+        with self._sessions() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            row, instance = self._scope(session, target_id, operation_id)
+            if not failed_verified_workspace_copy(row):
+                return None
+            workspace = session.get(AgentWorkspaceRow, row.workspace_id)
+            baseline = session.get(
+                DevelopmentSourceDeploymentRow,
+                (row.target_id, row.development_source_id),
+            )
+            attachment = session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                (row.target_id, row.development_source_id),
+            )
+            if (
+                workspace is None
+                or baseline is None
+                or attachment is None
+                or workspace.generation != row.generation
+                or workspace.current_tree_digest != row.source_manifest_digest
+                or workspace.state.value != "ready"
+                or workspace.bytes_state.value != "present"
+                or workspace.development_source_id != row.development_source_id
+                or workspace.source_addon_id != row.addon_id
+                or instance.runtime_revision_id != row.runtime_revision_id
+                or baseline.runtime_revision_id != row.runtime_revision_id
+                or baseline.trusted_container_id != row.original_container_id
+                or datetime.fromisoformat(baseline.verified_at.replace("Z", "+00:00"))
+                > datetime.fromisoformat(row.requested_at.replace("Z", "+00:00"))
+            ):
+                return self._result(
+                    row,
+                    "still_requires_admin",
+                    "retained_workspace_or_runtime_binding_unavailable",
+                    next_action="Preserve this failed receipt. Review its retained "
+                    "workspace/generation and original runtime/container binding. "
+                    "Recovery admission was refused; no new fence was added.",
+                )
+            if (
+                session.get(ManagedInstanceMutationLeaseRow, row.target_id) is not None
+                or self._reconciliation.status(target_id).required
+            ):
+                return self._result(
+                    row,
+                    "still_requires_admin",
+                    "other_operation_requires_reconciliation",
+                    next_action="Review current operation and instance history. "
+                    "Wait for active work or administrator reconciliation before "
+                    "requesting this inspection again; no new fence was added.",
+                )
+            row.state = "reconciliation_required"
+            row.recovery_state = "still_requires_admin"
+            row.recovery_at = timestamp(datetime.now(UTC))
+            session.commit()
+        return None
 
     def _reconcile_locked(
         self, target_id: UUID, operation_id: UUID
