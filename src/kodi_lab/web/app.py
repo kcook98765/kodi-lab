@@ -454,6 +454,11 @@ from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
 )
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
+    WorkspaceDeploymentPreflightService,
+)
 from kodi_lab.application.workspace_launch import (
     WorkspaceLaunchError,
     WorkspaceLaunchResult,
@@ -5948,6 +5953,28 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> AgentWorkspaceRead:
         return context.agent_workspaces.get(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/deployment-preflight",
+        response_model=DeploymentPreflightResult,
+    )
+    def workspace_deployment_preflight(
+        workspace_id: UUID,
+        target_id: UUID,
+        expected_generation: int = Query(ge=0),
+        deployment_mode: Literal["auto", "direct", "repository"] = "auto",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DeploymentPreflightResult:
+        # This projection deliberately cannot reach runtime status/convergence.
+        context.agent_workspaces.get(workspace_id)
+        return WorkspaceDeploymentPreflightService(session_factory).inspect(
+            DeploymentPreflightInput(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                expected_generation=expected_generation,
+                deployment_mode=deployment_mode,
+            )
+        )
 
     @app.get(
         "/api/agent-workspaces/{workspace_id}/capture-status",
