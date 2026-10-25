@@ -6586,3 +6586,21 @@ Native repository downloads do not inherit Lab's HTTPS fetcher/ZIP limits or
 establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
+
+## D-0444: Separate durable deployment scope from runtime eligibility (#46)
+
+A shared read-only durable prerequisite service serves authenticated Web and the
+additive workspace_deploy_preflight MCP read. The read retains workspace.deploy,
+workspace/source ownership, target grant, preset intersection, current credential
+and production veto, then rechecks scope after assessment. Existing mutation
+admission delegates to the same durable scope and retains all its technical,
+workspace-state and capability checks. No grant or preset migration occurs.
+
+The first projection explicitly has no live probes, convergence, lease cleanup,
+readiness scheduling or mutation dispatch. Native/add-on liveness and authenticated
+Bridge readiness stay unknown; direct deployment does not acquire a Bridge
+requirement. Historical baseline/validation facts include real evidence times
+where available; checked_at is assessment time. Unknown/stale digests and prior
+workspace receipt bindings remain distinguishable. No durable-only result claims
+ready or reserves a future operation. Unsupported external/repository assessments
+stay unknown. Closed reason/action arrays omit global and foreign operation IDs.

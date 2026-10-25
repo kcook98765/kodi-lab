@@ -75,6 +75,10 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
 )
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
+)
 from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryResult,
 )
@@ -175,6 +179,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_source_scan",
         "workspace_capture",
         "workspace_import_preview",
+        "workspace_deploy_preflight",
         "workspace_import",
         "workspace_execute",
         "workspace_launch",
@@ -1076,6 +1081,21 @@ def build_mcp_http_transport(
             annotations=edit_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_deploy_preflight": Tool(
+            name="workspace_deploy_preflight",
+            title="Inspect durable deployment prerequisites",
+            description=(
+                "Read exact workspace/generation/target setup facts without a "
+                "deployment attempt. This durable-only assessment does not probe "
+                "native Kodi, Bridge or add-on liveness and never returns ready. "
+                "External/repository modes are unsupported/unknown. Recheck all "
+                "prerequisites during a later mutation; no reservation or repair."
+            ),
+            input_schema=DeploymentPreflightInput.model_json_schema(),
+            output_schema=DeploymentPreflightResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_deploy": Tool(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
@@ -1271,6 +1291,7 @@ def build_mcp_http_transport(
                 | WorkspaceEditResult
                 | WorkspaceSourceScanToolResult
                 | WorkspaceCaptureToolResult
+                | DeploymentPreflightResult
                 | ImportPreview
                 | ImportResult
                 | WorkspaceStatusResult
@@ -1290,6 +1311,7 @@ def build_mcp_http_transport(
                 "workspace_validate",
                 "workspace_source_scan",
                 "workspace_import_preview",
+                "workspace_deploy_preflight",
                 "screenshot_retrieve",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
@@ -1456,6 +1478,17 @@ def build_mcp_http_transport(
                 workspace_id = parsed_scan.workspace_id
                 result = await asyncio.to_thread(
                     tools.workspace_source_scan, principal, workspace_id
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_deploy_preflight":
+                parsed_preflight = DeploymentPreflightInput.model_validate(arguments)
+                workspace_id, target_id, generation = (
+                    parsed_preflight.workspace_id,
+                    parsed_preflight.target_id,
+                    parsed_preflight.expected_generation,
+                )
+                result = await asyncio.to_thread(
+                    tools.workspace_deploy_preflight, principal, parsed_preflight
                 )
                 source_id = result.source_id
             elif params.name == "workspace_import_preview":

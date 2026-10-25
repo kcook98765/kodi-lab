@@ -441,6 +441,24 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
+            name="workspace_deploy_preflight",
+            schema_revision=1,
+            permissions=frozenset({"workspace.deploy"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset(
+                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+            ),
+            required_capabilities=frozenset(),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_READ,
+            adapter="agent_workspace.deployment_preflight",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
             name="workspace_deploy",
             schema_revision=1,
             permissions=frozenset({"workspace.deploy"}),
