@@ -241,3 +241,14 @@ The enablement draft now plans26 cases:the original20 scope cases plus six exact
 unexpired typed ownership checks at the two writer markers. Current private draft
 manifest is v3; no validation lane has run, no PR/commit and no c788 inheritance.
 All source/docs changes remain outside the frozen full candidate.
+
+
+Combined **RELEASE PASS** at `c788a31` / tree `4211e3d`:5,703passed/38gated,
+34m09s, all eight stages0, exact source/tracked/61SHA manifest and three scratch
+root cleanup independently verified. Includes corrected#74 and#75–#79, plus
+ledger96e8c5d two-file snapshot. This is combined source qualification, not each
+standalone PR head, native acceptance, human approval, merge or deployment.
+Failed557 remains failed; CBC/Phase1 retain separate successful pins. #80Markdown
+and the later uncommitted enablement draft are outside c788. After-gate original
+24worktrees/stash/210container tuples/main/log branch preservation matched at
+11:21:47UTC. Focused validation of the26-case next draft now begins; no inheritance.

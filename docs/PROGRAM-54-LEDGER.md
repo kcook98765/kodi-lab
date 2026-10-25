@@ -5,47 +5,34 @@ This ledger records source qualification, not deployment or native acceptance.
 
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
-- New frozen combined gate **RUNNING** at `c788a31`, tree `4211e3d`, starting
-  10:47 UTC. It includes #74's fixture correction and #75–#79, with current
-  ledger snapshot `96e8c5d`, 1,815 tracked entries and 61 changed SHA values.
-  No result yet. Existing successful/failed pins remain separately recorded.
-
-- Latest successful combined qualification: `cbc8894`, **RELEASE PASS**,
-  5,515 passed / 38 gated skips / 32m12s. Phase 1 remains separately pinned
-  at `02c4054`, 5,234 / 38 / 29m59s; later focused additions never inherit it.
-- Draft [#72](https://github.com/kcook98765/kodi-lab/pull/72) adds atomic
-  Fresh/Switch; [#73](https://github.com/kcook98765/kodi-lab/pull/73) adds bounded
-  referenced crash-report metadata; [#74](https://github.com/kcook98765/kodi-lab/pull/74)
-  adds selected-workspace runtime admission and matching preflight. Their
-  combined `557dcdd` / tree `611eb6f` full gate **FAILED**: 5,617 passed,
-  1 historical migration-fixture failure, 38 gated skips, 32m09s attempt. All
-  three owned scratch roots removed; source manifest reverified. The final three
-  stages did not run. The test-only historical-fixture correction passed integration; there is
-  no RELEASE PASS for this pin or later bytes. Standalone evidence is below.
-- Later source, outside that pin: [draft #76](https://github.com/kcook98765/kodi-lab/pull/76)
-  (`2ebe7e1`) provides the private stored preparation checklist, stacked on #75.
-  Its composed lane passed 16 focused + 126 interactions in 70.4s.
-  [Draft #75](https://github.com/kcook98765/kodi-lab/pull/75), `d56e30a`, now
-  scopes deployment lineage to the exact selected profile: 60 focused + 238
-  interaction cases passed in 128.8s. The identical corrected regression file
-  failed 7 behavior cases on untouched `557dcdd` and passed all 9 with the fix.
-  Both increments have integration evidence; neither has RELEASE PASS.
-- [Draft #77](https://github.com/kcook98765/kodi-lab/pull/77), `9ebbb28`,
-  pins stopped source-copy queue identity and trusted claim preconditions.
-  12 focused + 251 interaction cases passed in 110.2s; no release qualification.
-- [Draft #78](https://github.com/kcook98765/kodi-lab/pull/78), `6b87f12`,
-  adds durable exact source-copy admission, surviving ordinary detail pruning.
-  153 focused + 135 interactions passed in 144.0s; no release qualification.
-- [Draft #79](https://github.com/kcook98765/kodi-lab/pull/79), `6aaa097`,
-  adds explicit guided baseline copy and shared Source selected-session admission.
-  29 focused +293 interactions passed in159.7s; final19-case focused module
-  adds two later concurrency/lost-completion-ack proofs (7.3s). No release result.
-- Main `e198592`, 24 original worktrees, stash, 210 container identity/state
-  records and preserved log branch `3dddbc2` were reverified unchanged.
-  No merges, deployments, grant changes or existing-resource operations.
-- Grouped decisions remain in the [Phase 2 review](PROGRAM-54-PHASE2-REVIEW.md):
-  settings and managed screenshot authority/design, native ZIP provider limits,
-  native/platform acceptance and separately authorized operational integration.
+- Latest completed combined qualification: **RELEASE PASS**, commit
+  `c788a3166002ea171074d08f8363a827fb1e3da0`, tree
+  `4211e3d7bda1b32b38e2044111e45d19959248a2`: **5,703 passed / 38 gated skips /
+  34m09s**. All eight stages exited zero, all three owned scratch roots removed,
+  all 1,815 tracked entries and 61 changed-file SHA values reverified. This is
+  #79 source `6aaa097` plus the two report files at snapshot `96e8c5d`; it includes
+  #74's fixture correction and #75–#79. No native/platform acceptance implied.
+- Prior successful combined `cbc8894`: 5,515 / 38 / 32m12s. Phase 1 remains
+  separately pinned `02c4054`: 5,234 / 38 / 29m59s. Frozen `557dcdd` remains a
+  **failed** historical attempt: 5,617 / 1 fixture failure / 38 / 32m09s; its final
+  three stages did not run. Later correction/success does not rewrite that result.
+- [#78](https://github.com/kcook98765/kodi-lab/pull/78) adds durable exact source-
+  copy admission; [#79](https://github.com/kcook98765/kodi-lab/pull/79) adds the
+  guided stopped baseline-copy Web flow and Source queue/worker/broker policy.
+  Their standalone focused/integration results remain below; their settled
+  composition is included in c788. Review order #74→#75→#76→#77→#78→#79.
+- [Draft #80](https://github.com/kcook98765/kodi-lab/pull/80), `945b3af`, is a
+  Markdown walkthrough correction with static review only, **outside c788**.
+  The separate uncommitted five-file source-enablement scope/owned-lease draft
+  is also outside c788; its 26-case focused validation has now begun after the
+  full result/manifest/cleanup verification. It inherits no release result.
+- At 11:21:47 UTC, main `e198592`, all 24 original worktree HEAD/status pairs,
+  stash, 210 container ID/name/image/state records and preserved log branch
+  `3dddbc2` were again verified unchanged. No merge, deployment, grant/resource
+  operation or production migration. The full qualification branch stays frozen.
+- Grouped external decisions remain in the [Phase 2 review](PROGRAM-54-PHASE2-REVIEW.md):
+  settings/screenshot authority/design, native ZIP limits, native/platform
+  acceptance and separately authorized operational integration.
 
 ## Authority and preservation
 
@@ -1228,3 +1215,43 @@ private `source-enablement-session-scope-unqualified-draft-v3.json` records curr
 SHA values separately from the earlier20-case snapshot. Source/helper/test enum
 and synthetic receipt UUID conventions were aligned to current definitions before
 any validation claim. Do not infer working behavior from this draft.
+
+
+### Guided session combined qualification completed and independently verified
+
+Frozen `c788a3166002ea171074d08f8363a827fb1e3da0` / tree
+`4211e3d7bda1b32b38e2044111e45d19959248a2` achieved **RELEASE PASS**:
+5,703 passed,38 gated skips (5,741 collected),34m09s full gate /2049.67s wrapper.
+Pytest's own summary is1952.43s; wrapper pytest stage1995s. All eight stages0,
+including strict mypy750files, six contract guards, package build, Alembic history
+and package/config import. Three existing warnings are recorded in the full log;
+no tests/skips/assertions or reserve/watchdog checks were removed.
+
+The independent verifier checked exact HEAD/tree, clean tracked/untracked status,
+all1,815 tracked entries and61 changed SHA values, result/stage exit status,
+5,741 report outcomes and absence of all three exact owned scratch roots. Peak
+RSS3,199,300KiB, minimum sampled pytest free space5,985,755,136B. Standard tmpfs
+plus separate snapshot scratch remained in use. Cost/source/report evidence:
+`guided-session-release-verified.json`, `guided-session-release-cost-summary.txt`,
+`guided-session-qualification-source-manifest.json` and full private result folder.
+An auxiliary cost-summary import guessed an absent helper; it was corrected by
+using the existing module CLI. This did not affect the successful gate or verifier.
+
+At11:21:47UTC, after-gate preservation again matched all24 original worktree
+HEAD/status pairs, original stash,210 container ID/name/image/state tuples,
+main e198592 and preserved log branch3dddbc2. The gate used only temporary/fake
+transports; no native acceptance, live resource action or operational migration.
+No merge, deployment, policy/grant change or release publication occurred.
+
+The qualified composition includes#74's historical0078 fixture correction and
+#75–#79, including all19 final copy-workflow race/ack cases. It is not a standalone
+full run on every PR head. #80's later Markdown and the uncommitted enablement
+scope/lease draft are outside this pin and inherit no qualification. The old
+failed557 result, priorCBC and Phase1 pins remain separate immutable records.
+
+Continue rather than stopping at review-ready source: the26-case enablement scope
+module is now running its first focused lane, followed by appropriate existing
+native-source/session/lease/migration interactions after honest fixes. No other
+full run is scheduled merely for one draft; qualify another settled appropriately
+scoped composition when required. Smoke/Bridge follow-on remains a minimality/
+reachability review, with no new migration or generalized coordinator committed.
