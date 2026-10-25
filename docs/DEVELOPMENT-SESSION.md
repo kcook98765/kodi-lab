@@ -129,3 +129,41 @@ Populated review history refuses lossy downgrade even after cancellation. A
 matched reader/application/schema is required to enforce holds; migration,
 deployment, existing-resource execution and native/Windows acceptance remain
 separately authorized work.
+
+## Exact retirement receipt foundation
+
+The trusted lifecycle service now accepts an optional exact disposable-runtime
+scope for deprovision: original target, immutable revision/image and container.
+This is an internal composition boundary, not a new Web/MCP action or grant.
+The reviewed Fresh/Switch page still performs no retirement or replacement.
+
+New empty migration 0083 adds `managed_runtime_retirements`. An exact prepared
+scope and child lifecycle operation are claimed together under the existing
+mutation lease. Stored pin/type/image are checked before claim; the actual
+leased action checks current container/runtime/image again before clearing
+readiness or invalidating trust/deployment evidence. Existing unscoped Advanced
+deprovision does not invent or backfill exact witnesses for historical actions.
+
+Only the exact broker removal reply followed by an unprovisioned lifecycle
+postcondition can publish confirmation. Confirmation, successful terminal record,
+owned projection and lease release commit in the same transaction. Failure to
+publish rolls back terminalization and retains ownership for existing recovery;
+cancellation after commit leaves the confirmed receipt intact. A lost or
+mismatched reply, failed postcondition, interrupted dispatch or lost lease cannot
+produce positive proof even when current inventory is empty. The new terminal
+hook executes only after existing ownership guards and before history pruning.
+
+Receipts preserve original identity outside disposable resources and protect
+their exact lifecycle operation from pruning. Up to 256 scoped history rows are
+admitted; exhaustion refuses before dispatch, without automatic overwrite or
+pruning. Prepared/failed/unconfirmed and confirmed history all refuse lossy
+downgrade. The typed read checks matching original operation/kind/state/time;
+it never repairs or reconstructs proof from a historical success or absence.
+
+A confirmed deprovision receipt does not settle an uncertain **create**, release
+the old session, reserve a successor, copy trust/baselines or authorize another
+destructive action. Those are separate steps. The next implementation must bind
+the reviewed intent to this exact operation, keep selected evidence held, and
+advance old closure plus new reservation atomically under shared admission.
+Current-source tests use fake lifecycle/broker transports and temporary migrated
+SQLite; they establish no native or existing-resource execution acceptance.

@@ -161,6 +161,8 @@ class ManagedInstanceLifecycleOperationCoordinator:
         state: ManagedInstanceLifecycleOperationState,
         resulting_state: ManagedInstanceSemanticState,
         failure_reason: str | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
     ) -> ManagedInstanceLifecycleOperation:
         now = self._clock()
         reconciliation_required = (
@@ -204,10 +206,14 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 raise LifecycleOperationLeaseLostError(
                     "Lifecycle mutation lease is no longer owned."
                 )
-            operations.prune_terminal(handle.instance_id)
             operation = operations.get(handle.operation_id)
             assert operation is not None
-            return operation
+            if on_terminal is not None:
+                on_terminal(session, operation)
+            operations.prune_terminal(handle.instance_id)
+            retained = operations.get(handle.operation_id)
+            assert retained is not None
+            return retained
 
     @staticmethod
     def _projection(
