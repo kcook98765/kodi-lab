@@ -126,6 +126,20 @@ claiming a pass. An interrupted process can leave incomplete pytest artifacts.
 The TSV records completed stages, including failures; a successful pytest JSON
 alone does not establish that the later release stages passed.
 
+Inspect retained timings without running tests again:
+
+```console
+uv run --locked python -m scripts.summarize_test_report /tmp/kodi-lab-check-results.EXAMPLE/pytest.json
+```
+
+The report ranks files by summed setup/call/teardown cost and retains failed,
+skipped and incomplete cases and the pytest exit status. Phase sums are not
+elapsed lane time; check `stages.tsv` for release-stage status. `--json` provides
+machine-readable totals, and `--limit 20` changes only the number of ranked files
+shown. It does not filter the totals or execute any tests. Interrupted runs may
+have no completed JSON artifact; retain their stage/log evidence rather than
+treating absent measurements as zero or repeating a full gate just for a report.
+
 ## Case scratch cleanup
 
 The test-only `tests.efficiency_plugin` recognizes only pytest's built-in
