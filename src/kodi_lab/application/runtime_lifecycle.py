@@ -159,6 +159,8 @@ class ManagedRuntimeLifecycleService:
         instance_id: UUID,
         *,
         precondition: Callable[[Session], None] | None = None,
+        operation_id: UUID | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
     ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
         return self._run(
@@ -166,6 +168,8 @@ class ManagedRuntimeLifecycleService:
             ManagedInstanceLifecycleKind.PROVISION,
             self._provision,
             precondition=precondition,
+            operation_id=operation_id,
+            on_claim=on_claim,
         )
 
     def _provision(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:

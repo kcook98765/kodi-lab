@@ -417,6 +417,9 @@ from kodi_lab.application.runtime_reconstruction import (
     ReconstructionEligibility,
     ReconstructionStatus,
 )
+from kodi_lab.application.runtime_retirement_receipts import (
+    RuntimeRetirementReceiptError,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -441,6 +444,12 @@ from kodi_lab.application.session_replacement_reviews import (
     ReplacementSelection,
     SessionReplacementReviewError,
     SessionReplacementReviewService,
+)
+from kodi_lab.application.session_replacements import (
+    SessionReplacementError,
+    SessionReplacementRequest,
+    SessionReplacementService,
+    SessionReplacementStatus,
 )
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
@@ -1252,6 +1261,14 @@ class SessionReplacementCancelForm(BaseModel):
     csrf_token: str = Field(max_length=256)
     expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     cancel_ack: Literal["yes"]
+
+
+class SessionReplacementActionForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmation_ack: Literal["yes"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -3884,6 +3901,27 @@ def create_app(
     )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
     session_reviews = SessionReplacementReviewService(session_service)
+    session_replacements = SessionReplacementService(session_service, context.lifecycle)
+
+    @app.exception_handler(SessionReplacementError)
+    async def session_replacement_failure(
+        _request: Request, error: SessionReplacementError
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Review the saved replacement, Kodi history and retained evidence.",
+        )
+
+    @app.exception_handler(RuntimeRetirementReceiptError)
+    async def retirement_receipt_failure(
+        _request: Request, error: RuntimeRetirementReceiptError
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Retirement proof is unavailable. Preserve the session and review history.",
+        )
 
     @app.exception_handler(SessionReplacementReviewError)
     async def session_replacement_review_failure(
@@ -3971,6 +4009,9 @@ def create_app(
                 and item.runtime_revision_id == current.runtime_revision_id
             ]
         )
+        replacement = (
+            None if review is None else session_replacements.get(review.review_id)
+        )
         return templates.TemplateResponse(
             request,
             "session-replacement-review.html",
@@ -3981,6 +4022,10 @@ def create_app(
                 "choices": session_workflow.choices(),
                 "captures": captures,
                 "request_id": uuid4(),
+                "replacement": replacement,
+                "replacement_request_id": uuid4()
+                if replacement is None
+                else replacement.request_id,
                 "csrf_token": authenticated.csrf_token,
             },
             headers={"Cache-Control": "no-store"},
@@ -3996,11 +4041,16 @@ def create_app(
             authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
+        replacement = session_replacements.get(review_id)
         return templates.TemplateResponse(
             request,
             "session-replacement-review.html",
             {
                 "review": session_reviews.get(review_id),
+                "replacement": replacement,
+                "replacement_request_id": uuid4()
+                if replacement is None
+                else replacement.request_id,
                 "csrf_token": authenticated.csrf_token,
             },
             headers={"Cache-Control": "no-store"},
@@ -4062,6 +4112,72 @@ def create_app(
                 confirm_cancel=True,
             ),
         )
+        return RedirectResponse(
+            f"/development-session/replacement/{review_id}", status_code=303
+        )
+
+    @app.get(
+        "/api/development-session/replacement/{review_id}",
+        response_model=SessionReplacementStatus | None,
+    )
+    def session_replacement_status(
+        review_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionReplacementStatus | None:
+        return session_replacements.get(review_id)
+
+    @app.post(
+        "/api/development-session/replacement/{review_id}/{action}",
+        response_model=SessionReplacementStatus,
+    )
+    def session_replacement_action(
+        review_id: UUID,
+        action: Literal["execute", "continue", "release"],
+        body: SessionReplacementRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SessionReplacementStatus:
+        method = {
+            "execute": session_replacements.execute,
+            "continue": session_replacements.continue_retired,
+            "release": session_replacements.release_retired,
+        }[action]
+        return method(review_id, body)
+
+    @app.post("/development-session/replacement/{review_id}/{action}")
+    def session_replacement_action_form(
+        request: Request,
+        review_id: UUID,
+        action: Literal["execute", "continue", "release"],
+        body: SessionReplacementActionForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        method = {
+            "execute": session_replacements.execute,
+            "continue": session_replacements.continue_retired,
+            "release": session_replacements.release_retired,
+        }[action]
+        try:
+            method(
+                review_id,
+                SessionReplacementRequest(
+                    request_id=body.request_id,
+                    expected_snapshot_sha256=body.expected_snapshot_sha256,
+                    confirm_profile_disposal=True,
+                ),
+            )
+        except (
+            SessionReplacementError,
+            DevelopmentSessionConflict,
+            SessionReplacementReviewError,
+            RuntimeRetirementReceiptError,
+        ):
+            if session_replacements.get(review_id) is None:
+                raise
+            # A claimed action has its own durable outcome. Show that outcome
+            # without suggesting that retirement/preparation succeeded.
         return RedirectResponse(
             f"/development-session/replacement/{review_id}", status_code=303
         )

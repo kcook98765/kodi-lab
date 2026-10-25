@@ -8330,11 +8330,16 @@ class DevelopmentSessionReplacementReviewRow(Base):
             "(state='cancelled' AND cancelled_at IS NOT NULL)",
             name="session_replacement_cancellation",
         ),
+        CheckConstraint(
+            "successor_generation IS NULL OR (state='open' AND "
+            "successor_generation>session_generation)",
+            name="session_replacement_successor",
+        ),
         Index(
             "uq_session_replacement_open",
             "state",
             unique=True,
-            sqlite_where=text("state='open'"),
+            sqlite_where=text("state='open' AND successor_generation IS NULL"),
         ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -8349,6 +8354,9 @@ class DevelopmentSessionReplacementReviewRow(Base):
     snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     cancelled_at: Mapped[str | None] = mapped_column(String(27))
+    successor_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation")
+    )
 
 
 class DevelopmentSessionEvidenceHoldRow(Base):
@@ -8407,3 +8415,56 @@ class ManagedRuntimeRetirementRow(Base):
     image_id: Mapped[str] = mapped_column(String(71), nullable=False)
     prepared_at: Mapped[str] = mapped_column(String(27), nullable=False)
     confirmed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class DevelopmentSessionReplacementRow(Base):
+    """One explicit review execution bound to its exact retirement child."""
+
+    __tablename__ = "development_session_replacements"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="session_replacement_execution_request"),
+        UniqueConstraint(
+            "retirement_operation_id", name="session_replacement_retirement"
+        ),
+        UniqueConstraint(
+            "prepare_operation_id", name="session_replacement_preparation"
+        ),
+        CheckConstraint(
+            "length(request_id)=36 AND length(retirement_operation_id)=36",
+            name="session_replacement_execution_identity",
+        ),
+        CheckConstraint(
+            "length(review_snapshot_sha256)=64 AND "
+            "review_snapshot_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_replacement_execution_hash",
+        ),
+        CheckConstraint(
+            "profile_disposal_confirmed=1",
+            name="session_replacement_disposal_confirmation",
+        ),
+        CheckConstraint(
+            "prepare_operation_id IS NULL OR length(prepare_operation_id)=36",
+            name="session_replacement_prepare_identity",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(released_at IS NULL OR length(released_at)=27)",
+            name="session_replacement_execution_timestamps",
+        ),
+    )
+    review_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_session_replacement_reviews.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    review_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    retirement_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_runtime_retirements.operation_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    prepare_operation_id: Mapped[str | None] = mapped_column(String(36))
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    profile_disposal_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    released_at: Mapped[str | None] = mapped_column(String(27))

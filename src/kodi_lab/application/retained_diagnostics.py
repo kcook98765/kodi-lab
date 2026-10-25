@@ -515,6 +515,9 @@ class RetainedDiagnosticsService:
                     .where(
                         DevelopmentSessionEvidenceHoldRow.capture_id == row.id,
                         DevelopmentSessionReplacementReviewRow.state == "open",
+                        DevelopmentSessionReplacementReviewRow.successor_generation.is_(
+                            None
+                        ),
                     )
                     .limit(1)
                 )
