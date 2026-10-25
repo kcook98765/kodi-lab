@@ -162,3 +162,12 @@ proof remain mandatory. No new table/catalog/grant. Independent checklist work
 shares preflight imports but changes separate query/session-ownership blocks;
 preserve both complete increments and D0456/D0457 when composing. Neither
 inherits any prior release result. #72–#75 remain draft pending settled review.
+
+[#76](https://github.com/kcook98765/kodi-lab/pull/76), draft `2ebe7e1`, follows
+#75 with one private selected-session stored preparation snapshot and existing
+reviewed-action links. 16 focused + 126 composed interactions passed in 70.4s.
+No probe, mutation, new tool/grant/table or native readiness claim. Normal Web
+maintenance remains. Appended D0456/D0457 and both session sections were retained
+with source hashes; shared preflight source combined cleanly and tests cover
+both increments. Review order #74→#75→#76, all still draft and outside any
+successful release result. The last full attempt remains failed at `557dcdd`.

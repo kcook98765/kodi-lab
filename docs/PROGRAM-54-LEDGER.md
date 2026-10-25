@@ -17,13 +17,14 @@ This ledger records source qualification, not deployment or native acceptance.
   three owned scratch roots removed; source manifest reverified. The final three
   stages did not run. A historical-fixture correction is being checked; there is
   no RELEASE PASS for this pin or later bytes. Standalone evidence is below.
-- Later source, outside that pin: private stored preparation checklist on
-  `feat/51-session-preparation-checklist-20261025` (uncommitted/static only).
+- Later source, outside that pin: [draft #76](https://github.com/kcook98765/kodi-lab/pull/76)
+  (`2ebe7e1`) provides the private stored preparation checklist, stacked on #75.
+  Its composed lane passed 16 focused + 126 interactions in 70.4s.
   [Draft #75](https://github.com/kcook98765/kodi-lab/pull/75), `d56e30a`, now
   scopes deployment lineage to the exact selected profile: 60 focused + 238
   interaction cases passed in 128.8s. The identical corrected regression file
   failed 7 behavior cases on untouched `557dcdd` and passed all 9 with the fix.
-  The checklist's own checks are running; neither increment has RELEASE PASS.
+  Both increments have integration evidence; neither has RELEASE PASS.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -951,3 +952,44 @@ The checklist's focused and integration lane is now running; no result or PR is
 claimed yet. Both new increments remain outside the failed `557dcdd` gate and
 the older successful `cbc8894` qualification. Continue to the explicit selected
 source-copy foundation after these checks, then qualify a settled composition.
+
+### Read-only selected-session preparation checklist published
+
+[Draft #76](https://github.com/kcook98765/kodi-lab/pull/76), head
+`2ebe7e1ff88f416d4e8b706294078237d66e93c0`, follows #75. The ordinary session
+page links to one authenticated uncached checklist for the selected add-on and
+Kodi version, with stored source attachment/baseline/validation, operation-history
+and Bridge prerequisite guidance. No runtime probe, setup dispatch, credential
+read, scheduler, new tool/grant/table or automatic enablement. Live container,
+native/Bridge/dialog/add-on state remains unknown; agent authority is explicitly
+not assessed. Existing Web session tracking/retention maintenance is preserved.
+
+One explicit read transaction is borrowed across the existing preflight,
+reconciliation and capability projections, keeping a coherent snapshot across a
+concurrent switch. A stale requested generation or mixed stored identity refuses;
+a coherent snapshot can become historical and each mutation still rechecks
+current admission. The managed-agent guide connects existing preflight,
+selected-profile admission and reviewed-tree staging without new agent authority.
+
+Before stacking: 16 focused + 69 interactions, 65.1s. After rebasing on #75:
+**INTEGRATION PASS**, 16 individually focused cases/static checks plus 126
+preflight/Bridge/reconciliation/historical migration/session/profile-lineage/Web
+interactions, 70.4s. Covers DELETE/WAL read behavior, exactly one connection,
+concurrent generation/runtime change, stale/mixed identity, real migrated schema,
+o runtime/secret dispatch, edits/validation, auth/no-store/escaping. An initial
+test looked up validation by workspace rather than its own primary key; corrected
+without changing production behavior. No full qualification or native acceptance.
+
+Only appended decision/session documents conflicted while stacking. Both complete
+D0456/D0457 records and both session sections were preserved and SHA-checked
+against original source commits; preflight source combined cleanly. Private
+`preparation-lineage-doc-composition.json` records that proof. #74→#75→#76 is the
+review dependency order; there is still no merge or deployment authority.
+
+Continue with the exact stopped-source-copy queue foundation before adding a
+guided mutation: preserve the queued container identity, avoid rebinding it during
+acquire, serialize trusted claim preconditions and retain unknown/claimed work.
+Do not introduce nonce replay that becomes unsafe after ordinary history pruning;
+review durable attribution before a new guided copy API. Reuse the existing
+source executor and admission, not a general task scheduler. Group a settled
+future release candidate after these bounded source changes.
