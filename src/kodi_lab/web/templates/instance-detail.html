@@ -76,7 +76,8 @@
       <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
         <h2>Reviewed Bridge</h2>
         <p>The reviewed Bridge adds direct manifest entry-point launch on managed development Kodi. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
-        <button type="button" data-reviewed-bridge-install>Install reviewed Bridge</button>
+        <button type="button" data-reviewed-bridge-install disabled>Install reviewed Bridge</button>
+        <button type="button" data-reviewed-bridge-refresh>Refresh status</button>
         <p role="status" data-reviewed-bridge-status>Checking Bridge status…</p>
       </section>
       {% endif %}
