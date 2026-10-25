@@ -259,6 +259,32 @@ The existing read-only deployment preflight reports the stored session restricti
 and links to session review when it blocks work. Matching stored scope does not
 prove a live container or native/Bridge/add-on readiness.
 
+## Selected-session preparation checklist
+
+The session page links to a private, read-only checklist for the currently
+selected add-on and Kodi version. It reuses the deployment preflight and stored
+Bridge capability prerequisites. Profile phase, source attachment, exact saved
+baseline, workspace validation and unresolved operation history are shown beside
+links to existing reviewed setup actions. No agent/client scope is inferred.
+
+The service reads one SQLite transaction snapshot for session, workspace/source,
+preflight, reconciliation and Bridge prerequisites. Projections may borrow that
+read session without closing it; their ordinary callers retain existing behavior.
+An explicit `BEGIN` followed only by reads keeps the composed identities together;
+it does not reserve the writer slot. See SQLite's [isolation](https://www.sqlite.org/isolation.html)
+and [transaction documentation](https://www.sqlite.org/lang_transaction.html).
+A concurrent switch can leave the displayed generation historical, while the
+snapshot stays internally consistent. An explicitly requested generation that is
+already stale refuses; each later mutation still rechecks current admission.
+
+The checklist projection never probes Kodi/Bridge/broker, reads credentials, schedules work,
+creates/prunes operations, changes grants or updates health. Current container,
+native/Bridge readiness, dialogs and enabled add-on remain unobserved/unknown.
+HTML and JSON are administrator-authenticated and `no-store`; metadata is escaped.
+Normal Web authentication last-use updates and the existing bounded retention
+middleware remain in place; they are separate from the read-only projection.
+This is setup guidance, not runtime or native/platform acceptance. It does not
+implement settings authority or automatic source setup/enablement.
 
 ## Current-profile deployment receipts
 
