@@ -320,3 +320,20 @@ permission, request-id/replay guarantee or automatic source setup. Existing lega
 nullable queue rows keep claim-time binding; they do not gain retrospective queue
 identity proof. The existing source executor remains the only worker. A guided
 copy action still needs durable request attribution and current session admission.
+
+### Durable source-copy admission foundation
+
+The selected stopped session can admit its already attached registered source
+through a trusted application service. A durable request receipt binds the exact
+session generation, target, runtime, workspace, source and container to the
+existing Source copy operation and both operation reservations in one transaction.
+This copies the registered source baseline; private workspace edits still need
+validation and workspace deployment. This foundation adds no public action yet.
+
+Retrying an identical request reads the original receipt. It does not queue a
+replacement operation, even after bounded operation detail has been pruned or
+the session has closed. Missing detail means the outcome is not retained, not
+success or permission to repeat the copy. Request history is bounded without
+automatic pruning (1,024 total, 32 per session generation); capacity needs review.
+Source attachment, stopped exact identity and existing admission checks remain
+mandatory. Unknown or running work is never reset by this service.
