@@ -433,3 +433,18 @@ and renew the original unexpired typed lease; they cannot borrow foreign authori
 fails; uncertain native dispatch still requires existing reconciliation. It does
 not create a new guided enablement action, automatically enable an add-on, change
 permissions or treat historical enabled state as current proof.
+
+### Queued registered-source smoke checks
+
+Existing registered-source smoke work is narrowed to the selected source, target
+and runtime. New queues retain the selected expected profile; the worker confirms
+its actual running identity and keeps the acquired session selection through the
+native invocation marker. It cannot rebind a positive profile pin or borrow foreign
+operation authority. Unknown or malformed queued work remains for review.
+
+This adds no new button, agent grant or retry loop. The existing running bound
+stays 90 seconds. Older nullable records bind only when the current runtime is
+observed; that does not establish their original queue-time identity. Native
+invocation ambiguity and post-invocation provenance remain attached to the
+original work. Current setup observations do not convert historical results into
+native readiness, and refreshing stored history does not rerun a smoke test.

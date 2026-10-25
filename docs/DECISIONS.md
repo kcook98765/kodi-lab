@@ -7063,3 +7063,31 @@ automatic enablement or Bridge/native readiness claim. Old enablement receipts
 remain history and cannot supply current native readiness. Guided source copy
 still requires positive CID in worker/broker checks; optional None applies only
 to trusted metadata admission before native observation.
+
+## D0462 - Keep generic queued source smoke within its physical scope
+
+Reuse the existing expected-container field for new active-session source-smoke
+queues. Queue admission runs in the writer claim and stores the selected desired
+CID; this is expected scope, not live observation. Create persists that field,
+acquire preserves positive pins and exact unclaimed typed ownership, and observed
+binding can fill an older nullable record or confirm the same positive value.
+It cannot overwrite a positive pin. Original historical target must also match
+the leased target at acquire and live boundaries. Foreign, malformed, claimed, dispatched or
+reconciliation-marked queued work remains fenced.
+
+The existing worker captures its current selected generation/CID when acquiring
+and rechecks actual observed CID and that same acquired selection before native
+invocation. Its observation/dispatch/finish boundaries require exact live typed
+kind/op/token ownership. Heartbeats retain the original operation expiry, so the
+90-second running bound does not become a renewable scheduler. Finish checks
+ownership before confidence/history writes and cannot clear foreign authority;
+pre-dispatch scope failure can settle only its own work. Post-dispatch ambiguity,
+original native identity, tree/dependency checks and bounded history remain.
+
+No new migration, queue framework, endpoint/tool/grant or durable nonce/generation
+promise is introduced. This is the existing generic, unversioned source action.
+Fresh profiles have different immutable CIDs and existing reservations prohibit
+legitimate replacement while queued/running. Legacy nullable queues keep honest
+current observed-binding compatibility, without fabricated original queue proof.
+A future versioned/guided smoke request would need separately established durable
+request semantics; ordinary prunable operation IDs do not provide idempotence.
