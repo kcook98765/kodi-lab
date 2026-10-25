@@ -7,43 +7,33 @@ Current requirement-by-requirement [Phase 2 source status and remaining decision
 
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
-- Settled shared-native-boundary candidate **RUNNING**: `ba215e6`, tree
-  `d6b7669`, starting11:55UTC. It composes source82 `683c2c5`, guide80 and report
-  snapshot5420c39;1,817tracked entries/11changedSHA. No result yet. c788 remains
-  the latest verified RELEASE PASS; later81/82 results are integration only.
-
-- Latest completed combined qualification: **RELEASE PASS**, commit
-  `c788a3166002ea171074d08f8363a827fb1e3da0`, tree
-  `4211e3d7bda1b32b38e2044111e45d19959248a2`: **5,703 passed / 38 gated skips /
-  34m09s**. All eight stages exited zero, all three owned scratch roots removed,
-  all 1,815 tracked entries and 61 changed-file SHA values reverified. This is
-  #79 source `6aaa097` plus the two report files at snapshot `96e8c5d`; it includes
-  #74's fixture correction and #75–#79. No native/platform acceptance implied.
-- Prior successful combined `cbc8894`: 5,515 / 38 / 32m12s. Phase 1 remains
-  separately pinned `02c4054`: 5,234 / 38 / 29m59s. Frozen `557dcdd` remains a
-  **failed** historical attempt: 5,617 / 1 fixture failure / 38 / 32m09s; its final
-  three stages did not run. Later correction/success does not rewrite that result.
-- [#78](https://github.com/kcook98765/kodi-lab/pull/78) adds durable exact source-
-  copy admission; [#79](https://github.com/kcook98765/kodi-lab/pull/79) adds the
-  guided stopped baseline-copy Web flow and Source queue/worker/broker policy.
-  Their standalone focused/integration results remain below; their settled
-  composition is included in c788. Review order #74→#75→#76→#77→#78→#79.
-- [Draft #80](https://github.com/kcook98765/kodi-lab/pull/80), `945b3af`, is a
-  Markdown walkthrough correction with static review only, **outside c788**.
-  [Draft #81](https://github.com/kcook98765/kodi-lab/pull/81), `87c36a4`,
-  narrows synchronous source enablement and typed marker ownership:27 focused
-  +363 interactions passed178.2s, outside c788 with no release inheritance.
-- [Draft #82](https://github.com/kcook98765/kodi-lab/pull/82), `683c2c5`,
-  retains existing queued smoke profile/typed ownership with no migration.
-  Initial31 focused+382 interactions passed167.9s; target-consistency follow-up
-  passed32+200 in99.1s, then final33 focused19.0s. Outside c788; no inheritance.
-- At 11:21:47 UTC, main `e198592`, all 24 original worktree HEAD/status pairs,
-  stash, 210 container ID/name/image/state records and preserved log branch
-  `3dddbc2` were again verified unchanged. No merge, deployment, grant/resource
-  operation or production migration. The full qualification branch stays frozen.
-- Grouped external decisions remain in the [Phase 2 review](PROGRAM-54-PHASE2-REVIEW.md):
-  settings/screenshot authority/design, native ZIP limits, native/platform
-  acceptance and separately authorized operational integration.
+- Latest combined **RELEASE PASS**: `ba215e6d62dac996cfdf12e9df102bc1b16b6a99`, tree `d6b76696e2eb7dbca0d115493bd0b137e4ae4862`: **5,763 passed / 38 gated skips / 34m32s**. All eight stages
+  exited zero; all 1,817 tracked entries, 11 changed-file SHA256 values and all
+  three owned scratch-root removals were independently verified.
+- This pin composes final #82 `683c2c5` (including #81), the independent #80
+  walkthrough, and the two-file report snapshot `5420c39`. No individual PR head
+  received a separate full run. The previous qualified functional source head
+  `6aaa097` is an ancestor; its sibling report commit `c788a31` is not. The
+  previous pin differs from that functional source only in two report files.
+- [#80](https://github.com/kcook98765/kodi-lab/pull/80),
+  [#81](https://github.com/kcook98765/kodi-lab/pull/81) and
+  [#82](https://github.com/kcook98765/kodi-lab/pull/82) now have combined
+  qualification and are ready for review. Their individual static/focused/
+  integration evidence remains below. Review order is #79 then #81 then #82,
+  with independent guide #80 over #79. The current
+  [source checklist](PROGRAM-54-PHASE2-STATUS.md) maps every kickoff requirement,
+  the full dependency stack and the linear 0080–0085 source migration chain.
+- Prior combined `c788a31` remains separately qualified at 5,703 / 38 / 34m09s;
+  `cbc8894` at 5,515 / 38 / 32m12s; Phase 1 `02c4054` at 5,234 / 38 / 29m59s.
+  Frozen `557dcdd` remains failed: 5,617 / 1 historical-fixture failure / 38 /
+  32m09s, with three final stages unrun. Later success does not rewrite it.
+- At 2026-10-25T12:30:39.299971+00:00, all 24 original worktree HEAD/status pairs, the
+  original stash, all 210 container ID/name/displayed-image/state tuples, main
+  `e198592` and preserved log branch `3dddbc2` were verified unchanged.
+- No merge, deployment, grant change, native/platform acceptance, existing-resource
+  operation or production migration occurred. Settings/preview policy, native ZIP
+  limitations, supported backup/recovery and operational/native acceptance remain
+  grouped decisions. The whole modernization program is not declared complete.
 
 ## Authority and preservation
 
@@ -1396,3 +1386,38 @@ Do not add redundant state/migration merely for an impossible normal transition.
 Native prompt and supported exact-version/platform acceptance still require
 separate authorization/evidence. No new Bridge implementation or acceptance is
 claimed. All grouped operational/security-design decisions remain unchanged.
+
+### Settled single-session qualification completed and independently verified
+
+Frozen `ba215e6d62dac996cfdf12e9df102bc1b16b6a99`, tree `d6b76696e2eb7dbca0d115493bd0b137e4ae4862` achieved **RELEASE PASS**: **5,763 passed / 38 gated skips / 34m32s**. All eight stages exited
+zero. The verifier independently checked the exact clean HEAD/tree, all 1,817
+tracked entries, 11 changed-file SHA256 values, the recorded test outcomes and
+removal of all three exact owned scratch roots. The result includes the settled
+#81/#82 native-source admission fixes and composed #80 walkthrough; it does not
+transfer the older c788 result or imply separate full runs of the PR heads.
+
+The preserved evidence includes `single-session-release-verified.json`, the
+stage/JSON/JUnit reports, the source manifest, guide-composition hashes and the
+retained cost summary under the private Phase 2 evidence root. Wrapper elapsed
+was 2073.11s; peak pytest RSS was 3,177,308 KiB.
+Minimum sampled scratch free space was 5,780,467,712 bytes.
+The normal scratch selection, 2 GiB reserve, 2,400-second watchdog, full test
+selection, migration history, exact catalogs and security checks remained.
+
+Fresh post-gate comparisons at 2026-10-25T12:30:39.299971+00:00 matched all 24 original
+worktrees, the original stash, all 210 container identities/images/states, main
+and the preserved log branch. No live Docker/Kodi acceptance or resource action
+ran. The final requirement review is in
+[the current source checklist](PROGRAM-54-PHASE2-STATUS.md); historical milestone
+entries retain their original pending/failure boundaries. The next increment is
+separately authorized review/integration, matched recoverable deployment and
+isolated native sequential acceptance; optional new settings/preview policy needs
+its explicit design decision first. No generalized manager or scheduler was built.
+
+After qualification, #80–#82 were marked ready for review and their descriptions
+updated to the actual combined result. Live GitHub verification at 12:31:45 UTC
+found all 28 PRs #55–#82 open and ready, with original application heads/bases
+unchanged and #55–#60 mergeable. This is review metadata, not human approval.
+Relative links in all three current report documents resolve; the walkthrough
+links directly to the qualified source because it is absent from #61's older
+documentation-only base. Documentation checks do not require another full gate.
