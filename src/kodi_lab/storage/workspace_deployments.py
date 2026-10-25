@@ -9,6 +9,31 @@ from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
 
 
+def failed_verified_workspace_copy(row: McpWorkspaceDeploymentOperationRow) -> bool:
+    """An explicit recovery candidate, never trusted prior-copy evidence."""
+    return (
+        row.state == "failed"
+        and row.phase == "finalize"
+        and row.target_class == "internal_lab"
+        and row.deployment_mode == "direct"
+        and row.failure_phase == "inventory"
+        and row.failure_code == "deployment_verification_failed"
+        and row.recovery_state is None
+        and row.mutation_started
+        and row.target_stopped
+        and row.sync_started
+        and row.sync_completed
+        and row.target_started
+        and row.inventory_classification in {"failed", "unknown"}
+        and row.original_container_id is not None
+        and row.source_manifest_digest is not None
+        and row.verified_destination_digest is not None
+        and row.result_classification
+        in {"initial_deployment", "synchronized", "unchanged"}
+        and row.completed_at is not None
+    )
+
+
 def prior_workspace_copy(
     session: Session,
     operation: McpWorkspaceDeploymentOperationRow,

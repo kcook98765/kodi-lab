@@ -6557,6 +6557,28 @@ independently verify the advertised checksum with a bounded no-redirect request.
 DNS/proxy origins need not resolve to a host interface; no address is inferred
 or rewritten. Existing origin migration/version and client-recovery rules apply.
 
+### 2026-10-24 addendum: verified-copy inventory failures (#44)
+
+Successful process containment after an inventory failure does not acknowledge
+the installed tree's provenance. Such deployments retain reconciliation until
+the existing stopped-tree verifier records requested/prior containment.
+
+For historical terminal failures, an explicit Web administrator inspection may
+enroll only an inventory-phase `deployment_verification_failed` with complete
+ordered copy/start markers, source/destination digests and an original container
+binding. Under the workspace lock and a serialized database transaction, recheck
+unchanged workspace/source identity and digest, pre-operation baseline/runtime
+binding, and absence of another lease or unresolved operation. Persist the
+reconciliation fence before broker observation. Interruption therefore remains
+blocked and resumable; no new lease kind or permission is introduced.
+
+The ordinary full stopped-tree proof remains mandatory before a contained failed
+receipt can become prior-copy evidence. A later no-write conflict neither erases
+the earlier receipt nor becomes trusted itself. Preserve original request,
+generation, completion timestamp and failure cause; recovery time does not reorder
+historical copy lineage. Inspection never starts, copies, resets or replays a
+deployment, and never establishes native readiness or successful deployment.
+
 ## D-0440: Passive repository ZIP admission and native delivery are separate
 
 The shared ZIP importer may classify a strictly validated passive repository

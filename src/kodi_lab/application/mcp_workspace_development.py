@@ -2895,7 +2895,10 @@ class McpWorkspaceDevelopmentService:
             )
             self._finish_deployment(
                 operation.id,
-                "failed" if contained else "reconciliation_required",
+                # Stopping contains the process, not the copied-tree provenance.
+                # Keep the fence until explicit stopped-tree inspection records
+                # a requested/prior-tree receipt for the next deployment.
+                "reconciliation_required",
                 "deployment_verification_failed"
                 if contained
                 else "deployment_ambiguous",
