@@ -100,15 +100,18 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
 def test_recovery_coordinator_runs_on_the_upgraded_schema(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from uuid import UUID
+    from uuid import UUID, uuid4
+
+    from sqlalchemy import MetaData, Table
 
     from kodi_lab.application.workspace_deployment_recovery import (
         WorkspaceDeploymentRecoveryService,
     )
+    from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+    from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
     from tests.application import test_mcp_workspace_development as fixture
     from tests.application.test_workspace_deployment_recovery import (
         EvidenceBroker,
-        broken,
     )
 
     config, url = migration_setup(
@@ -117,12 +120,65 @@ def test_recovery_coordinator_runs_on_the_upgraded_schema(
     command.upgrade(config, "0078_workspace_deploy_recovery")
     engine = create_database_engine(url)
     root = tmp_path / "fixture"
-    env, row = broken(root, database_path=Path(str(engine.url.database)))
+    env = fixture._environment(root, database_path=Path(str(engine.url.database)))
+    # Current deployment admission requires its matched head schema. This older
+    # transition seeds only the actual 0078 interrupted-receipt vocabulary, then
+    # exercises the real recovery coordinator without disabling current guards.
+    assert "development_session_policy" not in inspect(engine).get_table_names()
+    historical = Table(
+        "mcp_workspace_deployment_operations", MetaData(), autoload_with=engine
+    )
+    operation_id = str(uuid4())
+    with engine.begin() as connection:
+        connection.execute(
+            historical.insert().values(
+                id=operation_id,
+                client_id=str(env.client_id),
+                initiator_kind="mcp",
+                request_id=str(uuid4()),
+                workspace_id=str(env.workspace_id),
+                development_source_id=str(fixture.SOURCE_ID),
+                target_id=str(fixture.TARGET_ID),
+                runtime_revision_id=str(fixture.RUNTIME_REVISION_ID),
+                target_class="internal_lab",
+                deployment_mode="direct",
+                generation=0,
+                addon_id="plugin.video.slice4",
+                addon_version="1.0.0",
+                state="reconciliation_required",
+                phase="finalize",
+                mutation_started=True,
+                target_stopped=True,
+                sync_started=False,
+                sync_completed=False,
+                target_started=False,
+                inventory_classification="not_checked",
+                failure_code="deployment_ambiguous",
+                failure_phase="stop",
+                failure_cause="stop_unconfirmed",
+                original_container_id=fixture.CONTAINER_ID,
+                original_runtime_state_revision=0,
+                requested_at=fixture.NOW_TEXT,
+                started_at=fixture.NOW_TEXT,
+                completed_at=fixture.NOW_TEXT,
+            )
+        )
+    env.broker.state = ContainerRuntimeState.STOPPED
+    with env.sessions() as session:
+        row = session.get(McpWorkspaceDeploymentOperationRow, operation_id)
+        assert row is not None
+        session.expunge(row)
+    broker = EvidenceBroker(env, row)
     result = WorkspaceDeploymentRecoveryService(
-        env.sessions, EvidenceBroker(env, row), data_root=root / "data"
+        env.sessions, broker, data_root=root / "data"
     ).reconcile(fixture.TARGET_ID, UUID(row.id))
     assert result.outcome == "contained_requested_tree"
-    assert not result.deployment_succeeded
+    assert not result.deployment_succeeded and broker.reads == 1
+    assert "development_session_policy" not in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == "0078_workspace_deploy_recovery"
+        )
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()
