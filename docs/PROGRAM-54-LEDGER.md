@@ -786,3 +786,29 @@ and Bridge prerequisites. Bind composition to one exact generation and refuse a
 switch rather than mix identities; no probe, secret read, automatic enablement,
 new agent grant or settings/managed-screenshot permission. No existing-resource
 operation, merge, deployment or production migration is authorized.
+
+### Qualification harness correction; exact source pin unchanged
+
+The first `557dcdd` attempt accidentally forced disk-backed `/tmp` rather than
+the previously successful standard automatic tmpfs selection. Its first 240
+cases passed, but at 9m37s the process was repeatedly in `jbd2_log_wait_commit`
+with substantial I/O pressure. This was a harness configuration error, not a
+product failure or RELEASE PASS. The exact owned pytest PID received SIGINT;
+wrapper exit 2 and complete removal of all three owned scratch roots were
+verified. Partial JSON/stages/log/result are retained privately as the disk
+attempt; no history or evidence was overwritten.
+
+The same frozen `557dcdddac66947e41dc6aabb85b4c4b013bba07` / tree `611eb6f`
+is now rerunning with standard harness temp auto-selection. Source manifest,
+HEAD/tree and changed-file hashes rechecked before dispatch. No tests, reserves,
+assertions, stages, default watchdog or product bytes changed. Snapshot scratch
+continues on the normal filesystem with its production 2 GiB reserve. No
+competing tests/native acceptance run during this corrected full gate.
+
+The next preparation-checklist worktree now contains uncommitted source/docs and
+two new test modules, still **unvalidated**. It composes preflight/reconciliation/
+Bridge prerequisites in one explicit read snapshot via borrowed read sessions;
+no runtime probe, scheduler, grant or schema change. Existing Web authentication
+last-use tracking and bounded retention middleware remain in place. Static parse,
+Ruff format/lint and diff checks passed; no focused/integration or release claim
+is made for these later bytes. Its tests wait for the frozen full gate to finish.
