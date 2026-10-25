@@ -3,6 +3,30 @@
 Coordination: <https://github.com/kcook98765/kodi-lab/issues/54>.
 This ledger records source qualification, not deployment or native acceptance.
 
+## Current Phase 2 checkpoint (2026-10-25 UTC)
+
+- Latest completed combined qualification: `cbc8894`, **RELEASE PASS**,
+  5,515 passed / 38 gated skips / 32m12s. Phase 1 remains separately pinned
+  at `02c4054`, 5,234 / 38 / 29m59s; later focused additions never inherit it.
+- Draft [#72](https://github.com/kcook98765/kodi-lab/pull/72) adds atomic
+  Fresh/Switch; [#73](https://github.com/kcook98765/kodi-lab/pull/73) adds bounded
+  referenced crash-report metadata; [#74](https://github.com/kcook98765/kodi-lab/pull/74)
+  adds selected-workspace runtime admission and matching preflight. Their
+  combined `557dcdd` / tree `611eb6f` full gate is running under standard temp
+  selection. The interrupted disk-backed attempt is preserved; no release result
+  yet for this pin. Standalone focused/integration evidence is recorded below.
+- Later source, outside that pin: private stored preparation checklist on
+  `feat/51-session-preparation-checklist-20261025` (uncommitted/static only).
+  A separate `feat/51-profile-deployment-lineage-20261025` worktree contains six
+  queued regression cases for old-profile receipt selection, with no production
+  fix or test result yet. Both wait for the full gate before test execution.
+- Main `e198592`, 24 original worktrees, stash, 210 container identity/state
+  records and preserved log branch `3dddbc2` were reverified unchanged.
+  No merges, deployments, grant changes or existing-resource operations.
+- Grouped decisions remain in the [Phase 2 review](PROGRAM-54-PHASE2-REVIEW.md):
+  settings and managed screenshot authority/design, native ZIP provider limits,
+  native/platform acceptance and separately authorized operational integration.
+
 ## Authority and preservation
 
 The 2026-10-24 kickoff authorizes reversible code, tests, documentation, commits,
@@ -812,3 +836,25 @@ no runtime probe, scheduler, grant or schema change. Existing Web authentication
 last-use tracking and bounded retention middleware remain in place. Static parse,
 Ruff format/lint and diff checks passed; no focused/integration or release claim
 is made for these later bytes. Its tests wait for the frozen full gate to finish.
+
+### Queued regression review: exact current-profile deployment lineage
+
+Source review found that execution success lookup is keyed by workspace, target
+and source generation, while prior workspace-copy lookups match runtime but do
+not scope the original profile. A same-version Fresh Test or switch away/back
+can reuse those identities while retaining old receipts. Existing live/broker
+checks may reject later; this is not evidence of a native bypass or incident.
+Potential stale prerequisite selection and false multiple-success ambiguity need
+focused proof before a fix is claimed.
+
+Six new regression cases are queued in the isolated
+`51-profile-deployment-lineage-20261025` worktree (base `557dcdd`): old-only
+execution refusal, unambiguous current-profile success with retained history,
+historical original-request replay, GUI receipt scope, read-only baseline reason,
+and refusal before stop/sync when only old profile lineage exists. They use
+temporary SQLite/fake positive transports and simulate the tested handoff's
+stored outcome; no native acceptance is inferred. Static Ruff passed; tests have
+**not run**, no production fix exists and no PR is published for this increment.
+Private review is `session-profile-lineage-review.md` under the Phase 2 evidence
+root. Future resolution must retain old receipts/replay and legacy/external
+semantics, with no new grant/tool/table or guessed latest unrelated operation.
