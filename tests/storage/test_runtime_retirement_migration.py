@@ -25,6 +25,10 @@ from kodi_lab.storage.models import ManagedRuntimeRetirementRow
 from kodi_lab.storage.repositories import ManagedInstanceLifecycleOperationRepository
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_runtime_retirement_receipts import build, scope
+from tests.storage.session_review_fixtures import (
+    load_historical_review,
+    save_historical_review,
+)
 from tests.storage.test_migrations import migration_setup
 from tests.storage.test_migrations import migration_templates as migration_templates
 
@@ -63,7 +67,7 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
         database_path=Path(url.removeprefix("sqlite:///")),
     )
     try:
-        review = case.env.reviews.create(case.env.request())
+        review = save_historical_review(case.env)
         capture = case.env.retained.read(case.env.capture.capture_id)
         old_operation = ManagedInstanceLifecycleOperation(
             id=uuid4(),
@@ -104,7 +108,7 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
                 )
         receipt = read_retirement_receipt(case.sessions, operation_id)
         assert (receipt.confirmation == "confirmed") is confirmed
-        assert case.env.reviews.get(review.review_id) == review
+        assert load_historical_review(case.env, review.review_id) == review
         assert case.env.retained.read(case.env.capture.capture_id) == capture
         for statement, params in (
             (

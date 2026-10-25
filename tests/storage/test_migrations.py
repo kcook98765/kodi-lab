@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0083_managed_runtime_retirements",)
+        ).fetchone() == ("0084_session_replacements",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -437,6 +437,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "development_session_replacement_reviews",
         "development_session_evidence_holds",
         "managed_runtime_retirements",
+        "development_session_replacements",
         "managed_agent_lifecycle_requests",
         "agent_workspace_cleanup_operations",
         "agent_workspace_lifecycle_events",

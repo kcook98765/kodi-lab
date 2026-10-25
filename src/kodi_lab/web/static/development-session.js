@@ -59,6 +59,10 @@
       if (uncertain) status.textContent += ' The last action outcome is uncertain. Do not resubmit; review Kodi history before further action.';
       targetLink.hidden = workspaceLink.hidden = !current;
       if (current) {
+        target.value = current.target_id;
+        workspace.value = current.workspace_id;
+        if (!target.value) target.value = '';
+        if (!workspace.value) workspace.value = '';
         targetLink.href = `/instances/${current.target_id}`;
         workspaceLink.href = `/agent-workspaces/${current.workspace_id}`;
       }
