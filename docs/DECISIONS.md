@@ -6959,3 +6959,26 @@ cleared, and no new grant/tool/table or agent lifecycle authority is introduced.
 The existing source baseline can supply the new profile's initial copy lineage;
 its positive current binding remains required. Source-only qualification cannot
 establish native or operational acceptance.
+
+
+## D0458 - Retain stopped-source queue identity through worker admission
+
+New source-copy queues persist the stopped container observed before reservation
+in the existing expected-container field. Repository acquire can bind an older
+nullable queue or claim that same positive identity; it cannot overwrite a
+queued pin. Trusted application preconditions run in the queue's writer claim
+before operation/lease creation, with current runtime/type/attachment rechecked.
+
+Acquire serializes fresh scope and exact ownership of both unclaimed typed
+reservations. Positive profile/runtime/attachment drift may fail only that queued
+operation and release those exact unclaimed reservations atomically. Running,
+claimed, malformed or foreign authority is never terminalized by this path;
+unknown inventory preserves the existing fence. Commit cancellation preserves
+rollback before commit and the authoritative failure receipt after commit. No
+copy is dispatched on refusal and no baseline is invented or reattributed.
+
+This reuses existing columns, failed-queue representation and the existing source
+executor. No migration, new grant/tool, generic scheduler or guided retry API.
+Legacy nullable queued records retain their existing claim-time binding semantics.
+Durable request attribution must precede any new guided copy/replay interface;
+ordinary bounded operation-history pruning is not an idempotence guarantee.
