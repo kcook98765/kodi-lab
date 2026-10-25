@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -76,6 +76,10 @@ from kodi_lab.kodi.addons import (
     KodiReportedAddonDependency,
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_source_session_admission,
+)
 from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -180,6 +184,8 @@ class RunningDevelopmentSourceEnablement:
     operation_id: UUID
     instance_id: UUID
     token: str
+    selected_generation: int | None = None
+    selected_container_id: str | None = None
 
     @property
     def token_digest(self) -> str:
@@ -240,6 +246,23 @@ class DevelopmentSourceEnablementOperationCoordinator:
         )
         try:
             with self._session_factory.begin() as session:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                selected = require_source_session_admission(
+                    session,
+                    target_id=str(instance_id),
+                    revision_id=str(runtime_revision_id),
+                    source_id=str(source_id),
+                    container_id=None,
+                )
+                handle = replace(
+                    handle,
+                    selected_generation=None
+                    if selected is None
+                    else selected.generation,
+                    selected_container_id=None
+                    if selected is None
+                    else selected.container_id,
+                )
                 leases = ManagedInstanceMutationLeaseRepository(session)
                 leases.reserve(
                     instance_id,
@@ -265,10 +288,40 @@ class DevelopmentSourceEnablementOperationCoordinator:
             ) from error
         return handle
 
+    def _renew_owned(
+        self, session: Session, handle: RunningDevelopmentSourceEnablement
+    ) -> None:
+        leases = ManagedInstanceMutationLeaseRepository(session)
+        current = leases.current(handle.instance_id)
+        now = self._clock()
+        if (
+            current is None
+            or current.operation_kind
+            is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ENABLEMENT
+            or not leases.renew(
+                handle.instance_id,
+                operation_id=handle.operation_id,
+                token_digest=handle.token_digest,
+                now=now,
+                expires_at=now + MUTATION_LEASE_DURATION,
+            )
+        ):
+            raise DevelopmentSourceEnablementConflictError(
+                "Enablement mutation lease is no longer owned and current."
+            )
+
     def set_preflight_state(
-        self, handle: RunningDevelopmentSourceEnablement, *, prior_enabled: bool
+        self,
+        handle: RunningDevelopmentSourceEnablement,
+        *,
+        prior_enabled: bool,
+        precondition: Callable[[Session], None] | None = None,
     ) -> None:
         with self._session_factory.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            self._renew_owned(session, handle)
+            if precondition is not None:
+                precondition(session)
             if not DevelopmentSourceEnablementOperationRepository(
                 session
             ).set_preflight_state(handle.operation_id, prior_enabled=prior_enabled):
@@ -276,8 +329,17 @@ class DevelopmentSourceEnablementOperationCoordinator:
                     "Enablement history is no longer running."
                 )
 
-    def mark_mutation_started(self, handle: RunningDevelopmentSourceEnablement) -> None:
+    def mark_mutation_started(
+        self,
+        handle: RunningDevelopmentSourceEnablement,
+        *,
+        precondition: Callable[[Session], None] | None = None,
+    ) -> None:
         with self._session_factory.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            self._renew_owned(session, handle)
+            if precondition is not None:
+                precondition(session)
             if not DevelopmentSourceEnablementOperationRepository(
                 session
             ).mark_mutation_started(handle.operation_id):
@@ -449,6 +511,26 @@ class DevelopmentSourceEnablementService:
             if isinstance(runtime, str):
                 return self._failed(handle, runtime, dependencies)
             observation, container_id = runtime
+
+            def selected_precondition(session: Session) -> None:
+                selected = require_source_session_admission(
+                    session,
+                    target_id=str(instance_id),
+                    revision_id=str(instance.runtime_revision_id),
+                    source_id=str(source_id),
+                    container_id=container_id,
+                )
+                generation = None if selected is None else selected.generation
+                if generation != handle.selected_generation or (
+                    handle.selected_container_id is not None
+                    and container_id != handle.selected_container_id
+                ):
+                    raise DevelopmentSessionConflict(
+                        "development_session_identity_changed"
+                    )
+
+            with self._session_factory() as session:
+                selected_precondition(session)
             evidence_code = self._validate_evidence(
                 instance_id,
                 source_id,
@@ -541,7 +623,11 @@ class DevelopmentSourceEnablementService:
             if blocked is not None:
                 code = dependency_failure_code(blocked.status)
                 return self._dependency_blocked(handle, code, blocked, dependencies)
-            self._coordinator.set_preflight_state(handle, prior_enabled=details.enabled)
+            self._coordinator.set_preflight_state(
+                handle,
+                prior_enabled=details.enabled,
+                precondition=selected_precondition,
+            )
             if details.enabled:
                 operation = self._coordinator.terminalize(
                     handle,
@@ -551,7 +637,10 @@ class DevelopmentSourceEnablementService:
                     failure_reason=None,
                 )
                 return self._status(operation, dependencies)
-            self._coordinator.mark_mutation_started(handle)
+            self._coordinator.mark_mutation_started(
+                handle,
+                precondition=selected_precondition,
+            )
             mutation_started = True
             try:
                 adapter.enable(source.addon_id)
@@ -596,6 +685,10 @@ class DevelopmentSourceEnablementService:
                 failure_reason=None,
             )
             return self._status(operation, dependencies)
+        except DevelopmentSessionConflict as error:
+            if mutation_started:
+                return self._reconciliation(handle, dependencies)
+            return self._failed(handle, error.code, dependencies)
         except Exception:
             if mutation_started:
                 return self._reconciliation(handle, dependencies)

@@ -7041,3 +7041,26 @@ The checklist's core session/preflight/capability facts retain one read snapshot
 Its separate bounded receipt read is explicitly scoped to that displayed original
 generation, so it cannot display another generation's request as the selection.
 Normal Web authentication last-use and retention maintenance remain unchanged.
+
+## D0461 - Narrow synchronous source enablement to its selected session scope
+
+The existing Web-admin source enablement coordinator checks selected source,
+target, runtime and pending lifecycle reservations in its typed writer claim.
+It retains selected generation/container in the synchronous in-process handle;
+metadata-only admission before observation supplies no native identity proof.
+After native runtime observation and before recording prior enabled state or
+marking mutation dispatch, it rechecks positive observed CID and the same selected
+generation. Those writer marker boundaries also require and renew the matching
+unexpired typed operation/token lease; foreign, expired or wrong-kind authority
+cannot mark native dispatch. A same-scope successor cannot borrow the original operation's scope.
+
+All existing source validation, exact copied baseline/tree, native identity,
+dependency, bytecode-policy, service-add-on restrictions and enabled readback
+remain mandatory. A selected-scope failure before native dispatch can record
+that precise failed preflight; ambiguity after dispatch retains existing
+reconciliation. Inactive legacy behavior stays on the current migrated schema.
+This adds no new durable request/history promise, migration, tool/grant, endpoint,
+automatic enablement or Bridge/native readiness claim. Old enablement receipts
+remain history and cannot supply current native readiness. Guided source copy
+still requires positive CID in worker/broker checks; optional None applies only
+to trusted metadata admission before native observation.
