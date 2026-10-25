@@ -170,6 +170,9 @@ class DevelopmentSourceDeploymentOperationCoordinator:
         source_id: UUID,
         *,
         precondition: Callable[[Session], None] | None = None,
+        operation_id: UUID | None = None,
+        on_claim: Callable[[Session, DevelopmentSourceDeploymentOperation], None]
+        | None = None,
     ) -> DevelopmentSourceDeploymentStatus:
         self._stale.sweep_instance(instance_id)
         self._stale.sweep_global()
@@ -215,7 +218,7 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             )
         container_id = self._require_stopped(instance_id)
         operation = DevelopmentSourceDeploymentOperation(
-            id=uuid4(),
+            id=operation_id or uuid4(),
             original_managed_instance_id=instance_id,
             managed_instance_id=instance_id,
             development_source_id=source_id,
@@ -261,6 +264,8 @@ class DevelopmentSourceDeploymentOperationCoordinator:
                     kind=GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
                     operation_id=operation.id,
                 )
+                if on_claim is not None:
+                    on_claim(session, operation)
                 session.commit()
         except IntegrityError as error:
             raise DevelopmentSourceDeploymentConflictError(
