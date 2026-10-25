@@ -136,46 +136,48 @@ def confirm_retirement_receipt(
     session.flush()
 
 
+def retirement_receipt_in_session(
+    session: Session,
+    operation_id: UUID,
+) -> RuntimeRetirementReceipt:
+    row = session.get(ManagedRuntimeRetirementRow, str(operation_id))
+    operation = ManagedInstanceLifecycleOperationRepository(session).get(operation_id)
+    if row is None:
+        raise RuntimeRetirementReceiptError("runtime_retirement_receipt_not_found")
+    if (
+        operation is None
+        or operation.kind is not ManagedInstanceLifecycleKind.DEPROVISION
+        or operation.original_managed_instance_id
+        != UUID(row.original_managed_instance_id)
+    ):
+        raise RuntimeRetirementReceiptError("runtime_retirement_receipt_invalid")
+    if row.confirmed_at is not None and (
+        operation.state is not ManagedInstanceLifecycleOperationState.SUCCEEDED
+        or operation.resulting_state is not ManagedInstanceSemanticState.UNPROVISIONED
+        or operation.completed_at is None
+        or timestamp(operation.completed_at) != row.confirmed_at
+    ):
+        raise RuntimeRetirementReceiptError("runtime_retirement_receipt_invalid")
+    return RuntimeRetirementReceipt.model_validate(
+        dict(
+            operation_id=row.operation_id,
+            scope=dict(
+                managed_instance_id=row.original_managed_instance_id,
+                runtime_revision_id=row.runtime_revision_id,
+                container_id=row.container_id,
+                image_id=row.image_id,
+            ),
+            confirmation="not_confirmed" if row.confirmed_at is None else "confirmed",
+            prepared_at=row.prepared_at,
+            confirmed_at=row.confirmed_at,
+            operation_state=operation.state,
+        )
+    )
+
+
 def read_retirement_receipt(
     sessions: sessionmaker[Session],
     operation_id: UUID,
 ) -> RuntimeRetirementReceipt:
     with sessions() as session:
-        row = session.get(ManagedRuntimeRetirementRow, str(operation_id))
-        operation = ManagedInstanceLifecycleOperationRepository(session).get(
-            operation_id
-        )
-        if row is None:
-            raise RuntimeRetirementReceiptError("runtime_retirement_receipt_not_found")
-        if (
-            operation is None
-            or operation.kind is not ManagedInstanceLifecycleKind.DEPROVISION
-            or operation.original_managed_instance_id
-            != UUID(row.original_managed_instance_id)
-        ):
-            raise RuntimeRetirementReceiptError("runtime_retirement_receipt_invalid")
-        if row.confirmed_at is not None and (
-            operation.state is not ManagedInstanceLifecycleOperationState.SUCCEEDED
-            or operation.resulting_state
-            is not ManagedInstanceSemanticState.UNPROVISIONED
-            or operation.completed_at is None
-            or timestamp(operation.completed_at) != row.confirmed_at
-        ):
-            raise RuntimeRetirementReceiptError("runtime_retirement_receipt_invalid")
-        return RuntimeRetirementReceipt.model_validate(
-            dict(
-                operation_id=row.operation_id,
-                scope=dict(
-                    managed_instance_id=row.original_managed_instance_id,
-                    runtime_revision_id=row.runtime_revision_id,
-                    container_id=row.container_id,
-                    image_id=row.image_id,
-                ),
-                confirmation="not_confirmed"
-                if row.confirmed_at is None
-                else "confirmed",
-                prepared_at=row.prepared_at,
-                confirmed_at=row.confirmed_at,
-                operation_state=operation.state,
-            )
-        )
+        return retirement_receipt_in_session(session, operation_id)
