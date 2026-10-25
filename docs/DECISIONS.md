@@ -6586,3 +6586,19 @@ Native repository downloads do not inherit Lab's HTTPS fetcher/ZIP limits or
 establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
+
+## D-0445: Explicit prepared Bridge confirmation under a live lifecycle lease
+
+Prepared reviewed intent does not establish installed material or authenticated
+capability readiness. A Web-only, generation-bound continuation may use the
+existing enable/establish/authenticate path for the unchanged exact runtime and
+container. It runs synchronously inside the existing lifecycle START operation
+lease, avoiding reliance on a later background readiness callback's lease timing.
+It never starts/stops/restarts Kodi or restages files itself. Unknown/stale,
+unreviewed, retired and incomplete material remain refused or unconfirmed.
+
+Reuse the existing prepared CAS, secret retirement, build/release pin and fresh
+identity checks; no direct prepared-to-active state edit. Native prompts remain
+independent authorized work. Expose only recorded continuation availability in
+GET status and preserve bounded polling/uncertain-POST safeguards in the browser.
+No new persisted vocabulary, permission, MCP mutation or production capability.
