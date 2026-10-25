@@ -6751,3 +6751,31 @@ Prepared reviewed intent can point to the existing Web continuation but cannot
 prove eligibility; that mutation rechecks all live ownership/generation/identity
 conditions. Do not infer installed bytes from prepared state or a candidate pin,
 or unattended completion from active trust. No new MCP access or grants.
+
+## D-0450: Explicit private stopped-log captures survive disposable profiles
+
+For #50/#51, keep diagnostic capture separate from lifecycle, source deployment,
+agent grants and disposal authority. Use one fixed read-only broker operation,
+exact stopped target/runtime/container/image and private standard profile
+checks, bounded source/archive/tail bytes and explicit missing/unsafe/oversize/
+changed states. Redact the complete bounded input before taking a retained tail.
+Do not run Kodi, exec a helper, mutate logs or duplicate preserved recipe/rotation
+work. Source/SDK/socket fixtures do not establish native/platform acceptance.
+
+Retain selected redacted payloads in a new empty 0081 table independent of live
+resource foreign keys. Exact request replay, a global pending slot and bounded
+body/history capacity share SQLite writer admission. Mark review due after 30
+days without automatic expiry/pruning/overwrite. Discard is explicit and binds
+state/digest; retain historical identity. Atomic publication survives cancellation
+and a late abandoned read cannot publish. An uncertain create is a different
+operation and cannot be cleared by abandoning a diagnostic capture.
+
+An optional terminal workspace-deployment association requires exact original
+container/runtime/target; preserve its generation/add-on context and never guess
+a latest operation or infer crash causality. Existing reconciliation fences
+remain. Body access is Web-administrator-only with same-origin/CSRF mutations,
+non-cacheable escaped output and no bodies in routine audit fields. No new MCP
+permission or authority is introduced. Partial/uncollected evidence cannot
+claim complete diagnostics or authorize profile disposal. Populated downgrade
+refuses evidence loss. No migration/deployment or existing-resource removal is
+part of implementation qualification.

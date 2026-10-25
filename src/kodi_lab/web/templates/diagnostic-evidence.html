@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Saved diagnostic evidence · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
+{% block content %}
+<h1>Saved diagnostic evidence</h1>
+<dl>
+  <dt>Capture</dt><dd>{{ capture.capture_id }}</dd>
+  <dt>State</dt><dd>{{ capture.state }}</dd>
+  <dt>Target</dt><dd>{{ capture.target_id }}</dd>
+  <dt>Runtime revision</dt><dd>{{ capture.runtime_revision_id }}</dd>
+  <dt>Container</dt><dd>{{ capture.container_id }}</dd>
+  <dt>Created</dt><dd>{{ capture.created_at }}</dd>
+  <dt>Review after</dt><dd>{{ capture.review_after }}{% if capture.review_due %} — review due{% endif %}</dd>
+  {% if capture.failure_code %}<dt>Capture result</dt><dd>{{ capture.failure_code|replace('_', ' ') }}</dd>{% endif %}
+</dl>
+{% if capture.operation_context %}
+<p>Associated with deployment {{ capture.operation_context.operation_id }}, workspace generation {{ capture.operation_context.generation }}, add-on {{ capture.operation_context.addon_id }}. The operation and capture name the same container and runtime. This does not establish causality or a complete per-operation log window.</p>
+{% else %}<p>This capture is not associated with a deployment operation. No nearby operation was selected automatically.</p>{% endif %}
+{% if evidence %}
+<p>Observed {{ evidence.logs.observed_at }}. Container exit: {{ evidence.logs.exit_metadata.exit_code if evidence.logs.exit_metadata.exit_code is not none else 'unknown' }}. OOM: {{ evidence.logs.exit_metadata.oom_killed if evidence.logs.exit_metadata.oom_killed is not none else 'unknown' }}. Cause remains unknown. Rotation before capture was not observed.</p>
+<p>Only fixed internal log excerpts were collected. Native crash reports and Docker output were not collected. These independent reads do not establish a complete or transactionally consistent diagnostic bundle.</p>
+{% for artifact in evidence.logs.artifacts %}
+<section>
+  <h2>{{ {'current':'Current Kodi log', 'previous':'Previous Kodi log', 'stdout':'Internal Kodi stdout', 'xvfb':'Xvfb log'}[artifact.kind] }}</h2>
+  <p>{{ artifact.state|replace('_', ' ') }}{% if artifact.source_size_bytes is not none %}; source {{ artifact.source_size_bytes }} bytes{% endif %}{% if artifact.modified_at %}; modified {{ artifact.modified_at }}{% endif %}{% if artifact.tail_truncated %}; excerpt truncated{% endif %}{% if artifact.partial_first_line %}; first line is partial{% endif %}.</p>
+  {% if artifact.state == 'available' %}<pre>{{ artifact.content }}</pre>{% endif %}
+</section>
+{% endfor %}
+<p><a href="/api/diagnostic-captures/{{ capture.capture_id }}/evidence">Open private JSON evidence</a></p>
+{% endif %}
+{% if capture.state != 'discarded' %}
+<section aria-labelledby="discard-heading">
+  <h2 id="discard-heading">{{ 'Abandon incomplete capture' if capture.state == 'capturing' else 'Discard saved body' }}</h2>
+  <form method="post" action="/diagnostics/{{ capture.capture_id }}/discard">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="expected_state" value="{{ capture.state }}">
+    <input type="hidden" name="expected_payload_sha256" value="{{ capture.payload_sha256 or '' }}">
+    <label><input type="checkbox" name="discard_ack" value="yes" required> Discard this capture's saved body, keeping its identity and history. This cannot be undone.</label>
+    <button type="submit">{{ 'Abandon capture' if capture.state == 'capturing' else 'Discard body' }}</button>
+  </form>
+  <p>No Kodi resource or source/workspace data is changed. If a pending read finishes after abandonment, it cannot publish into this record. Changed state or digest requires a fresh review.</p>
+</section>
+{% else %}<p>The saved body was explicitly discarded at {{ capture.discarded_at }}. Its historical identity remains.</p>{% endif %}
+<p><a href="/diagnostics">All saved captures</a> · <a href="/instances/{{ capture.target_id }}/diagnostics">Current stopped target</a></p>
+{% endblock %}
