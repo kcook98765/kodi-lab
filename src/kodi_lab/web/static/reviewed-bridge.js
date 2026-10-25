@@ -79,6 +79,7 @@
     if (closed || submitting || checking || uncertain || !state || state === 'prepared') return;
     clearTimeout(timer);
     submitting = true;
+    state = undefined;
     controls();
     status.textContent = 'Requesting reviewed Bridge installation and a Kodi restart…';
     try {
@@ -90,6 +91,7 @@
       } else {
         submitting = false;
         checks = 0;
+        status.textContent = 'Installation request completed. Refresh status to check reviewed Bridge trust and capability readiness.';
         await refresh();
       }
     } catch (_) {
