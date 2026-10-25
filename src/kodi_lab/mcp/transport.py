@@ -59,6 +59,7 @@ from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
     EXECUTION_UNSUPPORTED_REASONS,
+    MANAGED_BASELINE_REASONS,
     WORKSPACE_SMOKE_SUCCESS_DESCRIPTION,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
@@ -1785,6 +1786,7 @@ def build_mcp_http_transport(
 
 
 _SAFE_TOOL_REASONS = {
+    "deployment_not_allowed": MANAGED_BASELINE_REASONS,
     "screenshot_capture_unavailable": frozenset(
         {
             "capture_not_retained",
@@ -1830,6 +1832,18 @@ def _tool_error_result(
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if (
+        tool_name == "workspace_deploy"
+        and result_code == "deployment_not_allowed"
+        and reason in MANAGED_BASELINE_REASONS
+    ):
+        message += (
+            "\nnext_action: Ask a Web administrator to review this target's source "
+            "baseline and retained deployment history. Source Copy/Sync requires "
+            "the exact stopped container; Start/readiness and source enablement "
+            "are separate steps. A retained failed copy may need explicit "
+            "recovery first."
+        )
     if (
         tool_name == "workspace_execute"
         and result_code == "execution_unsupported"
