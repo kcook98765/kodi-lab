@@ -736,3 +736,53 @@ Next: inspect runtime workspace deploy/execute/launch admission against the
 selected session workspace/source. Any implementation must only narrow an
 explicit active session, preserve existing grants/trust/baselines and replay,
 and leave offline workspace editing and external development behavior intact.
+
+### Continued increment: selected workspace runtime admission and preflight
+
+[Draft #74](https://github.com/kcook98765/kodi-lab/pull/74), head
+`557dcdddac66947e41dc6aabb85b4c4b013bba07`, stacked on #73. Fresh managed
+workspace deploy/execute/GUI launch now requires the active bound session's exact
+target/runtime/workspace/source; observed container is checked before mutation.
+Uncertain/reserved phases or pending provision/start refuse. Shared checks run
+inside existing writer claims before typed mutation leases; broker workspace-copy
+resolution independently checks the selection. No grant, attachment, baseline,
+trust, permission or readiness is supplied by selection. Historical receipt
+replay, offline editing and separate external development paths retain their
+existing behavior. Administrator source preparation/recovery remains separate.
+
+The read-only deployment preflight exposes stored session conflicts and a closed
+`review_session` administrator link. It creates no reservation and leaves live
+container/native/Bridge/add-on state unknown. No migration or broker/MCP operation
+count change. Initial import-cycle and test-only timestamp/type/lint failures
+were corrected without weakening existing constraints. The storage policy's
+broker record import is now type-only, keeping the broker resolver import safe.
+
+**INTEGRATION PASS**: settled admission boundary 38 individually focused cases
+plus 221 workspace/launch/session/replacement/recovery/repository/broker
+interactions, 105.4s. Final preflight alignment: all 48 focused cases/static checks
+across six sources, then 44 preflight Web/MCP and production authorization/schema
+interactions, 58.4s. Covers real temporary upgraded schema, source/runtime/container
+drift, pending/uncertain reservations, post-claim partial policy restoration,
+replay, offline edits, external targets and SELECT-only assessment. No native
+Docker/Kodi was launched. Private logs retain each separate lane/failure.
+
+Preservation reverified: main `e198592`, all 24 original worktree HEAD/status
+pairs, original stash, all 210 container ID/name/display-image/state records,
+and fixed log branch `3dddbc281a4796f841e056688c340cd83b276341` are unchanged.
+
+A single settled combined full gate is now running on frozen/pushed
+`qualification/54-session-20261025`, exact head
+`557dcdddac66947e41dc6aabb85b4c4b013bba07`, tree
+`611eb6f8bf7820f0bf0e280ee351966b9169bc6b`. Manifest records all 1,802 tracked
+entries and SHA-256 for 38 changed files since `cbc8894`; it composes #72–#74
+above that prior release pin. No competing tests/acceptance run during this gate.
+Until all stages/process/cleanup complete, this candidate has only its focused/
+integration evidence, **not RELEASE PASS**. Earlier exact qualifications retain
+their separate boundaries, including Phase 1 `02c4054` (5,234/38, 29m59s).
+
+Next independent source increment, in a separate worktree while qualification
+runs: a read-only selected-session preparation checklist using stored preflight
+and Bridge prerequisites. Bind composition to one exact generation and refuse a
+switch rather than mix identities; no probe, secret read, automatic enablement,
+new agent grant or settings/managed-screenshot permission. No existing-resource
+operation, merge, deployment or production migration is authorized.

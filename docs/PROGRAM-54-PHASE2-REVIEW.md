@@ -137,3 +137,11 @@ clean at `f6449a4`, and all earlier qualifications retain their exact boundaries
 #72 with bounded referenced crash-report metadata and legacy capture readers.
 91 focused plus 115 interaction cases passed in 78.4s. This source is outside
 the `cbc8894` release pin. No broker catalog/grant/schema migration change.
+
+[#74](https://github.com/kcook98765/kodi-lab/pull/74), draft `557dcdd`, follows
+#73. Shared selected-workspace runtime admission and matching read-only preflight;
+no migration/catalog/grant expansion. 38 focused + 221 interactions passed in
+105.4s; final preflight alignment 48 focused + 44 interactions in 58.4s. The
+frozen `557dcdd` / tree `611eb6f` combined #72–#74 full gate is running, with
+1,802 tracked entries and 38 changed-file SHA values recorded. No release result
+yet; the `cbc8894` and earlier release results remain separately pinned.
