@@ -433,6 +433,15 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotStatus,
     ScreenshotServiceError,
 )
+from kodi_lab.application.session_replacement_reviews import (
+    ReplacementEvidenceSelection,
+    ReplacementReviewCancel,
+    ReplacementReviewRequest,
+    ReplacementReviewStatus,
+    ReplacementSelection,
+    SessionReplacementReviewError,
+    SessionReplacementReviewService,
+)
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
     SnapshotDeleteNotFoundError,
@@ -1226,6 +1235,23 @@ class DiagnosticDiscardForm(BaseModel):
     expected_state: Literal["capturing", "retained", "failed"]
     expected_payload_sha256: str = Field(default="", max_length=64)
     discard_ack: Literal["yes"]
+
+
+class SessionReplacementReviewForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    selection_json: str = Field(max_length=4096)
+    evidence: list[str] = Field(min_length=1, max_length=8)
+    review_ack: Literal["yes"]
+    crash_reports_ack: Literal["yes"]
+
+
+class SessionReplacementCancelForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cancel_ack: Literal["yes"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -3857,6 +3883,188 @@ def create_app(
         data_root=settings.data_root,
     )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
+    session_reviews = SessionReplacementReviewService(session_service)
+
+    @app.exception_handler(SessionReplacementReviewError)
+    async def session_replacement_review_failure(
+        _request: Request, error: SessionReplacementReviewError
+    ) -> JSONResponse:
+        return _json_error(
+            409, error.code, "Review the current session and selected evidence."
+        )
+
+    @app.get(
+        "/api/development-session/replacement-offer",
+        response_model=ReplacementSelection,
+    )
+    def session_replacement_offer(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementSelection:
+        return session_reviews.offer(target_id)
+
+    @app.get(
+        "/api/development-session/replacement-review",
+        response_model=ReplacementReviewStatus | None,
+    )
+    def current_session_replacement_review(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementReviewStatus | None:
+        return session_reviews.active()
+
+    @app.post(
+        "/api/development-session/replacement-review",
+        response_model=ReplacementReviewStatus,
+    )
+    def save_session_replacement_review(
+        body: ReplacementReviewRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.create(body)
+
+    @app.get(
+        "/api/development-session/replacement-review/{review_id}",
+        response_model=ReplacementReviewStatus,
+    )
+    def session_replacement_review_status(
+        review_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.get(review_id)
+
+    @app.post(
+        "/api/development-session/replacement-review/{review_id}/cancel",
+        response_model=ReplacementReviewStatus,
+    )
+    def cancel_session_replacement_review(
+        review_id: UUID,
+        body: ReplacementReviewCancel,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.cancel(review_id, body)
+
+    @app.get("/development-session/replacement", response_class=HTMLResponse)
+    def session_replacement_review_page(
+        request: Request, target_id: UUID | None = None
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        current = session_service.status()
+        review = session_reviews.active()
+        selection = None
+        reason = None
+        if review is None and current is not None:
+            try:
+                selection = session_reviews.offer(target_id or current.target_id)
+            except (SessionReplacementReviewError, DevelopmentSessionConflict) as error:
+                reason = error.code
+        captures = (
+            []
+            if current is None
+            else [
+                item
+                for item in context.retained_diagnostics.list(current.target_id)
+                if item.state == "retained"
+                and item.container_id == current.container_id
+                and item.runtime_revision_id == current.runtime_revision_id
+            ]
+        )
+        return templates.TemplateResponse(
+            request,
+            "session-replacement-review.html",
+            {
+                "review": review,
+                "selection": selection,
+                "reason": reason,
+                "choices": session_workflow.choices(),
+                "captures": captures,
+                "request_id": uuid4(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/development-session/replacement/{review_id}", response_class=HTMLResponse
+    )
+    def saved_session_replacement_review_page(
+        request: Request, review_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "session-replacement-review.html",
+            {
+                "review": session_reviews.get(review_id),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/development-session/replacement")
+    def save_session_replacement_review_form(
+        request: Request,
+        body: SessionReplacementReviewForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        try:
+            selection = ReplacementSelection.model_validate_json(body.selection_json)
+            evidence = [
+                ReplacementEvidenceSelection.model_validate(
+                    dict(
+                        zip(
+                            ("capture_id", "payload_sha256"),
+                            item.split(":"),
+                            strict=True,
+                        )
+                    )
+                )
+                for item in body.evidence
+            ]
+            operation = ReplacementReviewRequest(
+                **selection.model_dump(),
+                request_id=body.request_id,
+                evidence=evidence,
+                confirm_review=True,
+                acknowledge_uncollected_crash_reports=True,
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="Invalid reviewed selection."
+            ) from None
+        result = session_reviews.create(operation)
+        return RedirectResponse(
+            f"/development-session/replacement/{result.review_id}", status_code=303
+        )
+
+    @app.post("/development-session/replacement/{review_id}/cancel")
+    def cancel_session_replacement_review_form(
+        request: Request,
+        review_id: UUID,
+        body: SessionReplacementCancelForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        session_reviews.cancel(
+            review_id,
+            ReplacementReviewCancel(
+                expected_snapshot_sha256=body.expected_snapshot_sha256,
+                confirm_cancel=True,
+            ),
+        )
+        return RedirectResponse(
+            f"/development-session/replacement/{review_id}", status_code=303
+        )
 
     @app.exception_handler(DevelopmentSessionConflict)
     async def development_session_conflict(

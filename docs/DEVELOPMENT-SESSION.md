@@ -81,3 +81,51 @@ Switch remain outside this initial UI while retained diagnostics, dispatch
 settlement and reviewed replacement remain incomplete. Existing unrelated
 containers block reservation and are preserved. Native and Windows acceptance
 remain separate from the route/Node/fixture evidence for this page.
+
+## Save a Fresh Test / Switch review and hold evidence
+
+The session page links to **Review Fresh Test or Switch**. Stop the current
+session through the existing action, save diagnostics for that exact test, then
+select the approved cached version and 1–8 retained captures. The ordinary form
+displays the current session/container and next immutable runtime/image. It
+requires acknowledgement that native crash reports are uncollected and excerpts
+can be incomplete. Saving holds the selected bodies against explicit discard.
+This is a durable review step; it does not execute retirement or replacement.
+
+Migration 0082 adds two initially empty review/hold tables after 0081. A review
+binds the exact current generation, runtime, container, image, workspace
+generation/tree digest, source/add-on, next target/revision/image and selected
+capture IDs/digests. The same target means Fresh Test; a different canonical
+target means Switch Version. Cached runtime eligibility, one exact stopped
+container, no other managed resources, busy/uncertain reservations and stored
+reconciliation are rechecked inside SQLite writer admission. Capture bodies and
+their historical identity/hash/typed schema are verified before the hold. No
+source attachment, grants, baseline, Bridge trust or lifecycle evidence is copied.
+
+Only one review can be open, with at most 128 retained review-history rows.
+The 16 KiB UTF-8 snapshot bound and 2 GiB free-space reserve apply before
+admission, including the actual database filesystem. Capacity refuses rather
+than pruning. The request UUID replays its exact saved receipt even after a lost
+response, process restart or later selection drift. It cannot be rebound to
+another intent. Saving/cancellation uses Web authentication, same-origin and
+CSRF checks; there is no new MCP authority or diagnostic-body exposure. Page
+responses are non-cacheable. Review metadata links to private captured bodies.
+
+Resume/Stop remain ordinary explicit actions. A saved review records facts at
+creation; it does not freeze the session or claim that those facts stay current.
+Final execution will need fresh eligibility/identity/lease/reconciliation and
+evidence checks, exact confirmed retirement and an atomic next reservation.
+Existing lifecycle history lacks an exact original-container retirement witness
+and cannot supply that proof by inference. Unknown Docker creates remain fenced.
+Missing inventory, elapsed time and service restart do not settle dispatch.
+
+An absent session cannot be released while its review is open. **Cancel review**
+requires its displayed snapshot digest and explicit confirmation. It releases
+only that review's holds, preserves the saved review/capture history and leaves
+the session, current profile and all other fences intact. Retained bodies can
+then be separately discarded through their existing reviewed action. No worker,
+automatic expiry, scheduler, profile removal or runtime mutation is introduced.
+Populated review history refuses lossy downgrade even after cancellation. A
+matched reader/application/schema is required to enforce holds; migration,
+deployment, existing-resource execution and native/Windows acceptance remain
+separately authorized work.
