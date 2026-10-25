@@ -6609,7 +6609,6 @@ establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
 
-
 ## D-0443: Opt-in reviewed-tree imports with removal lineage (#45)
 
 - Context: the add/replace importer cannot represent reviewed source removals or
@@ -6640,30 +6639,6 @@ advanced generation. Replay must prove both full trees and may acknowledge an
 already committed generation without another increment. Preserve the ordinary
 failure, stale-input, authorization and legacy-receipt checks; no migration or
 new grant is introduced.
-
-## D-0446: Durable opt-in session reservation and shared provision admission (#51)
-
-Reuse canonical exact targets and one persistent add-on workspace; do not create a
-pool or scheduler. A singleton active-generation pointer opts into one provisioned
-container, including stopped containers. Initial claim refuses all existing managed
-containers and in-flight reservations/leases. Session history retains exact source,
-workspace, runtime and container identity outside disposable profiles.
-
-Every production broker provision now records a pre-dispatch slot, even outside
-sessions, serialized with session claims and existing start reservations using
-BEGIN IMMEDIATE. Thus an already dispatched Advanced operation cannot be mistaken
-for an empty slot. Active policy also constrains all broker starts/provisions;
-unknown/uncertain state remains blocked across restart. Reuse existing running
-capacity, per-instance leases, runtime eligibility and identity proofs.
-
-Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
-post-create inventory binds the session; explicit absent/idle close retains its
-history. Uncertain provision remains fenced even on current absence; timeout/absence does
-not prove daemon dispatch settlement. No absence-only clearing API is exposed.
-Workspace cleanup refuses referenced history. No automatic idle deletion, grant
-inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
-Migration 0080 is additive/empty by default and refuses populated evidence loss.
-Full Web composition and diagnostic retention remain separate prerequisite slices.
 
 ## D-0444: Separate durable deployment scope from runtime eligibility (#46)
 
@@ -6699,20 +6674,29 @@ independent authorized work. Expose only recorded continuation availability in
 GET status and preserve bounded polling/uncertain-POST safeguards in the browser.
 No new persisted vocabulary, permission, MCP mutation or production capability.
 
-## D-0448: Minimal Web composition for an opt-in development session
+## D-0446: Durable opt-in session reservation and shared provision admission (#51)
 
-Expose one workspace/version reservation and Prepare/Resume/Stop using existing
-canonical runtime eligibility and lifecycle services. Generation/runtime checks
-run inside lifecycle claim; exact container identity is rechecked before resume
-or stop dispatch. Preparation creates one stopped profile, not a deployment or a
-native/Bridge-ready assertion. Existing reviewed source and Bridge actions remain
-separate until their complete readiness/retention composition is qualified.
+Reuse canonical exact targets and one persistent add-on workspace; do not create a
+pool or scheduler. A singleton active-generation pointer opts into one provisioned
+container, including stopped containers. Initial claim refuses all existing managed
+containers and in-flight reservations/leases. Session history retains exact source,
+workspace, runtime and container identity outside disposable profiles.
 
-Use authenticated Web/Origin/CSRF actions with closed payloads. UI status is an
-explicit read, not a new scheduler; lost/failed mutation responses prevent page
-resubmission. Closing only an ordinary absent/idle reservation retains history.
-Do not expose Fresh Test/Switch/deletion or clear uncertain dispatch from this UI.
-No automatic image acquisition, multi-instance manager, new MCP authority or grant.
+Every production broker provision now records a pre-dispatch slot, even outside
+sessions, serialized with session claims and existing start reservations using
+BEGIN IMMEDIATE. Thus an already dispatched Advanced operation cannot be mistaken
+for an empty slot. Active policy also constrains all broker starts/provisions;
+unknown/uncertain state remains blocked across restart. Reuse existing running
+capacity, per-instance leases, runtime eligibility and identity proofs.
+
+Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
+post-create inventory binds the session; explicit absent/idle close retains its
+history. Uncertain provision remains fenced even on current absence; timeout/absence does
+not prove daemon dispatch settlement. No absence-only clearing API is exposed.
+Workspace cleanup refuses referenced history. No automatic idle deletion, grant
+inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
+Migration 0080 is additive/empty by default and refuses populated evidence loss.
+Full Web composition and diagnostic retention remain separate prerequisite slices.
 
 ## D-0447: Web-only exact stopped-container exit metadata foundation (#50)
 
@@ -6732,6 +6716,21 @@ Coordinate retention with preserved 09d847e/3dddbc2 without changing their bytes
 Historical operation association, private artifact retention, agent log-body
 access/redaction and native symbolication remain subsequent work, not implied by
 this metadata-only foundation.
+
+## D-0448: Minimal Web composition for an opt-in development session
+
+Expose one workspace/version reservation and Prepare/Resume/Stop using existing
+canonical runtime eligibility and lifecycle services. Generation/runtime checks
+run inside lifecycle claim; exact container identity is rechecked before resume
+or stop dispatch. Preparation creates one stopped profile, not a deployment or a
+native/Bridge-ready assertion. Existing reviewed source and Bridge actions remain
+separate until their complete readiness/retention composition is qualified.
+
+Use authenticated Web/Origin/CSRF actions with closed payloads. UI status is an
+explicit read, not a new scheduler; lost/failed mutation responses prevent page
+resubmission. Closing only an ordinary absent/idle reservation retains history.
+Do not expose Fresh Test/Switch/deletion or clear uncertain dispatch from this UI.
+No automatic image acquisition, multi-instance manager, new MCP authority or grant.
 
 ## D-0449: Saved capability prerequisites are separate from live readiness
 
