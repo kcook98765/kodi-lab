@@ -65,10 +65,11 @@ installed with `uv sync --locked --dev` in this worktree's own virtualenv.
 The terminated pytest did not publish complete XML/JSON, so phase/resource
 totals and the full-suite completion time remain unknown. Runner-owned scratch
 cleanup succeeded. Repository-transition tests consumed substantial observed
-wall time; collect exact phase data in the later complete candidate run before
-changing those proofs. The release runner and its default timeout are unchanged.
-Use the documented explicit timeout override for that qualification, justified
-by this baseline; do not rerun unchanged main merely to obtain a pass.
+wall time; the complete candidate report below now provides exact phase data.
+The first four increments left the runner/default unchanged and used the
+documented 2,400-second override. A separate, subsequently qualified increment
+(PR #60) makes that successfully exercised bound the default. Do not rerun
+unchanged main merely to obtain a pass.
 
 Matched focused/integration baseline and candidate both passed through the actual
 integration runner; selection/command, per-stage timing and phase JSON are retained as
@@ -102,32 +103,88 @@ it. The complete matched command and phase aggregates are in
 
 ## Completed increments and PRs
 
-Increment status (broader combined qualification remains pending):
+Increment status (full qualification and later focused additions are pinned below):
 
 | Increment | Isolated branch/worktree | Status |
 | --- | --- | --- |
-| #54 fixture performance | `program/54-test-performance-20261024`, `/home/kyle/kodi-lab-worktrees/54-test-performance-20261024` | Code commit `c156e79`; [draft PR #56](https://github.com/kcook98765/kodi-lab/pull/56). INTEGRATION PASS for matched 269-case lane before/after; FOCUSED PASS for all nine changed modules individually (235 cases) plus 15 existing template/cleanup proofs, Ruff/mypy, 43.2s. Non-fixture behavior ASTs match main in all nine modules. |
-| #44 failed-copy recovery | `fix/44-fence-post-copy-failure-20261024`, `/home/kyle/kodi-lab-worktrees/44-post-copy-failure-20261024` | Commit `4c2f681`; [draft PR #58](https://github.com/kcook98765/kodi-lab/pull/58). INTEGRATION PASS: 31 application and 5 Web cases individually, then 121 workspace/broker interactions, Ruff/mypy, 58.9s. Retains the inventory-failure fence and uses explicit historical enrollment plus the existing full-tree proof. |
-| #49 Bridge status | `fix/49-bridge-status-20261024`, `/home/kyle/kodi-lab-worktrees/49-bridge-status-20261024` | Commit `a77607f`; [draft PR #55](https://github.com/kcook98765/kodi-lab/pull/55). FOCUSED PASS: new 2-case module plus 6 existing control tests, each individually, Ruff/mypy and JS syntax. Lanes 23.6s and 8.3s; pytest 1.22s and 3.24s. Broader combined qualification pending. |
-| #46 baseline diagnosis | `fix/46-managed-baseline-reasons-20261024`, `/home/kyle/kodi-lab-worktrees/46-baseline-reasons-20261024` | Commit `98d382a`; [draft PR #57](https://github.com/kcook98765/kodi-lab/pull/57). FOCUSED PASS: 5 application and 3 Web/actual modern-and-legacy MCP cases individually, Ruff/mypy, 10.0s. Admission predicates unchanged; the complete observation-only preflight remains later. |
+| #54 fixture performance | `program/54-test-performance-20261024`, `/home/kyle/kodi-lab-worktrees/54-test-performance-20261024` | Code commit `c156e79`; [PR #56](https://github.com/kcook98765/kodi-lab/pull/56). INTEGRATION PASS for matched 269-case lane before/after; FOCUSED PASS for all nine changed modules individually (235 cases) plus 15 existing template/cleanup proofs, Ruff/mypy, 43.2s. Non-fixture behavior ASTs match main in all nine modules. |
+| #44 failed-copy recovery | `fix/44-fence-post-copy-failure-20261024`, `/home/kyle/kodi-lab-worktrees/44-post-copy-failure-20261024` | Commit `4c2f681`; [PR #58](https://github.com/kcook98765/kodi-lab/pull/58). INTEGRATION PASS: 31 application and 5 Web cases individually, then 121 workspace/broker interactions, Ruff/mypy, 58.9s. Retains the inventory-failure fence and uses explicit historical enrollment plus the existing full-tree proof. |
+| #49 Bridge status | `fix/49-bridge-status-20261024`, `/home/kyle/kodi-lab-worktrees/49-bridge-status-20261024` | Commits `a77607f`, `0c45ff3`; [PR #55](https://github.com/kcook98765/kodi-lab/pull/55). Latest FOCUSED PASS: 2 browser/route and 6 existing control cases individually, Ruff/mypy and JS syntax, 14.4s. Follow-up requires fresh status after POST success while hidden. The frozen full candidate contains `a77607f`; the UI-only follow-up is qualified separately. |
+| #46 baseline diagnosis | `fix/46-managed-baseline-reasons-20261024`, `/home/kyle/kodi-lab-worktrees/46-baseline-reasons-20261024` | Commit `98d382a`; [PR #57](https://github.com/kcook98765/kodi-lab/pull/57). FOCUSED PASS: 5 application and 3 Web/actual modern-and-legacy MCP cases individually, Ruff/mypy, 10.0s. Admission predicates unchanged; the complete observation-only preflight remains later. |
 | #54 retained-report utility | `perf/54-report-summary-20261024`, `/home/kyle/kodi-lab-worktrees/54-report-summary-20261024` | Commit `113111e`; [PR #59](https://github.com/kcook98765/kodi-lab/pull/59). FOCUSED PASS: 19 cases, Ruff/mypy, 2.1s. Real before/after 247-case JSON reports summarized without rerunning tests. Independent of the frozen combined candidate. |
+| #54 release watchdog | `fix/54-release-timeout-20261024`, `/home/kyle/kodi-lab-worktrees/54-release-timeout-20261024` | Commit `50975c8`; [PR #60](https://github.com/kcook98765/kodi-lab/pull/60). FOCUSED PASS: 3 wrapper cases, Ruff/mypy, 6.4s; Bash syntax passed. Defaults to the same 2,400-second value used in the real full gate below. Unit stubs check arguments, invalid input and owned cleanup; they are not release evidence. |
 
 No merges or running-installation changes authorized. Each increment remains
 isolated; main's timed baseline ended before the matched measurements.
 
-Combined qualification is running at exact commit
+Combined qualification completed **RELEASE PASS** at exact commit
 `02c4054616598df41edb89cda955a4aa6095157f`, tree
 `1cdb95bff744d012faace9f05417191a42a375cc`, in
 `/home/kyle/kodi-lab-worktrees/54-batch-qualification-20261024`, branch
 `qualification/54-batch-20261024`. The four source increments were copied into
 that isolated candidate with ordinary cherry-picks; no PR or main merge occurred.
-The candidate remains unchanged during its full gate. The documented timeout
+The candidate remained unchanged during its full gate. The documented timeout
 override is 2,400 seconds for pytest, justified by main's 900-second timeout.
 Log: `candidate-release.log`; exact source/tree and changed-file SHA256 manifest:
-`qualification-source-manifest.json` in the durable evidence directory. Ruff,
-full mypy and six contract guards have passed; the full pytest result is pending.
-No live Kodi/DinD/acquisition acceptance is running. The standalone report
-utility has its own small focused qualification and is outside this candidate.
+`qualification-source-manifest.json` in the durable evidence directory.
+
+| Combined release stage | Time / result |
+| --- | --- |
+| Ruff format / lint | Passed, 1s / under 1s. |
+| Full strict mypy | Passed, 33s. |
+| Exact contract guards | 6 passed, 11s stage. |
+| Full pytest | 5,272 collected: 5,234 passed, 38 gated skips, 3 warnings, no failures/errors; 1,709.27s pytest / 1,747s stage. |
+| Package build / Alembic history / package-config import | All passed, 6s / 1s / under 1s. |
+| Complete release gate | Exit 0, 1,799s (29m59s). |
+
+All 1,745 tracked Git blobs/modes and 29 changed-file SHA256s matched the frozen
+source after completion; the candidate was clean. Durable evidence:
+`candidate-release-evidence/`, `candidate-release-summary.json` and
+`candidate-release-ranked.json`. Peak pytest RSS: 2,741,352 KiB; minimum sampled
+scratch free space: 7,072,378,880 bytes. Cleanup succeeded. The reported
+16,291,782,097 logical bytes reclaimed is cumulative, not peak scratch usage.
+
+Retained phase sums total 1,689.19s (setup 468.28s, call 1,130.98s, teardown
+89.93s), distinct from wall time. Highest file totals identify the next profiling
+targets without rerunning the gate:
+
+| File | Cases | Summed phases |
+| --- | --- | --- |
+| `tests/repository/test_candidate_transition.py` | 47 | 237.07s |
+| `tests/repository/test_origin_migration.py` | 21 | 108.40s |
+| `tests/storage/test_remote_lifecycle.py` | 27 | 76.79s |
+| `tests/storage/test_migrations.py` | 112 | 56.62s |
+| `tests/application/test_repository_existing_adoption.py` | 74 | 52.37s |
+| `tests/application/test_household_onboarding.py` | 61 | 49.95s, including 27.22s teardown |
+
+The UI follow-up was then composed at
+`2b33e1c45e2f2ef5017918732b3b1346318e8b25`, tree
+`1cc1ab5fcd8a06fdfbcb69b68267909cd935d084`, branch
+`qualification/54-final-ui-20261024`. Only the Bridge script/harness differ from
+the release-qualified parent, and both match PR #55. **FOCUSED PASS**: 2 browser/
+route plus 6 control cases, files individually, Ruff/mypy, 13.1s. Evidence:
+`composed-ui-summary.json`, `composed-ui-focused.log`. This child does not claim
+a repeated full gate. Report-tool and watchdog additions have their independent
+focused qualification above. No live Kodi/DinD/acquisition acceptance was run.
+
+All six increments compose without conflicts at
+`cf28e9f5694a5a98e064f688c474ddcce02bb9de`, tree
+`14852cc30c6600d3172216950c8fd79953cdfd06`, branch
+`qualification/54-review-batch-20261024`. The additional report/watchdog modules
+passed individually (19 + 3 cases), Ruff/mypy and Bash syntax, **FOCUSED PASS**
+in 4.6s. Evidence: `composed-review-summary.json`,
+`composed-tooling-focused.log`. The real release gate belongs to ancestor
+`02c4054`; no full-gate claim is made for this later composed tree. The reviewed
+default is the effective bound already exercised by that real gate. Wrapper
+unit tests deliberately stub costly stages and cannot establish release success.
+
+Final preservation check on 2026-10-25 04:45 UTC confirmed all 17 original
+worktree HEADs/dirty states unchanged and all 210 original container identities,
+names, images, states and health unchanged, with zero added/missing containers.
+Main remains clean at `e198592` locally/remotely. Evidence:
+`preservation-final.json`, `containers-final.txt`. Source PR branches and
+qualification pins are pushed; no merge, deployment, production Kodi action,
+security permission change or existing-resource deletion occurred.
 
 Read-only follow-up audits completed during qualification: exact canonical/
 recipe identity and admission gaps for #51; Kodi 19.5/20.5/21.3/22.0rc1 source
@@ -151,12 +208,34 @@ as `recovery-fixture-type-failure.log`. The settled focused lane passed.
 
 ## Blockers and next steps
 
-1. Finish dependency/current-main audit and establish focused, integration and
-   full-gate baseline once; retain logs and phase/resource reports.
-2. Select a measured test-only optimization; run matched focused profiling and
-   appropriate broader validation once on settled implementation.
-3. Address terminal failed-copy recovery (#44/#17), then exact-tree staging
-   (#45), bounded preflight/readiness (#46/#49/#50), and disposable session
-   orchestration (#51) in independent or explicitly stacked increments.
-4. Audit #52/#53 separately; no new grants or live installation operations.
-   Reassess #47/#48 against the one-session workflow and native platform gaps.
+1. Review the six independent PRs using the exact qualification pins above.
+   Broader core validation and focused follow-up validation are complete; merging
+   and deployment remain separately authorized phases. Keep their achieved
+   levels distinct. Main's timed baseline is recorded; do not repeat it.
+2. Use the retained full report and PR #59 to choose the next measured test-cost
+   reduction. Preserve real migration/repository-transition proofs, assertions,
+   private isolation and the complete release gate. No full-suite percentage
+   improvement can be inferred from the incomplete main run.
+3. Implement #45 next using the reviewed removal/preimage/lineage design in the
+   audit. Private overlaps remain rejected until explicit resolution is supported.
+   No force import, empty compatibility modules, baseline rewrite or workspace
+   reset is a substitute for the reviewed tree.
+4. Complete #46/#49's shared strictly read-only prerequisite/capability assessment
+   and lifecycle-owned prepared-Bridge continuation. The delivered reason/UI
+   slices do not implement those complete services. Preserve current grants and
+   independent native, screenshot, Bridge and deployment eligibility.
+5. Coordinate #50 with the preserved existing log-retention branch before adding
+   bounded stopped-container evidence access. Original native crash cause remains
+   unknown; do not manufacture a crash or infer one from warnings/exit metadata.
+6. Implement #51's durable session reservation and admission across every relevant
+   entry point, then Web composition over canonical exact targets/cached images.
+   Follow the audit's failure/evidence-retention sequence; never evict or delete
+   existing resources as an implicit migration into the new workflow.
+7. #52 needs an active-deployment binding, reviewed settings operation and explicit
+   permission design. #53 has no demonstrated unattended native installation
+   route; retain the honest assisted alternative. #18 remains optional pending
+   its managed-policy/protocol and resource qualification. No new grants or live
+   installation/benchmark operations are authorized by the current work.
+8. Keep #47/#48 deferred. Keep #8's fresh Windows/WSL account/host acceptance and
+   #17's remaining native/remote evidence open. Native qualification, existing
+   resource replacement, deployment and merging require their separate authority.
