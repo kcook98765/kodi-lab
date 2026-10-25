@@ -37,7 +37,6 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
-from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -46,14 +45,18 @@ from kodi_lab.storage.repositories import (
     RuntimeRevisionRepository,
     TargetRepository,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 NOW = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def catalog_factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'catalog-service.db'}")
-    metadata.create_all(engine)
+def catalog_factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    database_path = tmp_path / "catalog-service.db"
+    current_schema.clone(database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
     factory = create_session_factory(engine)
 
     yield factory
