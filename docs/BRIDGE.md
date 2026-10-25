@@ -88,3 +88,27 @@ not retained in the Bridge replay cache or routine MCP audit records.
 Bridge 1.1.25 (RC1 overlay 1.1.26) adds managed-only
 [manifest entry-point launch](MANIFEST-ENTRY-LAUNCH.md), with a durable dispatch
 receipt and separate UI acceptance. External OTP pairing grants no launch authority.
+
+## Continue a prepared managed installation
+
+A recorded `prepared` state does not prove the reviewed add-on was installed.
+For a matching prepared reviewed installation, the Web panel offers **Continue
+Bridge setup**. Start Kodi first and check native readiness. Continuation calls
+the existing enablement/establishment/authentication path synchronously under an
+existing lifecycle mutation lease; it does not restart Kodi or reinstall files.
+It advances trust generation, retires the prepared secret and requires the fresh
+reviewed identity before active trust can be recorded.
+
+The request binds the displayed generation. Changed container/runtime/generation,
+retired/unreviewed state and absent credentials refuse continuation. Missing or
+wrong-version resident material remains unconfirmed and requires installation
+review. Native prompts can still require operator or independently authorized
+remote action; active trust does not prove that every prompt is dismissed.
+
+The explicit authenticated/CSRF route is
+`POST /api/instances/{id}/reviewed-bridge/resume` with
+`{"expected_generation": <displayed generation>}`. Status reads remain read-only;
+`resume_available` describes recorded intent, not live eligibility or liveness.
+After a failed/lost response the page prevents another mutation and points to
+status/history review. Refresh is bounded and cannot repair trust. No MCP install
+permission, grant, production behavior or native/screenshot policy changes.
