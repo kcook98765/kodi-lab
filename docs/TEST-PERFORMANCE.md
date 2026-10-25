@@ -172,8 +172,11 @@ profile or container is a cleanup candidate.
 
 ## Closed current-schema fixture pilot
 
-Only `tests/web/conftest.py` and the shared uploaded-ZIP fixture currently use
-`CurrentSchemaTemplate`. Each pytest session builds one unseeded ORM schema,
+`tests/web/conftest.py`, the shared uploaded-ZIP fixture, and nine explicitly
+selected application fixtures use `CurrentSchemaTemplate`. The application
+fixtures cover managed-instance selection/projection, runtime eligibility/matrix/
+administration, source and uploaded-ZIP enablement, add-on inventory, and MCP
+foundation services. Each pytest session builds one unseeded ORM schema,
 closes every engine/SQLite handle, validates integrity and hashes the immutable
 template. Each test receives an exclusive private file copy with an integrity
 check, a fresh engine and the same per-case seeding/foreign-key behavior as
@@ -187,6 +190,18 @@ scratch from 102,155,361 bytes to 2,002,984 bytes. All 51 case roots were reclai
 the remaining scratch included the session schema template. Peak process RSS was
 349,260 KiB before and 339,328 KiB after. This is one small pilot on the local
 host, not a full-suite speedup or peak-memory qualification.
+
+The 2026-10-24 #54 expansion retained every test body, per-case seed, engine,
+session and foreign-key configuration. The matched lane passed 22 focused tests
+plus 247 interaction tests before and after; four unchanged storage modules were
+included as controls. The 247-case pytest portion decreased from 38.30s to
+18.21s (52.5%), with setup phases decreasing from 29.24s to 8.22s. Complete lane
+time decreased from 48.2s to 25.7s. Peak pytest process RSS for that portion was
+372,272 KiB before and 271,916 KiB after. These are single local matched runs,
+not a full-suite or native-host performance claim. Existing closed-template
+integrity/mutation-isolation/handle/sidecar checks remain authoritative. No
+Alembic transition, production initialization or authentication cost was changed.
+See [the #54 ledger](PROGRAM-54-LEDGER.md) for the source pin and retained evidence.
 
 ## Idle-host baseline (2026-09-28)
 
