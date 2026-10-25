@@ -253,3 +253,31 @@ The progress ledger continues in isolated branch
 `program/54-phase2-ledger-20261024`, based on PR #56, preserving the original
 Phase 1 worktree. Phase 2 implementation starts with #45 in an independent
 main-based worktree. No full gate is repeated for unchanged Phase 1 bytes.
+
+### Phase 2 milestone: reviewed exact-tree staging
+
+[PR #62](https://github.com/kcook98765/kodi-lab/pull/62), main-based branch
+`feat/45-reviewed-exact-tree-20261024`, commit `0e1d913`: opt-in reviewed-tree
+staging, explicit private choices, deletion preimages/tombstone lineage, complete
+staged-result proof, retained old tree/baseline and replay of new/legacy receipts.
+Default changes mode and existing grants/limits remain. Unsupported directory,
+type and mode transitions remain explicit. A kept private difference reports a
+reviewed merge, not source equality. Older code cannot consume new receipts;
+the guide records that recovery/rollback limit. No Kodi profile was modified.
+
+**INTEGRATION PASS**, 78.8s: each materially changed/new test module individually
+(22 exact-tree, 17 original imports, 6 limits, 3 actual migrated-schema, 1 MCP wire)
+plus Ruff/mypy, then 179 affected capture/edit/deployment/storage interactions.
+Evidence: `phase2-20261024/exact-tree-integration.log` under the existing private
+program evidence root. Synthetic 80-to-78 digest equality, old-tree retention,
+private-only conflicts, stale inputs, interrupted publication, replay/restart and
+concurrent edit checks passed. This head has no new release/native qualification.
+
+Development corrections retained in separate logs: direct exploratory pytest on
+disk was interrupted after partial passes and replaced by the standard tmpfs
+lane; unsafe resolution input and fixture typing/description lint were corrected
+before the settled pass. Partial runs are not qualification. One combined release
+gate will cover settled Phase 2 shared changes rather than every PR separately.
+
+Next: #46 shared read-only durable assessment, keeping fresh native/Bridge facts
+unknown until independently observed; no runtime-status convergence or repair.
