@@ -549,3 +549,29 @@ bounded directory listing into proof of no crash report, or use generic home-
 directory export/paths. Fresh/Switch and agent historical-body access still need
 their exact evidence, permission and disposal decisions; no capture authorizes
 profile disposal or settles an uncertain create.
+
+### Continued increment: bounded Docker output and private review hardening
+
+Draft #69 now includes child `80605de`: schema-2 five-artifact snapshots add a
+fixed non-following timestamped Docker stdout/stderr window (200 lines, 64 KiB
+encoded response, strict multiplex/TTY decoding, full-window redaction before
+a 4 KiB tail). Schema-1 saved captures remain readable. Shared/profile mounts
+are refused, actual database-filesystem reserve is checked, known broker errors
+use fixed safe codes, and retain/discard require actual boolean confirmation.
+Native crash reports remain uncollected; no lifecycle or agent authority added.
+
+**INTEGRATION PASS**, 52.9s: 39 broker, 33 retention, 2 real migration and 3 Web
+cases individually (77), static checks, then 89 interactions. An additional
+Web private-evidence/CSRF/strict-discard case then passed with the complete
+four-case module/static lane, **FOCUSED PASS**, 8.2s. These results are later
+than the pinned `f6449a4` release result and do not inherit RELEASE PASS.
+Keep #69 draft until a settled combined persistence/security candidate receives
+the complete gate. No native Docker/Kodi/Windows acceptance is inferred.
+
+Next #51 increment: bind an explicit Fresh/Switch review to the exact stopped
+session, retained evidence and selected approved cached runtime. Retained bodies
+must not disappear between review and retirement; old-session exclusion must
+remain active until an atomic new reservation follows independently confirmed
+old-container retirement. Existing lifecycle operation history alone lacks an
+exact original-container witness. Unknown creates remain fenced; missing
+inventory, restart and elapsed time cannot settle their dispatch.

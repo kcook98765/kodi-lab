@@ -77,6 +77,7 @@ changes need their own evidence; do not transfer this result to another tree.
 | [#66](https://github.com/kcook98765/kodi-lab/pull/66) | `2688e04` | Stacked on #65. Reserve/Prepare/Resume/Stop, exact current generation/target/runtime/container checks. No Fresh/Switch/deletion or new MCP authority. |
 | [#67](https://github.com/kcook98765/kodi-lab/pull/67) | `8833c30` | Main-based. Exact stopped-container metadata read, fixed 39-operation broker catalog. No retained log bodies/operation association or crash-cause claim. |
 | [#68](https://github.com/kcook98765/kodi-lab/pull/68) | `2080f4e` | Later increment stacked on #64. SELECT-only stored capability prerequisites; integration qualification only, outside the release pin. Adjacent Web route additions with #67 need both complete blocks preserved. |
+| [#69](https://github.com/kcook98765/kodi-lab/pull/69) | `80605de` (draft) | Later increment over composition `24c1aeb`. Depends on #65/#67 and composes #68. Empty 0081 follows 0080; exact broker catalog becomes 40. Five fixed bounded stopped log artifacts and Web-only private capture retention. Schema-1 saved bodies remain readable. Integration/focused evidence only; keep separate from `f6449a4` RELEASE PASS. |
 
 After the Phase 1 order above, #62, #65, #63, #64 and #67 can be reviewed in
 parallel conceptually; #66 follows #65. #61 follows #56 and continues to collect
