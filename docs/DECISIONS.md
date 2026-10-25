@@ -6609,7 +6609,6 @@ establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
 
-
 ## D-0443: Opt-in reviewed-tree imports with removal lineage (#45)
 
 - Context: the add/replace importer cannot represent reviewed source removals or
@@ -6640,3 +6639,27 @@ advanced generation. Replay must prove both full trees and may acknowledge an
 already committed generation without another increment. Preserve the ordinary
 failure, stale-input, authorization and legacy-receipt checks; no migration or
 new grant is introduced.
+
+## D-0446: Durable opt-in session reservation and shared provision admission (#51)
+
+Reuse canonical exact targets and one persistent add-on workspace; do not create a
+pool or scheduler. A singleton active-generation pointer opts into one provisioned
+container, including stopped containers. Initial claim refuses all existing managed
+containers and in-flight reservations/leases. Session history retains exact source,
+workspace, runtime and container identity outside disposable profiles.
+
+Every production broker provision now records a pre-dispatch slot, even outside
+sessions, serialized with session claims and existing start reservations using
+BEGIN IMMEDIATE. Thus an already dispatched Advanced operation cannot be mistaken
+for an empty slot. Active policy also constrains all broker starts/provisions;
+unknown/uncertain state remains blocked across restart. Reuse existing running
+capacity, per-instance leases, runtime eligibility and identity proofs.
+
+Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
+post-create inventory binds the session; explicit absent/idle close retains its
+history. Uncertain provision remains fenced even on current absence; timeout/absence does
+not prove daemon dispatch settlement. No absence-only clearing API is exposed.
+Workspace cleanup refuses referenced history. No automatic idle deletion, grant
+inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
+Migration 0080 is additive/empty by default and refuses populated evidence loss.
+Full Web composition and diagnostic retention remain separate prerequisite slices.
