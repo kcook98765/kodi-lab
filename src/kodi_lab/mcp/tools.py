@@ -1176,7 +1176,7 @@ class McpTargetToolService:
                 deployment_mode=operation.deployment_mode,
             )
         except McpWorkspaceDevelopmentError as error:
-            raise McpAuthorizationError(error.code) from error
+            raise McpAuthorizationError(error.code, reason=error.reason) from error
         self._require_development_bounded(result)
         return result
 

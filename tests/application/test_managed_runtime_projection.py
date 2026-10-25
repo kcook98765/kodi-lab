@@ -36,7 +36,6 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.readiness import JsonRpcState, ReadinessResult, UsabilityState
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
@@ -51,6 +50,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeProjectionRepository,
     ManagedRuntimeProjectionResult,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 INSTANCE = UUID("97000000-0000-4000-8000-000000000001")
 REVISION = UUID("97000000-0000-4000-8000-000000000002")
@@ -60,9 +60,12 @@ OTHER = UUID("97000000-0000-4000-8000-000000000005")
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'projection.db'}")
-    Base.metadata.create_all(engine)
+def factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    database_path = tmp_path / "projection.db"
+    current_schema.clone(database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
     sessions = create_session_factory(engine)
     with sessions.begin() as session:
         session.add(

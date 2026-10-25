@@ -35,7 +35,6 @@ from kodi_lab.domain import (
     TargetType,
 )
 from kodi_lab.fixtures.package import load_packaged_fixture
-from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
@@ -47,14 +46,18 @@ from kodi_lab.storage.repositories import (
     RuntimeValidationEvidenceRepository,
     TargetRepository,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 NOW = datetime(2026, 9, 15, 20, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> sessionmaker[Session]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'matrix.db'}")
-    metadata.create_all(engine)
+def factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> sessionmaker[Session]:
+    database_path = tmp_path / "matrix.db"
+    current_schema.clone(database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
     return create_session_factory(engine)
 
 
