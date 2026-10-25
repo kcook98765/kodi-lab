@@ -235,3 +235,9 @@ Existing broker admission/typed leases may already exclude some ordinary cases;
 prove a meaningful invariant before adding a new migration or redundant manager.
 Prefer existing queued CID/current admission where sufficient. External Native/
 Windows/grant/design/operational decisions remain grouped and unchanged.
+
+
+The enablement draft now plans26 cases:the original20 scope cases plus six exact
+unexpired typed ownership checks at the two writer markers. Current private draft
+manifest is v3; no validation lane has run, no PR/commit and no c788 inheritance.
+All source/docs changes remain outside the frozen full candidate.

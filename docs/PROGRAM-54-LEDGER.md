@@ -1216,3 +1216,15 @@ PR JSON and midpoint preservation report retain the evidence. Source-smoke and
 inner Bridge lifecycle scope review should establish a reachable/meaningful
 contract before adding redundant coordination or another migration. The current
 new enablement draft remains uncommitted/unqualified and outside c788.
+
+
+Enablement draft update while c788 still runs:26 planned cases now include six
+direct preflight/mutation-marker checks for expired, foreign and wrong-kind typed
+authority. Writer markers require/renew the existing original operation/token/kind
+lease using its existing duration and repository expiry guard before scope checks.
+This follows direct source inspection; regression/qualification is still pending.
+No new schema/endpoint/grant/policy duration. Five draft files remain uncommitted;
+private `source-enablement-session-scope-unqualified-draft-v3.json` records current
+SHA values separately from the earlier20-case snapshot. Source/helper/test enum
+and synthetic receipt UUID conventions were aligned to current definitions before
+any validation claim. Do not infer working behavior from this draft.
