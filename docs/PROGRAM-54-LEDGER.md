@@ -608,3 +608,45 @@ container retirement proof under existing lifecycle lease/terminalization and
 atomic next-session admission. A review alone cannot authorize disposal or
 settle uncertain dispatch. Schedule one settled combined broad gate after these
 shared persistence/lifecycle changes settle, not a release run per small PR.
+
+### Continued increment: scoped retirement receipts and combined qualification
+
+[Draft #71](https://github.com/kcook98765/kodi-lab/pull/71), head `cbc8894`,
+stacked on #70: optional internal scoped deprovision checks exact disposable
+target/runtime/container/image before claim and again inside the leased action
+before trust/evidence invalidation. Empty 0083 stores prepared intent with the
+child operation. A matching broker removal reply plus unprovisioned postcondition
+permits confirmation in the same owned transaction as lifecycle success and
+lease release. Callback failure rolls back terminalization; post-commit
+cancellation preserves confirmation. Referenced operation history is protected
+from pruning. No historical backfill, public route, broker catalog/grant change,
+successor admission, live execution or uncertain-create settlement is added.
+
+**INTEGRATION PASS**, 148.9s: 20 receipt/lifecycle, 3 real migration, 18 foundation,
+3 current-schema OSTree and 112 full migration cases individually (156), static
+checks, then 134 lifecycle/history/claim/resource/agent/Bridge/session/review/Web
+interactions. Covers reply loss, wrong reply, remaining-container postcondition,
+interrupted dispatch, stale post-claim identity, ownership loss, publication
+rollback, committed cancellation, bad historic evidence and pruning protection.
+Actual temporary 0082→0083 preserves prior review holds, captures and unscoped
+history; neither unknown nor confirmed receipt history permits lossy downgrade.
+Test-only fixture signature and type/lint failures were corrected separately.
+
+One settled combined full gate **is now running**, started
+2026-10-25T07:47:37Z, on frozen/pushed
+`qualification/54-retirement-20261025`:
+`cbc889429138df19ed11ebf09706541313545c2d`, tree
+`c262488b8d780420540168c5fda69789a3c2557b`. Manifest records 1,794 tracked entries
+and SHA-256 for 45 files changed since `f6449a4`. This contains #68–#71 over the
+earlier release pin. No competing tests/acceptance run during qualification.
+Until all stages and cleanup finish successfully, this candidate has only the
+focused/integration results above, **not RELEASE PASS**. Evidence/result/log are
+private under the Phase 2 evidence root. The prior `f6449a4` and Phase 1 release
+pins remain unchanged and retain their own exact qualification boundaries.
+
+Continue next in a separate isolated worktree: bind reviewed intent to the exact
+retirement operation, keep evidence held during dispatch/uncertainty, then close
+old session plus reserve successor plus consume review in one SQLite commit.
+Final execution needs explicit exact data-loss confirmation and fresh checks;
+actual existing-resource operations remain unauthorized. Preserve unknown-create
+fences, source/workspace/history, immutable pins and independent trust/baselines.
