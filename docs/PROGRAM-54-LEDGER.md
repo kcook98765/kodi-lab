@@ -309,3 +309,38 @@ serializing opt-in session claims against every broker provision and start. The
 new flow must refuse existing stopped containers, not count them as a free slot.
 #49 lifecycle-owned prepared continuation and #50 bounded evidence remain needed
 before claiming a complete fresh/version-switch development workflow.
+
+### Phase 2 milestone: Bridge continuation and session admission
+
+[PR #64](https://github.com/kcook98765/kodi-lab/pull/64), commit `f6fe7dc`,
+stacked on #55: explicit Web-only prepared-reviewed continuation binds displayed
+trust generation and confirms fresh identity synchronously under the live
+lifecycle lease. Existing secret retirement/build/release/CAS checks remain.
+No restart/restaging or MCP authority. **INTEGRATION PASS**: 14 recovery plus
+3 Web/browser tests individually, Ruff/mypy/JS syntax, then 48 trust/restore/
+lifecycle/broker/Web-isolation cases; 21.4s. The real broker lease checker is
+exercised against fixture ORM bytes; do not call that a migration/native proof.
+
+[PR #65](https://github.com/kcook98765/kodi-lab/pull/65), main-based session
+admission foundation: parent `11227e2` achieved **INTEGRATION PASS**, 35.3s,
+with 13 session, 2 real migration, 1 production-registry cases individually and
+123 protocol/authorization/provision/capacity/agent/workspace interactions.
+The complete 112-case migration and 3-case current-schema OSTree modules also
+passed individually. Migration 0080 is empty/opt-in and retains populated
+history/reservations on downgrade. No existing resource is enrolled or removed.
+
+The settled child `0eb5790` tightens uncertainty: current absence does not prove
+that a timed-out daemon create cannot finish late. Unknown provision remains
+fenced across restart and cannot be closed or cleared through an absence-only
+API. Only known image/network preflight refusals raised before any create free
+their slot. **FOCUSED PASS**: 14 session plus 1 production-registry tests, files
+individually, Ruff/mypy, 10.1s. Parent integration and this child-focused evidence
+remain distinct until the combined release candidate. This is an intentional
+fail-closed limit, not a complete uncertain-dispatch recovery implementation.
+
+Next: minimal Web reservation/Prepare/Resume/Stop over the shared binding. No
+Fresh Test/Switch/profile replacement will be represented as ready while retained
+diagnostics and dispatch-settlement prerequisites are incomplete. #50 log policy
+continues to reuse the preserved branch; no new truncation/recipe work duplicates
+it. Prepare native sequential/version-switch and Windows acceptance only after
+separate operational authorization.
