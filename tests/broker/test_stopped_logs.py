@@ -465,8 +465,10 @@ def test_unknown_log_layout_is_refused_by_sql_before_any_file_read(
         resolver.resolve(operation())
 
 
+@pytest.mark.parametrize("reported", [False, True])
 def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
     tmp_path: Path,
+    reported: bool,
 ) -> None:
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from threading import Thread
@@ -474,7 +476,10 @@ def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
 
     import docker  # type: ignore[import-untyped]
 
-    fake = Client()
+    from tests.broker.test_crash_report_references import LINE, PATH
+    from tests.broker.test_crash_report_references import Client as ReferenceClient
+
+    fake = ReferenceClient() if reported else Client()
     methods: list[tuple[str, str]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -540,10 +545,20 @@ def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
         assert all(
             a.state == "available"
             and a.content
-            == ("normal console\n" if a.kind == "docker_output" else "normal log\n")
+            == (
+                LINE
+                if reported and a.kind == "stdout"
+                else "normal console\n"
+                if a.kind == "docker_output"
+                else "normal log\n"
+            )
             for a in result.artifacts
         )
         assert all(method in {"GET", "HEAD"} for method, _ in methods)
+        if reported:
+            assert result.crash_report_metadata[0].state == "available"
+            assert methods.count(("HEAD", PATH)) == 2
+            assert ("GET", PATH) not in methods
     finally:
         server.shutdown()
         server.server_close()
@@ -563,7 +578,7 @@ def test_docker_window_decodes_stdout_stderr_without_follow_or_full_history_clai
     )
     result = capture(tmp_path, client)
     item = result.artifacts[-1]
-    assert result.schema_revision == 2 and item.kind == "docker_output"
+    assert result.schema_revision == 3 and item.kind == "docker_output"
     assert item.state == "available" and "PRIVATE" not in item.content
     assert "stdout" in item.content and "stderr recent" in item.content
     assert item.source_size_bytes == len(first) + len(second)
