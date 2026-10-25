@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID
@@ -94,8 +95,12 @@ class ManagedCapabilityPrerequisiteService:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
 
-    def inspect(self, target_id: UUID) -> ManagedCapabilityPrerequisites:
-        with self._sessions() as session:
+    def inspect(
+        self, target_id: UUID, *, read_session: Session | None = None
+    ) -> ManagedCapabilityPrerequisites:
+        with (
+            self._sessions() if read_session is None else nullcontext(read_session)
+        ) as session:
             target = session.get(TargetRow, str(target_id))
             instance = session.get(ManagedInstanceRow, str(target_id))
             if (

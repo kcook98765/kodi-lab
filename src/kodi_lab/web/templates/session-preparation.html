@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Session preparation · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Session preparation</h1>
+{% if not assessment %}
+<p>No development session is selected. <a href="/development-session">Choose an add-on workspace and Kodi version</a> first.</p>
+{% else %}
+{% set current = assessment.session %}
+<p>Saved setup information for <strong>{{ assessment.source_name }}</strong> ({{ assessment.addon_id }}) on Kodi {{ assessment.capabilities.kodi_release or 'unknown' }}, session {{ current.generation }}. Refresh this page before acting.</p>
+<p>Kodi, its current container, any dialogs and the enabled add-on have not been checked. These saved prerequisites do not confirm that the environment is ready to test. Agent permissions have not been assessed.</p>
+{% if current.phase == 'reserved' %}
+<p>The environment is reserved. Use Prepare Kodi on the <a href="/development-session">session page</a> to create the selected stopped profile.</p>
+{% elif current.phase == 'bound' %}
+<p>A prepared profile binding is saved. Resume and Stop reuse that profile; each action checks its current identity.</p>
+{% else %}
+<p>The session needs review. Preserve the environment and inspect <a href="/instances/{{ current.target_id }}/history">Kodi history</a> before continuing.</p>
+{% endif %}
+<h2>Saved add-on preparation</h2>
+{% set labels = {'session': 'Selected session', 'workspace': 'Workspace', 'generation': 'Workspace revision', 'validation': 'Add-on validation', 'source': 'Registered add-on', 'attachment': 'Source attachment', 'source_baseline': 'Copied baseline', 'target_lease': 'Kodi operations', 'global_lease': 'Lab operations', 'reconciliation': 'Recovery history'} %}
+{% set states = {'satisfied': 'Recorded', 'blocked': 'Needs setup or review', 'unknown': 'Needs observation', 'not_required': 'Not required'} %}
+{% set reasons = {'stored_session_scope_matches': 'Saved selection matches this workspace and runtime; the current container has not been checked.', 'development_session_requires_review': 'Prepare the reserved profile or review uncertain session history first.', 'development_session_runtime_pending': 'A provision or start reservation still needs review.', 'development_session_other_workspace': 'The workspace differs from the selected session.', 'development_session_other_target': 'The selected Kodi differs from this session.', 'development_session_identity_changed': 'The runtime or container identity changed.', 'workspace_ready': 'Workspace bytes are available.', 'workspace_not_ready': 'Workspace bytes need review.', 'generation_current': 'The selected workspace revision is current.', 'validation_current': 'Validation matches the saved workspace tree.', 'validation_required': 'Validate this workspace before deployment.', 'validation_generation_mismatch': 'Validate the edited workspace again.', 'validation_digest_unknown': 'Saved validation lacks an exact tree digest.', 'validation_digest_mismatch': 'Validate the current workspace tree.', 'source_current': 'Registered source and add-on identity match.', 'source_identity_changed': 'Review the source and add-on identity.', 'source_attached': 'The selected source is attached.', 'source_not_attached': 'Attach the selected source through Kodi setup.', 'source_baseline_missing': 'Copy the selected source while Kodi is stopped.', 'source_baseline_stale': 'Review and refresh the stopped source baseline.', 'source_baseline_unknown': 'The saved copy outcome needs review.', 'source_baseline_runtime_mismatch': 'The saved baseline belongs to another runtime.', 'source_baseline_requires_container_proof': 'A baseline is saved; its current container and tree need verification.', 'prior_workspace_requires_container_proof': 'A workspace copy is saved; its current container and tree need verification.', 'target_idle': 'No saved Kodi mutation lease.', 'target_busy': 'A Kodi operation is still active.', 'global_idle': 'No saved heavy-operation lease.', 'global_busy': 'A Lab operation is still active.', 'reconciled': 'No blocking recovery record was found.', 'reconciliation_required': 'Review unresolved operation history.'} %}
+<table><thead><tr><th>Prerequisite</th><th>Saved state</th><th>Next step</th></tr></thead><tbody>
+{% for check in assessment.deployment.checks if check.name in labels %}
+<tr><td>{{ labels[check.name] }}</td><td>{{ states[check.state] }}</td><td>{{ reasons.get(check.reason, 'Review this prerequisite through the selected workspace or Kodi setup.') }}</td></tr>
+{% endfor %}
+</tbody></table>
+<h2>Bridge and native setup</h2>
+{% set trust_states = {'no_record': 'No saved trust record', 'prepared': 'Reviewed preparation saved', 'active': 'Previously authenticated trust saved', 'invalidated': 'Saved trust needs recovery', 'revoked': 'Saved trust was revoked'} %}
+<p>{{ trust_states[assessment.capabilities.trust_state] }}. The current Bridge connection and native Kodi readiness are unknown. Direct workspace deployment and native controls have their own requirements.</p>
+<p><a href="/instances/{{ current.target_id }}">Review selected Kodi setup and source copy</a> · <a href="/instances/{{ current.target_id }}/capability-prerequisites">Review saved capability prerequisites</a> · <a href="/agent-workspaces/{{ current.workspace_id }}">Edit or validate the selected add-on</a> · <a href="/instances/{{ current.target_id }}/history">Review history</a></p>
+<p><a href="/development-session/preparation?expected_generation={{ current.generation }}">Refresh this session's checklist</a> · <a href="/development-session">Return to the development session</a></p>
+{% endif %}
+{% endblock %}
