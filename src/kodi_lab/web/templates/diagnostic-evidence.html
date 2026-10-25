@@ -19,7 +19,7 @@
 {% else %}<p>This capture is not associated with a deployment operation. No nearby operation was selected automatically.</p>{% endif %}
 {% if evidence %}
 <p>Observed {{ evidence.logs.observed_at }}. Container exit: {{ evidence.logs.exit_metadata.exit_code if evidence.logs.exit_metadata.exit_code is not none else 'unknown' }}. OOM: {{ evidence.logs.exit_metadata.oom_killed if evidence.logs.exit_metadata.oom_killed is not none else 'unknown' }}. Cause remains unknown. Rotation before capture was not observed.</p>
-<p>Native crash reports were not collected. {% if evidence.logs.docker_output == 'not_collected' %}This older capture also did not collect Docker output.{% else %}Docker output is limited to a bounded stdout/stderr window, not its full history.{% endif %} These independent reads do not establish a complete or transactionally consistent diagnostic bundle.</p>
+<p>Native crash-report bodies were not collected. {% if evidence.logs.docker_output == 'not_collected' %}This older capture also did not collect Docker output.{% else %}Docker output is limited to a bounded stdout/stderr window, not its full history.{% endif %} These independent reads do not establish a complete or transactionally consistent diagnostic bundle.</p>
 {% for artifact in evidence.logs.artifacts %}
 <section>
   <h2>{{ {'current':'Current Kodi log', 'previous':'Previous Kodi log', 'stdout':'Internal Kodi stdout', 'xvfb':'Xvfb log', 'docker_output':'Docker stdout and stderr window'}[artifact.kind] }}</h2>
@@ -27,6 +27,24 @@
   {% if artifact.state == 'available' %}<pre>{{ artifact.content }}</pre>{% endif %}
 </section>
 {% endfor %}
+<section aria-labelledby="report-reference-heading">
+  <h2 id="report-reference-heading">Referenced native crash-report metadata</h2>
+  {% if evidence.logs.crash_report_discovery == 'not_collected' %}
+  <p>This older capture did not inspect referenced report metadata.</p>
+  {% else %}
+  <p>Only approved report names explicitly quoted in complete retained log lines were checked, at most two. Other reports were not observed. A log reference and file metadata do not prove a crash cause, complete report inventory or stack trace.</p>
+  {% if evidence.logs.crash_report_reference_limit_exceeded %}<p>More references were present than the two-report limit. Discovery is truncated.</p>{% endif %}
+  {% if not evidence.logs.crash_report_metadata %}<p>No approved reference was present in the retained excerpts. This does not establish that no report exists.</p>{% endif %}
+  {% for report in evidence.logs.crash_report_metadata %}
+  <dl>
+    <dt>Log-reported name</dt><dd><code>{{ report.basename }}</code></dd>
+    <dt>Metadata</dt><dd>{{ report.state }}{% if report.source_size_bytes is not none %}; {{ report.source_size_bytes }} bytes{% endif %}{% if report.modified_at %}; modified {{ report.modified_at }}{% endif %}</dd>
+    <dt>Referenced by</dt><dd>{{ report.referenced_by|join(', ') }}</dd>
+  </dl>
+  {% endfor %}
+  <p>Report bodies were not downloaded. The filename's timestamp timezone is not established.</p>
+  {% endif %}
+</section>
 <p><a href="/api/diagnostic-captures/{{ capture.capture_id }}/evidence">Open private JSON evidence</a></p>
 {% endif %}
 {% if capture.state != 'discarded' %}

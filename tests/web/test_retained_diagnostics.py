@@ -66,6 +66,66 @@ def body() -> dict[str, Any]:
     )
 
 
+def test_referenced_report_metadata_remains_private_after_profile_removal(
+    client: TestClient,
+    broker: FakeBroker,
+    database: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.broker.stopped_logs import StoppedLogSnapshot
+
+    calls = prepare(client, broker, database, monkeypatch)
+    original = cast(Any, broker).read_stopped_managed_logs
+    name = "kodi_crashlog-20261025_013012.log"
+
+    def referenced(**kwargs: Any) -> StoppedLogSnapshot:
+        value = original(**kwargs)
+        payload = value.model_dump()
+        payload.update(
+            schema_revision=3,
+            scope="fixed_log_tails_and_referenced_crash_metadata",
+            crash_report_discovery="bounded_retained_log_references",
+            crash_report_metadata=[
+                dict(
+                    basename=name,
+                    state="available",
+                    referenced_by=["stdout"],
+                    source_size_bytes=1234,
+                )
+            ],
+        )
+        payload["artifacts"][2]["content"] = (
+            f"Crash report available at /home/kodi/{name}\n"
+        )
+        return StoppedLogSnapshot.model_validate(payload)
+
+    monkeypatch.setattr(broker, "read_stopped_managed_logs", referenced)
+    csrf = login(client)
+    result = client.post(
+        f"/api/instances/{INSTANCE_ID}/diagnostic-captures",
+        json=body(),
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert result.status_code == 200, result.text
+    capture_id = result.json()["capture_id"]
+    broker.container = None
+    page = client.get(f"/diagnostics/{capture_id}")
+    assert page.status_code == 200 and name in page.text
+    assert "Report bodies were not downloaded" in page.text
+    assert "filename's timestamp timezone is not established" in page.text
+    assert page.headers["cache-control"] == "no-store"
+    evidence = client.get(f"/api/diagnostic-captures/{capture_id}/evidence")
+    assert (
+        evidence.json()["logs"]["crash_report_metadata"][0]["body"] == "not_collected"
+    )
+    assert evidence.json()["logs"]["exit_metadata"]["cause"] == "unknown"
+    client.cookies.clear()
+    assert (
+        client.get(f"/api/diagnostic-captures/{capture_id}/evidence").status_code == 401
+    )
+    assert len(calls) == 1
+
+
 def test_auth_csrf_acknowledgement_and_closed_inputs_precede_all_log_reads(
     client: TestClient,
     broker: FakeBroker,

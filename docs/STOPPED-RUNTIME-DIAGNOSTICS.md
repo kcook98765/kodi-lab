@@ -134,6 +134,51 @@ Known broker failures use fixed reason codes; raw exception messages never
 become saved diagnostic error text. Retention and discard acknowledgements
 require actual JSON booleans, not coercible numbers or strings.
 
-Native crash-report discovery remains uncollected. Its availability must not be
-inferred from empty/missing excerpts. Fixed bounded capture is not native crash
+General native crash-report discovery and report bodies remain uncollected.
+Their availability must not be inferred from empty/missing excerpts. Fixed
+bounded capture is not native crash
 causality, symbolication, complete #50 acceptance or permission for Fresh/Switch.
+
+## Metadata for explicitly referenced crash reports
+
+Schema-3 snapshots can retain file metadata for at most two approved report names
+explicitly quoted by complete retained log lines. The official
+[Omega 21.3 launcher](https://github.com/xbmc/xbmc/blob/21.3-Omega/tools/Linux/kodi.sh.in)
+and [Nexus 20.5 launcher](https://github.com/xbmc/xbmc/blob/20.5-Nexus/tools/Linux/kodi.sh.in)
+use a timestamped report filename under `CRASHLOG_DIR`, defaulting to home, and
+print its location. That upstream behavior motivates this narrow allowlist; it
+does not prove an installed wrapper, an existing report, native fault ownership
+or stack availability on a particular runtime/platform.
+
+Recognize only the exact launcher phrase and
+`/home/kodi/kodi_crashlog-YYYYMMDD_HHMMSS.log`, with a valid calendar timestamp.
+Optional Docker timestamp prefixes are accepted. Other paths, names, suffixes,
+invalid dates, partial first lines and references outside the retained excerpts
+do not cause reads. The parser prefers the end of the bounded Docker/internal
+stdout windows, then other approved logs, deduplicating sources. This selection
+does not establish cross-file event ordering or a filename timestamp timezone.
+More than two references sets an explicit discovery-truncated flag.
+
+Only fixed HEAD path-stat requests check the private home ancestors and exact
+derived leaf twice. Unsafe link/type/mode, missing, unavailable and changed
+states remain distinct. Available metadata includes observed byte size and
+modification time where available. A large file can have metadata even though
+its body is not read. The same current disposable identity, runtime/image pin,
+private layout, time budget and final unchanged-container check still apply.
+No directory listing/archive, caller-selected path, report-body download,
+symbolication, helper execution or installed-byte change is introduced.
+
+The relationship is **log-reported reference**. The log can be wrong or forged;
+metadata does not authenticate native crash origin or prove that a usable stack
+exists. Report bodies remain `not_collected`; unreferenced reports remain
+`not_observed`. An empty result means no approved reference in these excerpts,
+not absence of reports. Independent file observations are not a consistent
+diagnostic bundle. Selected metadata survives profile removal with its original
+capture identity/digest under the same Web-admin retention/access policy.
+
+Schema-1 and schema-2 captures remain readable and explicitly state that report
+metadata was not collected. Schema 3 requires a matching reader/broker; older
+readers must not be used to interpret new payloads. The payload byte/count/history
+limits and reviewed discard/evidence holds remain unchanged. No MCP authority,
+agent body access, rotation policy, runtime recipe or existing Kodi resource is
+changed. Source/HTTP/socket fixtures remain distinct from native acceptance.
