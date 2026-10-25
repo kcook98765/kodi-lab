@@ -4,9 +4,49 @@ from datetime import datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from kodi_lab.storage.managed_activity import timestamp
-from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
+from kodi_lab.storage.models import (
+    DevelopmentSessionPolicyRow,
+    DevelopmentSessionRow,
+    McpWorkspaceDeploymentOperationRow,
+)
+
+
+def selected_profile_lineage_sql() -> ColumnElement[bool]:
+    """Fresh selection only; historical replay/recovery keeps original scope.
+
+    Active managed sessions require positive original-profile identity. Legacy
+    inactive policy and external development keep their existing semantics.
+    This narrows receipt selection; it supplies no authority or live proof.
+    """
+    row = McpWorkspaceDeploymentOperationRow
+    policy = DevelopmentSessionPolicyRow
+    current = DevelopmentSessionRow
+    active = (
+        select(policy.id)
+        .where(policy.id == 1, policy.active_generation.is_not(None))
+        .exists()
+    )
+    matching = (
+        select(current.generation)
+        .select_from(current)
+        .join(policy, policy.active_generation == current.generation)
+        .where(
+            policy.id == 1,
+            current.phase == "bound",
+            current.container_id.is_not(None),
+            row.target_id == current.target_id,
+            row.runtime_revision_id == current.runtime_revision_id,
+            row.workspace_id == current.workspace_id,
+            row.development_source_id == current.source_id,
+            row.original_container_id == current.container_id,
+        )
+        .correlate(row)
+        .exists()
+    )
+    return or_(row.target_class == "external_development", ~active, matching)
 
 
 def failed_verified_workspace_copy(row: McpWorkspaceDeploymentOperationRow) -> bool:

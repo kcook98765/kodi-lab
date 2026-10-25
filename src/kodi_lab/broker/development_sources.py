@@ -59,7 +59,10 @@ from kodi_lab.storage.repositories import (
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
-from kodi_lab.storage.workspace_deployments import prior_workspace_copy
+from kodi_lab.storage.workspace_deployments import (
+    prior_workspace_copy,
+    selected_profile_lineage_sql,
+)
 
 BROKER_DEVELOPMENT_ROOT = Path("/mnt/kodi-lab-development")
 
@@ -730,6 +733,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         .where(
                             McpWorkspaceDeploymentOperationRow.id
                             != deployment_operation_id,
+                            selected_profile_lineage_sql(),
                             McpWorkspaceDeploymentOperationRow.workspace_id
                             == workspace_id,
                             McpWorkspaceDeploymentOperationRow.target_id
