@@ -258,3 +258,21 @@ and recovery remain separately reviewed operations.
 The existing read-only deployment preflight reports the stored session restriction
 and links to session review when it blocks work. Matching stored scope does not
 prove a live container or native/Bridge/add-on readiness.
+
+
+## Current-profile deployment receipts
+
+A Fresh Test on the same Kodi version can retain the same target, workspace and
+source generation while replacing its container. When a session is active, fresh
+workspace execution, GUI launch and prior-workspace-copy selection therefore
+require the receipt's exact original container/runtime/workspace/source/target
+to match the selected bound profile. Historical or unscoped receipts remain
+history; they do not establish deployment into its successor. A newly copied
+source baseline must have its own positive current binding before deployment.
+
+This avoids treating successes from two different profiles as ambiguous current
+copies, while retaining ambiguity checks within the current profile. Exact old
+request replay remains historical and never redispatches; recovery keeps its
+original scope. Existing inactive-policy and external paths retain their
+semantics. Receipt selection supplies no permission or live proof. Each later
+operation still verifies current identity, copied bytes, readiness and grants.

@@ -50,6 +50,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedRuntimeProjectionRepository,
 )
+from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 from kodi_lab.workspace.storage import workspace_coordination_lock
 
 
@@ -211,6 +212,7 @@ class WorkspaceLaunchService:
                     McpWorkspaceDeploymentOperationRow.target_id == str(target_id),
                     McpWorkspaceDeploymentOperationRow.workspace_id
                     == str(workspace_id),
+                    selected_profile_lineage_sql(),
                 )
                 .order_by(
                     McpWorkspaceDeploymentOperationRow.requested_at.desc(),
