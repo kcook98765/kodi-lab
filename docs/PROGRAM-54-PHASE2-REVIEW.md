@@ -210,3 +210,28 @@ ledger96e8c5d snapshot) began one full gate at10:47UTC. Manifest:1,815 tracked
 entries,61 changed SHA values,no deletions. #74fixture correction and#75–#79
 are included. No result yet; never inherit successfulCBC/Phase1 or erase failed557.
 No competing tests, no merge/deployment/migration/native operational acceptance.
+
+
+[#80](https://github.com/kcook98765/kodi-lab/pull/80), draft `945b3af`, is an
+independent Markdown-only walkthrough correction over#79. It removes contradictory
+older unimplemented claims, preserves data-loss/unknown-dispatch safeguards and
+labels feature-branch/matched-deployment versus installed/platform scope. Static
+label/route/link review only; it is outside c788 and inherits no release result.
+Its top/middle guide edits do not overlap the pending enablement draft's append.
+
+Live GitHub recheck during c788 qualification: original#55–#60 heads remain
+unchanged/open/MERGEABLE, as do#72–#80 at recorded heads (all latter draft).
+Main remains e198592. GitHub base mergeability is not combined qualification or
+human review. Original recommended review/authorized future merge ordering stays
+#56,#60,#59,#58,#57,#55, followed by each recorded dependency chain; nothing was
+merged. Exact current PR metadata is saved privately in
+`prs-during-guided-qualification.json`.
+
+The separate local source-enablement scope draft on#79 has five uncommitted files
+and20 planned regression cases; no validation lane/PR. Tests remain deferred until
+c788 finishes. Source-smoke and inner reviewed-Bridge lifecycle scope are later
+read-only review notes, not validated defects or new implementation commitments.
+Existing broker admission/typed leases may already exclude some ordinary cases;
+prove a meaningful invariant before adding a new migration or redundant manager.
+Prefer existing queued CID/current admission where sufficient. External Native/
+Windows/grant/design/operational decisions remain grouped and unchanged.
