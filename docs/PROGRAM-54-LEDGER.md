@@ -23,9 +23,9 @@ This ledger records source qualification, not deployment or native acceptance.
   composition is included in c788. Review order #74→#75→#76→#77→#78→#79.
 - [Draft #80](https://github.com/kcook98765/kodi-lab/pull/80), `945b3af`, is a
   Markdown walkthrough correction with static review only, **outside c788**.
-  The separate uncommitted five-file source-enablement scope/owned-lease draft
-  is also outside c788; its 26-case focused validation has now begun after the
-  full result/manifest/cleanup verification. It inherits no release result.
+  [Draft #81](https://github.com/kcook98765/kodi-lab/pull/81), `87c36a4`,
+  narrows synchronous source enablement and typed marker ownership:27 focused
+  +363 interactions passed178.2s, outside c788 with no release inheritance.
 - At 11:21:47 UTC, main `e198592`, all 24 original worktree HEAD/status pairs,
   stash, 210 container ID/name/image/state records and preserved log branch
   `3dddbc2` were again verified unchanged. No merge, deployment, grant/resource
@@ -1255,3 +1255,52 @@ native-source/session/lease/migration interactions after honest fixes. No other
 full run is scheduled merely for one draft; qualify another settled appropriately
 scoped composition when required. Smoke/Bridge follow-on remains a minimality/
 reachability review, with no new migration or generalized coordinator committed.
+
+
+### Synchronous source enablement scope/ownership published after c788
+
+[Draft #81](https://github.com/kcook98765/kodi-lab/pull/81), `87c36a4`, follows
+#79, independently of Markdown#80. Metadata selected source/target/runtime/pending
+admission runs in the writer claim. The synchronous handle captures original
+selected generation/CID; positive observed identity and the same generation are
+rechecked after runtime observation and in preflight/mutation marker transactions.
+Both markers require/renew the original unexpired typed kind/op/token lease using
+its existing duration. Scope failure before dispatch records precise failed
+preflight; post-dispatch ambiguity retains existing reconciliation. Foreign
+ownership is not cleared. Existing validation/baseline/tree/dependency/native
+identity/bytecode/service restrictions and readback remain. No new durable request
+promise, migration, endpoint/tool/grant, auto enablement or general task framework.
+D0461 and session documentation explain metadata-only versus native proof.
+
+**INTEGRATION PASS**,178.2s:27 focused cases, Ruff/strict mypy3files, then363
+native-source/smoke/copy/queue/session/replacement/admission/Web/broker/direct-
+migration/full-history interactions. A real current-head database received data
+only from fixtures, then ran the actual producer with positive fake native
+transport, version/FK/integrity/lease checks. Initial26 tests passed but import/
+context-manager lint findings were corrected; the27th case adds real-schema proof.
+No assertions were weakened. No native or platform acceptance.
+
+Identical final test file SHA
+`fad19b214c8ddebc162238cd5b80525e57c358d7439e0010f7f51705a2a96672` on untouched
+`6aaa097` produced23 behavior failures and4 passing compatibility/schema cases,
+without setup/import errors; all27 pass with the fix. The detached baseline
+worktree retains its original tracked source and only the added test file.
+Private regression comparison JSON/logs retain proof. These are synthetic boundary
+cases, not reproduced live incidents or a claim of reachable cross-session exploit.
+
+#81 is outside release-qualifiedc788 and has no RELEASE PASS. #72–#79 unchanged
+heads were verified ancestors of c788; their PR descriptions now state the exact
+combined result and they are ready for review. This is not human approval, merge
+or deployment. #80 remains independently static-reviewed/outside the pin.
+
+Next minimal source-smoke foundation should first reuse the existing nullable
+expected-container field: new selected queues pin desired CID, create must persist
+it, acquire must not overwrite it, actual observed CID must match before native
+invocation. Shared scope/exact ownership at queue/acquire/native marker and a
+captured acquire-time selection can serve the existing generic queue without a
+new generation table/column or versioned request promise. Legacy nullable queues
+must keep honest observed-binding compatibility, not invented original queue
+proof. Existing typed reservation already prevents legitimate Fresh/Switch while
+queued/running; preserve post-invocation ambiguity and all native/baseline checks.
+Only add persistence if a separately established durable-generation invariant
+requires it. No generalized manager/scheduler. Continue independent code work.

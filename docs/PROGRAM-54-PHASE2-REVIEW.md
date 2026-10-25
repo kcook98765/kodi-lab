@@ -252,3 +252,16 @@ Failed557 remains failed; CBC/Phase1 retain separate successful pins. #80Markdow
 and the later uncommitted enablement draft are outside c788. After-gate original
 24worktrees/stash/210container tuples/main/log branch preservation matched at
 11:21:47UTC. Focused validation of the26-case next draft now begins; no inheritance.
+
+
+[#81](https://github.com/kcook98765/kodi-lab/pull/81), draft `87c36a4`, follows
+#79 independently of#80. Selected synchronous enablement scope and live typed
+marker ownership, no migration/endpoint/tool/grant or new receipt promise.
+27 focused+363 interactions passed178.2s; identical regressions on untouched79
+produced23behavior failures/4passes with no setup errors, all27 pass after fix.
+Real current-schema producer/FK/integrity included. This later source has no
+RELEASE PASS and inherits none fromc788. #72–#79 are now review-ready at their
+verified unchanged qualified ancestor heads; no merges or native acceptance.
+The proposed source-smoke correction should prefer its existing expected CID and
+current shared admission/owned marker, with no unnecessary new migration or
+logical-generation claim for the existing generic unversioned queue.
