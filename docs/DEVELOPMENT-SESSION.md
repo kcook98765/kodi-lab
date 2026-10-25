@@ -58,3 +58,26 @@ native/Bridge readiness, selected diagnostic retention and explicit Fresh Test/
 Switch composition remain required. No replacement or retirement is dispatched by
 this service. Existing recovery fences remain authoritative; native sequential
 version-switch and Windows acceptance remain later qualifications.
+
+## Minimal Web workflow
+
+Open **Development → Development session**. Select one ready workspace and an
+eligible approved cached canonical runtime, then reserve the empty environment.
+**Prepare Kodi** creates only the selected clean stopped profile. **Resume** and
+**Stop** reuse its exact container without resetting source iterations. Links lead
+to the selected Kodi's existing source/Bridge/native setup and workspace actions.
+Preparation alone is not an assertion of deployment or capability readiness.
+
+All actions use authenticated Web administration, Origin/CSRF checks and the
+current session generation. Preparation rechecks runtime eligibility inside the
+existing lifecycle claim; Resume/Stop recheck exact target/runtime/container before
+dispatch. Stale bindings and unknown inventory refuse actions. Lost/failed browser
+responses disable resubmission and direct the operator to status/history review.
+No polling scheduler, image acquisition, new MCP tool or new grant is added.
+
+**Release empty reservation** only closes an absent, idle ordinary session; it
+never removes a profile or clears uncertain provision. Fresh Test and version
+Switch remain outside this initial UI while retained diagnostics, dispatch
+settlement and reviewed replacement remain incomplete. Existing unrelated
+containers block reservation and are preserved. Native and Windows acceptance
+remain separate from the route/Node/fixture evidence for this page.
