@@ -6606,3 +6606,15 @@ configuration, compatibility and rollback requirements.
 - Publication uncertainty retains both trees and reconciliation; replay proves the
   durable tree/journal without capturing newer source. No force import, implicit
   conflict adoption, profile reset, deployment or native-acceptance claim.
+
+### Publication cancellation addendum
+
+A reproduced post-commit cancellation could previously roll back only the private
+filesystem while durable generation/digest had advanced. Before permitting rollback,
+read the exact journal/workspace publication state. Confirmed commits keep their
+receipt/tree; confirmed unpublished ordinary failures retain normal rollback;
+unknown outcomes preserve both trees and quarantine either the original or already
+advanced generation. Replay must prove both full trees and may acknowledge an
+already committed generation without another increment. Preserve the ordinary
+failure, stale-input, authorization and legacy-receipt checks; no migration or
+new grant is introduced.

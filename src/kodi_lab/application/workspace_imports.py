@@ -461,7 +461,62 @@ class WorkspaceImportService:
             ),
         )
 
-    def _publish(self, row: WorkspaceImportOperationRow, digest: str) -> None:
+    def _publication_state(
+        self, row: WorkspaceImportOperationRow, digest: str
+    ) -> Literal["committed", "unpublished", "unknown"]:
+        """A cancellation can arrive after SQLite committed but before return."""
+        try:
+            with self._sessions() as session:
+                durable = session.get(WorkspaceImportOperationRow, row.id)
+                workspace = session.get(AgentWorkspaceRow, row.workspace_id)
+                if (
+                    durable is None
+                    or workspace is None
+                    or (
+                        durable.workspace_id,
+                        durable.generation,
+                        durable.preview_digest,
+                        durable.source_digest,
+                        durable.prior_digest,
+                        durable.result_digest,
+                    )
+                    != (
+                        row.workspace_id,
+                        row.generation,
+                        row.preview_digest,
+                        row.source_digest,
+                        row.prior_digest,
+                        digest,
+                    )
+                ):
+                    return "unknown"
+                if (
+                    durable.state == "succeeded"
+                    and workspace.generation == row.generation + 1
+                    and workspace.current_tree_digest == digest
+                    and workspace.state == AgentWorkspaceState.READY
+                ):
+                    return "committed"
+                if (
+                    durable.state in {"applying", "reconciliation_required"}
+                    and workspace.generation == row.generation
+                    and workspace.current_tree_digest == row.prior_digest
+                    and workspace.state == AgentWorkspaceState.RECONCILIATION_REQUIRED
+                ):
+                    return "unpublished"
+        except BaseException:
+            # Even another cancellation during readback cannot authorize rollback
+            # of bytes whose database publication may already have committed.
+            return "unknown"
+        return "unknown"
+
+    def _publish(
+        self,
+        row: WorkspaceImportOperationRow,
+        digest: str,
+        *,
+        already_advanced: bool = False,
+    ) -> None:
         try:
             with self._sessions.begin() as session:
                 changed = session.execute(
@@ -470,8 +525,10 @@ class WorkspaceImportService:
                         AgentWorkspaceRow.id == row.workspace_id,
                         AgentWorkspaceRow.state
                         == AgentWorkspaceState.RECONCILIATION_REQUIRED,
-                        AgentWorkspaceRow.generation == row.generation,
-                        AgentWorkspaceRow.current_tree_digest == row.prior_digest,
+                        AgentWorkspaceRow.generation
+                        == row.generation + already_advanced,
+                        AgentWorkspaceRow.current_tree_digest
+                        == (digest if already_advanced else row.prior_digest),
                     )
                     .values(
                         state=AgentWorkspaceState.READY,
@@ -526,7 +583,14 @@ class WorkspaceImportService:
                 root, f"{row.workspace_id}/.import-{row.id}", reject_vcs=True
             )
             if old.digest == row.prior_digest:
-                self._publish(row, current.digest)
+                with self._sessions() as session:
+                    workspace = session.get(AgentWorkspaceRow, row.workspace_id)
+                    already_advanced = bool(
+                        workspace is not None
+                        and workspace.generation == row.generation + 1
+                        and workspace.current_tree_digest == current.digest
+                    )
+                self._publish(row, current.digest, already_advanced=already_advanced)
                 row.state = "succeeded"
                 return
         if current.digest == row.prior_digest:
@@ -700,7 +764,19 @@ class WorkspaceImportService:
                         prepared=prepared,
                     ) as digest:
                         authorize()
-                        self._publish(row, digest)
+                        try:
+                            self._publish(row, digest)
+                        except BaseException as error:
+                            publication = self._publication_state(row, digest)
+                            if publication != "committed":
+                                if publication == "unknown" or isinstance(
+                                    error, AgentWorkspaceReconciliationRequired
+                                ):
+                                    raise AgentWorkspaceReconciliationRequired(
+                                        "workspace_import_reconciliation_required",
+                                        "Import publication requires reconciliation.",
+                                    ) from error
+                                raise
                     row.state, row.result_digest = "succeeded", digest
                 except BaseException as error:
                     reconciliation = isinstance(
@@ -715,7 +791,34 @@ class WorkspaceImportService:
                             )
                             .values(state=state)
                         )
-                        if not reconciliation:
+                        if reconciliation:
+                            session.execute(
+                                update(AgentWorkspaceRow)
+                                .where(
+                                    AgentWorkspaceRow.id == row.workspace_id,
+                                    (
+                                        (AgentWorkspaceRow.generation == row.generation)
+                                        & (
+                                            AgentWorkspaceRow.current_tree_digest
+                                            == row.prior_digest
+                                        )
+                                    )
+                                    | (
+                                        (
+                                            AgentWorkspaceRow.generation
+                                            == row.generation + 1
+                                        )
+                                        & (
+                                            AgentWorkspaceRow.current_tree_digest
+                                            == row.result_digest
+                                        )
+                                    ),
+                                )
+                                .values(
+                                    state=AgentWorkspaceState.RECONCILIATION_REQUIRED
+                                )
+                            )
+                        else:
                             session.execute(
                                 update(AgentWorkspaceRow)
                                 .where(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from pathlib import Path
 from threading import Event
 from typing import Any, Literal
@@ -368,3 +369,87 @@ def test_interrupted_deletion_before_exchange_retains_both_trees_and_fails_repla
     assert (tree(tmp_path) / "default.py").exists()
     assert len(list(tree(tmp_path).parent.glob(".import-*"))) == 1
     assert workspaces.get(WORKSPACE_ID).generation == 0
+
+
+def test_post_commit_interrupt_cannot_roll_back_only_the_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspaces, tools, source, sessions, _admin, principal, _client = _environment(
+        tmp_path
+    )
+    (source / "default.py").unlink()
+    operation = request(reviewed(tools, principal))
+    service = tools._workspace_imports
+    publish = service._publish
+    with monkeypatch.context() as patch:
+
+        def interrupted(*args: Any) -> None:
+            publish(*args)
+            raise KeyboardInterrupt(
+                "fixture interrupt just after committed publication"
+            )
+
+        patch.setattr(service, "_publish", interrupted)
+        with suppress(KeyboardInterrupt):
+            tools.workspace_import(principal, operation)
+    stored = _record(sessions)
+    actual = capture_development_tree(tree(tmp_path).parent, "tree")
+    assert (
+        stored.current_tree_digest == actual.digest
+        or stored.state.value == "reconciliation_required"
+    )
+    # Once committed, replay must preserve the exact removal and one generation.
+    receipt = tools.workspace_import(principal, operation)
+    assert receipt.state == "succeeded" and receipt.generation == 1
+    assert not (tree(tmp_path) / "default.py").exists()
+    assert workspaces.get(WORKSPACE_ID).generation == 1
+
+
+def test_unavailable_readback_after_committed_interrupt_retains_fence_and_recovers_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspaces, tools, source, sessions, _admin, principal, _client = _environment(
+        tmp_path
+    )
+    (source / "default.py").unlink()
+    operation = request(reviewed(tools, principal))
+    service = tools._workspace_imports
+    publish = service._publish
+    original_sessions = service._sessions
+
+    class LostReadback:
+        armed = False
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            if self.armed:
+                self.armed = False
+                from sqlalchemy.exc import SQLAlchemyError
+
+                raise SQLAlchemyError("fixture readback unavailable")
+            return original_sessions(*args, **kwargs)
+
+        def begin(self, *args: Any, **kwargs: Any) -> Any:
+            return original_sessions.begin(*args, **kwargs)
+
+    lost = LostReadback()
+    with monkeypatch.context() as patch:
+
+        def interrupted(*args: Any) -> None:
+            publish(*args)
+            lost.armed = True
+            raise KeyboardInterrupt("fixture committed, readback lost")
+
+        patch.setattr(service, "_publish", interrupted)
+        patch.setattr(service, "_sessions", lost)
+        with pytest.raises(McpAuthorizationError, match="workspace_import_rejected"):
+            tools.workspace_import(principal, operation)
+    stored = _record(sessions)
+    assert stored.state.value == "reconciliation_required" and stored.generation == 1
+    assert not (tree(tmp_path) / "default.py").exists()
+    assert len(list(tree(tmp_path).parent.glob(".import-*"))) == 1
+    tools._workspace_imports = WorkspaceImportService(workspaces)
+    recovered = tools.workspace_import(principal, operation)
+    assert recovered.state == "succeeded" and recovered.generation == 1
+    assert _record(sessions).state.value == "ready"
+    assert workspaces.get(WORKSPACE_ID).generation == 1
+    assert tools.workspace_import(principal, operation) == recovered
