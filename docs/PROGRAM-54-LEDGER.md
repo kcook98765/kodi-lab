@@ -1184,3 +1184,26 @@ scope as a later foundation to assess. It has queued/running expected-container
 history and native invocation markers; preserve all post-dispatch ambiguity and
 baseline checks, avoid adding a general scheduler or blindly reusing a synchronous
 handle design for persisted queues. No smoke implementation has been started.
+
+
+### Current user walkthrough corrected independently
+
+[Draft #80](https://github.com/kcook98765/kodi-lab/pull/80), `945b3af`, follows
+#79 with Markdown-only corrections. The everyday walkthrough connects selected
+workspace/version, stopped profile, explicit source baseline, saved request
+recovery, independent native/Bridge/enablement, in-place iterations and reviewed
+Fresh/Switch. It removes contradictory phase-era statements that still claimed
+replacement/retirement composition was unimplemented, while retaining the detailed
+admission/evidence/unknown-dispatch/history safeguards. README labels it as the
+composed feature-branch flow, requiring matched reviewed deployment, not current
+installed behavior or platform acceptance. Native crash bodies remain uncollected;
+metadata/excerpts may be incomplete and do not establish cause.
+
+Documentation-only static review against6aaa097 verified template labels/routes,
+local guide/anchor and removed stale claims; `git diff --check` passed. Private
+`session-walkthrough-static-review.json` retains hashes. No tests added/rerun or
+validation-lane/native result claimed. #80 is outside frozen c788 and inherits no
+release result. It changes no code/schema/template/grant/resource and is independent
+of the pending unqualified source-enablement scope draft. Review after#79;
+its top/middle document edits do not overlap that draft's appended D0461 section.
+The c788 full suite remains running; no competing tests were started.
