@@ -31,6 +31,13 @@ from kodi_lab.application.managed_bridge_trust import (
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
+from kodi_lab.application.runtime_retirement_receipts import (
+    RuntimeRetirementReceiptError,
+    RuntimeRetirementScope,
+    confirm_retirement_receipt,
+    prepare_retirement_receipt,
+    require_retirement_scope,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -54,6 +61,7 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.domain import (
     ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperation,
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceSemanticState,
     RuntimeExecutionProfile,
@@ -287,16 +295,69 @@ class ManagedRuntimeLifecycleService:
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
 
-    def deprovision(self, instance_id: UUID) -> ManagedRuntimeStatus:
+    def deprovision(
+        self,
+        instance_id: UUID,
+        *,
+        expected_scope: RuntimeRetirementScope | None = None,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+    ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
+        if (
+            expected_scope is not None
+            and expected_scope.managed_instance_id != instance_id
+        ):
+            raise RuntimeRetirementReceiptError("runtime_retirement_scope_changed")
+
+        def protect(session: Session) -> None:
+            if expected_scope is not None:
+                require_retirement_scope(session, expected_scope)
+            if precondition is not None:
+                precondition(session)
+
+        def claimed(session: Session, handle: RunningLifecycleOperation) -> None:
+            if expected_scope is not None:
+                prepare_retirement_receipt(session, handle.operation_id, expected_scope)
+            if on_claim is not None:
+                on_claim(session, handle)
+
+        def terminal(
+            session: Session, operation: ManagedInstanceLifecycleOperation
+        ) -> None:
+            if expected_scope is not None:
+                confirm_retirement_receipt(session, operation, expected_scope)
+
         return self._run(
             instance_id,
             ManagedInstanceLifecycleKind.DEPROVISION,
-            self._deprovision,
+            lambda target_id, profile: self._deprovision(
+                target_id, profile, expected_scope
+            ),
+            operation_id=operation_id,
+            precondition=protect,
+            on_claim=claimed,
+            on_terminal=None if expected_scope is None else terminal,
         )
 
-    def _deprovision(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
+    def _deprovision(
+        self,
+        instance_id: UUID,
+        profile: RuntimeExecutionProfile,
+        scope: RuntimeRetirementScope | None = None,
+    ) -> None:
         container = self._require_container(instance_id)
+        if scope is not None and (
+            scope.managed_instance_id != instance_id
+            or scope.runtime_revision_id != profile.runtime_revision_id
+            or scope.container_id != container.container_id
+            or scope.image_id != container.image_id
+            or container.runtime_revision_id != str(scope.runtime_revision_id)
+        ):
+            # This check is inside the leased action, before readiness/trust or
+            # installed-evidence invalidation, not only in an earlier UI check.
+            raise RuntimeRetirementReceiptError("runtime_retirement_scope_changed")
         if container.runtime_state is not ContainerRuntimeState.STOPPED:
             raise LifecycleConflictError("managed runtime must be stopped")
         self._readiness.clear(instance_id)
@@ -305,12 +366,19 @@ class ManagedRuntimeLifecycleService:
             invalidate_addon_zip_installation_evidence(session, instance_id)
             invalidate_managed_bridge_trust(session, instance_id)
         try:
-            self._broker.deprovision_managed_container(
+            result = self._broker.deprovision_managed_container(
                 managed_instance_id=str(instance_id),
                 expected_container_id=container.container_id,
                 expected_runtime_revision_id=str(profile.runtime_revision_id),
                 expected_runtime_state=ContainerRuntimeState.STOPPED,
             )
+            if scope is not None and (
+                not isinstance(result, DeprovisionManagedContainerResult)
+                or result.managed_instance_id != str(scope.managed_instance_id)
+                or result.runtime_revision_id != str(scope.runtime_revision_id)
+                or result.removed_container_id != scope.container_id
+            ):
+                raise LifecycleDispatchUnconfirmedError
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
 
@@ -339,6 +407,8 @@ class ManagedRuntimeLifecycleService:
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
         before_dispatch: Callable[[], None] | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
         handle = self._operations.begin(
@@ -363,13 +433,16 @@ class ManagedRuntimeLifecycleService:
                 resulting_state = self._observe(instance_id)
             except Exception:
                 resulting_state = ManagedInstanceSemanticState.AMBIGUOUS
-            self._terminalize_failure(handle, resulting_state, error)
+            self._terminalize_failure(
+                handle, resulting_state, error, on_terminal=on_terminal
+            )
             raise
         if self._is_expected_result(kind, resulting_state):
             self._operations.terminalize(
                 handle,
                 state=ManagedInstanceLifecycleOperationState.SUCCEEDED,
                 resulting_state=resulting_state,
+                on_terminal=on_terminal,
             )
         elif semantic_state_is_unambiguous(resulting_state):
             self._operations.terminalize(
@@ -377,6 +450,7 @@ class ManagedRuntimeLifecycleService:
                 state=ManagedInstanceLifecycleOperationState.FAILED,
                 resulting_state=resulting_state,
                 failure_reason="Lifecycle postcondition was not satisfied.",
+                on_terminal=on_terminal,
             )
             raise LifecycleConflictError("lifecycle postcondition was not satisfied")
         else:
@@ -387,6 +461,7 @@ class ManagedRuntimeLifecycleService:
                 failure_reason=(
                     "Lifecycle result is ambiguous; reconciliation is required."
                 ),
+                on_terminal=on_terminal,
             )
         return result
 
@@ -420,6 +495,9 @@ class ManagedRuntimeLifecycleService:
         handle: RunningLifecycleOperation,
         resulting_state: ManagedInstanceSemanticState,
         error: Exception,
+        *,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
     ) -> None:
         unconfirmed = isinstance(error, LifecycleDispatchUnconfirmedError)
         known = isinstance(error, BrokerUnavailableError) or (
@@ -438,6 +516,7 @@ class ManagedRuntimeLifecycleService:
                 if unconfirmed
                 else self._safe_reason(error, reconciliation=not known)
             ),
+            on_terminal=on_terminal,
         )
 
     @staticmethod
