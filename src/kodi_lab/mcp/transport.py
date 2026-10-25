@@ -1054,7 +1054,13 @@ def build_mcp_http_transport(
             description=(
                 "Review bounded added/modified UTF-8 files from the workspace's "
                 "registered source. Returns source and preview digests for exact "
-                "apply; deletions, private overlaps and unsupported files are rejected."
+                "apply. Default changes mode rejects deletions and private overlaps. "
+                "Opt into reviewed_tree to review removals and all private-only paths; "
+                "supply per-path keep_private/take_source resolutions and preview "
+                "again. "
+                "Only matches_source=true promises an exact source result; "
+                "directory/type "
+                "transitions and other unsupported files remain rejected."
             ),
             input_schema=ImportInput.model_json_schema(),
             output_schema=ImportPreview.model_json_schema(),
