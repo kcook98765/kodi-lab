@@ -25,6 +25,9 @@ This ledger records source qualification, not deployment or native acceptance.
   interaction cases passed in 128.8s. The identical corrected regression file
   failed 7 behavior cases on untouched `557dcdd` and passed all 9 with the fix.
   Both increments have integration evidence; neither has RELEASE PASS.
+- [Draft #77](https://github.com/kcook98765/kodi-lab/pull/77), `9ebbb28`,
+  pins stopped source-copy queue identity and trusted claim preconditions.
+  12 focused + 251 interaction cases passed in 110.2s; no release qualification.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -993,3 +996,48 @@ Do not introduce nonce replay that becomes unsafe after ordinary history pruning
 review durable attribution before a new guided copy API. Reuse the existing
 source executor and admission, not a general task scheduler. Group a settled
 future release candidate after these bounded source changes.
+
+### Stopped source-copy queue binding foundation published
+
+[Draft #77](https://github.com/kcook98765/kodi-lab/pull/77), head
+`9ebbb28d4358682df5d430eaab74d95c2b6f0691`, follows #76. New queues retain
+the stopped container observed before reservation in the existing field; create
+now persists it and repository acquire cannot overwrite a positive pin. Trusted
+preconditions execute inside BEGIN IMMEDIATE before operation/lease creation,
+with current runtime/type/attachment rechecked. No public endpoint, nonce/replay
+guarantee, new table/tool/grant, schema migration or general scheduler.
+
+Acquire verifies unchanged queued intent and exact ownership of both unclaimed
+reservations. Positive profile/runtime/attachment drift can fail only that queued
+operation and atomically release its own reservations, without copy. Running,
+claimed, malformed or foreign work stays fenced. Unknown inventory preserves the
+existing behavior. Before-commit cancellation rolls back; after-commit cancellation
+keeps the authoritative failed receipt. Legacy nullable queued records preserve
+claim-time binding; no retrospective queue proof is invented.
+
+**INTEGRATION PASS** at `9ebbb28`: 12 individually focused cases, Ruff/mypy across
+three files, then 251 source/broker/session/replacement/admission/lineage/full-
+migration/foundation interactions in 110.2s. The initial nine-case baseline had
+5 failed checks and 4 passing compatibility/ownership cases; final cases add
+commit cancellation and actual migrated-schema proof. The real-head test copies
+fixture data only into the migrated schema and verifies graph head, integrity/FKs.
+An initial version-name assertion was corrected to the actual graph head. The
+existing create mapper's omitted expected-container field was fixed rather than
+weakening the persistence assertion. No native acceptance or live source copy.
+
+Next concrete increment: one small durable guided-copy admission ledger, tied to
+retained session generation and immutable original Source-operation UUID. Preserve
+nonce scope even when ordinary operation detail is pruned; report missing detail
+honestly and never recreate/redispatch because it is absent. Use a trusted supplied
+child operation UUID and same-transaction on-claim callback to couple admission
+with the existing queue/reservations. GET remains stored observation; an explicit
+POST may submit the same known-queued original child using the existing executor,
+whose atomic acquire permits one initial dispatch. Running/unknown/failed work
+must not be reset. Require current bound stopped session and an already attached
+exact source, without copying grants or auto-enabling/starting Kodi. The private
+`next-guided-source-copy-review.md` records the detailed review and tests.
+
+No new full gate yet: qualify the next settled composition after durable copy
+admission/UI and directly affected integrations. `557dcdd` remains a failed pin;
+`cbc8894` remains the last successful release. No merges, deployment, grant changes,
+resource disposal or operational migrations occurred.

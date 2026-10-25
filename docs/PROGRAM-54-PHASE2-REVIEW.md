@@ -171,3 +171,11 @@ maintenance remains. Appended D0456/D0457 and both session sections were retaine
 with source hashes; shared preflight source combined cleanly and tests cover
 both increments. Review order #74→#75→#76, all still draft and outside any
 successful release result. The last full attempt remains failed at `557dcdd`.
+
+[#77](https://github.com/kcook98765/kodi-lab/pull/77), draft `9ebbb28`, follows
+#76 with persisted queue-time profile pin, storage overwrite refusal and atomic
+trusted preconditions/unclaimed-drift refusal. 12 focused + 251 interactions,
+110.2s. Existing schema/executor, legacy nullable queue behavior and claimed/
+foreign/unknown fences remain. No endpoint, grant/tool, nonce promise or scheduler.
+Review order #74→#75→#76→#77. All remain outside any successful release result;
+durable guided-copy attribution/UI is next before another settled broad gate.
