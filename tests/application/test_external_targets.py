@@ -155,6 +155,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "workspace_capture",
         "workspace_create",
         "workspace_deploy",
+        "workspace_deploy_preflight",
         "workspace_edit",
         "workspace_execute",
         "workspace_execution_recover",
