@@ -35,6 +35,11 @@ configuration, including managed Nexus/Omega and MCP. Follow the maintained
 are not qualified. An existing Kodi target can be on another computer; these
 requirements apply to the Kodi Lab server.
 
+For add-on development, the composed feature-branch [single-session walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough)
+describes the one-workspace, disposable-profile flow and its independent
+native/Bridge checks. It requires the corresponding reviewed code and matched
+deployment; it does not change an existing installation or platform qualification.
+
 ## Quick Start — Install Kodi Lab
 
 These steps are for a fresh installation. For an existing installation, use the

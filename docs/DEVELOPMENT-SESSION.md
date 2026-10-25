@@ -1,4 +1,62 @@
-# Single disposable development session foundation
+# One add-on, one disposable Kodi test environment
+
+Use **Development → Development session** for one persistent add-on workspace
+and one disposable Kodi profile. This guide describes the composed feature-branch
+workflow. Code review and source tests do not install it into an existing Lab;
+matched application, broker and schema deployment and native/platform acceptance
+remain separate. Existing runtime/version eligibility still decides which cached
+versions can be selected.
+
+## Everyday walkthrough
+
+1. **Choose the add-on and version.** Select a ready workspace and eligible
+   approved cached Kodi version, then **Reserve test environment**. If another
+   managed profile or unresolved operation blocks reservation, review it through
+   existing setup/history. The session does not adopt or remove it. Use **Add
+   Kodi** separately when an eligible cached runtime is unavailable.
+2. **Prepare the stopped profile.** Use **Prepare Kodi**, then open **Review the
+   selected add-on's preparation checklist**. Preparation creates the clean
+   stopped profile; it does not install the add-on, confirm native readiness or
+   establish reviewed Bridge trust. Review uncertain history before another
+   action. An empty inventory after a lost create reply does not permit retry.
+3. **Copy the registered source baseline.** If needed, explicitly attach the
+   selected registered source through the linked Kodi setup. Back on the
+   checklist, use **Copy registered source baseline into stopped Kodi**. This
+   may replace add-on files in that profile; it does not deploy private workspace
+   edits. Saved request links recover a lost reply. Refresh reads progress only;
+   **Continue this queued copy** can continue the same still-queued request.
+4. **Resume and complete native setup.** Use **Resume**, review the linked
+   native and Bridge status separately, and use the existing supported source
+   enablement/setup controls as required. A saved baseline or session binding
+   does not prove that the add-on is enabled, Kodi is usable, a Bridge is active,
+   or a native prompt has been resolved. Follow the exact installed version's
+   reviewed continuation; grants and pairing credentials are not copied.
+5. **Iterate in the same profile.** Edit and validate the workspace, check
+   deployment preflight, then deploy/test that exact generation through the
+   existing authorized workflow. See the [agent development loop](MANAGED-AGENT-LOOP.md).
+   Use **Stop** and **Resume** to keep the same profile between iterations.
+   Source changes do not require Fresh Test or Kodi image rebuilds.
+6. **Fresh Test or Switch Version deliberately.** Stop the current test, save
+   diagnostics from that exact profile, then open **Review Fresh Test or Switch**.
+   Select the cached version and 1–8 retained captures. Saving a review only holds
+   evidence and keeps the profile. The separate **Replace profile and prepare
+   selected test** confirmation names the exact profile and data loss. A confirmed
+   retirement is required before the next stopped profile can be prepared.
+   Reestablish its source baseline and independent native/Bridge setup.
+7. **Recover from saved state.** Refresh the original copy/replacement status
+   after a lost reply. If retirement is confirmed but preparation is blocked,
+   review **Continue preparation** or **Release retired reservation**. These do
+   not settle an unknown removal/create. **Release empty reservation** closes
+   only an absent, idle ordinary reservation; it does not delete a profile.
+
+Persistent source, workspace, Git history and explicitly retained captures stay
+outside Kodi. Fresh/Switch permanently removes the displayed writable profile,
+including settings, installed add-ons and unselected artifacts. Saved excerpts
+can be partial; referenced crash-report metadata does not collect report bodies
+or establish cause. Review the displayed evidence and loss before confirming.
+No idle timeout, automatic profile cleanup or background replacement is added.
+
+## Admission and persistence
 
 This opt-in foundation reserves one logical add-on/workspace, canonical target,
 exact runtime revision and session generation. Presence of an active policy
@@ -52,12 +110,12 @@ downgrade. An older broker/application cannot enforce this opt-in policy; deploy
 must update matched application/broker/schema bytes together and preserve backup/
 recovery. Migration and deployment are separately authorized operational work.
 
-This PR supplies the durable reservation/admission foundation, not the complete
-#51 workflow. Simplified Web preparation, exact source attachment/copy, independent
-native/Bridge readiness, selected diagnostic retention and explicit Fresh Test/
-Switch composition remain required. No replacement or retirement is dispatched by
-this service. Existing recovery fences remain authoritative; native sequential
-version-switch and Windows acceptance remain later qualifications.
+The reservation service itself dispatches no retirement or replacement. The
+separate reviewed composition described below performs those steps through the
+existing exact lifecycle authority. Source attachment/copy and native/Bridge setup
+retain their independent checks. Existing recovery fences remain authoritative;
+native sequential version-switch and Windows acceptance remain separate
+qualifications.
 
 ## Minimal Web workflow
 
@@ -76,9 +134,8 @@ responses disable resubmission and direct the operator to status/history review.
 No polling scheduler, image acquisition, new MCP tool or new grant is added.
 
 **Release empty reservation** only closes an absent, idle ordinary session; it
-never removes a profile or clears uncertain provision. Fresh Test and version
-Switch remain outside this initial UI while retained diagnostics, dispatch
-settlement and reviewed replacement remain incomplete. Existing unrelated
+never removes a profile or clears uncertain provision. Fresh Test/Switch uses the
+separate evidence review and final confirmation described below. Existing unrelated
 containers block reservation and are preserved. Native and Windows acceptance
 remain separate from the route/Node/fixture evidence for this page.
 
@@ -113,18 +170,19 @@ responses are non-cacheable. Review metadata links to private captured bodies.
 
 Resume/Stop remain ordinary explicit actions. A saved review records facts at
 creation; it does not freeze the session or claim that those facts stay current.
-Final execution will need fresh eligibility/identity/lease/reconciliation and
+Final execution requires fresh eligibility/identity/lease/reconciliation and
 evidence checks, exact confirmed retirement and an atomic next reservation.
-Existing lifecycle history lacks an exact original-container retirement witness
-and cannot supply that proof by inference. Unknown Docker creates remain fenced.
+Ordinary unscoped lifecycle history cannot supply an exact original-container
+retirement witness by inference; the separate scoped receipt below is required. Unknown Docker creates remain fenced.
 Missing inventory, elapsed time and service restart do not settle dispatch.
 
 An absent session cannot be released while its review is open. **Cancel review**
 requires its displayed snapshot digest and explicit confirmation. It releases
 only that review's holds, preserves the saved review/capture history and leaves
 the session, current profile and all other fences intact. Retained bodies can
-then be separately discarded through their existing reviewed action. No worker,
-automatic expiry, scheduler, profile removal or runtime mutation is introduced.
+then be separately discarded through their existing reviewed action. Saving or
+cancelling a review alone performs no profile removal or runtime mutation and
+adds no worker, automatic expiry or scheduler.
 Populated review history refuses lossy downgrade even after cancellation. A
 matched reader/application/schema is required to enforce holds; migration,
 deployment, existing-resource execution and native/Windows acceptance remain
@@ -135,7 +193,8 @@ separately authorized work.
 The trusted lifecycle service now accepts an optional exact disposable-runtime
 scope for deprovision: original target, immutable revision/image and container.
 This is an internal composition boundary, not a new Web/MCP action or grant.
-The reviewed Fresh/Switch page still performs no retirement or replacement.
+Saving the Fresh/Switch review alone performs no retirement or replacement;
+its separate final execution uses this exact receipt.
 
 New empty migration 0083 adds `managed_runtime_retirements`. An exact prepared
 scope and child lifecycle operation are claimed together under the existing
@@ -162,9 +221,10 @@ it never repairs or reconstructs proof from a historical success or absence.
 
 A confirmed deprovision receipt does not settle an uncertain **create**, release
 the old session, reserve a successor, copy trust/baselines or authorize another
-destructive action. Those are separate steps. The next implementation must bind
-the reviewed intent to this exact operation, keep selected evidence held, and
-advance old closure plus new reservation atomically under shared admission.
+destructive action. Those are separate steps. The explicit Fresh/Switch
+composition below binds the reviewed intent to this exact operation, keeps
+selected evidence held, and advances old closure plus new reservation atomically
+under shared admission.
 Current-source tests use fake lifecycle/broker transports and temporary migrated
 SQLite; they establish no native or existing-resource execution acceptance.
 
@@ -175,8 +235,8 @@ The separate final confirmation names the old stopped container/profile, the
 approved cached next runtime/image and the evidence to retain. It explains that
 the writable profile, installed add-ons, settings and unselected artifacts will
 be lost, while source, workspace, Git history, runtime images and selected saved
-captures remain. Native crash-report discovery remains uncollected. Recheck
-incomplete evidence before confirming replacement.
+captures remain. Native crash-report bodies remain uncollected; bounded referenced-report metadata
+can still be incomplete. Recheck evidence before confirming replacement.
 
 Final execution rechecks the whole review, selected body integrity, current
 stopped identity, shared reservations/leases, stored reconciliation, cached
