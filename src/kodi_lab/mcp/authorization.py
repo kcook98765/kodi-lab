@@ -772,7 +772,7 @@ class McpAuthorizationService:
             raise McpAuthorizationError("workspace_not_ready")
         return workspace
 
-    def authorize_workspace_target(
+    def authorize_workspace_target_scope(
         self,
         principal: McpPrincipal,
         tool_name: str,
@@ -830,6 +830,21 @@ class McpAuthorizationService:
                     if tool_name == "promotion_request"
                     else "deployment_not_allowed"
                 )
+        return workspace
+
+    def authorize_workspace_target(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        workspace_id: UUID,
+        target_id: UUID,
+    ) -> AgentWorkspace:
+        """Apply durable scope, then existing technical and mutation admission."""
+
+        workspace = self.authorize_workspace_target_scope(
+            principal, tool_name, workspace_id, target_id
+        )
+        definition = self._definition(tool_name)
         technical = self._technical(target_id)
         if technical.target_class not in definition.allowed_target_classes:
             raise McpAuthorizationError(
