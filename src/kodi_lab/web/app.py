@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -476,6 +476,7 @@ from kodi_lab.broker.errors import (
     ClientTransportError,
     RemoteBrokerError,
 )
+from kodi_lab.broker.stopped_diagnostics import StoppedRuntimeDiagnostics
 from kodi_lab.config import Settings
 from kodi_lab.development import (
     MAX_COMPRESSED_BYTES,
@@ -7237,6 +7238,43 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.provision(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/stopped-diagnostics",
+        response_model=StoppedRuntimeDiagnostics,
+    )
+    def stopped_managed_diagnostics(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> StoppedRuntimeDiagnostics:
+        from kodi_lab.domain import InstanceType
+
+        with session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if (
+                instance is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+            ):
+                raise HTTPException(
+                    status_code=404, detail="managed_diagnostics_unavailable"
+                )
+        inventory = broker.managed_container_inventory(
+            managed_instance_id=str(instance_id)
+        )
+        if len(inventory.containers) != 1 or inventory.containers[
+            0
+        ].managed_instance_id != str(instance_id):
+            raise HTTPException(
+                status_code=409, detail="managed_diagnostics_identity_changed"
+            )
+        return cast(
+            StoppedRuntimeDiagnostics,
+            broker.read_stopped_managed_diagnostics(
+                managed_instance_id=str(instance_id),
+                expected_runtime_revision_id=str(instance.runtime_revision_id),
+                expected_container_id=inventory.containers[0].container_id,
+            ),
+        )
 
     @app.get("/api/instances/{instance_id}/reviewed-bridge")
     def reviewed_managed_bridge_status(
