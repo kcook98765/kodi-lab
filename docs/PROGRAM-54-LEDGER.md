@@ -26,6 +26,10 @@ This ledger records source qualification, not deployment or native acceptance.
   [Draft #81](https://github.com/kcook98765/kodi-lab/pull/81), `87c36a4`,
   narrows synchronous source enablement and typed marker ownership:27 focused
   +363 interactions passed178.2s, outside c788 with no release inheritance.
+- [Draft #82](https://github.com/kcook98765/kodi-lab/pull/82), `683c2c5`,
+  retains existing queued smoke profile/typed ownership with no migration.
+  Initial31 focused+382 interactions passed167.9s; target-consistency follow-up
+  passed32+200 in99.1s, then final33 focused19.0s. Outside c788; no inheritance.
 - At 11:21:47 UTC, main `e198592`, all 24 original worktree HEAD/status pairs,
   stash, 210 container ID/name/image/state records and preserved log branch
   `3dddbc2` were again verified unchanged. No merge, deployment, grant/resource
@@ -1304,3 +1308,48 @@ proof. Existing typed reservation already prevents legitimate Fresh/Switch while
 queued/running; preserve post-invocation ambiguity and all native/baseline checks.
 Only add persistence if a separately established durable-generation invariant
 requires it. No generalized manager/scheduler. Continue independent code work.
+
+
+### Generic queued source smoke scope published without a new migration
+
+[Draft #82](https://github.com/kcook98765/kodi-lab/pull/82), initial `8973454`,
+final `683c2c5`, follows#81. Existing desired-CID storage now retains new selected
+queues, acquire preserves positive pins and exact unchanged/unclaimed typed
+intent, and actual observed binding can fill legacy NULL or confirm the same pin.
+Acquired selection is captured in process and rechecked before native invocation.
+Original historical target must equal the leased target. Live observation/marker/
+finish check exact kind/op/token/expiry ownership before writes or cleanup; their
+heartbeats keep the original90-second operation expiry. Foreign/malformed/unknown
+work stays fenced. Finish does not invent current selected generation or erase
+post-invocation ambiguity. Existing native/baseline/tree/dependency checks remain.
+No new migration, model vocabulary, durable nonce/generation promise, endpoint,
+MCP tool/grant, generic queue/scheduler or automatic retry/native action. D0462
+and session documentation state desired versus observed versus historical scope.
+
+Initial **INTEGRATION PASS**167.9s:31 focused plus382 subsystem/Web/broker/full-
+history interactions, Ruff/mypy3files. Real migrated-head data-only fixture and
+producer/FK/integrity/version, fixed bound, nullable active/inactive paths,
+commit-interrupted dispatch marker and active timeout reconciliation included.
+Its initial type lane found a missing Optional-result assertion in test code;
+it was made explicit, reconciliation uses its exact exception type, and helper
+seed semantics were clarified. No product guard/assertion was weakened.
+
+A two-line original-target follow-up passed32focused+200 interactions in99.1s.
+The acquire defect branch was then added to its parameter list (rather than left
+unselected), and final33cases passed individually with Ruff/mypy19.0s; product
+source unchanged between that integration and final test addition. Identical
+final test SHA `66c17d2f5cee2f2769abc2884260d8b90bbe2eb7b66660ed7d5fd7d26cb071a5`
+on untouched87c36a4 produced25behavior failures/8compatibility passes, then33passes
+after the fix, no setup/import errors. Earlier31case test bytes/log/SHA are kept
+separately (23fail/8pass baseline). Synthetic boundaries are not live incidents.
+
+#82 remains outside successfulc788 and has no RELEASE PASS. Its shared repository
+and native dispatch/ownership changes plus#81 now form a settled security-boundary
+candidate; compose the independently static-reviewed#80 guide without dropping
+D0461/D0462, take current report snapshot, freeze separate worktree/manifest and
+run one complete gate without competing tests. This is grouped qualification of
+shared authority changes, not a full run per PR. No further code churn is planned
+in the frozen candidate. Existing scoped/runtime/native/Windows operational
+acceptance and approval decisions remain distinct. The Bridge inner-scope review
+must respect existing one-profile/broker identity/START lease/trust generation
+invariants; no redundant new manager/migration has been introduced.

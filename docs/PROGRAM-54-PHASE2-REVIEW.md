@@ -265,3 +265,16 @@ verified unchanged qualified ancestor heads; no merges or native acceptance.
 The proposed source-smoke correction should prefer its existing expected CID and
 current shared admission/owned marker, with no unnecessary new migration or
 logical-generation claim for the existing generic unversioned queue.
+
+
+[#82](https://github.com/kcook98765/kodi-lab/pull/82), draft `683c2c5`, follows
+#81 with existing queued desiredCID preservation, exact unclaimed/live ownership,
+acquired scope/native marker and original-target consistency. No new migration,
+endpoint/tool/grant or durable unversioned-request generation promise. Initial
+31+382 integration167.9s; follow-up32+200 in99.1s; final33focused19.0s, same product
+source after final selected parameter. Identical final baseline25fail/8pass versus
+untouched81, all33pass after fix; actual schema/cancellation/90s/ambiguity included.
+Outsidec788, no RELEASE PASS. Review order79→81→82; independent guide80 over79
+changes separate top/middle document regions. Compose80+81+82/current ledger in
+one frozen candidate and qualify shared native authority/repository changes once.
+No merge, deployment, native acceptance or existing-resource action authorized.
