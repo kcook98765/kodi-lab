@@ -2061,7 +2061,22 @@ def build_foundation_registry(
         }
         try:
             spec = resolver.resolve(params.managed_instance_id)
-            outcome = provisioner.provision_managed_container(spec)
+            outcome = (
+                provisioner.provision_managed_container(spec)
+                if capacity is None
+                or (provisioning_provider is not None and capacity_admission is None)
+                else capacity.run_provision(
+                    instance_id=params.managed_instance_id,
+                    revision_id=spec.runtime_revision_id,
+                    dispatch=lambda: provisioner.provision_managed_container(spec),
+                )
+            )
+        except ManagedCapacityError as error:
+            raise OperationError(
+                error.code,
+                "Managed provisioning requires session or reservation review.",
+                audit_fields=audit_fields,
+            ) from error
         except PersistentProvisioningUnsupportedError as error:
             raise OperationError(
                 "persistent_provisioning_unsupported",
