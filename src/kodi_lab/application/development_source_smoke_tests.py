@@ -318,6 +318,7 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
             if (
                 fresh is None
                 or fresh.state is not DevelopmentSourceSmokeTestOperationState.QUEUED
+                or fresh.original_managed_instance_id != lease.instance_id
                 or tuple(getattr(fresh, name) for name in intent)
                 != tuple(getattr(operation, name) for name in intent)
                 or fresh.phase is not DevelopmentSourceSmokeTestOperationPhase.ACQUIRE
@@ -387,6 +388,7 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
             operation is None
             or operation.state is not DevelopmentSourceSmokeTestOperationState.RUNNING
             or operation.managed_instance_id != lease.instance_id
+            or operation.original_managed_instance_id != lease.instance_id
             or operation.development_source_id != lease.source_id
             or operation.lease_token_digest != lease.token_digest
             or operation.lease_expires_at is None
