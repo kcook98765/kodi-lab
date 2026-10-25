@@ -112,10 +112,14 @@ def require_source_session_admission(
     target_id: str,
     revision_id: str,
     source_id: str,
-    container_id: str,
+    container_id: str | None,
     operation_id: str | None = None,
 ) -> DevelopmentSessionRow | None:
-    """Narrow source copy; guided children also retain their exact generation."""
+    """Narrow source work; a positive CID is mandatory at live dispatch.
+
+    None supplies metadata-only admission before native observation. Guided copy
+    children always supply a positive CID and retain their exact generation.
+    """
     current = active_session(session)
     receipt = (
         None
