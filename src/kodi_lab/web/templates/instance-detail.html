@@ -266,6 +266,7 @@
           <h3>{{ item.summary }}</h3>
           <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
           {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+          {% if item.deployment_recovery_available %}<p>A verified copy from this failed deployment needs explicit tree inspection. <a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ item.operation_uuid }}">Review recovery for this operation</a>.</p>{% endif %}
         </article>
         {% else %}<p>No retained activity.</p>{% endfor %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>

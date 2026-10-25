@@ -17,7 +17,17 @@
           {% if item.snapshot_uuid %}<dt>Snapshot UUID</dt><dd>{{ item.snapshot_uuid }}</dd>{% endif %}
         </dl>
         {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+        {% if item.deployment_recovery_available %}
+        <div data-deployment-reconcile-target="{{ instance.managed_instance_id }}" data-deployment-id="{{ item.operation_uuid }}">
+          <p>This failed deployment retained a verified copy. Stop the target explicitly, then inspect its complete installed tree before another deployment.</p>
+          <button type="button" data-deployment-recheck>Inspect stopped deployment</button>
+          <p data-deployment-reconcile-status role="status">Inspection records containment only. It never copies, starts Kodi, or replays deployment.</p>
+        </div>
+        {% endif %}
       </article>
       {% else %}<p>No retained activity.</p>{% endfor %}
       <p><a href="/instances/{{ instance.managed_instance_id }}">Back to instance detail</a></p>
     {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/managed-launch-reconcile.js') }}" defer></script>
+{% endblock %}
