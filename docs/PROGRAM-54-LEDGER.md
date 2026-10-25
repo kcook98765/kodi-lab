@@ -12,15 +12,18 @@ This ledger records source qualification, not deployment or native acceptance.
   Fresh/Switch; [#73](https://github.com/kcook98765/kodi-lab/pull/73) adds bounded
   referenced crash-report metadata; [#74](https://github.com/kcook98765/kodi-lab/pull/74)
   adds selected-workspace runtime admission and matching preflight. Their
-  combined `557dcdd` / tree `611eb6f` full gate is running under standard temp
-  selection. The interrupted disk-backed attempt is preserved; no release result
-  yet for this pin. Standalone focused/integration evidence is recorded below.
+  combined `557dcdd` / tree `611eb6f` full gate **FAILED**: 5,617 passed,
+  1 historical migration-fixture failure, 38 gated skips, 32m09s attempt. All
+  three owned scratch roots removed; source manifest reverified. The final three
+  stages did not run. A historical-fixture correction is being checked; there is
+  no RELEASE PASS for this pin or later bytes. Standalone evidence is below.
 - Later source, outside that pin: private stored preparation checklist on
   `feat/51-session-preparation-checklist-20261025` (uncommitted/static only).
   A separate `feat/51-profile-deployment-lineage-20261025` worktree now contains
   a SQL selection prototype and nine queued profile-lineage regression cases.
-  Neither has a test result yet. Both wait for the full gate before execution;
-  the same regression file is prepared against an untouched `557dcdd` base.
+  Neither has a test result yet. The full gate has ended; after the fixture
+  correction, run the same regression file against untouched `557dcdd` source
+  and the prototype, and verify the checklist independently.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -880,3 +883,32 @@ file (SHA-256 recorded privately) for the before/after comparison. No regression
 failure or fix PASS has been claimed; neither prototype has been executed while
 the full gate runs. Static parse, Ruff and diff checks passed. No PR is published
 for either later increment, and neither inherits the frozen qualification.
+
+### Combined session qualification failed; evidence and preservation verified
+
+The standard-temp full attempt ended 2026-10-25T09:44:02Z at frozen `557dcdd` /
+tree `611eb6f`: **RELEASE FAIL**, 5,617 passed, 1 failed, 38 gated skips,
+32m09s wrapper attempt. Pytest reports 1,877.49s; its wrapper stage took 1,919s.
+Ruff format/lint, mypy and contract guards passed; pytest exit 1 prevented package
+build, Alembic history and package/config import. All three owned scratch roots
+were removed. All 1,802 tracked entries, all 38 changed-file SHA values, exact
+HEAD/tree and clean status were reverified. Peak RSS 3,189,104 KiB; minimum free
+scratch 6,329,876,480 bytes. Private verified result is
+`session-release-failure-verified.json`; full evidence remains intact.
+
+The single failure was the recovery-coordinator migration test: it invoked the
+current fresh-deployment producer on historical 0078, before 0080 session-policy
+tables exist. The new matched-head guard correctly cannot run against that older
+schema. The proposed test-only correction seeds actual 0078 interrupted-receipt
+columns, then runs the real recovery coordinator and retains all outcome,
+integrity/FK checks; additional assertions keep the database at 0078 and prove no
+session-policy table was created. No missing-table bypass or production guard
+change is proposed. Focused cases passed; import formatting was corrected and
+the complete selected integration lane is running. No correction PASS yet.
+
+Main `e198592`, all 24 original worktree HEAD/status pairs, original stash, all
+210 container identity/state records and fixed log branch `3dddbc2` were again
+verified unchanged after the failed gate. #72–#74 remain draft. The latest
+completed release result remains separately pinned to `cbc8894` (5,515/38,
+32m12s); Phase 1 remains `02c4054` (5,234/38, 29m59s). Group the next full gate
+only after the fixture correction and later checklist/lineage source settle.
