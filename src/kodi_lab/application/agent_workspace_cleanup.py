@@ -31,6 +31,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.models import (
     AgentWorkspaceCaptureOperationRow,
+    DevelopmentSessionRow,
     McpWorkspaceLaunchRow,
     WorkspaceImportOperationRow,
 )
@@ -124,6 +125,18 @@ class AgentWorkspaceCleanupService:
             )
         if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
             return
+        if (
+            session.scalar(
+                select(DevelopmentSessionRow.generation)
+                .where(DevelopmentSessionRow.workspace_id == str(workspace_id))
+                .limit(1)
+            )
+            is not None
+        ):
+            raise AgentWorkspaceCleanupError(
+                "workspace_session_history_retained",
+                "Development session workspace evidence must be retained.",
+            )
         if (
             session.scalar(
                 select(WorkspaceImportOperationRow.id)

@@ -6,14 +6,19 @@ before calling this primitive. No caller-provided host paths are accepted.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
+import stat
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
-from kodi_lab.development.deployment import capture_development_tree
+from kodi_lab.development.deployment import (
+    DevelopmentTreeEntry,
+    capture_development_tree,
+)
 from kodi_lab.workspace.source_capture import _exchange
 from kodi_lab.workspace.storage import (
     AgentWorkspaceReconciliationRequired,
@@ -33,9 +38,10 @@ def switch_import_tree(
     data_root: Path,
     workspace_id: UUID,
     operation_id: UUID,
-    files: Mapping[str, bytes],
+    files: Mapping[str, bytes | None],
     *,
     expected_digest: str,
+    exact_source_digest: str | None = None,
     prepared: Callable[[str], None] = lambda _digest: None,
 ) -> Iterator[str]:
     """Publish all accepted files together; prove rollback on ordinary failure."""
@@ -56,6 +62,7 @@ def switch_import_tree(
         # A retained staging tree is reconciliation evidence and is never reused.
         _copy_normalized_tree(workspace_path / "tree", stage)
         stage_fd = os.open(stage_name, _DIR, dir_fd=fd)
+        expected_entries = before.by_path()
         try:
             for path, payload in files.items():
                 parts = normalize_workspace_relative_path(path, allow_root=False)
@@ -66,6 +73,23 @@ def switch_import_tree(
                         os.close(parent)
                         parent = next_fd
                     prior = before.by_path().get(path)
+                    if payload is None:
+                        metadata = os.stat(
+                            parts[-1], dir_fd=parent, follow_symlinks=False
+                        )
+                        if (
+                            prior is None
+                            or not stat.S_ISREG(metadata.st_mode)
+                            or metadata.st_nlink != 1
+                        ):
+                            raise AgentWorkspaceStorageError(
+                                "workspace_import_bytes_changed",
+                                "Removal preimage changed.",
+                            )
+                        os.unlink(parts[-1], dir_fd=parent)
+                        expected_entries.pop(path)
+                        os.fsync(parent)
+                        continue
                     mode = 0o644 if prior is None else prior.mode
                     temporary = f".import-write-{secrets.token_hex(16)}"
                     _write_private_file(parent, temporary, payload, mode)
@@ -73,6 +97,13 @@ def switch_import_tree(
                         temporary, parts[-1], src_dir_fd=parent, dst_dir_fd=parent
                     )
                     os.fsync(parent)
+                    expected_entries[path] = DevelopmentTreeEntry(
+                        path,
+                        "file",
+                        mode,
+                        len(payload),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
                 finally:
                     os.close(parent)
         finally:
@@ -81,6 +112,13 @@ def switch_import_tree(
             root, f"{workspace_id}/{stage_name}", reject_vcs=True
         )
         after_digest = after.digest
+        if after.by_path() != expected_entries or (
+            exact_source_digest is not None and after_digest != exact_source_digest
+        ):
+            raise AgentWorkspaceStorageError(
+                "workspace_import_bytes_changed",
+                "Staged result does not match the reviewed tree.",
+            )
         if (
             capture_development_tree(root, f"{workspace_id}/tree").digest
             != expected_digest

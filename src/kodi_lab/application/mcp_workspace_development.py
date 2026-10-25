@@ -365,6 +365,16 @@ def _matches_existing_adoption(
     )
 
 
+MANAGED_BASELINE_REASONS = frozenset(
+    {
+        "source_baseline_missing",
+        "source_baseline_stale",
+        "source_baseline_unknown",
+        "source_baseline_runtime_mismatch",
+    }
+)
+
+
 class McpWorkspaceDevelopmentError(RuntimeError):
     def __init__(
         self,
@@ -2633,7 +2643,19 @@ class McpWorkspaceDevelopmentService:
                 is not DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
                 or baseline.runtime_revision_id != instance.runtime_revision_id
             ):
-                raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+                reason = (
+                    "source_baseline_missing"
+                    if baseline is None
+                    else "source_baseline_runtime_mismatch"
+                    if baseline.runtime_revision_id != instance.runtime_revision_id
+                    else "source_baseline_unknown"
+                    if baseline.confidence
+                    is DevelopmentSourceDeploymentConfidence.UNKNOWN
+                    else "source_baseline_stale"
+                )
+                raise McpWorkspaceDevelopmentError(
+                    "deployment_not_allowed", reason=reason
+                )
             return (
                 workspace,
                 validation,
@@ -2895,7 +2917,10 @@ class McpWorkspaceDevelopmentService:
             )
             self._finish_deployment(
                 operation.id,
-                "failed" if contained else "reconciliation_required",
+                # Stopping contains the process, not the copied-tree provenance.
+                # Keep the fence until explicit stopped-tree inspection records
+                # a requested/prior-tree receipt for the next deployment.
+                "reconciliation_required",
                 "deployment_verification_failed"
                 if contained
                 else "deployment_ambiguous",
