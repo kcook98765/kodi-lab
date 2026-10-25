@@ -33,6 +33,7 @@ from kodi_lab.storage.models import (
     McpWorkspaceExecutionOperationRow,
     TargetRow,
 )
+from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 
 MAX_SMOKE_WINDOW_BYTES = 64 * 1024
 MAX_EXCEPTION_BLOCK_BYTES = 16 * 1024
@@ -118,6 +119,7 @@ class SqliteSmokeLogAuthorityResolver:
                         McpWorkspaceDeploymentOperationRow.generation
                         == execution.generation,
                         McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                        selected_profile_lineage_sql(),
                     )
                 )
             )

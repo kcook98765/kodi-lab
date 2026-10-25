@@ -174,6 +174,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeReconciliationBlockedError,
     RuntimeExecutionProfileRepository,
 )
+from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 from kodi_lab.workspace import (
     AgentWorkspaceStorageError,
     capture_workspace_deployment_tree,
@@ -2491,25 +2492,6 @@ class McpWorkspaceDevelopmentService:
                 target = session.get(TargetRow, str(target_id))
                 if workspace is None or workspace.generation != generation:
                     raise McpWorkspaceDevelopmentError("workspace_generation_conflict")
-                deployments = list(
-                    session.scalars(
-                        select(McpWorkspaceDeploymentOperationRow)
-                        .where(
-                            McpWorkspaceDeploymentOperationRow.workspace_id
-                            == str(workspace_id),
-                            McpWorkspaceDeploymentOperationRow.target_id
-                            == str(target_id),
-                            McpWorkspaceDeploymentOperationRow.generation == generation,
-                            McpWorkspaceDeploymentOperationRow.state == "succeeded",
-                        )
-                        .limit(2)
-                    )
-                )
-                if not deployments:
-                    raise McpWorkspaceDevelopmentError("execution_not_deployed")
-                if len(deployments) != 1:
-                    raise McpWorkspaceDevelopmentError("execution_ambiguous")
-                deployment = deployments[0]
                 if target is None:
                     raise McpWorkspaceDevelopmentError("execution_not_deployed")
                 if target.target_type is TargetType.MANAGED:
@@ -2523,6 +2505,26 @@ class McpWorkspaceDevelopmentService:
                         workspace_id=str(workspace_id),
                         source_id=str(workspace.development_source_id),
                     )
+                deployments = list(
+                    session.scalars(
+                        select(McpWorkspaceDeploymentOperationRow)
+                        .where(
+                            McpWorkspaceDeploymentOperationRow.workspace_id
+                            == str(workspace_id),
+                            McpWorkspaceDeploymentOperationRow.target_id
+                            == str(target_id),
+                            McpWorkspaceDeploymentOperationRow.generation == generation,
+                            McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                            selected_profile_lineage_sql(),
+                        )
+                        .limit(2)
+                    )
+                )
+                if not deployments:
+                    raise McpWorkspaceDevelopmentError("execution_not_deployed")
+                if len(deployments) != 1:
+                    raise McpWorkspaceDevelopmentError("execution_ambiguous")
+                deployment = deployments[0]
                 if (
                     execution_kind
                     is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
@@ -2678,6 +2680,7 @@ class McpWorkspaceDevelopmentService:
                     ),
                     McpWorkspaceDeploymentOperationRow.runtime_revision_id
                     == str(instance.runtime_revision_id),
+                    selected_profile_lineage_sql(),
                 )
                 .order_by(McpWorkspaceDeploymentOperationRow.completed_at.desc())
             )
@@ -3854,6 +3857,21 @@ class McpWorkspaceDevelopmentService:
         deployment: McpWorkspaceDeploymentOperationRow,
     ) -> None:
         with self._sessions() as session:
+            if deployment.target_class == "internal_lab":
+                selected_instance = ManagedInstanceRepository(session).get(
+                    UUID(operation.target_id)
+                )
+                self._session_admission(
+                    session,
+                    target_id=operation.target_id,
+                    revision_id=(
+                        None
+                        if selected_instance is None
+                        else str(selected_instance.runtime_revision_id)
+                    ),
+                    workspace_id=operation.workspace_id,
+                    source_id=operation.development_source_id,
+                )
             successes = list(
                 session.scalars(
                     select(McpWorkspaceDeploymentOperationRow.id)
@@ -3865,6 +3883,7 @@ class McpWorkspaceDevelopmentService:
                         McpWorkspaceDeploymentOperationRow.generation
                         == operation.generation,
                         McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                        selected_profile_lineage_sql(),
                     )
                     .limit(2)
                 )
@@ -3879,16 +3898,6 @@ class McpWorkspaceDevelopmentService:
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 UUID(operation.target_id), UUID(operation.development_source_id)
             )
-            if target is not None and target.target_type is TargetType.MANAGED:
-                self._session_admission(
-                    session,
-                    target_id=operation.target_id,
-                    revision_id=(
-                        None if instance is None else str(instance.runtime_revision_id)
-                    ),
-                    workspace_id=operation.workspace_id,
-                    source_id=operation.development_source_id,
-                )
             external_baseline = session.get(
                 ExternalDevelopmentSourceBaselineRow,
                 {

@@ -6918,3 +6918,23 @@ Read-only deployment preflight exposes the same stored session restriction and a
 administrator session-review link, while keeping all live facts unknown. This
 adds a closed output reason/action vocabulary without changing tool permissions,
 tool count, mutation behavior or creating a reservation during assessment.
+
+
+## D0457 - Scope fresh deployment lineage to the selected disposable profile
+
+Under an active single-session policy, fresh managed workspace execution,
+GUI launch and prior-copy selection require the exact bound original container,
+runtime, target, workspace and source. A shared correlated SQL predicate narrows
+historical candidates; an old same-version/source-generation success or nullable
+historical container binding cannot stand in for the successor profile's receipt.
+Current-profile ambiguity remains an error, and live tree/native/identity checks
+remain mandatory after selection.
+
+Inactive legacy policy and external development retain their existing selection
+semantics. Original request replay, historical inspection, recovery/containment
+and reference-safe retention keep their exact original scope; old receipts are
+not deleted or reattributed. No latest unrelated receipt is guessed, no policy is
+cleared, and no new grant/tool/table or agent lifecycle authority is introduced.
+The existing source baseline can supply the new profile's initial copy lineage;
+its positive current binding remains required. Source-only qualification cannot
+establish native or operational acceptance.
