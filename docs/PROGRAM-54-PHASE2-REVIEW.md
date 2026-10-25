@@ -179,3 +179,15 @@ trusted preconditions/unclaimed-drift refusal. 12 focused + 251 interactions,
 foreign/unknown fences remain. No endpoint, grant/tool, nonce promise or scheduler.
 Review order #74→#75→#76→#77. All remain outside any successful release result;
 durable guided-copy attribution/UI is next before another settled broad gate.
+
+
+[#78](https://github.com/kcook98765/kodi-lab/pull/78), draft `6b87f12`, follows
+#77 with exact durable request attribution independent of bounded Source detail.
+Migration0085 is additive/empty; receipt, existing operation and typed leases
+commit atomically. No endpoint/executor submission or new grant/tool. 153 focused
++135 interactions passed in144.0s, including full migration history, direct
+transition/refused lossy downgrade, concurrency and commit cancellation. No
+release qualification; latest full remains failed557dcdd, latest successfulCBC.
+Next guided Web copy needs shared selected-session Source queue/worker/broker
+checks, explicit same-queued-child continuation and stored-only private status.
+Review order extends #74→#75→#76→#77→#78. No merges or operational authority.

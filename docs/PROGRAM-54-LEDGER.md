@@ -5,7 +5,7 @@ This ledger records source qualification, not deployment or native acceptance.
 
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
-- Latest completed combined qualification: `cbc8894`, **RELEASE PASS**,
+- Latest successful combined qualification: `cbc8894`, **RELEASE PASS**,
   5,515 passed / 38 gated skips / 32m12s. Phase 1 remains separately pinned
   at `02c4054`, 5,234 / 38 / 29m59s; later focused additions never inherit it.
 - Draft [#72](https://github.com/kcook98765/kodi-lab/pull/72) adds atomic
@@ -15,7 +15,7 @@ This ledger records source qualification, not deployment or native acceptance.
   combined `557dcdd` / tree `611eb6f` full gate **FAILED**: 5,617 passed,
   1 historical migration-fixture failure, 38 gated skips, 32m09s attempt. All
   three owned scratch roots removed; source manifest reverified. The final three
-  stages did not run. A historical-fixture correction is being checked; there is
+  stages did not run. The test-only historical-fixture correction passed integration; there is
   no RELEASE PASS for this pin or later bytes. Standalone evidence is below.
 - Later source, outside that pin: [draft #76](https://github.com/kcook98765/kodi-lab/pull/76)
   (`2ebe7e1`) provides the private stored preparation checklist, stacked on #75.
@@ -28,6 +28,9 @@ This ledger records source qualification, not deployment or native acceptance.
 - [Draft #77](https://github.com/kcook98765/kodi-lab/pull/77), `9ebbb28`,
   pins stopped source-copy queue identity and trusted claim preconditions.
   12 focused + 251 interaction cases passed in 110.2s; no release qualification.
+- [Draft #78](https://github.com/kcook98765/kodi-lab/pull/78), `6b87f12`,
+  adds durable exact source-copy admission, surviving ordinary detail pruning.
+  153 focused + 135 interactions passed in 144.0s; no release qualification.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -1041,3 +1044,42 @@ No new full gate yet: qualify the next settled composition after durable copy
 admission/UI and directly affected integrations. `557dcdd` remains a failed pin;
 `cbc8894` remains the last successful release. No merges, deployment, grant changes,
 resource disposal or operational migrations occurred.
+
+### Durable selected-source admission published
+
+[Draft #78](https://github.com/kcook98765/kodi-lab/pull/78), head
+`6b87f12`, follows #77. Migration 0085 adds one empty durable request table,
+referencing retained session generation and snapshotting exact target/runtime/
+workspace/source/container. Server-namespaced child IDs remain historical values
+independent of ordinary Source detail pruning. The existing queue's trusted
+supplied-ID/on-claim extensions atomically commit receipt, operation and both
+reservations. Replay only reads the original scope; closed session or pruned
+detail never recreates an operation. Capacity refuses without automatic history
+pruning at 1,024 total / 32 per generation. No endpoint or executor submission.
+
+**INTEGRATION PASS**, 144.0s: 153 focused cases (18 admission, 2 direct migration,
+112 full history, 3 OSTree schema, 18 foundation), then 135 interacting Source/
+worker/broker/session/replacement/admission/lineage/Web cases; Ruff and strict
+mypy across nine files. Covers one-winner concurrency, baseline producer,
+before/after-commit interruption, exact replay after detail pruning or closure,
+stored-only observation, scope drift, partial restores, populated0084→0085
+transition and lossy-downgrade refusal. Exact head/table expectations include
+0085; their initial unextended expected-table assertion was corrected, with
+all existing schema/history checks retained. No runtime/native acceptance.
+
+Preservation was reverified at 10:34:48 UTC: all 24 original worktree HEAD/status
+pairs, stash, main e198592, 210 container ID/name/image/state tuples and preserved
+log branch3dddbc2 unchanged. No merge, deployment, grant/resource change or
+production migration. Private `preservation-after-source-copy-foundation.json`
+and `session-source-copy-foundation-integration.log` retain the evidence.
+
+Next isolated worktree: guided Source copy Web flow plus shared selected-source
+admission at queue, worker and broker boundaries. The older attached-Source path
+lacks the selected-session restriction already applied to workspace deployment;
+add it before presenting the guided action. Stored receipt pages must not submit
+work. Explicit continuation can only submit the same still-queued original child,
+rechecking current exact selected scope; no running/failed/unknown reset. Require
+existing attachment, no auto enable/start/trust/grants, and clearly distinguish
+registered baseline from private workspace edits. Private review:
+`guided-source-copy-web-review.md`. Then freeze a settled combined candidate for
+one new full gate. Failed557dcdd and successfulcbc8894 remain distinct pins.
