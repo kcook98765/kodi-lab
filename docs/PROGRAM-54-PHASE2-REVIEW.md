@@ -58,3 +58,50 @@ and native/platform acceptance remain separate decisions. Settings (#52) needs
 a separately approved permission design; unattended ZIP installation (#53) has
 no demonstrated supported route. Keep #47/#48 deferred and #8/#17 native
 evidence gaps open. Group future approval decisions in the durable ledger.
+
+## Published Phase 2 dependency review
+
+The application heads below compose with all six Phase 1 heads in the frozen
+candidate `f6449a432a74837fdfaf67d4cd23181716775590` (tree
+`3192fbccb66e6a23f0ae790efadd70561137a510`). The complete gate is in progress;
+this composition fact alone is not release qualification.
+
+| PR | Reviewed head | Base and integration considerations |
+| --- | --- | --- |
+| [#61](https://github.com/kcook98765/kodi-lab/pull/61) | ongoing ledger | Documentation continuation of #56; later evidence updates do not modify the frozen source. |
+| [#62](https://github.com/kcook98765/kodi-lab/pull/62) | `43a332f` | Main-based #45 staging and receipt recovery. Legacy receipt reads retained; new reviewed-tree receipts require this reader during recovery. Includes reproduced post-commit cancellation/readback correction. |
+| [#63](https://github.com/kcook98765/kodi-lab/pull/63) | `c4dc028` | Stacked on #57. Read-only durable preflight, existing authorization, exact 27-tool MCP catalog. Live native/Bridge/add-on facts remain unknown. |
+| [#64](https://github.com/kcook98765/kodi-lab/pull/64) | `f6fe7dc` | Stacked on #55. Explicit reviewed prepared continuation, displayed trust generation and lifecycle lease. No automatic installation or prompt acceptance. |
+| [#65](https://github.com/kcook98765/kodi-lab/pull/65) | `31a01af` | Main-based. Empty migration 0080 and shared broker provision/start admission. Unknown create remains fenced; current absence cannot clear it. |
+| [#66](https://github.com/kcook98765/kodi-lab/pull/66) | `2688e04` | Stacked on #65. Reserve/Prepare/Resume/Stop, exact current generation/target/runtime/container checks. No Fresh/Switch/deletion or new MCP authority. |
+| [#67](https://github.com/kcook98765/kodi-lab/pull/67) | `8833c30` | Main-based. Exact stopped-container metadata read, fixed 39-operation broker catalog. No retained log bodies/operation association or crash-cause claim. |
+
+After the Phase 1 order above, #62, #65, #63, #64 and #67 can be reviewed in
+parallel conceptually; #66 follows #65. #61 follows #56 and continues to collect
+review evidence. This is a review dependency order, not merge authority.
+
+Shared `web/app.py` routes/imports, #65/#67 broker registry changes and exact
+catalog assertions composed without source conflict. Only appended
+`docs/DECISIONS.md` records conflicted: D0443 through D0448 were preserved from
+the exact feature heads, with hashes retained in the private composition proof.
+0080 has one parent/head; no Phase 2 migration branch fork exists. #65's exact
+metadata and historical 0076 downgrade assertions explicitly account for the
+new empty migration without weakening retained-uncertainty refusal. All shared
+security/regression guards remain selected by the full gate.
+
+## Remaining single-session prerequisites
+
+| Increment | Required proof or concrete decision |
+| --- | --- |
+| Uncertain provision settlement | Independently establish that the original Docker create dispatch has finished and cannot finish late. Neither absent inventory, wall-clock age nor service restart proves this. Retain the reservation and uncertainty until that proof exists. |
+| Retain evidence before profile replacement | Fixed bounded approved reads; exact target/runtime/container and operation binding; explicit missing/rotated/truncated states; private size/count/age policy and body redaction/access. Metadata-only #67 does not satisfy retained-log acceptance. Reuse the separately preserved log-rotation branch. |
+| Fresh Test / Switch | Explicit reviewed disposal plan and selected retained evidence, no busy/reconciliation or uncertain dispatch, exact old-container cleanup proof before any replacement, new trust/baseline/deployment binding. No existing-resource operation is authorized by this code-only phase. |
+| Complete guided preparation | Source/workspace grants and attachment, stopped baseline copy, native readiness, explicit enablement and reviewed Bridge recovery stay separate until safely composed. No agent creation/deletion or installation authority is inferred. |
+| #52 settings | Bind an active session to an exact durable successful deployment receipt first. Review ordinary add-on settings allowlist and explicit permission model; never select a latest unrelated operation or infer settings authority from deployment/launch. |
+| #53 native ZIP installation | No demonstrated unattended native API in current evidence. Keep assisted installation honest until a supported exact-version provider path is established and separately accepted. |
+| Native and platform acceptance | Separate authorized Omega then sequential Nexus/Omega tests, prompt handling and deployment preservation, plus fresh Windows/WSL2 account/host evidence. Source tests cannot provide these results. |
+
+These are grouped next decisions and implementation prerequisites. They do not
+prevent independent code-only diagnostics, status projection or documentation.
+No general manager, task scheduler, automatic cleanup, grant broadening or
+profile migration is proposed.
