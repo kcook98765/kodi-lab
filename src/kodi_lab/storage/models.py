@@ -8305,3 +8305,68 @@ class ManagedDiagnosticCaptureRow(Base):
     payload_json: Mapped[str | None] = mapped_column(Text)
     payload_sha256: Mapped[str | None] = mapped_column(String(64))
     failure_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class DevelopmentSessionReplacementReviewRow(Base):
+    """An evidence hold and reviewed intent, never lifecycle dispatch authority."""
+
+    __tablename__ = "development_session_replacement_reviews"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="session_replacement_request"),
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND session_generation>0",
+            name="session_replacement_identity",
+        ),
+        CheckConstraint(
+            "state IN ('open','cancelled')", name="session_replacement_state"
+        ),
+        CheckConstraint(
+            "length(CAST(snapshot_json AS BLOB)) BETWEEN 2 AND 16384 AND "
+            "length(snapshot_sha256)=64 AND snapshot_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_replacement_snapshot",
+        ),
+        CheckConstraint(
+            "(state='open' AND cancelled_at IS NULL) OR "
+            "(state='cancelled' AND cancelled_at IS NOT NULL)",
+            name="session_replacement_cancellation",
+        ),
+        Index(
+            "uq_session_replacement_open",
+            "state",
+            unique=True,
+            sqlite_where=text("state='open'"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("development_sessions.generation", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    cancelled_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class DevelopmentSessionEvidenceHoldRow(Base):
+    __tablename__ = "development_session_evidence_holds"
+    __table_args__ = (
+        CheckConstraint(
+            "length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_evidence_hold_hash",
+        ),
+    )
+    review_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_session_replacement_reviews.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    capture_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_diagnostic_captures.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

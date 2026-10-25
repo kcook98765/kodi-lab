@@ -28,6 +28,8 @@ from kodi_lab.broker.stopped_logs import StoppedLogSnapshot
 from kodi_lab.domain import InstanceType, TargetType
 from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
+    DevelopmentSessionEvidenceHoldRow,
+    DevelopmentSessionReplacementReviewRow,
     ManagedDiagnosticCaptureRow,
     ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
@@ -506,6 +508,21 @@ class RetainedDiagnosticsService:
             row = session.get(ManagedDiagnosticCaptureRow, str(capture_id))
             if row is None:
                 raise RetainedDiagnosticsError("diagnostic_capture_not_found")
+            if (
+                session.scalar(
+                    select(DevelopmentSessionEvidenceHoldRow)
+                    .join(DevelopmentSessionReplacementReviewRow)
+                    .where(
+                        DevelopmentSessionEvidenceHoldRow.capture_id == row.id,
+                        DevelopmentSessionReplacementReviewRow.state == "open",
+                    )
+                    .limit(1)
+                )
+                is not None
+            ):
+                raise RetainedDiagnosticsError(
+                    "diagnostic_capture_held_for_session_review"
+                )
             if (
                 row.payload_sha256 != operation.expected_payload_sha256
                 or row.state not in {operation.expected_state, "discarded"}

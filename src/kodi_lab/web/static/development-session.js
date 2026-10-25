@@ -21,6 +21,7 @@
     development_session_identity_changed: 'The selected session or Kodi identity changed. Refresh and review Kodi history.',
     development_session_generation_conflict: 'The session changed. Refresh before another action.',
     development_session_runtime_ineligible: 'The selected runtime no longer has current approval and cached evidence. Review Add Kodi.',
+    development_session_replacement_review_open: 'A Fresh Test or Switch review holds selected evidence. Cancel that review before releasing the empty reservation.',
   };
   let view;
   let busy = false;

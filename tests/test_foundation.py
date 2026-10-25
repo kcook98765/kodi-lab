@@ -204,6 +204,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "development_sessions",
         "development_session_policy",
         "managed_diagnostic_captures",
+        "development_session_replacement_reviews",
+        "development_session_evidence_holds",
         "managed_agent_lifecycle_requests",
         "external_screenshot_preferences",
         "managed_bridge_trust",

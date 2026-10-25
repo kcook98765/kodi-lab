@@ -28,6 +28,7 @@ from kodi_lab.storage.development_sessions import (
 from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
     DevelopmentSessionPolicyRow,
+    DevelopmentSessionReplacementReviewRow,
     DevelopmentSessionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceMutationLeaseRow,
@@ -228,6 +229,17 @@ class DevelopmentSessionService:
                 )
             if current.phase not in {"reserved", "bound"}:
                 raise DevelopmentSessionConflict("development_session_requires_review")
+            if (
+                session.scalar(
+                    select(DevelopmentSessionReplacementReviewRow).where(
+                        DevelopmentSessionReplacementReviewRow.state == "open"
+                    )
+                )
+                is not None
+            ):
+                raise DevelopmentSessionConflict(
+                    "development_session_replacement_review_open"
+                )
             self._idle(session)
             if self._inventory().containers:
                 raise DevelopmentSessionConflict(
