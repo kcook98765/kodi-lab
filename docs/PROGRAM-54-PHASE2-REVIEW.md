@@ -1,5 +1,13 @@
 # Program #54 Phase 2 integration review
 
+## Current merge review
+
+The 2026-10-25 operator kickoff authorizes review and merge of all PRs #55–#82.
+See [the integration report](PROGRAM-54-MERGE-REPORT.md) for the exact inventory,
+dependency order, security review, history adjustments and final validation.
+Earlier pending/unauthorized statements below describe their historical phase.
+Deployment, production migrations and native/platform acceptance remain separate.
+
 See the [current source status checklist](PROGRAM-54-PHASE2-STATUS.md) for resolved prerequisites and pending decisions. The entries below retain their milestone context.
 
 Current combined source qualification: **RELEASE PASS**, `ba215e6` / `d6b7669`,

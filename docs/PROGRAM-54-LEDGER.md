@@ -1,5 +1,13 @@
 # Kodi Lab development program #54
 
+## Current authorized integration
+
+The 2026-10-25 operator kickoff authorizes review and merge of all PRs #55–#82.
+See [the integration report](PROGRAM-54-MERGE-REPORT.md) for the exact inventory,
+dependency order, security review, history adjustments and final validation.
+Earlier pending/unauthorized statements below describe their historical phase.
+Deployment, production migrations and native/platform acceptance remain separate.
+
 Coordination: <https://github.com/kcook98765/kodi-lab/issues/54>.
 This ledger records source qualification, not deployment or native acceptance.
 

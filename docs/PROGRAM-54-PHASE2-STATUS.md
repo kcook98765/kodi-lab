@@ -1,5 +1,13 @@
 # Program 54 Phase 2 source status and remaining decisions
 
+## Current authorized source integration
+
+The 2026-10-25 operator kickoff authorizes review and merge of all PRs #55–#82.
+See [the integration report](PROGRAM-54-MERGE-REPORT.md) for the exact inventory,
+dependency order, security review, history adjustments and final validation.
+Earlier pending/unauthorized statements below describe their historical phase.
+Deployment, production migrations and native/platform acceptance remain separate.
+
 This is the current source-scope checklist, not installed-Lab or native
 acceptance. Historical milestone entries in the audit, integration review and
 ledger retain their original dates and qualification boundaries.
