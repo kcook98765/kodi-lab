@@ -89,6 +89,13 @@ retain their own focused/integration evidence; do not imply separate full runs.
 Later atomic replacement work is outside this pin. No PR has been merged and
 no migration, deployment or existing-resource action has been performed.
 
+[#72](https://github.com/kcook98765/kodi-lab/pull/72), draft `9067899`, follows
+#71 and adds 0084, explicit final Fresh/Switch consent, exact execution/retirement
+binding and atomic successor admission before stopped preparation. 174 focused
+plus 163 interaction cases passed in 162.8s. No new broker/MCP catalog or grants;
+no inherited trust/baseline and no absence-based uncertainty release. It is later
+than the `cbc8894` release tree and requires its own settled broad qualification.
+
 After the Phase 1 order above, #62, #65, #63, #64 and #67 can be reviewed in
 parallel conceptually; #66 follows #65. #61 follows #56 and continues to collect
 review evidence. This is a review dependency order, not merge authority.

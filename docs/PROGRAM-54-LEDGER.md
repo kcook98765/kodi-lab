@@ -675,3 +675,41 @@ confirmed-retired continuation/release and no unknown-create escape. Source and
 temporary-DB/Web tests were written while the frozen full gate ran, without
 competing test execution. Focused checking is now beginning; do not attribute
 RELEASE PASS or a successful focused result to these later uncommitted bytes.
+
+### Continued increment: explicit atomic Fresh Test / Switch workflow
+
+[Draft #72](https://github.com/kcook98765/kodi-lab/pull/72), head `9067899`,
+stacked on #71: explicit final data-loss consent, exact review/retirement binding,
+atomic old closure/successor reservation/policy/consumption, then existing
+lifecycle/shared-admission clean stopped preparation. Status/replay does not
+redispatch. Unknown retirement/create keeps existing fences. Explicit continuation
+only advances confirmed retirement; explicit release only closes its proven
+retired empty slot while retaining saved captures/history. Source/workspace/Git/
+runtime images persist; source grants, Bridge trust and baselines are not copied.
+The session selectors reflect the actual switched version/workspace.
+
+**INTEGRATION PASS** at `9067899`, 162.8s: nine modules individually (25 core,
+3 new real predecessor migration, 2 historical 0082, 3 0083, 4 new Web, 4 existing
+Web/Node, 18 foundation, 3 current-schema OSTree and 112 full migration cases =
+174), Ruff/mypy, then 163 review/receipt/admission/retention/lifecycle/agent/
+Bridge/Web/security/catalog interactions. Covers sequential distinct version pins
+with at most one profile, concurrent nonces, held evidence, exact final consent,
+atomic rollback, post-commit cancellation, revoked runtime/capacity and unknown
+create/removal. Runtime acquisition/eligibility is doubled where noted; this is
+not native sequential-version or Windows acceptance.
+
+Real 0083→0084 and populated-review round-trip preserve captures/holds and verify
+parent-deletion refusal, generation constraints and execution-losing downgrade
+refusal. Historical 0082/0083 fixtures use their actual columns; current behavior
+uses the matched head. An initial inline-FK reflection mismatch failed the
+unchanged exact Alembic comparison. The new successor reference now uses SQLite's
+default immediate NO ACTION; delete refusal, foreign keys and schema checks stay
+enabled. Other test-only fixture reply/type/lint failures were corrected. No
+production migration, resource mutation, merge or deployment occurred.
+
+#72 remains draft and is **outside** the `cbc8894` RELEASE PASS (5,515/38,
+32m12s). Next independent increment: bounded metadata for strictly approved
+native crash-report names explicitly referenced by collected logs. Official
+Nexus/Omega launcher sources confirm that such references exist; this does not
+prove a current report, crash cause or supported stack. Avoid general directory
+exports, arbitrary paths, report-body exposure or agent permission changes.
