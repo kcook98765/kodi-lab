@@ -1,11 +1,12 @@
 """Explicit source-baseline admission for the selected stopped disposable session.
 
-This service queues existing typed work. It neither submits an executor nor
-retries, repairs, attaches sources, enables add-ons or changes agent authority.
+This service admits existing typed work and explicitly submits its original child.
+It never resets work, attaches sources, enables add-ons or changes agent authority.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Literal
 from uuid import UUID, uuid5
 
@@ -18,15 +19,24 @@ from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentOperationCoordinator,
     DevelopmentSourceDeploymentStatus,
 )
-from kodi_lab.domain import DevelopmentSourceDeploymentOperation
+from kodi_lab.domain import (
+    DevelopmentSourceDeploymentOperation,
+    DevelopmentSourceDeploymentOperationState,
+    GlobalHeavyOperationKind,
+    ManagedInstanceMutationKind,
+)
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     active_session,
+    require_source_session_admission,
     require_workspace_session_admission,
 )
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSessionRow,
+    DevelopmentSourceDeploymentOperationRow,
+    GlobalHeavyOperationLeaseRow,
+    ManagedInstanceMutationLeaseRow,
     SessionSourceCopyAdmissionRow,
 )
 from kodi_lab.storage.repositories import DevelopmentSourceDeploymentOperationRepository
@@ -59,6 +69,14 @@ class SessionSourceCopyReceipt(BaseModel):
     operation: DevelopmentSourceDeploymentStatus | None
 
 
+class SessionSourceCopyAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    receipt: SessionSourceCopyReceipt
+    submission: Literal[
+        "requested", "not_requested", "not_acknowledged", "review_required"
+    ]
+
+
 class _Replay(Exception):
     """Exit the queue's writer transaction without creating any new work."""
 
@@ -77,6 +95,21 @@ class SessionSourceCopyService:
             session.connection().exec_driver_sql("BEGIN")
             row = session.get(SessionSourceCopyAdmissionRow, str(request_id))
             return None if row is None else self._receipt(session, row)
+
+    def list_for_session(self, generation: int) -> tuple[SessionSourceCopyReceipt, ...]:
+        """Bounded saved receipts let the administrator recover a lost reply."""
+        with self._sessions() as session:
+            session.connection().exec_driver_sql("BEGIN")
+            rows = session.scalars(
+                select(SessionSourceCopyAdmissionRow)
+                .where(SessionSourceCopyAdmissionRow.session_generation == generation)
+                .order_by(
+                    SessionSourceCopyAdmissionRow.requested_at.desc(),
+                    SessionSourceCopyAdmissionRow.request_id.desc(),
+                )
+                .limit(MAX_ADMISSIONS_PER_SESSION)
+            )
+            return tuple(self._receipt(session, row) for row in rows)
 
     def admit(
         self, *, request_id: UUID, expected_generation: int
@@ -235,3 +268,75 @@ class SessionSourceCopyService:
             if operation is None
             else self._coordinator.to_status(operation),
         )
+
+    def request_copy(
+        self,
+        *,
+        request_id: UUID,
+        expected_generation: int,
+        submit: Callable[[UUID], None],
+    ) -> SessionSourceCopyAccepted:
+        """Explicitly submit only the same admitted, still-unclaimed queued child.
+
+        Atomic worker and broker admission remain authoritative after this read.
+        An unacknowledged submit never resets or retires durable work.
+        """
+        receipt = self.admit(
+            request_id=request_id, expected_generation=expected_generation
+        )
+        submission: Literal[
+            "requested", "not_requested", "not_acknowledged", "review_required"
+        ] = "not_requested"
+        with self._sessions() as session:
+            session.connection().exec_driver_sql("BEGIN")
+            row = session.get(SessionSourceCopyAdmissionRow, str(request_id))
+            if row is None:
+                raise DevelopmentSessionConflict("session_source_copy_receipt_missing")
+            receipt = self._receipt(session, row)
+            operation = session.get(
+                DevelopmentSourceDeploymentOperationRow, str(receipt.operation_id)
+            )
+            if (
+                operation is not None
+                and operation.state is DevelopmentSourceDeploymentOperationState.QUEUED
+            ):
+                self._selected(session, expected_generation)
+                require_source_session_admission(
+                    session,
+                    target_id=str(receipt.target_id),
+                    revision_id=str(receipt.runtime_revision_id),
+                    source_id=str(receipt.source_id),
+                    container_id=receipt.container_id,
+                    operation_id=str(receipt.operation_id),
+                )
+                mutation = session.get(
+                    ManagedInstanceMutationLeaseRow, str(receipt.target_id)
+                )
+                heavy = session.scalar(select(GlobalHeavyOperationLeaseRow))
+                if (
+                    operation.managed_instance_id != str(receipt.target_id)
+                    or operation.lease_token_digest is not None
+                    or operation.lease_expires_at is not None
+                    or operation.reconciliation_required
+                    or mutation is None
+                    or heavy is None
+                    or mutation.operation_kind
+                    is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_DEPLOYMENT
+                    or heavy.operation_kind
+                    is not GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT
+                    or mutation.operation_id != str(receipt.operation_id)
+                    or heavy.operation_id != str(receipt.operation_id)
+                    or mutation.lease_token_digest is not None
+                    or mutation.lease_expires_at is not None
+                    or heavy.lease_token_digest is not None
+                    or heavy.lease_expires_at is not None
+                ):
+                    submission = "review_required"
+                else:
+                    submission = "requested"
+        if submission == "requested":
+            try:
+                submit(receipt.operation_id)
+            except Exception:
+                submission = "not_acknowledged"
+        return SessionSourceCopyAccepted(receipt=receipt, submission=submission)

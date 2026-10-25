@@ -321,14 +321,18 @@ nullable queue rows keep claim-time binding; they do not gain retrospective queu
 identity proof. The existing source executor remains the only worker. A guided
 copy action still needs durable request attribution and current session admission.
 
-### Durable source-copy admission foundation
+### Durable source-copy requests
 
 The selected stopped session can admit its already attached registered source
 through a trusted application service. A durable request receipt binds the exact
 session generation, target, runtime, workspace, source and container to the
 existing Source copy operation and both operation reservations in one transaction.
 This copies the registered source baseline; private workspace edits still need
-validation and workspace deployment. This foundation adds no public action yet.
+validation and workspace deployment. On the preparation checklist, use
+**Copy registered source baseline into stopped Kodi** after the selected source
+has been explicitly attached through existing Kodi setup. The action derives
+all scope from the selected session, rechecks its exact generation and current
+stopped profile, and uses existing Source validation and typed reservations.
 
 Retrying an identical request reads the original receipt. It does not queue a
 replacement operation, even after bounded operation detail has been pruned or
@@ -337,3 +341,23 @@ success or permission to repeat the copy. Request history is bounded without
 automatic pruning (1,024 total, 32 per session generation); capacity needs review.
 Source attachment, stopped exact identity and existing admission checks remain
 mandatory. Unknown or running work is never reset by this service.
+
+
+The checklist links saved copy requests for that session so a lost reply can be
+recovered without making a new request. Receipt HTML/JSON reads stored progress
+only; they never check Kodi or submit work. A still-queued original request can
+be explicitly continued through the existing executor. It must retain exact
+unclaimed reservations and still match the selected generation/profile. Running,
+failed, uncertain, foreign or missing detail never resets or starts a new child.
+An unacknowledged submission leaves the saved queue intact for review. Existing
+executor startup handles its existing queued work; no scheduler or retry loop is
+added by this flow.
+
+Source copy now uses the shared selected-session admission at queue, worker and
+broker boundaries. Guided children additionally retain their original generation,
+even if a partial restore presents the same profile under a successor generation.
+Inactive legacy work keeps its normal path after the current schema migration.
+Current application/broker state requires migration0085; there is no missing-table
+fallback. Unknown or changed selection preserves the operation fence. Positive
+unclaimed container drift can still use the existing exact scoped refusal path.
+This changes no agent grants or Bridge trust and does not enable or start Kodi.

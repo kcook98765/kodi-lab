@@ -36,6 +36,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
+    require_source_session_admission,
     require_workspace_session_admission,
 )
 from kodi_lab.storage.engine import create_database_engine
@@ -319,6 +320,20 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     raise DevelopmentSourceDeploymentStateError(
                         "Development-source deployment requires a disposable instance."
                     )
+                try:
+                    require_source_session_admission(
+                        session,
+                        target_id=managed_instance_id,
+                        revision_id=str(instance.runtime_revision_id),
+                        source_id=development_source_id,
+                        container_id=expected_container_id,
+                        operation_id=deployment_operation_id,
+                    )
+                except DevelopmentSessionConflict as error:
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Selected development session does not admit this source copy.",
+                        code=error.code,
+                    ) from error
                 if (
                     operation is None
                     or operation.state

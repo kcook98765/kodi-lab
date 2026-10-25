@@ -108,7 +108,9 @@ def test_private_checklist_is_read_only_unknown_and_escapes_selected_metadata(
         and not payload["reservation_created"]
     )
     assert payload["capabilities"]["current_container_binding"] == "not_observed"
-    assert commands.count("BEGIN") == 2
+    # API and HTML preparation each keep their own coherent snapshot.
+    # HTML also reads bounded original-session copy receipts separately.
+    assert commands.count("BEGIN") == 3
     assert (
         result.headers["cache-control"] == page.headers["cache-control"] == "no-store"
     )

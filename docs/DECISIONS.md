@@ -7008,3 +7008,36 @@ private workspace edits nor enables/starts Kodi, attaches a source, changes
 agent grants, accepts native/Bridge readiness or introduces a general scheduler.
 Explicit guided Web continuation can later submit only the same queued child
 through the existing executor and its independent exact unclaimed-worker checks.
+
+
+## D0460 - Explicit guided baseline copy uses shared selected-session admission
+
+The Web administrator can copy the already attached registered source into the
+selected stopped disposable profile using only request UUID and exact session
+generation. Target/runtime/workspace/source/container are derived server-side.
+Plain HTML and JSON require existing authentication, Origin and CSRF controls,
+with closed inputs and uncached private responses. Copying the registered source
+baseline is distinct from validating/deploying private workspace edits; no source
+attachment, grants, native enablement/start or Bridge acceptance is implied.
+
+Saved receipt links recover lost replies. GET reads stored progress and never
+submits work. Explicit continuation submits only the same admitted queued child
+with exact unclaimed typed reservations; it does not reset or reconstruct absent,
+terminal, running, uncertain or foreign work. Submission errors mean acknowledgement
+is unavailable, not that native copy failed. Existing worker acquire independently
+permits one initial legal dispatch; no new task framework or automatic retry loop.
+
+The shared selected-session Source check now covers queue writer admission,
+worker writer claim and independent broker resolution. It applies selected exact
+source/target/runtime/container and pending lifecycle exclusions to legacy Source
+copy while active policy exists. A guided child also checks its retained receipt
+against the selected generation, including same-scope partial successor restores.
+Worker/broker checks require the current0085 schema; they never fall back around
+missing evidence tables. Inactive legacy behavior remains on the upgraded schema.
+A selected-scope refusal preserves queued/running fences; existing positive
+unclaimed profile-drift refusal can still atomically fail only its owned work.
+
+The checklist's core session/preflight/capability facts retain one read snapshot.
+Its separate bounded receipt read is explicitly scoped to that displayed original
+generation, so it cannot display another generation's request as the selection.
+Normal Web authentication last-use and retention maintenance remain unchanged.
