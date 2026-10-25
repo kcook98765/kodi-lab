@@ -226,6 +226,8 @@ class DevelopmentSessionService:
                 raise DevelopmentSessionConflict(
                     "development_session_generation_conflict"
                 )
+            if current.phase not in {"reserved", "bound"}:
+                raise DevelopmentSessionConflict("development_session_requires_review")
             self._idle(session)
             if self._inventory().containers:
                 raise DevelopmentSessionConflict(
@@ -237,39 +239,3 @@ class DevelopmentSessionService:
             policy.active_generation = None
             session.commit()
             return _status(current)
-
-    def reconcile_absent_provision(self, target_id: UUID, operation_id: UUID) -> None:
-        """Web review can clear an uncertain dispatch only after proven absence."""
-        with self._sessions() as session:
-            session.execute(text("BEGIN IMMEDIATE"))
-            row = session.get(ManagedProvisionReservationRow, str(target_id))
-            if (
-                row is None
-                or row.phase != "uncertain"
-                or row.operation_id != str(operation_id)
-            ):
-                raise DevelopmentSessionConflict("development_session_requires_review")
-            if (
-                self._inventory().containers
-                or session.scalar(select(ManagedInstanceMutationLeaseRow).limit(1))
-                is not None
-                or session.scalar(select(ManagedStartReservationRow).limit(1))
-                is not None
-                or session.scalar(select(GlobalHeavyOperationLeaseRow).limit(1))
-                is not None
-            ):
-                raise DevelopmentSessionConflict("development_session_busy")
-            current = (
-                None
-                if row.session_generation is None
-                else session.get(DevelopmentSessionRow, row.session_generation)
-            )
-            if current is not None:
-                if current.phase != "uncertain":
-                    raise DevelopmentSessionConflict(
-                        "development_session_requires_review"
-                    )
-                current.phase, current.container_id = "reserved", None
-                current.updated_at = timestamp(datetime.now(UTC))
-            session.delete(row)
-            session.commit()

@@ -6680,7 +6680,8 @@ capacity, per-instance leases, runtime eligibility and identity proofs.
 
 Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
 post-create inventory binds the session; explicit absent/idle close retains its
-history. Matching uncertain provision absence can be reviewed without deletion.
+history. Uncertain provision remains fenced even on current absence; timeout/absence does
+not prove daemon dispatch settlement. No absence-only clearing API is exposed.
 Workspace cleanup refuses referenced history. No automatic idle deletion, grant
 inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
 Migration 0080 is additive/empty by default and refuses populated evidence loss.
