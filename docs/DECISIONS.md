@@ -7071,7 +7071,8 @@ queues. Queue admission runs in the writer claim and stores the selected desired
 CID; this is expected scope, not live observation. Create persists that field,
 acquire preserves positive pins and exact unclaimed typed ownership, and observed
 binding can fill an older nullable record or confirm the same positive value.
-It cannot overwrite a positive pin. Foreign, malformed, claimed, dispatched or
+It cannot overwrite a positive pin. Original historical target must also match
+the leased target at acquire and live boundaries. Foreign, malformed, claimed, dispatched or
 reconciliation-marked queued work remains fenced.
 
 The existing worker captures its current selected generation/CID when acquiring

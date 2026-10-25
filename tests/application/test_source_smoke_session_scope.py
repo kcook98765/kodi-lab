@@ -256,7 +256,16 @@ def test_repository_acquire_cannot_clear_or_rebind_a_positive_queue_pin(
 
 
 @pytest.mark.parametrize(
-    "defect", ["foreign", "kind", "token", "acquired", "dispatched", "reconciliation"]
+    "defect",
+    [
+        "foreign",
+        "kind",
+        "token",
+        "acquired",
+        "dispatched",
+        "reconciliation",
+        "original",
+    ],
 )
 def test_acquire_never_claims_foreign_or_malformed_queued_authority(
     factory: sessionmaker[Session],
@@ -283,6 +292,8 @@ def test_acquire_never_claims_foreign_or_malformed_queued_authority(
             row.acquired_at = fixtures.NOW.isoformat()
         elif defect == "dispatched":
             op.invocation_dispatched = True
+        elif defect == "original":
+            op.original_managed_instance_id = str(uuid4())
         else:
             op.reconciliation_required = True
     with pytest.raises(DevelopmentSourceSmokeTestConflictError):
@@ -350,7 +361,7 @@ def test_late_selection_change_never_invokes_or_reattributes_native_work(
         assert session.scalar(select(ManagedInstanceMutationLeaseRow)) is None
 
 
-@pytest.mark.parametrize("defect", ["foreign", "kind", "token", "expired"])
+@pytest.mark.parametrize("defect", ["foreign", "kind", "token", "expired", "original"])
 def test_live_marker_and_cleanup_cannot_borrow_or_clear_other_authority(
     factory: sessionmaker[Session],
     tmp_path: Path,
@@ -372,6 +383,13 @@ def test_live_marker_and_cleanup_cannot_borrow_or_clear_other_authority(
                 row.operation_kind = ManagedInstanceMutationKind.LIFECYCLE
             elif defect == "token":
                 row.lease_token_digest = "f" * 64
+            elif defect == "original":
+                operation = session.get(
+                    DevelopmentSourceSmokeTestOperationRow,
+                    str(service._lease.operation_id),
+                )
+                assert operation is not None
+                operation.original_managed_instance_id = str(uuid4())
             else:
                 row.lease_expires_at = (fixtures.NOW - timedelta(seconds=1)).strftime(
                     "%Y-%m-%dT%H:%M:%S.%fZ"
