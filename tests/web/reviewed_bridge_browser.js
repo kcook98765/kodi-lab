@@ -81,6 +81,19 @@ function boot(initial = "prepared") {
   assert.equal(post.options.headers["X-Kodi-Lab-CSRF"], "csrf-fixture");
   assert.equal(success.install.disabled, true);
 
+  const hiddenPost = boot("uninstalled");await flush();
+  hiddenPost.scenario.pending = true;
+  const installing = hiddenPost.install.click();await flush();
+  hiddenPost.document.hidden = true;hiddenPost.listeners.visibilitychange();
+  hiddenPost.scenario.pending = false;hiddenPost.scenario.state = "prepared";
+  hiddenPost.scenario.resolve();await installing;
+  assert.equal(hiddenPost.install.disabled, true);
+  assert.equal(hiddenPost.requests.length, 2);
+  assert.match(hiddenPost.status.textContent, /request completed.*Refresh status/);
+  hiddenPost.document.hidden = false;await hiddenPost.refresh.click();
+  assert.equal(hiddenPost.install.disabled, true);
+  assert.equal(hiddenPost.requests.filter(r => r.options.method).length, 1);
+
   for (const detail of [null, "managed_bridge_target_unavailable", "private/untrusted response"]) {
     const lost = boot("uninstalled");await flush();
     lost.scenario.postFailure = detail === null;lost.scenario.detail = detail;
