@@ -135,6 +135,10 @@ from kodi_lab.repository.workspace_package import (
     bridge_manifest_for_zip,
     build_workspace_package,
 )
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_workspace_session_admission,
+)
 from kodi_lab.storage.models import (
     AgentWorkspaceCaptureOperationRow,
     AgentWorkspacePromotionPlanRow,
@@ -2253,6 +2257,28 @@ class McpWorkspaceDevelopmentService:
             )
         return len(deployments) + len(executions)
 
+    @staticmethod
+    def _session_admission(
+        session: Session,
+        *,
+        target_id: str,
+        revision_id: str | None,
+        workspace_id: str,
+        source_id: str,
+        container_id: str | None = None,
+    ) -> None:
+        try:
+            require_workspace_session_admission(
+                session,
+                target_id=target_id,
+                revision_id=revision_id,
+                workspace_id=workspace_id,
+                source_id=source_id,
+                container_id=container_id,
+            )
+        except DevelopmentSessionConflict as error:
+            raise McpWorkspaceDevelopmentError(error.code) from error
+
     def _claim_deployment(
         self,
         client_id: UUID,
@@ -2486,6 +2512,17 @@ class McpWorkspaceDevelopmentService:
                 deployment = deployments[0]
                 if target is None:
                     raise McpWorkspaceDevelopmentError("execution_not_deployed")
+                if target.target_type is TargetType.MANAGED:
+                    instance = session.get(ManagedInstanceRow, str(target_id))
+                    self._session_admission(
+                        session,
+                        target_id=str(target_id),
+                        revision_id=(
+                            None if instance is None else instance.runtime_revision_id
+                        ),
+                        workspace_id=str(workspace_id),
+                        source_id=str(workspace.development_source_id),
+                    )
                 if (
                     execution_kind
                     is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
@@ -2612,6 +2649,13 @@ class McpWorkspaceDevelopmentService:
                 or attachment is None
             ):
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+            self._session_admission(
+                session,
+                target_id=str(target_id),
+                revision_id=str(instance.runtime_revision_id),
+                workspace_id=str(workspace_id),
+                source_id=str(source.id),
+            )
             baseline = DevelopmentSourceDeploymentRepository(session).get(
                 target_id, source.id
             )
@@ -2782,6 +2826,14 @@ class McpWorkspaceDevelopmentService:
             original_instance = session.get(ManagedInstanceRow, operation.target_id)
             if original_instance is None:
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=operation.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
             original_revision = original_instance.runtime_state_revision
         self._update_deployment(
             operation_id,
@@ -3403,6 +3455,15 @@ class McpWorkspaceDevelopmentService:
         observation, profile, container_id = self._runtime_context(
             UUID(operation.target_id)
         )
+        with self._sessions() as session:
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=deployment.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
         if profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS:
             self._finish_execution(
                 operation.id, "failed", "execution_unsupported", digest=digest
@@ -3818,6 +3879,16 @@ class McpWorkspaceDevelopmentService:
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 UUID(operation.target_id), UUID(operation.development_source_id)
             )
+            if target is not None and target.target_type is TargetType.MANAGED:
+                self._session_admission(
+                    session,
+                    target_id=operation.target_id,
+                    revision_id=(
+                        None if instance is None else str(instance.runtime_revision_id)
+                    ),
+                    workspace_id=operation.workspace_id,
+                    source_id=operation.development_source_id,
+                )
             external_baseline = session.get(
                 ExternalDevelopmentSourceBaselineRow,
                 {
@@ -4100,6 +4171,14 @@ class McpWorkspaceDevelopmentService:
                 or lease.lease_token_digest != digest
             ):
                 raise McpWorkspaceDevelopmentError("execution_ambiguous")
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=deployment.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
             operation.phase = "invoke"
             operation.invocation_dispatched = True
             if (
