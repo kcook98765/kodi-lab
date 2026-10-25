@@ -511,3 +511,41 @@ current Prepare/Resume/Stop flow preserves stopped/failed profiles; uncertainty
 cannot be closed from absence or elapsed time. New settings permissions (#52),
 native ZIP feasibility (#53), merges/deployment, existing resource disposal and
 native/Windows acceptance retain their grouped decisions in the review.
+
+### Continued increment: durable stopped-log retention (#50/#51)
+
+[Draft PR #69](https://github.com/kcook98765/kodi-lab/pull/69), branch
+`feat/50-retained-stopped-diagnostics-20261025`, parent `9bffcb0`, based on the
+existing published composition `24c1aeb`: fixed stopped internal-log tails and
+Web-selected durable captures. New empty migration 0081 follows 0080. Exact
+request replay, source/runtime/container/image checks, standard private profile,
+source/archive/tail byte bounds, full-input redaction before truncation, private
+Web-only bodies, preserved reconciliation fences and state/digest-bound discard.
+Capture history has no live-resource FK and survives target removal. No automatic
+expiry/prune/overwrite, grant, native run or existing-resource mutation.
+
+**INTEGRATION PASS** at `9bffcb0`, 120.4s: seven modules individually (29 broker,
+25 retention, 2 real transition, 3 Web, 18 foundation, 3 exact current-schema
+OSTree and 112 full migration cases = 192), Ruff/mypy, then 166 affected
+catalog/diagnostic/protocol/audit/session/Web/migration interactions. The real
+0080-to-0081 transition preserves an uncertain provision reservation, accepts
+a real capture and refuses evidence-losing downgrade. Cancellation after commit
+keeps the published receipt; abandoned read completion cannot publish.
+Installed-SDK raw HTTP and real broker socket fixtures remain distinct from
+actual Docker/Kodi or Windows acceptance. Private logs retain the corrected
+fixture/type/lint/path-selection failures.
+
+The preserved `3dddbc2` log branch remains unchanged/unpublished. The new read
+does not duplicate its truncation, recipe or Docker rotation configuration.
+Primary/qualified source branches remain unchanged; no production migration ran.
+This later head is outside `f6449a4`'s RELEASE PASS and needs a settled broad
+release candidate after its remaining additions.
+
+Next addition in progress: a bounded non-following Docker stdout/stderr window,
+strict multiplex decoding and explicit availability, within the existing fixed
+read. Preserve schema-1 captures when introducing the expanded snapshot shape.
+Native crash-report discovery remains uncollected: do not turn absence of a
+bounded directory listing into proof of no crash report, or use generic home-
+directory export/paths. Fresh/Switch and agent historical-body access still need
+their exact evidence, permission and disposal decisions; no capture authorizes
+profile disposal or settles an uncertain create.
