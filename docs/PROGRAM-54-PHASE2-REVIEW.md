@@ -81,6 +81,14 @@ changes need their own evidence; do not transfer this result to another tree.
 | [#70](https://github.com/kcook98765/kodi-lab/pull/70) | `782b33f` (draft) | Stacked on #69. Empty 0082 review/hold tables follow 0081; explicit discard now checks open holds. Durable exact Fresh/Switch review, one open slot, Web-only auth/origin/CSRF and bounded history. No retirement/replacement dispatch. 169 focused plus 61 interaction cases, 107.4s integration; outside the release pin. |
 | [#71](https://github.com/kcook98765/kodi-lab/pull/71) | `cbc8894` (draft) | Stacked on #70. Empty 0083 scoped retirement receipts; optional trusted deprovision scope, owned terminal hook, referenced-operation pruning protection. No public action/authority or successor admission. 156 focused plus 134 interaction cases, 148.9s integration. Frozen combined full gate in progress; no release result yet. |
 
+Qualification update: #69–#71 are ready for review after the **combined** frozen
+`cbc8894`/tree `c262488` achieved RELEASE PASS: 5,515 passed / 38 gated, 32m12s,
+all eight stages/cleanup and source-manifest reverification. The historical draft/
+in-progress entries above preserve their milestone context. Standalone heads
+retain their own focused/integration evidence; do not imply separate full runs.
+Later atomic replacement work is outside this pin. No PR has been merged and
+no migration, deployment or existing-resource action has been performed.
+
 After the Phase 1 order above, #62, #65, #63, #64 and #67 can be reviewed in
 parallel conceptually; #66 follows #65. #61 follows #56 and continues to collect
 review evidence. This is a review dependency order, not merge authority.

@@ -650,3 +650,28 @@ old session plus reserve successor plus consume review in one SQLite commit.
 Final execution needs explicit exact data-loss confirmation and fresh checks;
 actual existing-resource operations remain unauthorized. Preserve unknown-create
 fences, source/workspace/history, immutable pins and independent trust/baselines.
+
+### Combined retirement qualification completed
+
+**RELEASE PASS** only at `cbc889429138df19ed11ebf09706541313545c2d`, tree
+`c262488b8d780420540168c5fda69789a3c2557b`: **5,515 passed, 38 gated skips**, all
+eight stages/process exit 0, **32m12s** full gate. Pytest reports 1,839.63s;
+its wrapper stage took 1,879s including shutdown. All three owned scratch roots
+were removed. Peak RSS 2,859,764 KiB; minimum free scratch 6,570,737,664 bytes.
+After completion, all 1,794 tracked entries, all 45 changed-file SHA-256 values,
+clean HEAD and exact tree were independently reverified against the manifest.
+
+This pin composes #68–#71 over `f6449a4`. #69, #70 and #71 are now ready for
+review; their standalone focused/integration evidence remains separate from this
+combined qualification. Ready for review is not approval, merge, deployment or
+existing-resource authority. The earlier `f6449a4` (5,354/38, 29m54s) and Phase 1
+`02c4054` (5,234/38, 29m59s) remain unchanged, separately qualified pins.
+No native Docker/Kodi/Windows acceptance is inferred.
+
+Later work is isolated on `feat/51-atomic-session-handoff-20261025`, outside this
+release result: explicit final replacement consent; exact review/retirement
+binding; atomic close/reserve/policy/consumption; clean stopped preparation;
+confirmed-retired continuation/release and no unknown-create escape. Source and
+temporary-DB/Web tests were written while the frozen full gate ran, without
+competing test execution. Focused checking is now beginning; do not attribute
+RELEASE PASS or a successful focused result to these later uncommitted bytes.
