@@ -34,6 +34,10 @@ from kodi_lab.domain import (
     PromotionVerificationState,
     RepositoryReplacementOperationState,
 )
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_workspace_session_admission,
+)
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
@@ -760,6 +764,21 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         )
                     )
                 )
+                if instance is not None and workspace is not None:
+                    try:
+                        require_workspace_session_admission(
+                            session,
+                            target_id=managed_instance_id,
+                            revision_id=str(instance.runtime_revision_id),
+                            workspace_id=workspace_id,
+                            source_id=str(workspace.development_source_id),
+                            container_id=expected_container_id,
+                        )
+                    except DevelopmentSessionConflict as error:
+                        raise DevelopmentSourceDeploymentStateError(
+                            "Workspace differs from the active development session.",
+                            code="workspace_deployment_state_invalid",
+                        ) from error
             if (
                 instance is None
                 or workspace is None

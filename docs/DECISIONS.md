@@ -6894,3 +6894,27 @@ reader requirements. Save selected metadata under existing private Web-only
 capture retention/digest/hold/discard policy. No new MCP tool/grant, gdb/debug
 installation, symbolication, rotation duplication, recipe or live resource
 mutation. Source/fixture success does not establish native/platform acceptance.
+
+
+## D0455 - Narrow workspace runtime work to the selected disposable session
+
+When a durable single-session policy is active, managed workspace deployment,
+bounded smoke/negative execution and GUI dispatch require its exact bound target,
+runtime, workspace and source. Observed-container checks precede runtime mutation;
+unknown/pending provision/start refuses admission. The guard participates in the
+existing writer claim and typed mutation leases, and the broker workspace-copy
+resolver independently rechecks the selection. Selection provides no grant,
+attachment, baseline, trust, validation or Kodi readiness of its own.
+
+No policy backfill, schema/catalog change, grant copying or agent session CRUD is
+introduced. Existing historical receipt replay, offline editing and external
+paths remain separate; unsupported partial policy restoration is rechecked before
+dispatch. Existing cleanup/reconciliation and security fences are not cleared.
+Code-only fixture validation does not authorize live migration, deployment or
+resource disposal. Ordinary administrator source preparation/recovery is not
+reclassified as workspace runtime dispatch by this decision.
+
+Read-only deployment preflight exposes the same stored session restriction and an
+administrator session-review link, while keeping all live facts unknown. This
+adds a closed output reason/action vocabulary without changing tool permissions,
+tool count, mutation behavior or creating a reservation during assessment.

@@ -42,3 +42,12 @@ retain every existing recheck and lease. A preflight disagreement such as a stal
 validation digest is diagnostic here; this increment does not silently change the
 existing deployment predicate. Reconciliation must be resolved through supported
 recovery, independently of any fresh-profile development workflow.
+
+
+When a disposable development session is selected, managed direct preflight also
+checks its stored bound target/runtime/workspace/source and pending provision or
+start reservations. A mismatch returns `session: blocked` plus an administrator
+`review_session` link. `stored_session_scope_matches` is a database scope check;
+it does not observe the current container, native Kodi, Bridge or enabled add-on.
+Mutation-time admission and exact observed-container checks remain mandatory.
+External-development and inactive-session behavior retain their separate scope.
