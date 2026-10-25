@@ -97,6 +97,43 @@ def test_reviewed_import_round_trip_over_mcp(client: TestClient) -> None:
         context.agent_workspaces.read_file(creation.workspace_id, "helper.py").content
         == "helper\n"
     )
+    # Explicit deletion/conflict resolution is reviewed over the same public schema.
+    context.agent_workspaces.replace_text_file(
+        creation.workspace_id,
+        expected_generation=1,
+        relative_path="helper.py",
+        content="private\n",
+    )
+    (source / "helper.py").unlink()
+    reviewed = {
+        "workspace_id": str(creation.workspace_id),
+        "expected_generation": 2,
+        "mode": "reviewed_tree",
+    }
+    conflicted = call("workspace_import_preview", reviewed)["structuredContent"]
+    assert (
+        not conflicted["eligible"]
+        and conflicted["files"][0]["rejection"] == "private_edit_overlap"
+    )
+    resolved = {
+        **reviewed,
+        "resolutions": [{"path": "helper.py", "choice": "take_source"}],
+    }
+    exact = call("workspace_import_preview", resolved)["structuredContent"]
+    assert exact["eligible"] and exact["matches_source"]
+    deleted = call(
+        "workspace_import",
+        {
+            **resolved,
+            "source_digest": exact["source_digest"],
+            "preview_digest": exact["preview_digest"],
+            "request_id": str(uuid4()),
+        },
+    )
+    assert not deleted.get("isError") and deleted["structuredContent"]["matches_source"]
+    assert deleted["structuredContent"]["files"][0]["operation"] == "deleted"
+    assert deleted["structuredContent"]["generation"] == 3
+
     # No caller path or supplied bytes are part of this authority contract.
     invalid = call(
         "workspace_import_preview",
