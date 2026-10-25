@@ -51,10 +51,17 @@ snapshot data live below those roots so pytest cannot erase the ownership marker
 The command rejects symlinks, live matching PID/start-time identities, foreign
 owners, permissive roots, malformed markers, and unrelated names.
 
-Each gate stage reports elapsed time. The full pytest stage has a 900-second
+Each gate stage reports elapsed time. The full pytest stage has a 2,400-second
 watchdog by default; `KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS` may raise that bound
 for a known slower environment. A timeout is a harness failure to diagnose, not
 permission to skip tests or reduce snapshot storage safety.
+
+The #54 baseline on main `e198592` hit the previous 900-second limit at about
+71%. The complete combined source candidate `02c4054` passed all 5,272 collected
+cases (5,234 passed, 38 gated skips) with the explicit 2,400-second override;
+its pytest stage took 1,747 seconds and the complete gate 29m59s. The new default
+matches that successfully exercised bound. Test selection, assertions, stages,
+storage reserves, explicit overrides and invalid-value refusal are unchanged.
 
 ## Migration fixture architecture
 
