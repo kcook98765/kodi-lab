@@ -17,9 +17,10 @@ This ledger records source qualification, not deployment or native acceptance.
   yet for this pin. Standalone focused/integration evidence is recorded below.
 - Later source, outside that pin: private stored preparation checklist on
   `feat/51-session-preparation-checklist-20261025` (uncommitted/static only).
-  A separate `feat/51-profile-deployment-lineage-20261025` worktree contains six
-  queued regression cases for old-profile receipt selection, with no production
-  fix or test result yet. Both wait for the full gate before test execution.
+  A separate `feat/51-profile-deployment-lineage-20261025` worktree now contains
+  a SQL selection prototype and nine queued profile-lineage regression cases.
+  Neither has a test result yet. Both wait for the full gate before execution;
+  the same regression file is prepared against an untouched `557dcdd` base.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -858,3 +859,24 @@ stored outcome; no native acceptance is inferred. Static Ruff passed; tests have
 Private review is `session-profile-lineage-review.md` under the Phase 2 evidence
 root. Future resolution must retain old receipts/replay and legacy/external
 semantics, with no new grant/tool/table or guessed latest unrelated operation.
+
+### Prototype receipt scoping prepared; before/after checks remain queued
+
+The lineage worktree now has an uncommitted correlated SQL selection predicate
+for active managed sessions. Fresh execute/recheck, GUI launch, preflight/prior
+copy and broker running-smoke authority counts use the exact selected original
+container/runtime/workspace/source/target. Existing historical
+`prior_workspace_copy`, replay/recovery/promotion and retention paths are left
+separate. Legacy inactive and external behavior are intended to remain unchanged;
+this is an unvalidated prototype, not a compatibility result. D0457 records the
+choice, independently of the checklist branch's D0456.
+
+Nine queued cases include nullable historical bindings, a current receipt with
+retained same-generation history and the real SQL smoke authority resolver,
+historical exact request replay, GUI scope, baseline reason/early refusal,
+inactive legacy nullable behavior and current-source-baseline broker fallback.
+An untouched detached `557dcdd` worktree contains the identical new regression
+file (SHA-256 recorded privately) for the before/after comparison. No regression
+failure or fix PASS has been claimed; neither prototype has been executed while
+the full gate runs. Static parse, Ruff and diff checks passed. No PR is published
+for either later increment, and neither inherits the frozen qualification.
