@@ -182,9 +182,27 @@ def test_mismatched_session_never_dispatches_or_leaves_a_mutation_lease(
     env, bridge, run = action_environment(tmp_path, action)
     bind(env, mismatch=mismatch)
     before = runtime_counts(env, bridge)
+    expected = {
+        "workspace": "development_session_other_workspace",
+        "source": "development_session_other_workspace",
+        "target": "development_session_other_target",
+        "phase": "development_session_requires_review",
+        "reserved": "development_session_requires_review",
+        "revision": "development_session_identity_changed",
+        "container": "development_session_identity_changed",
+        "start": "development_session_runtime_pending",
+        "provision": "development_session_runtime_pending",
+    }[mismatch]
+    if mismatch == "container" and action in {"execute", "launch"}:
+        # No positively scoped receipt exists for that profile. Refuse before
+        # observing a container or allocating an execution/launch receipt.
+        expected = {
+            "execute": "execution_not_deployed",
+            "launch": "launch_not_deployed",
+        }[action]
     with pytest.raises(
         (McpWorkspaceDevelopmentError, WorkspaceLaunchError),
-        match="development_session_",
+        match=f"^{expected}$",
     ):
         run(uuid4())
     assert runtime_counts(env, bridge) == before
@@ -199,6 +217,8 @@ def test_mismatched_session_never_dispatches_or_leaves_a_mutation_lease(
         # A live-container mismatch is observed after a durable claim, whose
         # failed receipt must remain inspectable and must release its lease.
         assert all(row.state in {"succeeded", "failed"} for row in rows)
+        if mismatch == "container" and action in {"execute", "launch"}:
+            assert not rows
         if mismatch != "container":
             assert not rows or (
                 action != "deploy" and all(row.state == "succeeded" for row in rows)

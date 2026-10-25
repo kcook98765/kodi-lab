@@ -41,6 +41,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
 )
+from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 
 _VERIFIED = DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
 
@@ -363,6 +364,7 @@ class WorkspaceDeploymentPreflightService:
                             == str(source.id),
                             McpWorkspaceDeploymentOperationRow.runtime_revision_id
                             == str(instance.runtime_revision_id),
+                            selected_profile_lineage_sql(),
                             (McpWorkspaceDeploymentOperationRow.state == "succeeded")
                             | (
                                 (McpWorkspaceDeploymentOperationRow.state == "failed")
