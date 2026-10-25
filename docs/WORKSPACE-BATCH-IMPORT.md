@@ -99,3 +99,10 @@ populated-receipt downgrade refusal remains in force.
 Staging remains separate from validation, deployment, promotion and native
 acceptance. Existing promotion/deployment capability limits still apply; an
 import receipt does not widen those operations or modify a Kodi profile.
+
+Publication readback also covers cancellation just after a database commit. A
+proved committed receipt keeps the published tree. A proved unpublished ordinary
+failure may roll back; unknown publication retains both trees and fences the
+workspace, including when its generation already advanced. Replay then proves
+the complete retained trees and acknowledges that same generation once, without
+advancing it a second time or capturing newer source bytes.
