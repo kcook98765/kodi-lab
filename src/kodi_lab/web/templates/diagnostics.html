@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Saved test diagnostics</h1>
 <p>Selected stopped-container logs stay outside Kodi, so they remain available after a restart, reset or profile removal. Saving evidence never starts Kodi, repairs reconciliation or authorizes profile disposal.</p>
-<p>Captures contain bounded, redacted excerpts of the current and previous Kodi logs, internal Kodi stdout and Xvfb log. Unavailable, oversized and unsafe files are reported explicitly. Native crash reports and Docker's separate output stream are not collected by this capture.</p>
+<p>Captures contain bounded, redacted excerpts of the current and previous Kodi logs, internal Kodi stdout, Xvfb log and a bounded Docker stdout/stderr window. Unavailable, oversized and unsafe files are reported explicitly. Native crash-report discovery is not collected by this capture. Docker output is a bounded window, not the complete output history.</p>
 <p>Only the Web administrator can read these captures. Redaction removes recognized secret patterns and cannot identify every sensitive value. Review excerpts before sharing them.</p>
 {% if target_id %}
 <section aria-labelledby="capture-heading">

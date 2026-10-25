@@ -1,6 +1,6 @@
 """Fixed internal log tails from one unchanged stopped disposable container.
 
-No exec, start, mount, host path, arbitrary archive selection or log mutation.
+No lifecycle dispatch, host filesystem access or arbitrary artifact selection.
 Use bounded raw HTTP reads: the SDK get_archive stream disables socket timeouts.
 """
 
@@ -36,6 +36,8 @@ MAX_SOURCE_BYTES = 1024 * 1024
 MAX_ARCHIVE_BYTES = MAX_SOURCE_BYTES + 64 * 1024
 MAX_TAIL_BYTES = 4096
 DEADLINE_SECONDS = 10.0
+MAX_DOCKER_WINDOW_BYTES = 64 * 1024
+ALL_ARTIFACTS = ("current", "previous", "stdout", "xvfb", "docker_output")
 LOG_PATHS = {
     "current": "/home/kodi/.kodi/temp/kodi.log",
     "previous": "/home/kodi/.kodi/temp/kodi.old.log",
@@ -48,7 +50,7 @@ _TYPE_BITS = 0xFFFFFE00
 
 class StoppedLogArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    kind: Literal["current", "previous", "stdout", "xvfb"]
+    kind: Literal["current", "previous", "stdout", "xvfb", "docker_output"]
     state: Literal[
         "available", "missing", "too_large", "unsafe", "changed", "unavailable"
     ]
@@ -80,20 +82,35 @@ class StoppedLogArtifact(BaseModel):
 
 class StoppedLogSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    schema_revision: Literal[1] = 1
-    scope: Literal["fixed_internal_log_tails"] = "fixed_internal_log_tails"
+    schema_revision: Literal[1, 2] = 2
+    scope: Literal[
+        "fixed_internal_log_tails", "fixed_internal_and_docker_log_tails"
+    ] = "fixed_internal_and_docker_log_tails"
     exit_metadata: StoppedRuntimeDiagnostics
-    artifacts: list[StoppedLogArtifact] = Field(min_length=4, max_length=4)
+    artifacts: list[StoppedLogArtifact] = Field(min_length=4, max_length=5)
     observed_at: Annotated[datetime, Field(strict=False)]
     redaction_policy: Literal["obvious-secrets-v1"] = "obvious-secrets-v1"
     crash_reports: Literal["not_collected"] = "not_collected"
-    docker_output: Literal["not_collected"] = "not_collected"
+    docker_output: Literal["not_collected", "bounded_window"] = "bounded_window"
     cross_file_consistency: Literal["not_established"] = "not_established"
 
     @model_validator(mode="after")
     def fixed_inventory(self) -> StoppedLogSnapshot:
-        if [a.kind for a in self.artifacts] != list(LOG_PATHS):
-            raise ValueError("fixed artifact inventory required")
+        expected = (
+            (list(LOG_PATHS), "fixed_internal_log_tails", "not_collected")
+            if self.schema_revision == 1
+            else (
+                list(ALL_ARTIFACTS),
+                "fixed_internal_and_docker_log_tails",
+                "bounded_window",
+            )
+        )
+        if (
+            [a.kind for a in self.artifacts],
+            self.scope,
+            self.docker_output,
+        ) != expected:
+            raise ValueError("versioned fixed artifact inventory required")
         return self
 
 
@@ -170,6 +187,8 @@ class StoppedManagedLogProvider:
                 or not {"Privileged", "Binds", "VolumesFrom", "PidMode"} <= host.keys()
                 or host.get("Privileged") is not False
                 or host.get("Binds") not in (None, [])
+                or host.get("Mounts") not in (None, [])
+                or host.get("Tmpfs") not in (None, {})
                 or host.get("VolumesFrom") not in (None, [])
                 or host.get("PidMode") != ""
             ):
@@ -192,6 +211,20 @@ class StoppedManagedLogProvider:
                             )
                         )
                     )
+            try:
+                artifacts.append(
+                    self._docker_window(client, spec.container_id, inspected, budget)
+                )
+            except _ArtifactRefusal as error:
+                artifacts.append(
+                    StoppedLogArtifact.model_validate(
+                        dict(
+                            kind="docker_output",
+                            state=error.state,
+                            source_size_bytes=error.size,
+                        )
+                    )
+                )
             budget()
             if StoppedManagedRuntimeProvider._snapshot(client, spec) != first:
                 raise StoppedDiagnosticsError("managed_diagnostics_identity_changed")
@@ -262,6 +295,93 @@ class StoppedManagedLogProvider:
         finally:
             response.close()
 
+    @staticmethod
+    def _body(response: Any, budget: Callable[[], float], limit: int) -> bytes:
+        try:
+            body = bytearray()
+            while True:
+                budget()
+                chunk = response.raw.read1(
+                    min(16384, limit - len(body) + 1), decode_content=False
+                )
+                if not chunk:
+                    break
+                if len(body) + len(chunk) > limit:
+                    raise _ArtifactRefusal("too_large")
+                body.extend(chunk)
+            return bytes(body)
+        finally:
+            # Engine archive reads can retain the container lock until closure.
+            response.close()
+
+    def _docker_window(
+        self,
+        client: Any,
+        container: str,
+        inspected: dict[str, Any],
+        budget: Callable[[], float],
+    ) -> StoppedLogArtifact:
+        config = inspected.get("Config")
+        tty = config.get("Tty") if isinstance(config, dict) else None
+        if type(tty) is not bool:
+            raise _ArtifactRefusal("unavailable")
+        response = client._get(
+            client._url("/containers/{0}/logs", container),
+            params={
+                "stdout": "true",
+                "stderr": "true",
+                "tail": "200",
+                "timestamps": "true",
+                "follow": "false",
+            },
+            stream=True,
+            headers={"Accept-Encoding": "identity"},
+            timeout=budget(),
+            allow_redirects=False,
+        )
+        try:
+            if (
+                response.status_code != 200
+                or response.headers.get("Content-Encoding", "identity") != "identity"
+            ):
+                raise _ArtifactRefusal("unavailable")
+            raw = self._body(response, budget, MAX_DOCKER_WINDOW_BYTES)
+            if tty:
+                data = raw
+            else:
+                decoded = bytearray()
+                offset = 0
+                while offset < len(raw):
+                    if (
+                        len(raw) - offset < 8
+                        or raw[offset] not in (1, 2)
+                        or raw[offset + 1 : offset + 4] != b"\x00\x00\x00"
+                    ):
+                        raise _ArtifactRefusal("unsafe")
+                    size = int.from_bytes(raw[offset + 4 : offset + 8], "big")
+                    offset += 8
+                    if size > len(raw) - offset:
+                        raise _ArtifactRefusal("unsafe")
+                    decoded.extend(raw[offset : offset + size])
+                    offset += size
+                data = bytes(decoded)
+            content, truncated, partial = _tail(data)
+            return StoppedLogArtifact(
+                kind="docker_output",
+                state="available",
+                source_size_bytes=len(data),
+                content=content,
+                source_sha256=hashlib.sha256(data).hexdigest(),
+                tail_truncated=truncated,
+                partial_first_line=partial,
+            )
+        except (_ArtifactRefusal, StoppedDiagnosticsError):
+            raise
+        except Exception as error:
+            raise _ArtifactRefusal("unavailable") from error
+        finally:
+            response.close()
+
     def _file(
         self,
         client: Any,
@@ -297,17 +417,7 @@ class StoppedManagedLogProvider:
                 or response.headers.get("Content-Encoding", "identity") != "identity"
             ):
                 raise _ArtifactRefusal("unavailable")
-            body = bytearray()
-            while True:
-                budget()
-                # read1 returns at most one underlying read; do not use the SDK
-                # iterator that disables timeouts for streaming attach/log APIs.
-                chunk = response.raw.read1(16384, decode_content=False)
-                if not chunk:
-                    break
-                if len(body) + len(chunk) > MAX_ARCHIVE_BYTES:
-                    raise _ArtifactRefusal("too_large", before["size"])
-                body.extend(chunk)
+            body = self._body(response, budget, MAX_ARCHIVE_BYTES)
             with tarfile.open(fileobj=io.BytesIO(body), mode="r:") as archive:
                 members = archive.getmembers()
                 if len(members) != 1:

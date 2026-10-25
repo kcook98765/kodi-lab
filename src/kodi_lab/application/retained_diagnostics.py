@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Literal, Protocol, cast
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientError, RemoteBrokerError
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.broker.stopped_logs import StoppedLogSnapshot
 from kodi_lab.domain import InstanceType, TargetType
@@ -55,12 +56,26 @@ class DiagnosticCaptureInput(BaseModel):
     deployment_operation_id: UUID | None = None
     retain_redacted_logs: Literal[True]
 
+    @field_validator("retain_redacted_logs", mode="before")
+    @classmethod
+    def exact_confirmation(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("explicit boolean confirmation required")
+        return value
+
 
 class DiagnosticDiscardInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_state: Literal["capturing", "retained", "failed"]
     expected_payload_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     confirm_discard: Literal[True]
+
+    @field_validator("confirm_discard", mode="before")
+    @classmethod
+    def exact_confirmation(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("explicit boolean confirmation required")
+        return value
 
 
 class DiagnosticOperationContext(BaseModel):
@@ -115,6 +130,22 @@ class _Broker(Protocol):
         expected_runtime_revision_id: str,
         expected_container_id: str,
     ) -> StoppedLogSnapshot: ...
+
+
+def _safe_failure(error: BaseException) -> str:
+    if isinstance(error, RetainedDiagnosticsError):
+        return error.code
+    if isinstance(error, RemoteBrokerError) and error.code in {
+        "managed_diagnostics_identity_changed",
+        "managed_diagnostics_not_stopped",
+        "managed_diagnostics_deadline",
+        "managed_diagnostics_unavailable",
+        "managed_diagnostics_private_profile_required",
+        "managed_diagnostics_log_layout_unsupported",
+        "docker_daemon_unavailable",
+    }:
+        return error.code
+    return "diagnostic_capture_unavailable"
 
 
 def _json(value: object) -> str:
@@ -299,9 +330,14 @@ class RetainedDiagnosticsService:
                     is not None
                 ):
                     raise RetainedDiagnosticsError("diagnostic_capture_busy")
-                if (
-                    shutil.disk_usage(self._data_root).free
-                    < MIN_FREE_BYTES + MAX_PAYLOAD_BYTES
+                roots = {self._data_root}
+                engine = self._sessions.kw.get("bind")
+                database = getattr(getattr(engine, "url", None), "database", None)
+                if isinstance(database, str) and database != ":memory:":
+                    roots.add(Path(database).resolve().parent)
+                if any(
+                    shutil.disk_usage(root).free < MIN_FREE_BYTES + MAX_PAYLOAD_BYTES
+                    for root in roots
                 ):
                     raise RetainedDiagnosticsError("diagnostic_storage_reserve")
                 image_id = self._scope(session, target_id, operation)
@@ -324,6 +360,8 @@ class RetainedDiagnosticsService:
                 session.commit()
         except (SQLAlchemyError, OSError):
             raise RetainedDiagnosticsError("diagnostic_storage_unavailable") from None
+        except ClientError as error:
+            raise RetainedDiagnosticsError(_safe_failure(error)) from None
         try:
             raw = self._broker.read_stopped_managed_logs(
                 managed_instance_id=str(target_id),
@@ -351,11 +389,7 @@ class RetainedDiagnosticsService:
                 raise RetainedDiagnosticsError("diagnostic_payload_bound")
             return self._publish(capture_id, target_id, operation, context, payload)
         except BaseException as error:
-            code = (
-                error.code
-                if isinstance(error, RetainedDiagnosticsError)
-                else "diagnostic_capture_unavailable"
-            )
+            code = _safe_failure(error)
             # A failed failure marker leaves pending evidence for explicit review.
             with suppress(SQLAlchemyError):
                 self._fail(capture_id, code)
