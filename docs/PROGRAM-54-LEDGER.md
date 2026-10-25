@@ -344,3 +344,40 @@ diagnostics and dispatch-settlement prerequisites are incomplete. #50 log policy
 continues to reuse the preserved branch; no new truncation/recipe work duplicates
 it. Prepare native sequential/version-switch and Windows acceptance only after
 separate operational authorization.
+
+### Phase 2 milestone: minimal Web workflow and stopped exit metadata
+
+[PR #66](https://github.com/kcook98765/kodi-lab/pull/66), `2688e04`, stacked
+on #65: Web Reserve/Prepare/Resume/Stop and ordinary absent/idle close over one
+exact session, with claim-time runtime and pre-dispatch identity rechecks. No
+Fresh Test/Switch/deletion, acquisition, new MCP tool or grant. Initial integration
+passed 5 workflow + 4 Web/Node cases individually, then 51 lifecycle/navigation/
+admin-view/isolation interactions, 46.4s. After #65's uncertainty tightening,
+settled **FOCUSED PASS** repeated the 9 cases plus static/JS checks in 12.1s.
+Rebase preserved tree `e7a4f982419dea00565c81dd0129c3de45fc9daf` exactly.
+Source/Bridge/native readiness still use existing explicit setup actions.
+
+[PR #67](https://github.com/kcook98765/kodi-lab/pull/67), `8833c30`, supplies
+#50's first Web-only exact stopped-container exit/OOM/timestamp metadata read.
+Independent target/artifact/owner/container/image/state checks run twice; storage
+and client/provider result identities are rechecked. No file/log bodies, arbitrary
+path, shell, native wake, runtime convergence or grant change. Cause remains
+unknown: exit numbers alone do not prove a stack trace or normal Lab stop. The
+fixed broker operation catalog remains exact, now 39 entries. Preserved log-
+retention commits/recipes/rotation remain unchanged and unpublished.
+**INTEGRATION PASS**, 23.3s: 18 broker, 1 Web and 15 exact-catalog cases individually,
+Ruff/mypy, then 46 protocol/resolver/control interactions. Three additional changed
+catalog modules passed individually (61 cases), Ruff/mypy, 17.0s. No native crash
+manufacture or Docker/Kodi fixture ran. Historical operation linkage, retained
+log bodies, crash reports and symbolication remain later work.
+
+Pre-release contract review also updated #63 to `c4dc028` (stdio/external exact
+catalogs: 7+7 focused cases, Ruff/mypy, 41.0s) and #65 to `31a01af` (exact current
+metadata plus preserved historical 0076 downgrade proof on matched current broker
+schema, modules individually, Ruff/mypy, 11.0s). No application bytes changed in
+these test-only follow-ups; original security/transition assertions are retained.
+
+Next: compose all Phase 1 and Phase 2 published heads in a fresh qualification
+worktree using ordinary cherry-picks, resolve shared imports/docs explicitly,
+freeze the source/tree, then run one complete release gate. This remains source
+qualification only; main and all running resources stay untouched.
