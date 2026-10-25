@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Review Fresh Test or Switch · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
+{% block content %}
+<h1>Review Fresh Test or Switch</h1>
+<p>A fresh test replaces the current disposable profile. Source, workspace, Git history and selected saved evidence stay outside Kodi. This step saves your review and holds the selected evidence. It does not stop, remove, replace or prepare Kodi.</p>
+<p><a href="/development-session">Back to development session</a> · <a href="/diagnostics">Save or review diagnostics</a></p>
+{% if review %}
+<h2>Saved {{ 'Fresh Test' if review.snapshot.mode == 'fresh_test' else 'Switch Version' }} review</h2>
+<p>State: {{ review.state }}. Session {{ review.snapshot.request.expected_generation }}; add-on {{ review.snapshot.addon_id }}.</p>
+<p>Current container: <code>{{ review.snapshot.request.expected_container_id }}</code>. Selected runtime: <code>{{ review.snapshot.request.next_runtime_revision_id }}</code>.</p>
+<p>Observed {{ review.snapshot.observed_at }}. These are saved facts; later execution must recheck the current session, busy/reconciliation state, runtime eligibility and exact evidence.</p>
+<ul>{% for item in review.snapshot.request.evidence %}<li><a href="/diagnostics/{{ item.capture_id }}">Selected capture {{ item.capture_id }}</a></li>{% endfor %}</ul>
+{% if review.state == 'open' %}
+<p>Selected evidence is held against discard until this review is cancelled. Resume and Stop remain available. No replacement runs automatically.</p>
+<form method="post" action="/development-session/replacement/{{ review.review_id }}/cancel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="expected_snapshot_sha256" value="{{ review.snapshot_sha256 }}">
+  <label><input type="checkbox" name="cancel_ack" value="yes" required> Cancel this review and release its evidence holds. Keep the current Kodi profile.</label>
+  <button type="submit">Cancel review</button>
+</form>
+{% else %}<p>Evidence holds are released. The review remains in history.</p>{% endif %}
+{% else %}
+<form method="get" action="/development-session/replacement">
+  <label>Kodi version <select name="target_id" required>{% for choice in choices %}<option value="{{ choice.target_id }}" {% if selection and choice.target_id == selection.next_target_id %}selected{% endif %}>Kodi {{ choice.kodi_version }} — {{ choice.name }}</option>{% endfor %}</select></label>
+  <button type="submit">Review selected version</button>
+</form>
+{% if selection %}
+<p>Current session {{ selection.expected_generation }}; stopped container <code>{{ selection.expected_container_id }}</code>.</p>
+<p>Selected approved cached runtime <code>{{ selection.next_runtime_revision_id }}</code>, image <code>{{ selection.next_image_id }}</code>. Choosing a version does not copy grants, Bridge trust or deployment baselines.</p>
+{% if captures %}
+<form method="post" action="/development-session/replacement">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="request_id" value="{{ request_id }}">
+  <input type="hidden" name="selection_json" value="{{ selection.model_dump_json() }}">
+  <fieldset><legend>Select 1–8 saved captures to retain during review</legend>
+  {% for capture in captures %}<label><input type="checkbox" name="evidence" value="{{ capture.capture_id }}:{{ capture.payload_sha256 }}"> <a href="/diagnostics/{{ capture.capture_id }}">Capture {{ capture.created_at }}</a> ({{ capture.capture_id }})</label>{% endfor %}
+  </fieldset>
+  <label><input type="checkbox" name="crash_reports_ack" value="yes" required> Native crash reports have not been collected. Selected excerpts may be partial, rotated or unavailable and do not establish crash cause.</label>
+  <label><input type="checkbox" name="review_ack" value="yes" required> Save this exact review and hold selected evidence. Profile disposal requires a separate final confirmation and fresh safety checks.</label>
+  <button type="submit">Save review and hold evidence</button>
+</form>
+{% else %}<p>Save at least one diagnostic capture from this exact stopped test before reviewing replacement.</p>{% endif %}
+{% else %}<p>Use a bound, stopped, idle session with an approved cached runtime. Resolve busy or uncertain operations through their existing recovery workflow.</p>{% if reason %}<p>Review status: <code>{{ reason }}</code>.</p>{% endif %}{% endif %}
+{% endif %}
+<p>Retirement and replacement execution are not available in this increment. No saved review authorizes profile disposal, clears a fence or proves an uncertain Docker dispatch has finished.</p>
+{% endblock %}
