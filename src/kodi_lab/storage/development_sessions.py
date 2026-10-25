@@ -1,16 +1,22 @@
 """Shared, transaction-local single-session policy used before broker dispatch."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from kodi_lab.broker.docker_inventory import ManagedContainerRecord
 from kodi_lab.storage.models import (
     DevelopmentSessionPolicyRow,
     DevelopmentSessionRow,
     ManagedProvisionReservationRow,
+    ManagedStartReservationRow,
 )
+
+if TYPE_CHECKING:
+    from kodi_lab.broker.docker_inventory import ManagedContainerRecord
 
 
 class DevelopmentSessionConflict(RuntimeError):
@@ -59,4 +65,41 @@ def require_session_admission(
         raise DevelopmentSessionConflict("development_session_identity_changed")
     if session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None:
         raise DevelopmentSessionConflict("development_session_provision_pending")
+    return current
+
+
+def require_workspace_session_admission(
+    session: Session,
+    *,
+    target_id: str,
+    revision_id: str | None,
+    workspace_id: str,
+    source_id: str,
+    container_id: str | None = None,
+) -> DevelopmentSessionRow | None:
+    """Narrow managed runtime work to the explicitly selected bound session.
+
+    Call during the existing writer claim before reserving the typed mutation
+    lease, and recheck exact observed identity before dispatch. This supplies no
+    grant, deployment baseline, attachment, trust or permission of its own.
+    Offline edits, historical receipt reads and external targets do not use it.
+    """
+    current = active_session(session)
+    if current is None:
+        return None
+    if current.target_id != target_id:
+        raise DevelopmentSessionConflict("development_session_other_target")
+    if current.phase != "bound":
+        raise DevelopmentSessionConflict("development_session_requires_review")
+    if current.runtime_revision_id != revision_id or (
+        container_id is not None and current.container_id != container_id
+    ):
+        raise DevelopmentSessionConflict("development_session_identity_changed")
+    if current.workspace_id != workspace_id or current.source_id != source_id:
+        raise DevelopmentSessionConflict("development_session_other_workspace")
+    if (
+        session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None
+        or session.scalar(select(ManagedStartReservationRow).limit(1)) is not None
+    ):
+        raise DevelopmentSessionConflict("development_session_runtime_pending")
     return current
