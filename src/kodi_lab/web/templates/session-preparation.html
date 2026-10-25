@@ -25,6 +25,34 @@
 <tr><td>{{ labels[check.name] }}</td><td>{{ states[check.state] }}</td><td>{{ reasons.get(check.reason, 'Review this prerequisite through the selected workspace or Kodi setup.') }}</td></tr>
 {% endfor %}
 </tbody></table>
+<h2>Copy the registered source baseline</h2>
+<p>This copies the registered add-on files into the selected stopped Kodi profile. It may replace add-on files in that profile. Your private workspace edits stay in the workspace and need their own validation and deployment. Copying does not enable the add-on or start Kodi.</p>
+{% set attachment = assessment.deployment.checks | selectattr('name', 'equalto', 'attachment') | first %}
+{% set copy_state = namespace(pending=false) %}
+{% if source_copy_receipts %}
+<p>Saved source-copy requests for this session, including any request whose reply was lost:</p>
+<ul>
+{% for saved in source_copy_receipts %}
+<li><a href="/development-session/source-copy/{{ saved.request_id }}">Review saved request {{ saved.request_id }}</a></li>
+{% if saved.operation and (saved.operation.state.value in ['queued', 'running', 'reconciliation_required'] or saved.operation.reconciliation_required) %}{% set copy_state.pending = true %}{% endif %}
+{% endfor %}
+</ul>
+{% endif %}
+{% if copy_state.pending %}
+<p>Review the existing copy request before asking for another copy. Refreshing this page does not submit work.</p>
+{% elif current.phase == 'bound' and attachment and attachment.state == 'satisfied' %}
+<form action="/development-session/source-copy" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<input type="hidden" name="request_id" value="{{ source_copy_request_id }}">
+<input type="hidden" name="expected_generation" value="{{ current.generation }}">
+<button type="submit">Copy registered source baseline into stopped Kodi</button>
+</form>
+<p>The action checks this exact session and stopped profile again. If the reply is lost, keep the request identity and review its saved status before continuing.</p>
+{% elif current.phase == 'bound' %}
+<p><a href="/instances/{{ current.target_id }}">Attach this registered source through Kodi setup</a> before copying. This page does not attach it or change permissions.</p>
+{% else %}
+<p>Prepare the selected stopped profile or review its uncertain state before copying.</p>
+{% endif %}
 <h2>Bridge and native setup</h2>
 {% set trust_states = {'no_record': 'No saved trust record', 'prepared': 'Reviewed preparation saved', 'active': 'Previously authenticated trust saved', 'invalidated': 'Saved trust needs recovery', 'revoked': 'Saved trust was revoked'} %}
 <p>{{ trust_states[assessment.capabilities.trust_state] }}. The current Bridge connection and native Kodi readiness are unknown. Direct workspace deployment and native controls have their own requirements.</p>

@@ -3,7 +3,11 @@
 Use this loop for an existing authorized **managed disposable development**
 target, registered source and owned workspace. Discover the tools on the
 installed server first: a source checkout upgrade does not upgrade the deployed
-server, target Bridge, custom presets or existing grants. Follow the
+server, target Bridge, custom presets or existing grants.
+The Web administrator can use the selected-session preparation checklist to copy
+the explicitly attached registered-source baseline into stopped Kodi. Saved copy
+requests recover lost replies. This does not deploy private workspace edits,
+enable/start the add-on, or give an agent new permissions. Follow the
 [development authority model](PHASE12-MCP-DEVELOPMENT.md#authority-model) and
 [manifest launch prerequisites](MANIFEST-ENTRY-LAUNCH.md).
 

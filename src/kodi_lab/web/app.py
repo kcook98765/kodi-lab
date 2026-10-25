@@ -38,7 +38,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    model_validator,
+)
 from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -454,6 +461,11 @@ from kodi_lab.application.session_replacements import (
     SessionReplacementRequest,
     SessionReplacementService,
     SessionReplacementStatus,
+)
+from kodi_lab.application.session_source_copy import (
+    SessionSourceCopyAccepted,
+    SessionSourceCopyReceipt,
+    SessionSourceCopyService,
 )
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
@@ -1230,6 +1242,19 @@ class HistoricalContainmentRequest(BaseModel):
     request_id: UUID
     expected_runtime_state_revision: int = Field(ge=0)
     confirmed: Literal[True]
+
+
+class SessionSourceCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class SessionSourceCopyForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_generation: int = Field(ge=1)
 
 
 class DiagnosticCaptureForm(BaseModel):
@@ -3905,6 +3930,9 @@ def create_app(
     )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
     session_preparation = SessionPreparationService(session_factory)
+    session_source_copy = SessionSourceCopyService(
+        session_factory, context.development_source_deployment_operations
+    )
     session_reviews = SessionReplacementReviewService(session_service)
     session_replacements = SessionReplacementService(session_service, context.lifecycle)
 
@@ -4222,13 +4250,20 @@ def create_app(
             authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
+        assessment = session_preparation.inspect(
+            expected_generation=expected_generation
+        )
         return templates.TemplateResponse(
             request,
             "session-preparation.html",
             {
-                "assessment": session_preparation.inspect(
-                    expected_generation=expected_generation
+                "assessment": assessment,
+                "source_copy_receipts": ()
+                if assessment is None
+                else session_source_copy.list_for_session(
+                    assessment.session.generation
                 ),
+                "source_copy_request_id": uuid4(),
                 "csrf_token": authenticated.csrf_token,
             },
             headers={"Cache-Control": "no-store"},
@@ -4244,6 +4279,76 @@ def create_app(
     ) -> SessionPreparation | None:
         response.headers["Cache-Control"] = "no-store"
         return session_preparation.inspect(expected_generation=expected_generation)
+
+    @app.post(
+        "/api/development-session/source-copy",
+        response_model=SessionSourceCopyAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def request_session_source_copy(
+        body: SessionSourceCopyRequest,
+        response: Response,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SessionSourceCopyAccepted:
+        response.headers["Cache-Control"] = "no-store"
+        return session_source_copy.request_copy(
+            request_id=body.request_id,
+            expected_generation=body.expected_generation,
+            submit=context.development_source_deployment_executor.submit,
+        )
+
+    @app.post("/development-session/source-copy")
+    def request_session_source_copy_form(
+        request: Request,
+        body: SessionSourceCopyForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        result = session_source_copy.request_copy(
+            request_id=body.request_id,
+            expected_generation=body.expected_generation,
+            submit=context.development_source_deployment_executor.submit,
+        )
+        return RedirectResponse(
+            f"/development-session/source-copy/{result.receipt.request_id}",
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/api/development-session/source-copy/{request_id}",
+        response_model=SessionSourceCopyReceipt,
+    )
+    def session_source_copy_status(
+        request_id: UUID,
+        response: Response,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionSourceCopyReceipt:
+        response.headers["Cache-Control"] = "no-store"
+        receipt = session_source_copy.get(request_id)
+        if receipt is None:
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
+        return receipt
+
+    @app.get(
+        "/development-session/source-copy/{request_id}", response_class=HTMLResponse
+    )
+    def session_source_copy_page(request: Request, request_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        receipt = session_source_copy.get(request_id)
+        if receipt is None:
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
+        return templates.TemplateResponse(
+            request,
+            "session-source-copy.html",
+            {"receipt": receipt, "csrf_token": authenticated.csrf_token},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/development-session", response_model=SessionView)
     def development_session_status(

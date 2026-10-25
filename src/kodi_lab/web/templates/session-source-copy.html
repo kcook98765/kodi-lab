@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Source copy · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Registered source copy</h1>
+<p>Saved request <code>{{ receipt.request_id }}</code> for session {{ receipt.session_generation }}. Refresh to read saved progress. This page does not check Kodi or submit a copy.</p>
+{% if not receipt.operation %}
+<p>Detailed operation history is no longer retained. The copy outcome is unknown here. The original request remains recorded and cannot create another operation.</p>
+{% else %}
+{% set operation = receipt.operation %}
+{% set labels = {'queued': 'Waiting to copy', 'running': 'Copy in progress', 'succeeded': 'Copy completed', 'failed': 'Copy failed', 'reconciliation_required': 'Copy outcome needs review'} %}
+<p>{{ labels.get(operation.state.value, 'Copy outcome needs review') }}.</p>
+{% if operation.state.value == 'succeeded' %}
+<p>The registered source baseline was copied at the saved operation. The current profile and file tree have not been checked by this page. Private workspace edits, add-on enablement and native/Bridge readiness have separate checks.</p>
+{% elif operation.state.value == 'queued' and not operation.reconciliation_required %}
+<p>If copying is still waiting after a lost reply, explicitly continue this same request. It must still match the selected session and exact stopped profile. Running, failed or uncertain work cannot be restarted here.</p>
+<form action="/development-session/source-copy" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<input type="hidden" name="request_id" value="{{ receipt.request_id }}">
+<input type="hidden" name="expected_generation" value="{{ receipt.session_generation }}">
+<button type="submit">Continue this queued copy</button>
+</form>
+{% else %}
+<p>Preserve this request and review Kodi history. Refreshing or repeating the request does not reset running, failed or uncertain work.</p>
+{% endif %}
+{% endif %}
+<p><a href="/development-session/source-copy/{{ receipt.request_id }}">Refresh saved copy status</a> · <a href="/instances/{{ receipt.target_id }}/history">Review Kodi history</a> · <a href="/development-session/preparation">Return to session preparation</a></p>
+{% endblock %}
