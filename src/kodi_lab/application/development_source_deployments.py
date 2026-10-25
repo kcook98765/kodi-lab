@@ -165,7 +165,11 @@ class DevelopmentSourceDeploymentOperationCoordinator:
         )
 
     def queue(
-        self, instance_id: UUID, source_id: UUID
+        self,
+        instance_id: UUID,
+        source_id: UUID,
+        *,
+        precondition: Callable[[Session], None] | None = None,
     ) -> DevelopmentSourceDeploymentStatus:
         self._stale.sweep_instance(instance_id)
         self._stale.sweep_global()
@@ -209,7 +213,7 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             raise DevelopmentSourceDeploymentUnsupportedError(
                 "development_source_identity_changed"
             )
-        self._require_stopped(instance_id)
+        container_id = self._require_stopped(instance_id)
         operation = DevelopmentSourceDeploymentOperation(
             id=uuid4(),
             original_managed_instance_id=instance_id,
@@ -222,9 +226,26 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             requested_at=self._clock(),
             state=DevelopmentSourceDeploymentOperationState.QUEUED,
             phase=DevelopmentSourceDeploymentOperationPhase.ACQUIRE,
+            expected_container_id=container_id,
         )
         try:
-            with self._session_factory.begin() as session:
+            with self._session_factory() as session:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                if precondition is not None:
+                    precondition(session)
+                current = ManagedInstanceRepository(session).get(instance_id)
+                attached = ManagedInstanceDevelopmentSourceRepository(session).get(
+                    instance_id, source_id
+                )
+                if (
+                    current is None
+                    or current.instance_type is not InstanceType.DISPOSABLE
+                    or current.runtime_revision_id != instance.runtime_revision_id
+                    or attached is None
+                ):
+                    raise DevelopmentSourceDeploymentConflictError(
+                        "Source deployment scope changed before queue claim."
+                    )
                 operations = DevelopmentSourceDeploymentOperationRepository(session)
                 if operations.active_for_instance(instance_id) is not None:
                     raise DevelopmentSourceDeploymentConflictError(
@@ -240,6 +261,7 @@ class DevelopmentSourceDeploymentOperationCoordinator:
                     kind=GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
                     operation_id=operation.id,
                 )
+                session.commit()
         except IntegrityError as error:
             raise DevelopmentSourceDeploymentConflictError(
                 "Another instance mutation or heavy operation is active."
@@ -291,6 +313,10 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             )
         if operation is None or operation.managed_instance_id is None:
             return None
+        if operation.state is not DevelopmentSourceDeploymentOperationState.QUEUED:
+            raise DevelopmentSourceDeploymentLeaseLostError(
+                "Deployment is already claimed or terminal."
+            )
         container_id = self._require_stopped(operation.managed_instance_id)
         token = secrets.token_urlsafe(32)
         lease = DevelopmentSourceDeploymentLease(
@@ -302,31 +328,106 @@ class DevelopmentSourceDeploymentOperationCoordinator:
         )
         now = self._clock()
         expires = now + DEPLOYMENT_LEASE_DURATION
-        with self._session_factory.begin() as session:
-            mutation = ManagedInstanceMutationLeaseRepository(session).claim(
-                lease.managed_instance_id,
-                operation_id=lease.operation_id,
-                token_digest=lease.token_digest,
-                now=now,
-                expires_at=expires,
-            )
-            heavy = GlobalHeavyOperationLeaseRepository(session).claim(
-                operation_id=lease.operation_id,
-                token_digest=lease.token_digest,
-                now=now,
-                expires_at=expires,
-            )
-            acquired = DevelopmentSourceDeploymentOperationRepository(session).acquire(
-                operation_id,
-                token_digest=lease.token_digest,
-                expected_container_id=container_id,
-                now=now,
-                lease_expires_at=expires,
-            )
-            if not (mutation and heavy and acquired):
+        refusal: str | None = None
+        with self._session_factory() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            operations = DevelopmentSourceDeploymentOperationRepository(session)
+            fresh = operations.get(operation_id)
+            mutations = ManagedInstanceMutationLeaseRepository(session)
+            heavy_operations = GlobalHeavyOperationLeaseRepository(session)
+            mutation = mutations.current(lease.managed_instance_id)
+            heavy = heavy_operations.current()
+            if (
+                fresh is None
+                or fresh.state is not DevelopmentSourceDeploymentOperationState.QUEUED
+                or fresh.original_managed_instance_id
+                != operation.original_managed_instance_id
+                or fresh.managed_instance_id != operation.managed_instance_id
+                or fresh.runtime_revision_id != operation.runtime_revision_id
+                or fresh.development_source_id != operation.development_source_id
+                or fresh.expected_container_id != operation.expected_container_id
+                or fresh.lease_token_digest is not None
+                or fresh.lease_expires_at is not None
+                or mutation is None
+                or mutation.operation_kind
+                is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_DEPLOYMENT
+                or mutation.operation_id != str(operation_id)
+                or mutation.lease_token_digest is not None
+                or mutation.lease_expires_at is not None
+                or heavy is None
+                or heavy.operation_kind
+                is not GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT
+                or heavy.operation_id != str(operation_id)
+                or heavy.lease_token_digest is not None
+                or heavy.lease_expires_at is not None
+            ):
                 raise DevelopmentSourceDeploymentLeaseLostError(
-                    "Deployment authority could not be acquired."
+                    "Exact unclaimed deployment authority is unavailable."
                 )
+            instance = ManagedInstanceRepository(session).get(lease.managed_instance_id)
+            attached = ManagedInstanceDevelopmentSourceRepository(session).get(
+                lease.managed_instance_id, lease.development_source_id
+            )
+            if (
+                fresh.expected_container_id is not None
+                and fresh.expected_container_id != container_id
+            ):
+                refusal = "queued_profile_changed"
+            elif (
+                instance is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+                or instance.runtime_revision_id != fresh.runtime_revision_id
+                or attached is None
+            ):
+                refusal = "queued_scope_changed"
+            if refusal is not None:
+                # QUEUED plus both exact unclaimed reservations proves that no
+                # legal copy dispatch began. Never settle claimed/unknown work.
+                if not operations.fail_queued(operation_id, reason=refusal, now=now):
+                    raise DevelopmentSourceDeploymentLeaseLostError(
+                        "Queued deployment refusal could not be retained."
+                    )
+                released_mutation = mutations.release_for_operation(
+                    lease.managed_instance_id, operation_id
+                )
+                released_heavy = heavy_operations.release_for_operation(operation_id)
+                if not (released_mutation and released_heavy):
+                    raise DevelopmentSourceDeploymentLeaseLostError(
+                        "Exact queued reservation release was not confirmed."
+                    )
+            else:
+                claimed_mutation = mutations.claim(
+                    lease.managed_instance_id,
+                    operation_id=lease.operation_id,
+                    token_digest=lease.token_digest,
+                    now=now,
+                    expires_at=expires,
+                )
+                claimed_heavy = heavy_operations.claim(
+                    operation_id=lease.operation_id,
+                    token_digest=lease.token_digest,
+                    now=now,
+                    expires_at=expires,
+                )
+                acquired = operations.acquire(
+                    operation_id,
+                    token_digest=lease.token_digest,
+                    expected_container_id=container_id,
+                    now=now,
+                    lease_expires_at=expires,
+                )
+                if not (claimed_mutation and claimed_heavy and acquired):
+                    raise DevelopmentSourceDeploymentLeaseLostError(
+                        "Deployment authority could not be acquired."
+                    )
+            session.commit()
+        if refusal is not None:
+            raise DevelopmentSourceDeploymentConflictError(
+                "Queued source profile changed."
+                if refusal == "queued_profile_changed"
+                else "Queued source scope changed.",
+                code=f"development_source_{refusal}",
+            )
         return lease
 
     def update_phase(
