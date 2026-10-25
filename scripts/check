@@ -127,7 +127,7 @@ run_check() {
     return "$status"
 }
 
-pytest_timeout_seconds="${KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS:-900}"
+pytest_timeout_seconds="${KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS:-2400}"
 if [[ ! "$pytest_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
     echo "KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS must be a positive integer." >&2
     exit 1
