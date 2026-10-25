@@ -1155,3 +1155,32 @@ No competing tests or native/DinD/acquisition acceptance are running. The privat
 stage/report files retain the exact attempt. Source remains frozen. Report the
 actual exit/stages/cleanup and reverify manifest before assigning RELEASE PASS.
 No result is available at this checkpoint; do not infer release/native acceptance.
+
+
+### Independent next draft while the frozen full gate runs
+
+The existing synchronous Web-admin copied-Source enablement path lacks selected-
+session admission. A narrow draft exists in isolated local branch/worktree
+`feat/51-source-enablement-session-scope-20261025` /
+`51-source-enablement-session-scope-20261025`, based on#79 `6aaa097`. It checks
+metadata scope in the existing writer claim, retains selected generation/CID in
+its synchronous in-process handle, and rechecks positive observed identity and
+original selection before enabled-state/mutation markers. All existing native
+identity/tree/baseline/dependency and post-dispatch reconciliation checks remain.
+No new endpoint/migration/tool/grant, auto enablement or durable receipt promise.
+The shared helper's None CID is metadata-only; guided copy dispatch still needs
+positive CID. This is outside frozen `c788a31`.
+
+Five files are uncommitted, including D0461/user documentation and a new regression
+module. **No validation lane has run**, no PR is published, and no claim of working
+or release-qualified behavior is made. Ruff/type/focused/integration checks are
+intentionally deferred until c788 completes, avoiding competing tests. Private
+`source-enablement-session-scope-review.md` and timestamped SHA draft manifest
+record intent/current bytes. Continue by validating/fixing this independent slice
+after verifying the full result. Do not alter or prematurely qualify c788.
+
+A separate read-only review identified analogous copied-Source smoke queue/worker
+scope as a later foundation to assess. It has queued/running expected-container
+history and native invocation markers; preserve all post-dispatch ambiguity and
+baseline checks, avoid adding a general scheduler or blindly reusing a synchronous
+handle design for persisted queues. No smoke implementation has been started.
