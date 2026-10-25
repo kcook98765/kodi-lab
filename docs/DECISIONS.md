@@ -6813,3 +6813,27 @@ only its own holds while keeping history and the current session/profile.
 Cancellation never clears a reconciliation or create fence. No automatic expiry,
 history pruning, profile removal, agent permission or MCP tool is introduced.
 Retain schema/reader compatibility and refuse lossy populated downgrades.
+
+## D-0452: Exact retirement confirmation shares owned lifecycle terminalization
+
+For #51, optional trusted scoped deprovision records original disposable target,
+immutable runtime/image and exact container in new empty 0083 retirement history.
+Claim the prepared scope with the existing child operation/lease. Recheck stored
+scope before claim and actual container scope inside the leased action before
+readiness/trust/evidence invalidation. Do not infer scope for historical or
+ordinary unscoped operations and do not introduce another public lifecycle tool.
+
+Publish confirmation only after the matching broker removal reply and successful
+unprovisioned postcondition. The terminal hook runs after existing projection/
+lease ownership guards, in the same transaction as success and lease release.
+Callback failure rolls back terminalization; post-commit cancellation preserves
+the receipt. Lost reply, changed scope, failed postcondition or interrupted
+dispatch remains unconfirmed even if later inventory is empty. No receipt
+settles an uncertain Docker create or supplies disposal permission.
+
+Retain referenced operation history against pruning. Bound scoped history at 256
+and refuse admission rather than deleting evidence. No runtime/target FK erases
+the original identity. Validate typed read against the exact operation; never
+reconstruct positive proof from an unrelated success. Populated history refuses
+lossy downgrade. Atomic successor admission and final Fresh/Switch confirmation
+remain separate composition work; native/platform evidence is not inferred.

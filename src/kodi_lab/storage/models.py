@@ -8370,3 +8370,40 @@ class DevelopmentSessionEvidenceHoldRow(Base):
         primary_key=True,
     )
     payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ManagedRuntimeRetirementRow(Base):
+    """Historical exact scope; only atomic terminalization confirms retirement."""
+
+    __tablename__ = "managed_runtime_retirements"
+    __table_args__ = (
+        CheckConstraint(
+            "length(operation_id)=36 AND length(original_managed_instance_id)=36 "
+            "AND length(runtime_revision_id)=36",
+            name="runtime_retirement_identity",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' "
+            "AND length(image_id)=71 AND substr(image_id,1,7)='sha256:' "
+            "AND substr(image_id,8) NOT GLOB '*[^0-9a-f]*'",
+            name="runtime_retirement_binding",
+        ),
+        CheckConstraint(
+            "length(prepared_at)=27 AND (confirmed_at IS NULL OR "
+            "(length(confirmed_at)=27 AND confirmed_at>=prepared_at))",
+            name="runtime_retirement_confirmation",
+        ),
+    )
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instance_lifecycle_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    prepared_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    confirmed_at: Mapped[str | None] = mapped_column(String(27))
