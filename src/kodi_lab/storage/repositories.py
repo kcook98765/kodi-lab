@@ -7344,6 +7344,7 @@ class DevelopmentSourceSmokeTestOperationRepository:
                 execution_result=operation.execution_result,
                 post_execution_provenance=operation.post_execution_provenance,
                 invocation_dispatched=operation.invocation_dispatched,
+                expected_container_id=operation.expected_container_id,
                 reconciliation_required=operation.reconciliation_required,
             )
         )
@@ -7427,6 +7428,11 @@ class DevelopmentSourceSmokeTestOperationRepository:
                 DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
                 DevelopmentSourceSmokeTestOperationRow.state
                 == DevelopmentSourceSmokeTestOperationState.QUEUED,
+                DevelopmentSourceSmokeTestOperationRow.expected_container_id.is_(None)
+                | (
+                    DevelopmentSourceSmokeTestOperationRow.expected_container_id
+                    == expected_container_id
+                ),
             )
             .values(
                 state=DevelopmentSourceSmokeTestOperationState.RUNNING,
@@ -7457,7 +7463,11 @@ class DevelopmentSourceSmokeTestOperationRepository:
                 == token_digest,
                 DevelopmentSourceSmokeTestOperationRow.lease_expires_at
                 > _timestamp_to_text(now),
-                DevelopmentSourceSmokeTestOperationRow.expected_container_id.is_(None),
+                DevelopmentSourceSmokeTestOperationRow.expected_container_id.is_(None)
+                | (
+                    DevelopmentSourceSmokeTestOperationRow.expected_container_id
+                    == expected_container_id
+                ),
             )
             .values(expected_container_id=expected_container_id)
         )
