@@ -381,3 +381,48 @@ Next: compose all Phase 1 and Phase 2 published heads in a fresh qualification
 worktree using ordinary cherry-picks, resolve shared imports/docs explicitly,
 freeze the source/tree, then run one complete release gate. This remains source
 qualification only; main and all running resources stay untouched.
+
+### Phase 2 milestone: frozen replacement release candidate
+
+Composition of the published Phase 1 and Phase 2 application heads used ordinary
+cherry-picks in `qualification/54-phase2-20261024`. Code composed automatically;
+the only shared conflict was appended decision records. All six records D0443
+through D0448 were preserved exactly from their current feature heads.
+
+During publication review, a reproducer exposed cancellation after a committed
+exact-tree receipt rolling the filesystem back while the durable generation had
+already advanced. The first full run at `c316c89` was deliberately interrupted
+after 550 partial passes (pytest exit 2); it is **not RELEASE PASS**. Its
+partial evidence and manifest are retained independently. #62 follow-up
+`43a332f` checks exact durable publication state: confirmed commit keeps the
+published tree, proven unpublished ordinary failure can roll back, and unknown
+readback retains both trees and fences recovery. Recovery proves the tree and
+acknowledges an already-advanced receipt without incrementing twice.
+**INTEGRATION PASS**, 80.0s: 51 focused cases individually plus 179 interactions,
+Ruff/mypy. The stronger actual SQL readback-failure regression then achieved
+**FOCUSED PASS**, 24 cases and static checks, 9.8s. Logs retain the failing
+reproducer and all corrected runs.
+
+The replacement candidate is frozen at
+`f6449a432a74837fdfaf67d4cd23181716775590`, tree
+`3192fbccb66e6a23f0ae790efadd70561137a510`. Its full release gate is in
+progress; there is no result yet. The manifest pins all 1,771 tracked entries,
+65 changed-file hashes and clean status. No competing tests or acceptance run
+while this gate owns the qualification slot. Later independent changes must
+retain their own qualification boundary.
+
+Preservation review before the gate matched all 24 original worktree HEADs and
+tracked dirty states and all 210 container identities/names/images/states.
+An initial composition command accidentally entered the primary checkout and
+conflicted on the first documentation commit before HEAD advanced. Immediate
+`git cherry-pick --abort` restored clean main at `e198592`; the original stash
+remains. Composition then used the explicit qualification worktree. This recovery
+is retained in `composition-cwd-recovery.md`; no merge or runtime change occurred.
+
+Next independent increment: #49 read-only capability prerequisites, keeping
+stored authenticated identity distinct from current liveness, native fallback,
+log capability, launch build requirements, screenshots and native remote access.
+This will be developed outside the frozen candidate, with focused/integration
+checks only after the full gate releases the test slot. Fresh/Switch remains
+blocked on retained evidence and independently proved uncertain-dispatch
+settlement; current absence alone remains insufficient.
