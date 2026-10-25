@@ -232,3 +232,29 @@ Web actions require administrator authentication, exact boolean/checkbox final
 consent, same-origin and CSRF. No MCP tool, preset or agent permission is added.
 Implementation/tests do not authorize deployment, production migration, existing
 resource removal or native sequential-version/Windows acceptance.
+
+
+## Selected workspace admission
+
+While a single-session policy is active, fresh managed workspace deployments,
+smoke/negative execution and GUI launches must name that session's bound target,
+runtime, workspace and source. Before runtime dispatch, the observed container
+must also match. Reserved, uncertain or pending provision/start state refuses
+these actions. Claim-time checks run inside existing SQLite writer claims before
+mutation-lease reservation; ordinary session creation/replacement cannot race a
+claimed workspace mutation. The broker's workspace-copy resolver independently
+checks the same selection before reading deployment bytes.
+
+This restriction supplies no grant or baseline. Existing source attachment,
+validation, exact copied tree, runtime eligibility, native/Bridge identity and
+operation authorization are still required. An authenticated historical receipt
+replay retains its original meaning without redispatch. Offline workspace edits
+and external-development targets use their existing separate paths. Inactive
+session policy preserves existing managed behavior. This increment scopes the
+workspace development path; it does not add generalized agent-managed session
+creation, settings authority or native acceptance. Administrator source setup
+and recovery remain separately reviewed operations.
+
+The existing read-only deployment preflight reports the stored session restriction
+and links to session review when it blocks work. Matching stored scope does not
+prove a live container or native/Bridge/add-on readiness.

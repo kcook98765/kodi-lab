@@ -22,6 +22,10 @@ from kodi_lab.domain import (
     InstanceType,
     TargetType,
 )
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_workspace_session_admission,
+)
 from kodi_lab.storage.models import (
     ManagedBridgeTrustRow,
     McpWorkspaceDeploymentOperationRow,
@@ -57,6 +61,7 @@ class PrerequisiteCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Literal[
         "scope",
+        "session",
         "workspace",
         "generation",
         "validation",
@@ -73,6 +78,14 @@ class PrerequisiteCheck(BaseModel):
     state: Literal["satisfied", "blocked", "unknown", "not_required"]
     reason: Literal[
         "managed_direct_only",
+        "development_session_not_active",
+        "stored_session_scope_matches",
+        "session_scope_not_assessed",
+        "development_session_requires_review",
+        "development_session_other_target",
+        "development_session_identity_changed",
+        "development_session_other_workspace",
+        "development_session_runtime_pending",
         "workspace_ready",
         "workspace_not_ready",
         "generation_current",
@@ -115,6 +128,7 @@ class PreflightNextAction(BaseModel):
         "attach_source",
         "copy_source",
         "review_history",
+        "review_session",
         "inspect_native",
         "enable_addon",
     ]
@@ -168,6 +182,8 @@ class WorkspaceDeploymentPreflightService:
                     target_state=state,
                     status_url=f"/instances/{operation.target_id}/history"
                     if name == "review_history"
+                    else "/development-session"
+                    if name == "review_session"
                     else None,
                 )
             )
@@ -193,6 +209,29 @@ class WorkspaceDeploymentPreflightService:
                 and operation.deployment_mode != "repository"
             )
             check("scope", "satisfied" if managed else "unknown", "managed_direct_only")
+            if managed:
+                assert instance is not None
+                try:
+                    selected = require_workspace_session_admission(
+                        session,
+                        target_id=str(operation.target_id),
+                        revision_id=str(instance.runtime_revision_id),
+                        workspace_id=str(operation.workspace_id),
+                        source_id="" if source is None else str(source.id),
+                    )
+                except DevelopmentSessionConflict as error:
+                    check("session", "blocked", error.code)
+                    action("review_session", "web_administrator")
+                else:
+                    check(
+                        "session",
+                        "not_required" if selected is None else "satisfied",
+                        "development_session_not_active"
+                        if selected is None
+                        else "stored_session_scope_matches",
+                    )
+            else:
+                check("session", "unknown", "session_scope_not_assessed")
             current = None if workspace is None else workspace.generation
             ready = (
                 workspace is not None

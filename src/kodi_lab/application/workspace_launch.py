@@ -147,6 +147,28 @@ class WorkspaceLaunchService:
             session.expunge(row)
             return row
 
+    def _session_admission(
+        self,
+        session: Session,
+        *,
+        target_id: str,
+        revision_id: str,
+        workspace_id: str,
+        source_id: str,
+        container_id: str | None = None,
+    ) -> None:
+        try:
+            self._development._session_admission(
+                session,
+                target_id=target_id,
+                revision_id=revision_id,
+                workspace_id=workspace_id,
+                source_id=source_id,
+                container_id=container_id,
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise WorkspaceLaunchError(error.code) from error
+
     def _context(
         self, workspace_id: UUID, generation: int, target_id: UUID
     ) -> McpWorkspaceDeploymentOperationRow:
@@ -168,6 +190,13 @@ class WorkspaceLaunchService:
                 or workspace.generation != generation
             ):
                 raise WorkspaceLaunchError("workspace_generation_conflict")
+            self._session_admission(
+                session,
+                target_id=str(target_id),
+                revision_id=instance.runtime_revision_id,
+                workspace_id=str(workspace_id),
+                source_id=workspace.development_source_id,
+            )
             if (
                 session.get(
                     ManagedInstanceDevelopmentSourceRow,
@@ -404,6 +433,14 @@ class WorkspaceLaunchService:
             with self._sessions.begin() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
                 authorize(session)
+                self._session_admission(
+                    session,
+                    target_id=str(target_id),
+                    revision_id=observed.runtime_revision_id,
+                    workspace_id=str(workspace_id),
+                    source_id=deployment.development_source_id,
+                    container_id=container,
+                )
                 total = (
                     session.scalar(
                         select(func.count()).select_from(McpWorkspaceLaunchRow)
@@ -503,6 +540,14 @@ class WorkspaceLaunchService:
                         or lease.lease_expires_at <= timestamp(self._clock())
                     ):
                         raise WorkspaceLaunchError("launch_runtime_changed")
+                    self._session_admission(
+                        session,
+                        target_id=current.target_id,
+                        revision_id=current.runtime_revision_id,
+                        workspace_id=current.workspace_id,
+                        source_id=current.development_source_id,
+                        container_id=current.container_id,
+                    )
                     current.state, current.phase = "dispatching", "dispatch"
                     current.started_at = timestamp(self._clock())
                     record_activity(
