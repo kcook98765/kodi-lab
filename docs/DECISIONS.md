@@ -6869,3 +6869,28 @@ Known pre-create refusal permits the existing explicit Prepare flow; request
 replay never substitutes a new attempt. Preserve historical schema fixtures and
 refuse populated execution/consumption downgrade. No new agent authority or
 native/platform acceptance is inferred from source/temporary-DB tests.
+
+## D-0454: Observe only explicitly referenced approved crash-report metadata
+
+For #50, schema-3 stopped log snapshots may inspect metadata for at most two
+strict approved report names quoted by complete retained log lines. The pinned
+official Nexus/Omega launcher sources print timestamped report locations; this
+justifies a narrow parser, not a claim about installed/native execution. Accept
+only the fixed private home path and valid calendar name, including a bounded
+Docker timestamp prefix. Prefer end-of-window startup references, deduplicate
+sources and report reference-limit truncation. Do not infer timezone or causal
+cross-file chronology from filenames or log order.
+
+Use only fixed HEAD observations of safe ancestors and the exact derived leaf,
+checking metadata stability and the same final stopped container identity.
+Retain name, availability, size and modification time without downloading report
+bodies or exporting a directory. Names/metadata are log claims, not authenticated
+native crash origin or proof of stack availability. Unreferenced reports remain
+unobserved and an empty list cannot establish absence. Existing time, byte,
+private-layout, ownership, pin and admission boundaries remain.
+
+Keep schema-1/2 reads, explicit schema-3 reference/content binding and matched
+reader requirements. Save selected metadata under existing private Web-only
+capture retention/digest/hold/discard policy. No new MCP tool/grant, gdb/debug
+installation, symbolication, rotation duplication, recipe or live resource
+mutation. Source/fixture success does not establish native/platform acceptance.

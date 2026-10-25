@@ -683,3 +683,73 @@ def test_execution_nonce_cannot_be_rebound_to_a_later_review(case: Any) -> None:
     assert case.service.get(review.review_id) is None
     assert case.env.state.service.status() == first.successor
     assert len(case.broker.removed) == len(case.broker.creates) == 1
+
+
+def test_selected_referenced_report_metadata_survives_exact_profile_replacement(
+    case: Any,
+) -> None:
+    from kodi_lab.broker.stopped_logs import StoppedLogSnapshot
+
+    case.env.reviews.cancel(
+        case.review.review_id,
+        ReplacementReviewCancel(
+            expected_snapshot_sha256=case.review.snapshot_sha256,
+            confirm_cancel=True,
+        ),
+    )
+    payload = case.env.retained.read(case.env.capture.capture_id).logs.model_dump()
+    name = "kodi_crashlog-20261025_013012.log"
+    payload.update(
+        schema_revision=3,
+        scope="fixed_log_tails_and_referenced_crash_metadata",
+        crash_report_discovery="bounded_retained_log_references",
+        crash_report_metadata=[
+            dict(
+                basename=name,
+                state="available",
+                referenced_by=["stdout"],
+                source_size_bytes=42,
+            )
+        ],
+    )
+    payload["artifacts"][2]["content"] = (
+        "Crash report available at /home/kodi/" + name + "\n"
+    )
+    logs = StoppedLogSnapshot.model_validate(payload)
+    case.env.retained._broker.read_stopped_managed_logs = lambda **_kwargs: logs
+    capture = case.env.retained.capture(
+        fixture.TARGET_ID,
+        DiagnosticCaptureInput(
+            request_id=uuid4(),
+            expected_runtime_revision_id=fixture.RUNTIME_REVISION_ID,
+            expected_container_id=fixture.CONTAINER_ID,
+            retain_redacted_logs=True,
+        ),
+    )
+    assert capture.payload_sha256 is not None
+    review = case.env.reviews.create(
+        ReplacementReviewRequest(
+            **case.env.reviews.offer(fixture.TARGET_ID).model_dump(),
+            request_id=uuid4(),
+            confirm_review=True,
+            acknowledge_uncollected_crash_reports=True,
+            evidence=[
+                ReplacementEvidenceSelection(
+                    capture_id=capture.capture_id, payload_sha256=capture.payload_sha256
+                )
+            ],
+        )
+    )
+    result = case.service.execute(
+        review.review_id,
+        SessionReplacementRequest(
+            request_id=uuid4(),
+            expected_snapshot_sha256=review.snapshot_sha256,
+            confirm_profile_disposal=True,
+        ),
+    )
+    assert result.phase == "successor_bound"
+    saved = case.env.retained.read(capture.capture_id)
+    assert saved.logs.crash_report_metadata[0].basename == name
+    assert saved.logs.crash_report_metadata[0].body == "not_collected"
+    assert saved.capture.container_id != result.successor.container_id
