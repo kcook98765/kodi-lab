@@ -26,7 +26,7 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.broker.stopped_diagnostics import StoppedRuntimeDiagnostics
 from kodi_lab.broker.stopped_logs import (
-    LOG_PATHS,
+    ALL_ARTIFACTS,
     StoppedLogArtifact,
     StoppedLogSnapshot,
 )
@@ -60,8 +60,13 @@ def request(**changes: Any) -> DiagnosticCaptureInput:
     )
 
 
-def snapshot() -> StoppedLogSnapshot:
+def snapshot(*, legacy: bool = False) -> StoppedLogSnapshot:
     return StoppedLogSnapshot(
+        schema_revision=1 if legacy else 2,
+        scope="fixed_internal_log_tails"
+        if legacy
+        else "fixed_internal_and_docker_log_tails",
+        docker_output="not_collected" if legacy else "bounded_window",
         exit_metadata=StoppedRuntimeDiagnostics(
             managed_instance_id=str(INSTANCE_ID),
             runtime_revision_id=str(REVISION_ID),
@@ -84,7 +89,7 @@ def snapshot() -> StoppedLogSnapshot:
                     source_sha256="a" * 64,
                 )
             )
-            for kind in LOG_PATHS
+            for kind in (ALL_ARTIFACTS[:4] if legacy else ALL_ARTIFACTS)
         ],
         observed_at=NOW,
     )
@@ -523,3 +528,87 @@ def test_unbound_capture_does_not_guess_a_nearby_operation(tmp_path: Path) -> No
     operation(env)
     result = env.service.capture(INSTANCE_ID, request())
     assert result.operation_context is None
+
+
+def test_schema_one_retained_captures_remain_readable_beside_new_docker_windows(
+    tmp_path: Path,
+) -> None:
+    env = environment(tmp_path)
+    env.broker.value = snapshot(legacy=True)
+    first = env.service.capture(INSTANCE_ID, request())
+    env.broker.value = snapshot()
+    second = env.service.capture(INSTANCE_ID, request())
+    old = env.service.read(first.capture_id)
+    new = env.service.read(second.capture_id)
+    assert old.logs.schema_revision == 1 and len(old.logs.artifacts) == 4
+    assert old.logs.docker_output == "not_collected"
+    assert new.logs.schema_revision == 2 and len(new.logs.artifacts) == 5
+    assert new.logs.artifacts[-1].kind == "docker_output"
+    assert old.capture.payload_sha256 == first.payload_sha256
+
+
+def test_reserve_checks_database_filesystem_when_data_root_is_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections import namedtuple
+
+    env = environment(tmp_path)
+    elsewhere = tmp_path / "other-files"
+    elsewhere.mkdir()
+    monkeypatch.setattr(env.service, "_data_root", elsewhere)
+    usage = namedtuple("usage", "total used free")
+
+    def disk_usage(path: Path) -> Any:
+        return usage(10**10, 0, 10**10) if path == elsewhere else usage(10, 9, 1)
+
+    monkeypatch.setattr(
+        "kodi_lab.application.retained_diagnostics.shutil.disk_usage", disk_usage
+    )
+    with pytest.raises(RetainedDiagnosticsError, match="storage_reserve"):
+        env.service.capture(INSTANCE_ID, request())
+    assert env.broker.reads == 0 and env.service.list() == []
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        (
+            "managed_diagnostics_log_layout_unsupported",
+            "managed_diagnostics_log_layout_unsupported",
+        ),
+        ("managed_diagnostics_deadline", "managed_diagnostics_deadline"),
+        ("unreviewed_backend_reason", "diagnostic_capture_unavailable"),
+    ],
+)
+def test_only_allowlisted_broker_failure_codes_are_retained_without_messages(
+    tmp_path: Path, code: str, expected: str
+) -> None:
+    from kodi_lab.broker.errors import RemoteBrokerError
+
+    env = environment(tmp_path)
+    env.broker.failure = RemoteBrokerError(code, "PRIVATE raw message", request_id=None)
+    with pytest.raises(RetainedDiagnosticsError, match=expected):
+        env.service.capture(INSTANCE_ID, request())
+    result = env.service.list()[0]
+    assert result.failure_code == expected and "PRIVATE" not in str(result)
+
+
+@pytest.mark.parametrize("value", [1, "true", False])
+def test_retention_and_discard_require_literal_boolean_confirmation(
+    value: object,
+) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        DiagnosticCaptureInput.model_validate(
+            {
+                "request_id": uuid4(),
+                "expected_runtime_revision_id": REVISION_ID,
+                "expected_container_id": CONTAINER_ID,
+                "retain_redacted_logs": value,
+            }
+        )
+    with pytest.raises(ValidationError):
+        DiagnosticDiscardInput.model_validate(
+            {"expected_state": "capturing", "confirm_discard": value}
+        )

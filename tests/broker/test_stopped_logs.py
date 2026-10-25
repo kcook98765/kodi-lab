@@ -21,6 +21,7 @@ from kodi_lab.broker.stopped_diagnostics import StoppedDiagnosticsError
 from kodi_lab.broker.stopped_logs import (
     LOG_PATHS,
     MAX_ARCHIVE_BYTES,
+    MAX_DOCKER_WINDOW_BYTES,
     MAX_SOURCE_BYTES,
     MAX_TAIL_BYTES,
     SqliteStoppedLogResolver,
@@ -63,7 +64,7 @@ class Raw:
         self.body, self.position = body, 0
 
     def read1(self, size: int, **kwargs: Any) -> bytes:
-        assert size == 16384 and kwargs == {"decode_content": False}
+        assert 0 < size <= 16384 and kwargs == {"decode_content": False}
         chunk = self.body[self.position : self.position + size]
         self.position += len(chunk)
         return chunk
@@ -76,7 +77,9 @@ class Response:
         status: int = 200,
         stat: dict[str, Any] | None = None,
         body: bytes = b"",
+        is_archive: bool = False,
     ) -> None:
+        self.is_archive = is_archive
         self.status_code, self.raw, self.closed = status, Raw(body), False
         self.headers = (
             {}
@@ -95,6 +98,7 @@ class Response:
 class Client(MetadataClient):
     def __init__(self) -> None:
         super().__init__()
+        self.value["Config"]["Tty"] = False
         self.value.update(
             Mounts=[],
             HostConfig={
@@ -108,12 +112,18 @@ class Client(MetadataClient):
         self.overrides: dict[str, Any] = {}
         self.responses: list[Response] = []
         self.reads: list[str] = []
+        self.docker_reads = 0
+        data = b"normal console\n"
+        self.docker_body = b"\x01\x00\x00\x00" + len(data).to_bytes(4, "big") + data
         self.timeout: float = 0
         self.stat_change = False
         self.head_counts: dict[str, int] = {}
 
     def _url(self, template: str, container: str) -> str:
-        assert template == "/containers/{0}/archive" and container == CONTAINER_ID
+        assert (
+            template in {"/containers/{0}/archive", "/containers/{0}/logs"}
+            and container == CONTAINER_ID
+        )
         return template.format(container)
 
     def head(
@@ -123,6 +133,9 @@ class Client(MetadataClient):
             url == f"/containers/{CONTAINER_ID}/archive"
             and 0 < timeout <= 1
             and allow_redirects is False
+        )
+        assert all(
+            not response.is_archive or response.closed for response in self.responses
         )
         path = params["path"]
         assert path in LOG_PATHS.values() or path in {
@@ -161,19 +174,34 @@ class Client(MetadataClient):
         allow_redirects: bool,
     ) -> Response:
         assert (
-            url == f"/containers/{CONTAINER_ID}/archive"
-            and stream
+            stream
             and headers == {"Accept-Encoding": "identity"}
             and 0 < timeout <= 1
             and not allow_redirects
         )
+        if url == f"/containers/{CONTAINER_ID}/logs":
+            assert params == {
+                "stdout": "true",
+                "stderr": "true",
+                "tail": "200",
+                "timestamps": "true",
+                "follow": "false",
+            }
+            self.docker_reads += 1
+            response = Response(
+                status=self.overrides.get("docker_status", 200),
+                body=self.overrides.get("docker_body", self.docker_body),
+            )
+            self.responses.append(response)
+            return response
+        assert url == f"/containers/{CONTAINER_ID}/archive"
         path = params["path"]
         assert path in LOG_PATHS.values()
         self.reads.append(path)
         body = self.overrides.get(
             "archive", archive(self.files[path], name=path.rsplit("/", 1)[-1])
         )
-        response = Response(body=body)
+        response = Response(body=body, is_archive=True)
         self.responses.append(response)
         return response
 
@@ -205,12 +233,15 @@ def test_four_fixed_log_tails_are_redacted_before_truncation_and_never_mutate(
     result = capture(tmp_path, client)
     assert client.value == before and client.calls[-1] == "close"
     assert len(client.reads) == 4 and all(r.closed for r in client.responses)
-    assert result.crash_reports == result.docker_output == "not_collected"
+    assert (
+        result.crash_reports == "not_collected"
+        and result.docker_output == "bounded_window"
+    )
     assert (
         result.exit_metadata.exit_code == 139
         and result.exit_metadata.cause == "unknown"
     )
-    for item in result.artifacts:
+    for item in result.artifacts[:4]:
         assert (
             item.state == "available" and len(item.content.encode()) <= MAX_TAIL_BYTES
         )
@@ -321,7 +352,7 @@ def test_symlink_ancestor_is_refused_without_archiving_directory(
         "mode": (1 << 27) | 0o777,
         "linkTarget": "/etc",
     }
-    assert all(a.state == "unsafe" for a in capture(tmp_path, client).artifacts)
+    assert all(a.state == "unsafe" for a in capture(tmp_path, client).artifacts[:4])
     assert not client.reads
 
 
@@ -344,7 +375,7 @@ def test_tar_paths_links_types_owners_and_inventory_are_closed(
     client.overrides["archive"] = archive(b"log", **kwargs)
     assert all(
         a.state == "unsafe" and not a.content
-        for a in capture(tmp_path, client).artifacts
+        for a in capture(tmp_path, client).artifacts[:4]
     )
     assert all(r.closed for r in client.responses)
 
@@ -354,23 +385,28 @@ def test_archive_and_stat_drift_never_return_stitched_content(tmp_path: Path) ->
     client.stat_change = True
     assert all(
         a.state == "changed" and not a.content
-        for a in capture(tmp_path / "changed", client).artifacts
+        for a in capture(tmp_path / "changed", client).artifacts[:4]
     )
     client = Client()
     client.overrides["archive"] = b"x" * (MAX_ARCHIVE_BYTES + 1)
     assert all(
-        a.state == "too_large" for a in capture(tmp_path / "oversize", client).artifacts
+        a.state == "too_large"
+        for a in capture(tmp_path / "oversize", client).artifacts[:4]
     )
     assert all(r.closed for r in client.responses)
 
 
-@pytest.mark.parametrize("defect", ["mount", "privileged", "running", "identity"])
+@pytest.mark.parametrize(
+    "defect", ["mount", "tmpfs", "privileged", "running", "identity"]
+)
 def test_private_stopped_exact_container_required_before_file_reads(
     tmp_path: Path, defect: str
 ) -> None:
     client = Client()
     if defect == "mount":
         client.value["Mounts"] = [{"Source": "/private"}]
+    elif defect == "tmpfs":
+        client.value["HostConfig"]["Tmpfs"] = {"/home/kodi/.kodi": "rw"}
     elif defect == "privileged":
         client.value["HostConfig"]["Privileged"] = True
     elif defect == "running":
@@ -468,6 +504,15 @@ def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
                 payload = json.dumps([{"Id": CONTAINER_ID}]).encode()
             elif path.endswith(f"/containers/{CONTAINER_ID}/json"):
                 payload = json.dumps(fake.value).encode()
+            elif path.endswith(f"/containers/{CONTAINER_ID}/logs"):
+                assert parse_qs(urlsplit(self.path).query) == {
+                    "stdout": ["true"],
+                    "stderr": ["true"],
+                    "tail": ["200"],
+                    "timestamps": ["true"],
+                    "follow": ["false"],
+                }
+                payload = fake.docker_body
             else:
                 assert path.endswith(f"/containers/{CONTAINER_ID}/archive")
                 selected = parse_qs(urlsplit(self.path).query)["path"][0]
@@ -493,7 +538,9 @@ def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
             )
         ).capture(resolver.resolve(operation()))
         assert all(
-            a.state == "available" and a.content == "normal log\n"
+            a.state == "available"
+            and a.content
+            == ("normal console\n" if a.kind == "docker_output" else "normal log\n")
             for a in result.artifacts
         )
         assert all(method in {"GET", "HEAD"} for method, _ in methods)
@@ -502,3 +549,77 @@ def test_installed_docker_sdk_raw_http_reads_keep_timeouts_and_fixed_routes(
         server.server_close()
         worker.join(5)
     assert not worker.is_alive()
+
+
+def test_docker_window_decodes_stdout_stderr_without_follow_or_full_history_claim(
+    tmp_path: Path,
+) -> None:
+    client = Client()
+    first = b"2026-10-25T00:00:00Z stdout token=PRIVATE\n"
+    second = b"2026-10-25T00:00:01Z stderr recent\n"
+    client.docker_body = b"".join(
+        bytes([kind, 0, 0, 0]) + len(data).to_bytes(4, "big") + data
+        for kind, data in ((1, first), (2, second))
+    )
+    result = capture(tmp_path, client)
+    item = result.artifacts[-1]
+    assert result.schema_revision == 2 and item.kind == "docker_output"
+    assert item.state == "available" and "PRIVATE" not in item.content
+    assert "stdout" in item.content and "stderr recent" in item.content
+    assert item.source_size_bytes == len(first) + len(second)
+    assert item.rotation_state == "not_observed" and item.modified_at is None
+    assert client.docker_reads == 1 and all(
+        response.closed for response in client.responses
+    )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "padding",
+        "channel",
+        "short_header",
+        "short_payload",
+        "oversize",
+        "driver",
+        "unknown_tty",
+    ],
+)
+def test_invalid_or_unavailable_docker_window_is_explicit_without_body(
+    tmp_path: Path, defect: str
+) -> None:
+    client = Client()
+    data = {
+        "padding": b"\x01\x01\x00\x00\x00\x00\x00\x00",
+        "channel": b"\x00\x00\x00\x00\x00\x00\x00\x00",
+        "short_header": b"short",
+        "short_payload": b"\x01\x00\x00\x00\x00\x00\x00\x09short",
+        "oversize": b"x" * (MAX_DOCKER_WINDOW_BYTES + 1),
+    }
+    client.overrides["docker_body"] = data.get(defect, b"PRIVATE daemon error")
+    if defect == "driver":
+        client.overrides["docker_status"] = 500
+    elif defect == "unknown_tty":
+        del client.value["Config"]["Tty"]
+    result = capture(tmp_path, client)
+    item = result.artifacts[-1]
+    assert item.state == (
+        "unavailable"
+        if defect in {"driver", "unknown_tty"}
+        else "too_large"
+        if defect == "oversize"
+        else "unsafe"
+    )
+    assert not item.content and item.source_sha256 is None
+    assert all(a.state == "available" for a in result.artifacts[:4])
+    assert all(response.closed for response in client.responses)
+
+
+def test_tty_window_is_bounded_and_redacted_as_raw_output(tmp_path: Path) -> None:
+    client = Client()
+    client.value["Config"]["Tty"] = True
+    client.docker_body = b"password=PRIVATE\n" + b"x" * 5000 + b"\nlatest console\n"
+    item = capture(tmp_path, client).artifacts[-1]
+    assert item.state == "available" and item.tail_truncated
+    assert item.content.endswith("latest console\n") and "PRIVATE" not in item.content
+    assert len(item.content.encode()) <= MAX_TAIL_BYTES

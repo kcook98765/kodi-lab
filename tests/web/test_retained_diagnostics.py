@@ -228,3 +228,53 @@ def test_forms_bind_nonce_origin_csrf_and_reviewed_discard(
         "historical identity remains"
         in client.get(f"/diagnostics/{saved.capture_id}").text
     )
+
+
+def test_json_discard_and_known_private_evidence_require_full_web_authority(
+    client: TestClient,
+    broker: FakeBroker,
+    database: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = prepare(client, broker, database, monkeypatch)
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    saved = client.post(
+        f"/api/instances/{INSTANCE_ID}/diagnostic-captures",
+        json=body(),
+        headers=headers,
+    ).json()
+    capture_id = saved["capture_id"]
+    discard = {
+        "expected_state": "retained",
+        "expected_payload_sha256": saved["payload_sha256"],
+        "confirm_discard": True,
+    }
+    path = f"/api/diagnostic-captures/{capture_id}/discard"
+    assert client.post(path, json=discard, headers=ORIGIN).status_code == 403
+    assert (
+        client.post(
+            path, json={**discard, "confirm_discard": 1}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            path, json={**discard, "expected_payload_sha256": "0" * 64}, headers=headers
+        ).status_code
+        == 409
+    )
+    assert (
+        client.get(f"/api/diagnostic-captures/{capture_id}/evidence").status_code == 200
+    )
+    client.cookies.clear()
+    assert (
+        client.get(f"/api/diagnostic-captures/{capture_id}/evidence").status_code == 401
+    )
+    assert client.get(f"/api/diagnostic-captures/{capture_id}").status_code == 401
+    assert (
+        client.get(f"/diagnostics/{capture_id}", follow_redirects=False).status_code
+        == 303
+    )
+    assert client.post(path, json=discard, headers=headers).status_code == 401
+    assert len(calls) == 1

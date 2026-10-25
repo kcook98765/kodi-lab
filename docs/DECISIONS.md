@@ -6778,3 +6778,12 @@ permission or authority is introduced. Partial/uncollected evidence cannot
 claim complete diagnostics or authorize profile disposal. Populated downgrade
 refuses evidence loss. No migration/deployment or existing-resource removal is
 part of implementation qualification.
+
+The schema-2 snapshot adds a fixed non-following, timestamped Docker stdout/
+stderr window (200 lines, 64 KiB encoded response, strict multiplex or TTY
+decoding, 4 KiB redacted tail). Its byte count describes that returned window,
+not complete history. Schema-1 retained captures remain readable. Native crash
+reports and rotation remain unobserved. Check the reserve on both the data-root
+and actual database filesystems; sanitize failures to fixed safe reason codes.
+No caller-selected stream options, generic artifact paths or agent body access
+are introduced.
