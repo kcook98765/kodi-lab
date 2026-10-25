@@ -137,6 +137,7 @@ from kodi_lab.broker.stopped_diagnostics import (
     StoppedDiagnosticsInput,
     StoppedRuntimeDiagnostics,
 )
+from kodi_lab.broker.stopped_logs import StoppedLogSnapshot
 from kodi_lab.broker.transport import (
     receive_frame,
     reject_buffered_trailing_data,
@@ -203,6 +204,40 @@ class BrokerClient:
             params.expected_container_id,
         ):
             raise ClientProtocolError("stopped diagnostics response identity differs")
+        return result
+
+    def read_stopped_managed_logs(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_runtime_revision_id: str,
+        expected_container_id: str,
+    ) -> StoppedLogSnapshot:
+        try:
+            params = StoppedDiagnosticsInput(
+                managed_instance_id=managed_instance_id,
+                expected_runtime_revision_id=expected_runtime_revision_id,
+                expected_container_id=expected_container_id,
+            )
+        except (ValueError, ValidationError) as error:
+            raise ClientProtocolError("stopped log identities are invalid") from error
+        result = self._call(
+            "read_stopped_managed_logs",
+            params,
+            StoppedLogSnapshot,
+            response_timeout=15.0,
+        )
+        observed = result.exit_metadata
+        if (
+            observed.managed_instance_id,
+            observed.runtime_revision_id,
+            observed.container_id,
+        ) != (
+            params.managed_instance_id,
+            params.expected_runtime_revision_id,
+            params.expected_container_id,
+        ):
+            raise ClientProtocolError("stopped log response identity differs")
         return result
 
     def establish_managed_bridge_trust(

@@ -203,6 +203,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "managed_provision_reservations",
         "development_sessions",
         "development_session_policy",
+        "managed_diagnostic_captures",
         "managed_agent_lifecycle_requests",
         "external_screenshot_preferences",
         "managed_bridge_trust",
