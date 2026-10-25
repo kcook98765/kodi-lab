@@ -6697,3 +6697,18 @@ Workspace cleanup refuses referenced history. No automatic idle deletion, grant
 inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
 Migration 0080 is additive/empty by default and refuses populated evidence loss.
 Full Web composition and diagnostic retention remain separate prerequisite slices.
+
+## D-0448: Minimal Web composition for an opt-in development session
+
+Expose one workspace/version reservation and Prepare/Resume/Stop using existing
+canonical runtime eligibility and lifecycle services. Generation/runtime checks
+run inside lifecycle claim; exact container identity is rechecked before resume
+or stop dispatch. Preparation creates one stopped profile, not a deployment or a
+native/Bridge-ready assertion. Existing reviewed source and Bridge actions remain
+separate until their complete readiness/retention composition is qualified.
+
+Use authenticated Web/Origin/CSRF actions with closed payloads. UI status is an
+explicit read, not a new scheduler; lost/failed mutation responses prevent page
+resubmission. Closing only an ordinary absent/idle reservation retains history.
+Do not expose Fresh Test/Switch/deletion or clear uncertain dispatch from this UI.
+No automatic image acquisition, multi-instance manager, new MCP authority or grant.

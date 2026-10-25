@@ -146,12 +146,18 @@ class ManagedRuntimeLifecycleService:
             ManagedInstanceLifecycleOperationCoordinator(session_factory)
         )
 
-    def provision(self, instance_id: UUID) -> ManagedRuntimeStatus:
+    def provision(
+        self,
+        instance_id: UUID,
+        *,
+        precondition: Callable[[Session], None] | None = None,
+    ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
         return self._run(
             instance_id,
             ManagedInstanceLifecycleKind.PROVISION,
             self._provision,
+            precondition=precondition,
         )
 
     def _provision(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
