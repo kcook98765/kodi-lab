@@ -185,3 +185,129 @@ def test_stable_disabled_prepared_bridge_is_still_optional(setup: Any) -> None:
     owner.transport.enabled = False
     assert not owner.prepare(INSTANCE_ID)
     assert broker.establishments == 1 and row(owner).state == "prepared"
+
+
+def stage_stable(owner: Any, broker: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    establish = broker.establish_managed_bridge_trust
+
+    def staged(**kwargs: Any) -> Any:
+        kwargs.pop("install_reviewed", None)
+        return establish(**kwargs)
+
+    monkeypatch.setattr(broker, "establish_managed_bridge_trust", staged)
+    owner.stage_reviewed(INSTANCE_ID)
+    return row(owner)
+
+
+def test_explicit_prepared_continuation_authenticates_and_retires_old_secret(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, broker, _client, secrets = setup
+    prepared = stage_stable(owner, broker, monkeypatch)
+    assert owner.status(INSTANCE_ID)["resume_available"] is True
+    owner.resume_reviewed(INSTANCE_ID, expected_generation=prepared.generation)
+    active = row(owner)
+    assert active.state == "active" and active.generation > prepared.generation
+    assert owner.status(INSTANCE_ID)["resume_available"] is False
+    assert broker.establishments == 2
+    with pytest.raises(SecretStoreError):
+        secrets.read(
+            INSTANCE_ID, UUID(prepared.secret_reference), "request_authentication"
+        )
+
+
+@pytest.mark.parametrize(
+    "defect", ["generation", "container", "nonreviewed", "invalidated", "active"]
+)
+def test_prepared_continuation_cannot_reuse_stale_or_unreviewed_intent(
+    setup: Any, monkeypatch: pytest.MonkeyPatch, defect: str
+) -> None:
+    from kodi_lab.storage.models import ManagedBridgeTrustRow
+
+    owner, broker, _client, _secrets = setup
+    prepared = stage_stable(owner, broker, monkeypatch)
+    generation = prepared.generation
+    if defect == "active":
+        owner.prepare(INSTANCE_ID)
+    elif defect == "generation":
+        generation += 1
+    else:
+        with owner.sessions.begin() as session:
+            current = session.get(ManagedBridgeTrustRow, str(INSTANCE_ID))
+            assert current is not None
+            if defect == "container":
+                current.container_id = "f" * 64
+            elif defect == "nonreviewed":
+                current.reviewed_installation = False
+            else:
+                invalidate_managed_bridge_trust(
+                    session, INSTANCE_ID, secrets=owner.secrets
+                )
+    before = row(owner)
+    calls = broker.establishments
+    with pytest.raises(ManagedBridgeTrustError, match="resume_unavailable"):
+        owner.resume_reviewed(INSTANCE_ID, expected_generation=generation)
+    after = row(owner)
+    assert (after.generation, after.state, after.secret_reference) == (
+        before.generation,
+        before.state,
+        before.secret_reference,
+    )
+    assert broker.establishments == calls
+
+
+def test_prepared_without_installed_artifact_remains_unconfirmed(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, broker, _client, _secrets = setup
+    prepared = stage_stable(owner, broker, monkeypatch)
+    original = owner._call
+
+    def absent(*args: Any) -> Any:
+        if args[2] == "Addons.GetAddonDetails":
+            return {}
+        return original(*args)
+
+    monkeypatch.setattr(owner, "_call", absent)
+    with pytest.raises(ManagedBridgeTrustError, match="installation_incomplete"):
+        owner.resume_reviewed(INSTANCE_ID, expected_generation=prepared.generation)
+    assert (
+        row(owner).state == "prepared" and row(owner).generation == prepared.generation
+    )
+
+
+def test_explicit_continuation_holds_real_lifecycle_lease_until_authentication(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+    from kodi_lab.application.runtime_lifecycle import ManagedRuntimeLifecycleService
+    from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
+    from kodi_lab.broker.managed_bridge_trust import require_reviewed_installation_lease
+    from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow
+
+    owner, broker, _client, _secrets = setup
+    prepared = stage_stable(owner, broker, monkeypatch)
+    native = owner._resident_identity
+
+    def authenticated(*args: Any, **kwargs: Any) -> Any:
+        with owner.sessions() as session:
+            require_reviewed_installation_lease(session, str(INSTANCE_ID))
+        return native(*args, **kwargs)
+
+    monkeypatch.setattr(owner, "_resident_identity", authenticated)
+    readiness = ReadinessTaskRegistry()
+    status = ManagedRuntimeStatusService(owner.sessions, broker, readiness)
+    lifecycle = ManagedRuntimeLifecycleService(
+        owner.sessions, broker, readiness, status, bridge_trust=owner
+    )
+    lifecycle.resume_reviewed_bridge(
+        INSTANCE_ID, expected_generation=prepared.generation
+    )
+    assert row(owner).state == "active"
+    with owner.sessions() as session:
+        assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
+    assert not any(
+        call[0] in {"start", "stop", "provision", "deprovision"}
+        for call in broker.calls
+    )
+    readiness.close()

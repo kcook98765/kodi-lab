@@ -13,27 +13,31 @@
     managed_bridge_candidate_unavailable: 'The reviewed Bridge candidate is unavailable.',
     managed_bridge_reestablishment_required: 'Retired trust requires explicit reviewed installation.',
     managed_bridge_identity_mismatch: 'The Bridge identity did not match; preserve the instance and review its status.',
+    managed_bridge_resume_unavailable: 'Prepared Bridge identity or generation changed. Refresh and review its history.',
+    managed_bridge_installation_incomplete: 'Prepared intent did not prove an installed reviewed Bridge. Review installation before continuing.',
     managed_bridge_establishment_failed: 'Fresh Bridge authentication was not confirmed.',
   };
   let submitting = false;
   let checking = false;
   let uncertain = false;
   let state;
+  let resumeGeneration;
   let checks = 0;
   let timer;
   let closed = false;
   let statusRequest;
 
   function controls() {
-    button.disabled = submitting || checking || uncertain || !state || state === 'prepared';
+    button.disabled = submitting || checking || uncertain || !state || (state === 'prepared' && !resumeGeneration);
+    button.textContent = resumeGeneration ? 'Continue Bridge setup' : 'Install reviewed Bridge';
     refreshButton.disabled = submitting || checking;
   }
-  async function request(options) {
+  async function request(options, endpoint = url) {
     const controller = new AbortController();
     if (!options.method) statusRequest = controller;
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(url, {...options, credentials: 'same-origin', signal: controller.signal});
+      const response = await fetch(endpoint, {...options, credentials: 'same-origin', signal: controller.signal});
       // Include response decoding in the deadline.
       const data = await response.json();
       return {response, data};
@@ -52,10 +56,11 @@
       if (closed || document.hidden) return;
       if (!response.ok || !states.has(data.state)) throw new Error();
       state = data.state;
+      resumeGeneration = state === 'prepared' && data.resume_available === true && Number.isSafeInteger(data.generation) && data.generation > 0 ? data.generation : undefined;
       const message = state === 'active'
         ? 'Stored reviewed Bridge trust is active. Each tool checks its own capability readiness.'
         : state === 'prepared'
-          ? 'Bridge preparation is recorded; installation and fresh authentication are not confirmed. Check instance status and history.'
+          ? 'Bridge preparation is recorded; installation and fresh authentication are not confirmed. Check instance status and history.' + (resumeGeneration ? ' When Kodi is running and native-ready, Continue Bridge setup authenticates the reviewed installation without another restart. Native prompts may still need authorized action.' : '')
           : state === 'invalidated' || state === 'revoked'
             ? 'Previous Bridge trust is retired. Start Kodi, then explicitly install the reviewed Bridge to recover.'
             : 'No Bridge trust is recorded. Start Kodi, then install the reviewed Bridge for rich UI inspection.';
@@ -65,6 +70,7 @@
       else if (state === 'prepared') status.textContent += ' Automatic checks paused. Use Refresh status to check again.';
     } catch (_) {
       state = undefined;
+      resumeGeneration = undefined;
       if (!closed && !document.hidden) status.textContent = 'Could not confirm Bridge status. Use Refresh status and review instance history.' + (uncertain ? ' Do not resubmit the uncertain installation request.' : '');
     } finally {
       checking = false;
@@ -76,14 +82,16 @@
     return refresh();
   });
   button.addEventListener('click', async () => {
-    if (closed || submitting || checking || uncertain || !state || state === 'prepared') return;
+    if (closed || submitting || checking || uncertain || !state || (state === 'prepared' && !resumeGeneration)) return;
     clearTimeout(timer);
+    const continuing = resumeGeneration;
     submitting = true;
     state = undefined;
+    resumeGeneration = undefined;
     controls();
-    status.textContent = 'Requesting reviewed Bridge installation and a Kodi restart…';
+    status.textContent = continuing ? 'Continuing prepared Bridge setup and checking fresh authentication…' : 'Requesting reviewed Bridge installation and a Kodi restart…';
     try {
-      const {response, data} = await request({method: 'POST', headers: {'Content-Type': 'application/json', 'X-Kodi-Lab-CSRF': token}, body: '{}'});
+      const {response, data} = await request({method: 'POST', headers: {'Content-Type': 'application/json', 'X-Kodi-Lab-CSRF': token}, body: continuing ? JSON.stringify({expected_generation: continuing}) : '{}'}, continuing ? `${url}/resume` : url);
       if (!response.ok) {
         uncertain = true;
         const advice = typeof data.detail === 'string' && Object.hasOwn(errors, data.detail) ? errors[data.detail] : 'Bridge installation was not confirmed.';

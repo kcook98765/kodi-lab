@@ -1172,6 +1172,11 @@ class ExternalDeploymentReconciliationRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class ReviewedBridgeResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+
+
 class HistoricalContainmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -7290,6 +7295,24 @@ def create_app(
 
         try:
             return context.lifecycle.install_reviewed_bridge(instance_id)
+        except ManagedBridgeTrustError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/instances/{instance_id}/reviewed-bridge/resume",
+        response_model=ManagedRuntimeStatus,
+    )
+    def resume_reviewed_managed_bridge(
+        instance_id: UUID,
+        body: ReviewedBridgeResumeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        try:
+            return context.lifecycle.resume_reviewed_bridge(
+                instance_id, expected_generation=body.expected_generation
+            )
         except ManagedBridgeTrustError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

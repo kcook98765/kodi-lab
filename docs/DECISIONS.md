@@ -6646,3 +6646,19 @@ where available; checked_at is assessment time. Unknown/stale digests and prior
 workspace receipt bindings remain distinguishable. No durable-only result claims
 ready or reserves a future operation. Unsupported external/repository assessments
 stay unknown. Closed reason/action arrays omit global and foreign operation IDs.
+
+## D-0445: Explicit prepared Bridge confirmation under a live lifecycle lease
+
+Prepared reviewed intent does not establish installed material or authenticated
+capability readiness. A Web-only, generation-bound continuation may use the
+existing enable/establish/authenticate path for the unchanged exact runtime and
+container. It runs synchronously inside the existing lifecycle START operation
+lease, avoiding reliance on a later background readiness callback's lease timing.
+It never starts/stops/restarts Kodi or restages files itself. Unknown/stale,
+unreviewed, retired and incomplete material remain refused or unconfirmed.
+
+Reuse the existing prepared CAS, secret retirement, build/release pin and fresh
+identity checks; no direct prepared-to-active state edit. Native prompts remain
+independent authorized work. Expose only recorded continuation availability in
+GET status and preserve bounded polling/uncertain-POST safeguards in the browser.
+No new persisted vocabulary, permission, MCP mutation or production capability.
