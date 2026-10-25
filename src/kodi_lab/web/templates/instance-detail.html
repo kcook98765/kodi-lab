@@ -77,7 +77,8 @@
       <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
         <h2>Reviewed Bridge</h2>
         <p>The reviewed Bridge adds direct manifest entry-point launch on managed development Kodi. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
-        <button type="button" data-reviewed-bridge-install>Install reviewed Bridge</button>
+        <button type="button" data-reviewed-bridge-install disabled>Install reviewed Bridge</button>
+        <button type="button" data-reviewed-bridge-refresh>Refresh status</button>
         <p role="status" data-reviewed-bridge-status>Checking Bridge status…</p>
       </section>
       {% endif %}
@@ -266,6 +267,7 @@
           <h3>{{ item.summary }}</h3>
           <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
           {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+          {% if item.deployment_recovery_available %}<p>A verified copy from this failed deployment needs explicit tree inspection. <a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ item.operation_uuid }}">Review recovery for this operation</a>.</p>{% endif %}
         </article>
         {% else %}<p>No retained activity.</p>{% endfor %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>

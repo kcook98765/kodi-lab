@@ -147,6 +147,16 @@ from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
 )
+from kodi_lab.application.development_session_workflow import (
+    DevelopmentSessionWorkflow,
+    SessionGenerationRequest,
+    SessionView,
+)
+from kodi_lab.application.development_sessions import (
+    DevelopmentSessionRequest,
+    DevelopmentSessionService,
+    DevelopmentSessionStatus,
+)
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
     DevelopmentSourceAttachmentService,
@@ -454,6 +464,11 @@ from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
 )
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
+    WorkspaceDeploymentPreflightService,
+)
 from kodi_lab.application.workspace_launch import (
     WorkspaceLaunchError,
     WorkspaceLaunchResult,
@@ -527,6 +542,7 @@ from kodi_lab.repository.development import (
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import (
     read_resource_policy as managed_resource_policy,
 )
@@ -1166,6 +1182,11 @@ class ExternalDeploymentReconciliationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmed: Literal[True]
+
+
+class ReviewedBridgeResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
 
 
 class HistoricalContainmentRequest(BaseModel):
@@ -3795,6 +3816,71 @@ def create_app(
             },
         )
 
+    session_service = DevelopmentSessionService(
+        session_factory,
+        broker.managed_container_inventory,
+        data_root=settings.data_root,
+    )
+    session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
+
+    @app.exception_handler(DevelopmentSessionConflict)
+    async def development_session_conflict(
+        _request: Request, error: DevelopmentSessionConflict
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Review session status and Kodi history before another action.",
+        )
+
+    @app.get("/development-session", response_class=HTMLResponse)
+    async def development_session_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "development-session.html",
+            {
+                "choices": session_workflow.choices(),
+                "workspaces": context.agent_workspaces.list_workspaces(),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get("/api/development-session", response_model=SessionView)
+    def development_session_status(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionView:
+        return session_workflow.view()
+
+    @app.post(
+        "/api/development-session/reserve", response_model=DevelopmentSessionStatus
+    )
+    def reserve_development_session(
+        body: DevelopmentSessionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSessionStatus:
+        return session_service.reserve(body)
+
+    @app.post(
+        "/api/development-session/close-absent", response_model=DevelopmentSessionStatus
+    )
+    def close_development_session(
+        body: SessionGenerationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSessionStatus:
+        return session_service.close_absent(body.expected_generation)
+
+    @app.post("/api/development-session/{action}", response_model=ManagedRuntimeStatus)
+    def development_session_action(
+        action: Literal["prepare", "resume", "stop"],
+        body: SessionGenerationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return session_workflow.act(action, body.expected_generation)
+
     @app.get("/agent-workspaces", response_class=HTMLResponse)
     async def agent_workspace_list_page(request: Request) -> Response:
         try:
@@ -5951,6 +6037,28 @@ def create_app(
         return context.agent_workspaces.get(workspace_id)
 
     @app.get(
+        "/api/agent-workspaces/{workspace_id}/deployment-preflight",
+        response_model=DeploymentPreflightResult,
+    )
+    def workspace_deployment_preflight(
+        workspace_id: UUID,
+        target_id: UUID,
+        expected_generation: int = Query(ge=0),
+        deployment_mode: Literal["auto", "direct", "repository"] = "auto",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DeploymentPreflightResult:
+        # This projection deliberately cannot reach runtime status/convergence.
+        context.agent_workspaces.get(workspace_id)
+        return WorkspaceDeploymentPreflightService(session_factory).inspect(
+            DeploymentPreflightInput(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                expected_generation=expected_generation,
+                deployment_mode=deployment_mode,
+            )
+        )
+
+    @app.get(
         "/api/agent-workspaces/{workspace_id}/capture-status",
         response_model=WorkspaceCaptureStatus,
     )
@@ -7301,6 +7409,24 @@ def create_app(
 
         try:
             return context.lifecycle.install_reviewed_bridge(instance_id)
+        except ManagedBridgeTrustError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/instances/{instance_id}/reviewed-bridge/resume",
+        response_model=ManagedRuntimeStatus,
+    )
+    def resume_reviewed_managed_bridge(
+        instance_id: UUID,
+        body: ReviewedBridgeResumeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        try:
+            return context.lifecycle.resume_reviewed_bridge(
+                instance_id, expected_generation=body.expected_generation
+            )
         except ManagedBridgeTrustError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

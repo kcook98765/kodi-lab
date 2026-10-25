@@ -1,12 +1,13 @@
 """Import receipts upgrade the real schema and prohibit lossy downgrade."""
 
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
 from sqlalchemy import inspect, text
 
-from kodi_lab.application.workspace_imports import ImportInput
+from kodi_lab.application.workspace_imports import ImportApplyInput, ImportInput
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.metadata import Base
 from tests.application import test_workspace_source_capture as capture_fixture
@@ -79,4 +80,43 @@ def test_real_import_receipt_on_upgraded_schema_refuses_lossy_downgrade(
         )
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
     assert tools.workspace_import(principal, request) == receipt
+    engine.dispose()
+
+
+def test_reviewed_tombstone_receipt_runs_on_existing_migrated_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, REVISION)
+    engine = create_database_engine(url)
+    monkeypatch.setattr(capture_fixture, "create_engine", lambda _url: engine)
+    monkeypatch.setattr(Base.metadata, "create_all", lambda _engine: None)
+    workspaces, tools, source, _sessions, _admin, principal, _client = _environment(
+        tmp_path
+    )
+    (source / "default.py").unlink()
+    preview = tools.workspace_import_preview(
+        principal,
+        ImportInput(
+            workspace_id=WORKSPACE_ID, expected_generation=0, mode="reviewed_tree"
+        ),
+    )
+    operation = ImportApplyInput(
+        workspace_id=WORKSPACE_ID,
+        expected_generation=0,
+        mode="reviewed_tree",
+        source_digest=preview.source_digest,
+        preview_digest=preview.preview_digest,
+        request_id=uuid4(),
+    )
+    result = tools.workspace_import(principal, operation)
+    assert result.state == "succeeded" and result.matches_source
+    assert result.files[0].operation == "deleted"
+    assert workspaces.get(WORKSPACE_ID).generation == 1
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+        command.downgrade(config, PREDECESSOR)
+    assert tools.workspace_import(principal, operation) == result
     engine.dispose()

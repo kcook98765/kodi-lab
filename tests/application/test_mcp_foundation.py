@@ -49,7 +49,6 @@ from kodi_lab.mcp.transport import (
     ModernMcpAuthMiddleware,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
     McpClientTargetGrantRow,
@@ -62,6 +61,7 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 TARGET_ID = UUID("12000000-0000-4000-8000-000000000001")
 REVISION_ID = UUID("12000000-0000-4000-8000-000000000002")
@@ -90,9 +90,12 @@ class TokenSource:
 
 
 @pytest.fixture
-def mcp_database(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'mcp.db'}")
-    Base.metadata.create_all(engine)
+def mcp_database(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    database_path = tmp_path / "mcp.db"
+    current_schema.clone(database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
     factory = create_session_factory(engine)
     _seed_target(factory)
     yield factory
@@ -370,9 +373,9 @@ def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     )
 
 
-def test_exactly_seven_of_twenty_six_tools_are_production_eligible() -> None:
+def test_exactly_seven_of_twenty_seven_tools_are_production_eligible() -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 26
+    assert len(registry.names()) == 27
     eligible = {
         "inspect_ui_state",
         "log_read",
@@ -816,6 +819,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "workspace_capture",
         "workspace_create",
         "workspace_deploy",
+        "workspace_deploy_preflight",
         "workspace_edit",
         "workspace_execute",
         "workspace_execution_recover",

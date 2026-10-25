@@ -51,10 +51,17 @@ snapshot data live below those roots so pytest cannot erase the ownership marker
 The command rejects symlinks, live matching PID/start-time identities, foreign
 owners, permissive roots, malformed markers, and unrelated names.
 
-Each gate stage reports elapsed time. The full pytest stage has a 900-second
+Each gate stage reports elapsed time. The full pytest stage has a 2,400-second
 watchdog by default; `KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS` may raise that bound
 for a known slower environment. A timeout is a harness failure to diagnose, not
 permission to skip tests or reduce snapshot storage safety.
+
+The #54 baseline on main `e198592` hit the previous 900-second limit at about
+71%. The complete combined source candidate `02c4054` passed all 5,272 collected
+cases (5,234 passed, 38 gated skips) with the explicit 2,400-second override;
+its pytest stage took 1,747 seconds and the complete gate 29m59s. The new default
+matches that successfully exercised bound. Test selection, assertions, stages,
+storage reserves, explicit overrides and invalid-value refusal are unchanged.
 
 ## Migration fixture architecture
 
@@ -126,6 +133,20 @@ claiming a pass. An interrupted process can leave incomplete pytest artifacts.
 The TSV records completed stages, including failures; a successful pytest JSON
 alone does not establish that the later release stages passed.
 
+Inspect retained timings without running tests again:
+
+```console
+uv run --locked python -m scripts.summarize_test_report /tmp/kodi-lab-check-results.EXAMPLE/pytest.json
+```
+
+The report ranks files by summed setup/call/teardown cost and retains failed,
+skipped and incomplete cases and the pytest exit status. Phase sums are not
+elapsed lane time; check `stages.tsv` for release-stage status. `--json` provides
+machine-readable totals, and `--limit 20` changes only the number of ranked files
+shown. It does not filter the totals or execute any tests. Interrupted runs may
+have no completed JSON artifact; retain their stage/log evidence rather than
+treating absent measurements as zero or repeating a full gate just for a report.
+
 ## Case scratch cleanup
 
 The test-only `tests.efficiency_plugin` recognizes only pytest's built-in
@@ -172,8 +193,11 @@ profile or container is a cleanup candidate.
 
 ## Closed current-schema fixture pilot
 
-Only `tests/web/conftest.py` and the shared uploaded-ZIP fixture currently use
-`CurrentSchemaTemplate`. Each pytest session builds one unseeded ORM schema,
+`tests/web/conftest.py`, the shared uploaded-ZIP fixture, and nine explicitly
+selected application fixtures use `CurrentSchemaTemplate`. The application
+fixtures cover managed-instance selection/projection, runtime eligibility/matrix/
+administration, source and uploaded-ZIP enablement, add-on inventory, and MCP
+foundation services. Each pytest session builds one unseeded ORM schema,
 closes every engine/SQLite handle, validates integrity and hashes the immutable
 template. Each test receives an exclusive private file copy with an integrity
 check, a fresh engine and the same per-case seeding/foreign-key behavior as
@@ -187,6 +211,18 @@ scratch from 102,155,361 bytes to 2,002,984 bytes. All 51 case roots were reclai
 the remaining scratch included the session schema template. Peak process RSS was
 349,260 KiB before and 339,328 KiB after. This is one small pilot on the local
 host, not a full-suite speedup or peak-memory qualification.
+
+The 2026-10-24 #54 expansion retained every test body, per-case seed, engine,
+session and foreign-key configuration. The matched lane passed 22 focused tests
+plus 247 interaction tests before and after; four unchanged storage modules were
+included as controls. The 247-case pytest portion decreased from 38.30s to
+18.21s (52.5%), with setup phases decreasing from 29.24s to 8.22s. Complete lane
+time decreased from 48.2s to 25.7s. Peak pytest process RSS for that portion was
+372,272 KiB before and 271,916 KiB after. These are single local matched runs,
+not a full-suite or native-host performance claim. Existing closed-template
+integrity/mutation-isolation/handle/sidecar checks remain authoritative. No
+Alembic transition, production initialization or authentication cost was changed.
+See [the #54 ledger](PROGRAM-54-LEDGER.md) for the source pin and retained evidence.
 
 ## Idle-host baseline (2026-09-28)
 

@@ -59,6 +59,7 @@ from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
     EXECUTION_UNSUPPORTED_REASONS,
+    MANAGED_BASELINE_REASONS,
     WORKSPACE_SMOKE_SUCCESS_DESCRIPTION,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
@@ -73,6 +74,10 @@ from kodi_lab.application.mcp_workspace_mutations import (
 from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
+)
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
 )
 from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryResult,
@@ -174,6 +179,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_source_scan",
         "workspace_capture",
         "workspace_import_preview",
+        "workspace_deploy_preflight",
         "workspace_import",
         "workspace_execute",
         "workspace_launch",
@@ -1054,7 +1060,13 @@ def build_mcp_http_transport(
             description=(
                 "Review bounded added/modified UTF-8 files from the workspace's "
                 "registered source. Returns source and preview digests for exact "
-                "apply; deletions, private overlaps and unsupported files are rejected."
+                "apply. Default changes mode rejects deletions and private overlaps. "
+                "Opt into reviewed_tree to review removals and all private-only paths; "
+                "supply per-path keep_private/take_source resolutions and preview "
+                "again. "
+                "Only matches_source=true promises an exact source result; "
+                "directory/type "
+                "transitions and other unsupported files remain rejected."
             ),
             input_schema=ImportInput.model_json_schema(),
             output_schema=ImportPreview.model_json_schema(),
@@ -1073,6 +1085,21 @@ def build_mcp_http_transport(
             input_schema=ImportApplyInput.model_json_schema(),
             output_schema=ImportResult.model_json_schema(),
             annotations=edit_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_deploy_preflight": Tool(
+            name="workspace_deploy_preflight",
+            title="Inspect durable deployment prerequisites",
+            description=(
+                "Read exact workspace/generation/target setup facts without a "
+                "deployment attempt. This durable-only assessment does not probe "
+                "native Kodi, Bridge or add-on liveness and never returns ready. "
+                "External/repository modes are unsupported/unknown. Recheck all "
+                "prerequisites during a later mutation; no reservation or repair."
+            ),
+            input_schema=DeploymentPreflightInput.model_json_schema(),
+            output_schema=DeploymentPreflightResult.model_json_schema(),
+            annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
         "workspace_deploy": Tool(
@@ -1270,6 +1297,7 @@ def build_mcp_http_transport(
                 | WorkspaceEditResult
                 | WorkspaceSourceScanToolResult
                 | WorkspaceCaptureToolResult
+                | DeploymentPreflightResult
                 | ImportPreview
                 | ImportResult
                 | WorkspaceStatusResult
@@ -1289,6 +1317,7 @@ def build_mcp_http_transport(
                 "workspace_validate",
                 "workspace_source_scan",
                 "workspace_import_preview",
+                "workspace_deploy_preflight",
                 "screenshot_retrieve",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
@@ -1455,6 +1484,17 @@ def build_mcp_http_transport(
                 workspace_id = parsed_scan.workspace_id
                 result = await asyncio.to_thread(
                     tools.workspace_source_scan, principal, workspace_id
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_deploy_preflight":
+                parsed_preflight = DeploymentPreflightInput.model_validate(arguments)
+                workspace_id, target_id, generation = (
+                    parsed_preflight.workspace_id,
+                    parsed_preflight.target_id,
+                    parsed_preflight.expected_generation,
+                )
+                result = await asyncio.to_thread(
+                    tools.workspace_deploy_preflight, principal, parsed_preflight
                 )
                 source_id = result.source_id
             elif params.name == "workspace_import_preview":
@@ -1785,6 +1825,7 @@ def build_mcp_http_transport(
 
 
 _SAFE_TOOL_REASONS = {
+    "deployment_not_allowed": MANAGED_BASELINE_REASONS,
     "screenshot_capture_unavailable": frozenset(
         {
             "capture_not_retained",
@@ -1830,6 +1871,18 @@ def _tool_error_result(
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if (
+        tool_name == "workspace_deploy"
+        and result_code == "deployment_not_allowed"
+        and reason in MANAGED_BASELINE_REASONS
+    ):
+        message += (
+            "\nnext_action: Ask a Web administrator to review this target's source "
+            "baseline and retained deployment history. Source Copy/Sync requires "
+            "the exact stopped container; Start/readiness and source enablement "
+            "are separate steps. A retained failed copy may need explicit "
+            "recovery first."
+        )
     if (
         tool_name == "workspace_execute"
         and result_code == "execution_unsupported"
