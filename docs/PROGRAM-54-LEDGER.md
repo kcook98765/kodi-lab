@@ -575,3 +575,36 @@ remain active until an atomic new reservation follows independently confirmed
 old-container retirement. Existing lifecycle operation history alone lacks an
 exact original-container witness. Unknown creates remain fenced; missing
 inventory, restart and elapsed time cannot settle their dispatch.
+
+### Continued increment: exact Fresh/Switch review and evidence holds
+
+[Draft #70](https://github.com/kcook98765/kodi-lab/pull/70), head `782b33f`,
+stacked on #69 `80605de`: one durable explicit review binds the stopped current
+session and workspace generation/tree/source/add-on, immutable next cached
+runtime/image and 1–8 selected capture IDs/digests. New empty 0082 adds review/
+hold tables. A hold and explicit discard serialize on the SQLite writer boundary;
+one open review, bounded history/snapshot/storage, exact nonce replay and
+digest-bound cancellation preserve receipts. Open review blocks absent-session
+release. Web forms and JSON retain admin/auth/origin/CSRF and strict inputs.
+No lifecycle, source/baseline/trust copy, grants, worker or scheduling is added.
+
+**INTEGRATION PASS** at `782b33f`, 107.4s: six modules individually (31 application,
+2 real migration, 3 Web, 18 foundation, 3 current-schema OSTree and 112 full
+migration cases = 169), Ruff/mypy, then 61 retention/session/shared-admission/
+Web/Node interactions. Includes competing reviews, review-versus-discard,
+post-commit cancellation/replay, unknown provision and preserved reconciliation,
+exact evidence/hash/schema checks, private origin/CSRF forms and populated
+0081→0082/FK/UTF-8-bound/lossy downgrade proof. Initial test-only fence setup
+and lint/type issues were corrected. A direct test-only mypy invocation without
+the lane's required MYPYPATH was discarded; the supported settled lane passed.
+
+Reverified all 24 original worktree HEAD/status pairs, the original stash and
+all 210 container ID/name/display-image/state tuples unchanged. Remote main
+remains `e198592`; preserved log branch remains exact `3dddbc2`. No operational
+mutation, production migration, native or Windows acceptance occurred.
+
+#69/#70 remain draft, outside `f6449a4` RELEASE PASS. Next is exact original-
+container retirement proof under existing lifecycle lease/terminalization and
+atomic next-session admission. A review alone cannot authorize disposal or
+settle uncertain dispatch. Schedule one settled combined broad gate after these
+shared persistence/lifecycle changes settle, not a release run per small PR.
