@@ -6701,3 +6701,22 @@ explicit read, not a new scheduler; lost/failed mutation responses prevent page
 resubmission. Closing only an ordinary absent/idle reservation retains history.
 Do not expose Fresh Test/Switch/deletion or clear uncertain dispatch from this UI.
 No automatic image acquisition, multi-instance manager, new MCP authority or grant.
+
+## D-0447: Web-only exact stopped-container exit metadata foundation (#50)
+
+Expose one fixed metadata read for an exact stopped disposable managed target,
+independent of resident Bridge/native usability. Resolve target/runtime/artifact
+from canonical storage; prove owner/name/container/revision/image and stopped
+state twice, recheck the storage binding and reject inconsistent provider/client
+results. Return typed exit/OOM/timestamps with fresh observation time; do not infer
+root cause or a normal Lab stop from an exit number. No raw daemon error, file/log
+body, shell/path parameter or operation-wide authority is exposed.
+
+The privileged broker adds one explicit read-only operation; its bounded catalog
+increases from 38 to exactly 39 entries. Preserve exact UID authorization, closed
+parameter/result contracts and exact catalog regressions. Web authentication is
+required; existing MCP/production grants and live log behavior remain unchanged.
+Coordinate retention with preserved 09d847e/3dddbc2 without changing their bytes.
+Historical operation association, private artifact retention, agent log-body
+access/redaction and native symbolication remain subsequent work, not implied by
+this metadata-only foundation.
