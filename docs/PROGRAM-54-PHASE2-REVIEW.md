@@ -61,7 +61,7 @@ evidence gaps open. Group future approval decisions in the durable ledger.
 
 ## Published Phase 2 dependency review
 
-The application heads below compose with all six Phase 1 heads in the frozen
+The application heads #62–#67 compose with all six Phase 1 heads in the frozen
 candidate `f6449a432a74837fdfaf67d4cd23181716775590` (tree
 `3192fbccb66e6a23f0ae790efadd70561137a510`). This exact pin achieved RELEASE PASS:
 5,354 passed, 38 gated skips, all stages and cleanup, 29m54s. Later application
