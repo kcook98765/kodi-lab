@@ -465,3 +465,49 @@ removal occurred.
 The later #49 capability-prerequisite increment is outside this pin; its own
 focused/integration result will be recorded separately. No second full release
 run is scheduled for that observation-only extension.
+
+### Later increment: saved capability prerequisites (#49/#51)
+
+[PR #68](https://github.com/kcook98765/kodi-lab/pull/68), head `2080f4e`,
+stacked on #64: shared SELECT-only managed capability-prerequisite projection,
+authenticated HTML/JSON and a link from instance controls. Native readiness,
+current container binding, prompt state and all live capability readiness remain
+unknown. Candidate and last approved authenticated versions are distinct.
+No-record native fallback, non-active/drifted denial, log capability and current
+launch-build requirements remain separate; screenshots/native remote/direct
+deployment gain no Bridge prerequisite. No MCP tool/schema, grant, secret read,
+probe, repair, migration or scheduler.
+
+**INTEGRATION PASS** at `2080f4e`, 23.4s: each new module individually (22
+application, 2 Web), Ruff/mypy, then 56 trust/recovery/log/lifecycle/Web cases.
+SQL tracing permits only SELECT; forbidden runtime/broker/native/secret doubles
+guard the status boundary. Covers exact RC1, historical identities, missing or
+unsupported profiles, malformed saved identity, runtime drift and auth. An
+initial test-only typing failure after all 24 tests passed was corrected before
+the settled lane; its log is retained.
+
+Separate composition `24c1aeb` on
+`qualification/54-capability-overlay-20261024` overlays the release pin without
+changing its worktree. **INTEGRATION PASS**, 48.9s: same 24 cases individually,
+static checks, then 20 stopped-diagnostics/session/Bridge/UI-MCP interactions.
+Adjacent additions conflicted in `web/app.py`; both complete route blocks were
+preserved. AST comparison proves every previous route function is unchanged,
+and exact new route/decision hashes are retained. D0443–D0448 remain unchanged
+and exact D0449 is appended. An initial nonexistent test-path selection failed
+argument validation before any tests and was corrected.
+
+**Neither `2080f4e` nor `24c1aeb` has RELEASE PASS.** The complete release result
+remains attached only to `f6449a4`/tree `3192fbc`. This later observation-only
+change has the integration evidence above. No native/Windows acceptance is
+inferred. Both branches are pushed; no main merge or deployment occurred.
+
+Next planned increment: #50 fixed bounded approved log/crash artifact reads and
+private retention tied to an exact operation/runtime/container, coordinated with
+the preserved closed-log/rotation branch. Explicit size/count/age, redaction and
+access semantics must be reviewable before enabling retained bodies. Then #51
+Fresh/Switch needs that evidence plus independently proved dispatch settlement,
+explicit old-profile disposal review and fresh trust/baseline bindings. The
+current Prepare/Resume/Stop flow preserves stopped/failed profiles; uncertainty
+cannot be closed from absence or elapsed time. New settings permissions (#52),
+native ZIP feasibility (#53), merges/deployment, existing resource disposal and
+native/Windows acceptance retain their grouped decisions in the review.

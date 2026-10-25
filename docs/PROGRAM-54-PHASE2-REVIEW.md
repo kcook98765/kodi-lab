@@ -76,6 +76,7 @@ changes need their own evidence; do not transfer this result to another tree.
 | [#65](https://github.com/kcook98765/kodi-lab/pull/65) | `31a01af` | Main-based. Empty migration 0080 and shared broker provision/start admission. Unknown create remains fenced; current absence cannot clear it. |
 | [#66](https://github.com/kcook98765/kodi-lab/pull/66) | `2688e04` | Stacked on #65. Reserve/Prepare/Resume/Stop, exact current generation/target/runtime/container checks. No Fresh/Switch/deletion or new MCP authority. |
 | [#67](https://github.com/kcook98765/kodi-lab/pull/67) | `8833c30` | Main-based. Exact stopped-container metadata read, fixed 39-operation broker catalog. No retained log bodies/operation association or crash-cause claim. |
+| [#68](https://github.com/kcook98765/kodi-lab/pull/68) | `2080f4e` | Later increment stacked on #64. SELECT-only stored capability prerequisites; integration qualification only, outside the release pin. Adjacent Web route additions with #67 need both complete blocks preserved. |
 
 After the Phase 1 order above, #62, #65, #63, #64 and #67 can be reviewed in
 parallel conceptually; #66 follows #65. #61 follows #56 and continues to collect
@@ -106,3 +107,10 @@ These are grouped next decisions and implementation prerequisites. They do not
 prevent independent code-only diagnostics, status projection or documentation.
 No general manager, task scheduler, automatic cleanup, grant broadening or
 profile migration is proposed.
+
+#68 follows #64. The later overlay `24c1aeb` composes it with the complete
+release pin; adjacent route and decision appends were preserved explicitly,
+with AST proof that all existing route functions are unchanged. Integration
+passed 24 new cases individually/static checks plus 20 affected Web interactions
+in 48.9s. This overlay is not RELEASE PASS. The original release worktree remains
+clean at `f6449a4`, and all earlier qualifications retain their exact boundaries.
