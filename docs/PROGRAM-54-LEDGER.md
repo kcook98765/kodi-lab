@@ -1421,3 +1421,8 @@ unchanged and #55–#60 mergeable. This is review metadata, not human approval.
 Relative links in all three current report documents resolve; the walkthrough
 links directly to the qualified source because it is absent from #61's older
 documentation-only base. Documentation checks do not require another full gate.
+
+[Issue #54 milestone 25](https://github.com/kcook98765/kodi-lab/issues/54#issuecomment-6397681947) publishes the final combined result,
+PR links, preserved-state evidence and grouped next decisions. The authorized
+source phase is handed off for review; native/operational acceptance and the
+whole-program issue remain open. No merge or deployment is implied.
