@@ -426,3 +426,42 @@ This will be developed outside the frozen candidate, with focused/integration
 checks only after the full gate releases the test slot. Fresh/Switch remains
 blocked on retained evidence and independently proved uncertain-dispatch
 settlement; current absence alone remains insufficient.
+
+### Phase 2 release milestone: pinned combined candidate qualified
+
+**RELEASE PASS** belongs to commit
+`f6449a432a74837fdfaf67d4cd23181716775590`, tree
+`3192fbccb66e6a23f0ae790efadd70561137a510`: **5,354 passed, 38 gated skips**,
+complete gate **29m54s**, process exit 0. Ruff format/lint, strict mypy, six
+contract guards, the full unfiltered suite, package build, Alembic history and
+package/config import all passed. Pytest reported 1,738.12s; its wrapper stage
+including shutdown/cleanup was 29m36s. These are distinct elapsed measures.
+All three exact run-owned scratch roots were removed, and post-gate HEAD, tree,
+1,771 tracked entries and changed-file hashes match the frozen manifest.
+
+The 38 skips retain their explicit image/root/OSTree/acquisition/isolated-LAN
+acceptance gates. No tests or security, migration, identity or regression checks
+were removed. This includes all published application heads #55–#60 and #62–#67,
+with decision-record composition proof retained. It does not transfer to later
+application changes. Phase 1's separate `02c4054` RELEASE PASS (5,234/38, 29m59s)
+and the interrupted `c316c89` partial run remain separate evidence.
+
+Private evidence: `phase2-20261024/release-evidence/` contains stage TSV, full
+pytest and contract JSON/JUnit; `phase2-release-result.json` binds counts, stages,
+skip reasons, exact source and removed roots. `release-cost-summary.txt` uses
+#59's retained-report tool without rerunning tests. The largest recorded phase
+costs remain repository candidate transition (234.13s), origin migration
+(108.41s), storage lifecycle (77.60s) and full migration history (58.48s). These
+phase sums are not a second wall-time measurement or a reason to weaken checks.
+
+Post-gate preservation matched all 24 original worktree HEADs/tracked states and
+all 210 container IDs/names/displayed images/states using the same inventory
+fields as the initial snapshot. A preliminary comparison mixed inspect image
+IDs with displayed image tags; matching the original fields confirmed no change.
+The preserved log branch, primary clean main and original stash remain intact.
+No merge, running-Lab change, grant change, native acceptance or existing-resource
+removal occurred.
+
+The later #49 capability-prerequisite increment is outside this pin; its own
+focused/integration result will be recorded separately. No second full release
+run is scheduled for that observation-only extension.

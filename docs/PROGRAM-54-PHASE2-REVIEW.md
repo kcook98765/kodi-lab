@@ -63,8 +63,9 @@ evidence gaps open. Group future approval decisions in the durable ledger.
 
 The application heads below compose with all six Phase 1 heads in the frozen
 candidate `f6449a432a74837fdfaf67d4cd23181716775590` (tree
-`3192fbccb66e6a23f0ae790efadd70561137a510`). The complete gate is in progress;
-this composition fact alone is not release qualification.
+`3192fbccb66e6a23f0ae790efadd70561137a510`). This exact pin achieved RELEASE PASS:
+5,354 passed, 38 gated skips, all stages and cleanup, 29m54s. Later application
+changes need their own evidence; do not transfer this result to another tree.
 
 | PR | Reviewed head | Base and integration considerations |
 | --- | --- | --- |
