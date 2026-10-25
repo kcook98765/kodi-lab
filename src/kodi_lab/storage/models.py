@@ -279,6 +279,43 @@ class DevelopmentSessionRow(Base):
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class SessionSourceCopyAdmissionRow(Base):
+    """Retained request identity independent of prunable copy-operation detail."""
+
+    __tablename__ = "session_source_copy_admissions"
+    __table_args__ = (
+        UniqueConstraint("operation_id", name="session_source_copy_operation"),
+        CheckConstraint(
+            "length(request_id)=36 AND length(operation_id)=36 AND "
+            "length(target_id)=36 AND length(runtime_revision_id)=36 AND "
+            "length(workspace_id)=36 AND length(source_id)=36",
+            name="session_source_copy_identity",
+        ),
+        CheckConstraint("session_generation>0", name="session_source_copy_generation"),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*'",
+            name="session_source_copy_container",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27", name="session_source_copy_timestamp"
+        ),
+        Index("ix_session_source_copy_generation", "session_generation"),
+    )
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("development_sessions.generation", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class DevelopmentSessionPolicyRow(Base):
     """Presence of an active generation opts into one provisioned environment."""
 

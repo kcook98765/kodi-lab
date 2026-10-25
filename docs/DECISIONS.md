@@ -6983,3 +6983,28 @@ executor. No migration, new grant/tool, generic scheduler or guided retry API.
 Legacy nullable queued records retain their existing claim-time binding semantics.
 Durable request attribution must precede any new guided copy/replay interface;
 ordinary bounded operation-history pruning is not an idempotence guarantee.
+
+## D0459 - Retain guided source-copy admission independently of operation detail
+
+An explicit single-session source-copy request retains a global request UUID,
+server-namespaced child operation UUID and exact session/target/runtime/workspace/
+source/container scope. Migration 0085 adds only an empty admission table with a
+RESTRICT reference to session history. The child UUID is a historical identifier;
+ordinary bounded Source operation-detail pruning does not delete its admission.
+There is no automatic receipt pruning: 1,024 total or 32 per generation refuses
+new work and requires a separately reviewed history policy.
+
+Admission uses the existing stopped Source coordinator. Trusted precondition and
+on-claim callbacks run in its BEGIN IMMEDIATE writer claim; operation, both typed
+reservations and receipt commit atomically. Exact nonce replay reads stored scope,
+including after session closure or detail pruning. Missing detail is reported as
+not retained; it never reconstructs, resets or requeues work. Partial restored
+scope, stale generation, positive profile drift and current pending lifecycle
+reservations refuse. Existing source validation, attachment, reconciliation and
+broker admission remain required.
+
+This increment supplies no endpoint or executor submission. It neither copies
+private workspace edits nor enables/starts Kodi, attaches a source, changes
+agent grants, accepts native/Bridge readiness or introduces a general scheduler.
+Explicit guided Web continuation can later submit only the same queued child
+through the existing executor and its independent exact unclaimed-worker checks.
