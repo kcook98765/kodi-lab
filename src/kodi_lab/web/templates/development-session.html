@@ -12,9 +12,11 @@
       {% for workspace in workspaces %}{% if workspace.state.value == 'ready' and workspace.bytes_state.value == 'present' %}
       <option value="{{ workspace.id }}">{{ workspace.source_logical_name }} — {{ workspace.source_addon_id }}</option>
       {% endif %}{% endfor %}
+      <option value="" disabled>Current workspace needs review</option>
     </select></label>
     <label>Kodi version <select name="target_id" required>
       {% for choice in choices %}<option value="{{ choice.target_id }}">Kodi {{ choice.kodi_version }} — {{ choice.name }}</option>{% endfor %}
+      <option value="" disabled>Current version needs review in Kodi setup</option>
     </select></label>
     <button type="submit" data-session-reserve disabled>Reserve test environment</button>
   </form>
@@ -32,7 +34,7 @@
   <p>Complete source attachment/copy and independent native / Bridge setup through the existing reviewed actions before deployment. Session preparation alone does not confirm that the add-on is ready to test.</p>
   <p><a href="/diagnostics">Review saved test diagnostics</a></p>
   <p><a href="/development-session/replacement">Review Fresh Test or Switch and retain selected evidence</a></p>
-  <p>Changing version or discarding a profile still requires retained diagnostics and reviewed lifecycle cleanup. This page never removes or replaces a profile.</p>
+  <p>For Fresh Test or Switch, stop Kodi, save diagnostics and follow the linked review. The final replacement confirmation names the exact disposable profile and retained evidence. Source iterations continue in place through Resume and Stop.</p>
 </section>
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', path='/development-session.js') }}" defer></script>{% endblock %}

@@ -232,7 +232,10 @@ class DevelopmentSessionService:
             if (
                 session.scalar(
                     select(DevelopmentSessionReplacementReviewRow).where(
-                        DevelopmentSessionReplacementReviewRow.state == "open"
+                        DevelopmentSessionReplacementReviewRow.state == "open",
+                        DevelopmentSessionReplacementReviewRow.successor_generation.is_(
+                            None
+                        ),
                     )
                 )
                 is not None

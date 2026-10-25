@@ -167,3 +167,68 @@ the reviewed intent to this exact operation, keep selected evidence held, and
 advance old closure plus new reservation atomically under shared admission.
 Current-source tests use fake lifecycle/broker transports and temporary migrated
 SQLite; they establish no native or existing-resource execution acceptance.
+
+## Explicit Fresh Test and sequential version switching
+
+Stop the current test and save selected diagnostics, then save its exact review.
+The separate final confirmation names the old stopped container/profile, the
+approved cached next runtime/image and the evidence to retain. It explains that
+the writable profile, installed add-ons, settings and unselected artifacts will
+be lost, while source, workspace, Git history, runtime images and selected saved
+captures remain. Native crash-report discovery remains uncollected. Recheck
+incomplete evidence before confirming replacement.
+
+Final execution rechecks the whole review, selected body integrity, current
+stopped identity, shared reservations/leases, stored reconciliation, cached
+runtime eligibility and generation capacity before retirement. It binds the
+explicit request and review digest to the exact owned retirement child in the
+same claim transaction. Replays/status never redispatch; an unconfirmed removal
+keeps the old session and evidence holds even when inventory is empty. There is
+no timeout-, restart- or absence-based settlement action.
+
+After the exact receipt confirms retirement, one SQLite writer transaction checks
+the empty global inventory, no pending reservation/lease or retained reconciliation,
+current approved immutable next pin/image, same ready workspace/source/add-on
+and selected evidence. It closes the old session, inserts the next reserved
+generation, switches the singleton policy pointer and consumes the review in
+one commit. Exclusion is never disabled between close and reserve. Later
+workspace edits stay in that persistent workspace; handoff neither copies nor
+discards its bytes. It performs no automatic add-on deployment.
+
+The existing lifecycle then prepares the selected clean **stopped** profile.
+Source grants/attachment, deployment baseline and native/Bridge setup remain
+independent reviewed actions; links lead to those existing controls. Nothing
+inherits grants, credentials, paired trust, launch/deployment receipts or a
+verified source baseline from the disposed profile. Resume/Stop and ordinary
+source iterations continue in place on the new generation.
+
+If retirement is confirmed but a later prerequisite changes, the old exclusive
+reservation and evidence remain. **Continue preparation** advances that known
+retirement without issuing another removal. **Release retired reservation**
+explicitly closes only that proven retired empty slot, keeps saved evidence and
+history, and permits a new deliberate version selection. It cannot release an
+unconfirmed retirement or a pending/uncertain create. Cancellation of a review
+is unavailable once its execution is claimed.
+
+A failed next create uses the existing session/provision/lifecycle evidence.
+Known pre-create refusals leave a reserved session for an explicit ordinary
+Prepare action; unknown creates remain fenced. A lost reply or repeated final
+POST returns its durable status. The original preparation UUID is retained in
+the replacement record; ordinary bounded lifecycle-history pruning can make its
+detail unavailable, which is reported without guessing another operation.
+Retirement proof remains protected from pruning. No scheduler or automatic
+cleanup/retry runs.
+
+Migration 0084 adds replacement bindings and a nullable successor-generation
+reference to existing reviews. A consumed review reports completed review state;
+that means successor admission, not native or add-on readiness. One active review
+remains enforced by a unique partial index. Existing snapshots and hold history
+are preserved; populated execution/consumption refuses lossy downgrade. The
+SQLite change adds a nullable referenced column without rebuilding a populated
+parent or disabling foreign keys. Historical 0082/0083 fixtures retain their
+actual schema vocabulary; current coordinator tests require the matched head.
+
+Web actions require administrator authentication, exact boolean/checkbox final
+consent, same-origin and CSRF. No MCP tool, preset or agent permission is added.
+Implementation/tests do not authorize deployment, production migration, existing
+resource removal or native sequential-version/Windows acceptance.

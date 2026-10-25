@@ -6837,3 +6837,36 @@ the original identity. Validate typed read against the exact operation; never
 reconstruct positive proof from an unrelated success. Populated history refuses
 lossy downgrade. Atomic successor admission and final Fresh/Switch confirmation
 remain separate composition work; native/platform evidence is not inferred.
+
+## D-0453: Consume an exact review with atomic successor admission
+
+For #51, require a separate final explicit data-loss confirmation and bind its
+request/review digest to the owned scoped retirement child at claim. Recheck
+the stopped scope, review/workspace generation, evidence, capacity, eligibility,
+busy/uncertain reservations and stored reconciliation before disposal. No replay
+or passive status redispatches retirement. Never settle unknown removal/create
+from inventory absence, elapsed time or restart.
+
+After positive exact retirement, keep the old session active until one SQLite
+writer commit closes it, reserves the successor, advances the singleton pointer
+and consumes the review. Require empty global inventory, no pending authority/
+reconciliation, unchanged selected immutable next pin/image, same ready source/
+workspace/add-on and retained exact evidence. Keep workspace bytes/edits outside
+the profile. Do not copy grants, trust, baselines or deployment/launch receipts.
+Prepare one clean stopped profile through existing lifecycle/shared admission;
+native/Bridge and add-on setup stay separately reviewed.
+
+New 0084 adds an execution binding and nullable successor reference without
+rebuilding a populated review parent or disabling foreign keys. The unique
+active-review slot excludes consumed reviews. Review completion means successor
+admission, not runtime readiness. Explicit continuation only advances confirmed
+retirement; explicit release only closes a proven retired empty slot. Execution
+claim prevents ordinary review cancellation/unholding. Unknown creates keep
+existing durable reservations; no worker, timer, automatic retry or scheduler.
+
+Keep original retirement proof protected. Retain preparation UUID independently
+of ordinary bounded lifecycle-history detail and report missing history honestly.
+Known pre-create refusal permits the existing explicit Prepare flow; request
+replay never substitutes a new attempt. Preserve historical schema fixtures and
+refuse populated execution/consumption downgrade. No new agent authority or
+native/platform acceptance is inferred from source/temporary-DB tests.

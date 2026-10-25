@@ -32,7 +32,7 @@ function boot(phase = null) {
       return {ok: true, json: async () => scenario.view};
     },
   });
-  return {scenario, requests, form, reserve, refresh, status, actions, targetLink, workspaceLink, document, listeners, timers};
+  return {scenario, requests, form, reserve, refresh, status, actions, targetLink, workspaceLink, document, listeners, timers, selectedTarget, selectedWorkspace};
 }
 (async () => {
   const empty = boot();await flush();
@@ -54,6 +54,14 @@ function boot(phase = null) {
   const prepare = empty.requests.find(request => request.url.endsWith('/prepare'));
   assert.deepEqual(JSON.parse(prepare.options.body), {expected_generation: 1});
   assert.match(empty.status.textContent, /Check Kodi setup for native and Bridge readiness/);
+  const switchedTarget = '10000000-0000-4000-8000-000000000002';
+  const switchedWorkspace = '20000000-0000-4000-8000-000000000002';
+  empty.scenario.view = {latest_generation: 2, current: {...current('bound'), generation: 2, target_id: switchedTarget, workspace_id: switchedWorkspace}};
+  await empty.refresh.click();
+  assert.equal(empty.selectedTarget.value, switchedTarget);
+  assert.equal(empty.selectedWorkspace.value, switchedWorkspace);
+  assert.equal(empty.targetLink.href, `/instances/${switchedTarget}`);
+  assert.equal(empty.workspaceLink.href, `/agent-workspaces/${switchedWorkspace}`);
   for (const failure of ['lost', 'development_session_existing_resource', 'private/credential/untrusted']) {
     const panel = boot('reserved');await flush();
     panel.scenario.failure = failure === 'lost';panel.scenario.error = failure === 'lost' ? null : failure;

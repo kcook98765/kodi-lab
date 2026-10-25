@@ -30,6 +30,7 @@ from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
     DevelopmentSessionEvidenceHoldRow,
     DevelopmentSessionReplacementReviewRow,
+    DevelopmentSessionReplacementRow,
     ManagedDiagnosticCaptureRow,
 )
 from kodi_lab.storage.repositories import (
@@ -115,10 +116,11 @@ class ReplacementReviewSnapshot(BaseModel):
 class ReplacementReviewStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
     review_id: UUID
-    state: Literal["open", "cancelled"]
+    state: Literal["open", "cancelled", "completed"]
     snapshot_sha256: str
     snapshot: ReplacementReviewSnapshot
     cancelled_at: datetime | None
+    successor_generation: int | None = Field(default=None, ge=2)
     executes_replacement: Literal[False] = False
 
 
@@ -317,10 +319,13 @@ class SessionReplacementReviewService:
             return ReplacementReviewStatus.model_validate(
                 dict(
                     review_id=row.id,
-                    state=row.state,
+                    state="completed"
+                    if row.successor_generation is not None
+                    else row.state,
                     snapshot_sha256=row.snapshot_sha256,
                     snapshot=snapshot,
                     cancelled_at=row.cancelled_at,
+                    successor_generation=row.successor_generation,
                 )
             )
         except ValueError:
@@ -348,7 +353,10 @@ class SessionReplacementReviewService:
                 if (
                     session.scalar(
                         select(DevelopmentSessionReplacementReviewRow).where(
-                            DevelopmentSessionReplacementReviewRow.state == "open"
+                            DevelopmentSessionReplacementReviewRow.state == "open",
+                            DevelopmentSessionReplacementReviewRow.successor_generation.is_(
+                                None
+                            ),
                         )
                     )
                     is not None
@@ -438,7 +446,10 @@ class SessionReplacementReviewService:
         with self._sessions._sessions() as session:
             row = session.scalar(
                 select(DevelopmentSessionReplacementReviewRow).where(
-                    DevelopmentSessionReplacementReviewRow.state == "open"
+                    DevelopmentSessionReplacementReviewRow.state == "open",
+                    DevelopmentSessionReplacementReviewRow.successor_generation.is_(
+                        None
+                    ),
                 )
             )
             return None if row is None else self._status(session, row)
@@ -466,6 +477,13 @@ class SessionReplacementReviewService:
             if result.snapshot_sha256 != operation.expected_snapshot_sha256:
                 raise SessionReplacementReviewError(
                     "session_replacement_review_changed"
+                )
+            replacement = session.get(DevelopmentSessionReplacementRow, str(review_id))
+            if row.successor_generation is not None or (
+                replacement is not None and replacement.released_at is None
+            ):
+                raise SessionReplacementReviewError(
+                    "session_replacement_execution_requires_review"
                 )
             if row.state == "open":
                 row.state, row.cancelled_at = "cancelled", timestamp(datetime.now(UTC))

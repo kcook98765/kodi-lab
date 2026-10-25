@@ -7,10 +7,12 @@ from alembic import command
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from kodi_lab.application.retained_diagnostics import RetainedDiagnosticsError
-from kodi_lab.application.session_replacement_reviews import ReplacementReviewCancel
 from kodi_lab.storage.engine import create_database_engine
 from tests.application.test_session_replacement_reviews import environment
+from tests.storage.session_review_fixtures import (
+    cancel_historical_review,
+    save_historical_review,
+)
 from tests.storage.test_migrations import migration_setup
 from tests.storage.test_migrations import migration_templates as migration_templates
 
@@ -49,11 +51,21 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
     )
     before = env.retained.read(env.capture.capture_id)
     command.upgrade(config, REVISION)
-    request = env.request()
-    review = env.reviews.create(request)
+    review = save_historical_review(env)
     assert env.retained.read(env.capture.capture_id) == before
-    with pytest.raises(RetainedDiagnosticsError, match="held_for_session_review"):
-        env.retained.discard(env.capture.capture_id, env.discard)
+    with env.state.env.sessions() as session:
+        assert (
+            session.scalar(
+                text(
+                    "SELECT count(*) FROM development_session_evidence_holds h "
+                    "JOIN development_session_replacement_reviews "
+                    "r ON r.id=h.review_id "
+                    "WHERE r.state='open' AND h.capture_id=:id"
+                ),
+                dict(id=str(env.capture.capture_id)),
+            )
+            == 1
+        )
     for statement, params in (
         (
             "DELETE FROM managed_diagnostic_captures WHERE id=:id",
@@ -70,12 +82,7 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
             session.execute(text(statement), params)
     for cancel in (False, True):
         if cancel:
-            env.reviews.cancel(
-                review.review_id,
-                ReplacementReviewCancel(
-                    expected_snapshot_sha256=review.snapshot_sha256, confirm_cancel=True
-                ),
-            )
+            cancel_historical_review(env, review.review_id)
         with pytest.raises(
             RuntimeError, match="review/history cannot be safely downgraded"
         ):
