@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     ManagedContainerRecord,
+    ProvisionedManagedContainerRecord,
     StartManagedContainerRecord,
 )
 from kodi_lab.broker.errors import (
@@ -24,11 +26,17 @@ from kodi_lab.broker.errors import (
     RuntimeStatePreconditionError,
 )
 from kodi_lab.config import Settings
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_session_admission,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.managed_activity import resource_policy, timestamp
 from kodi_lab.storage.models import (
+    DevelopmentSessionRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    ManagedProvisionReservationRow,
     ManagedStartReservationRow,
 )
 
@@ -69,6 +77,113 @@ class ManagedCapacityAdmission:
             inventory,
         )
 
+    def run_provision(
+        self,
+        *,
+        instance_id: str,
+        revision_id: str,
+        dispatch: Callable[[], ProvisionedManagedContainerRecord],
+    ) -> ProvisionedManagedContainerRecord:
+        operation_id = str(uuid4())
+        generation: int | None = None
+        expected_container: str | None = None
+        try:
+            with self._sessions() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                instance = session.get(ManagedInstanceRow, instance_id)
+                if instance is None or instance.runtime_revision_id != revision_id:
+                    raise ManagedCapacityError("managed_provision_identity_unavailable")
+                if session.get(ManagedProvisionReservationRow, instance_id) is not None:
+                    raise ManagedCapacityError(
+                        "managed_provision_requires_reconciliation"
+                    )
+                records = self._inventory()
+                try:
+                    current = require_session_admission(
+                        session, records, target_id=instance_id, revision_id=revision_id
+                    )
+                except DevelopmentSessionConflict as error:
+                    raise ManagedCapacityError(error.code) from error
+                if current is not None:
+                    if (
+                        session.scalar(select(ManagedStartReservationRow).limit(1))
+                        is not None
+                    ):
+                        raise ManagedCapacityError("development_session_start_pending")
+                    generation = current.generation
+                    expected_container = current.container_id
+                    current.phase = "provisioning"
+                    current.updated_at = timestamp(self._clock())
+                session.add(
+                    ManagedProvisionReservationRow(
+                        managed_instance_id=instance_id,
+                        runtime_revision_id=revision_id,
+                        operation_id=operation_id,
+                        phase="reserved",
+                        session_generation=generation,
+                        created_at=timestamp(self._clock()),
+                    )
+                )
+                session.commit()
+        except SQLAlchemyError as error:
+            raise ManagedCapacityError("managed_capacity_unavailable") from error
+        try:
+            result = dispatch()
+            if (
+                result.managed_instance_id != instance_id
+                or result.runtime_revision_id != revision_id
+            ):
+                raise ManagedCapacityError("managed_provision_result_unverified")
+            if generation is not None:
+                if (expected_container is None and not result.created) or (
+                    expected_container is not None
+                    and result.container_id != expected_container
+                ):
+                    raise ManagedCapacityError("managed_provision_result_unverified")
+                records = self._inventory()
+                if (
+                    len(records) != 1
+                    or records[0].managed_instance_id != instance_id
+                    or records[0].container_id != result.container_id
+                    or records[0].runtime_revision_id != revision_id
+                    or records[0].image_id != result.image_id
+                ):
+                    raise ManagedCapacityError("managed_provision_result_unverified")
+            self._finish_provision(instance_id, operation_id, result)
+            return result
+        except BaseException:
+            self._finish_provision(instance_id, operation_id, None)
+            raise
+
+    def _finish_provision(
+        self,
+        instance_id: str,
+        operation_id: str,
+        result: ProvisionedManagedContainerRecord | None,
+    ) -> None:
+        with self._sessions.begin() as session:
+            row = session.get(ManagedProvisionReservationRow, instance_id)
+            if row is None or row.operation_id != operation_id:
+                raise ManagedCapacityError("managed_provision_requires_reconciliation")
+            current = (
+                None
+                if row.session_generation is None
+                else session.get(DevelopmentSessionRow, row.session_generation)
+            )
+            if row.session_generation is not None and (
+                current is None or current.phase != "provisioning"
+            ):
+                raise ManagedCapacityError("development_session_requires_review")
+            if current is not None:
+                current.phase = "bound" if result is not None else "uncertain"
+                if result is not None:
+                    current.container_id = result.container_id
+                current.updated_at = timestamp(self._clock())
+            if result is None:
+                row.phase = "uncertain"
+            else:
+                session.delete(row)
+
     def _claim(
         self,
         instance_id: str,
@@ -102,6 +217,17 @@ class ManagedCapacityAdmission:
                 or selected[0].runtime_revision_id != revision_id
             ):
                 raise ManagedCapacityError("managed_start_identity_unavailable")
+            try:
+                require_session_admission(
+                    session,
+                    records,
+                    target_id=instance_id,
+                    revision_id=revision_id,
+                    container_id=container_id,
+                    starting=True,
+                )
+            except DevelopmentSessionConflict as error:
+                raise ManagedCapacityError(error.code) from error
             reservations = list(session.scalars(select(ManagedStartReservationRow)))
             policy = resource_policy(session)
             used = {
