@@ -191,3 +191,15 @@ release qualification; latest full remains failed557dcdd, latest successfulCBC.
 Next guided Web copy needs shared selected-session Source queue/worker/broker
 checks, explicit same-queued-child continuation and stored-only private status.
 Review order extends #74→#75→#76→#77→#78. No merges or operational authority.
+
+
+[#79](https://github.com/kcook98765/kodi-lab/pull/79), draft `6aaa097`, follows
+#78. Guided Web baseline copy is explicit, uses server-derived selected scope,
+and reuses durable original requests/existing executor. Shared Source queue,
+worker and broker checks additionally retain guided generation. GET never submits;
+unknown/terminal/pruned/foreign work never resets. Existing positive unclaimed
+profile-drift refusal and upgraded inactive legacy semantics remain. No new
+schema/tool/grant or runtime operation.29 focused+293 interactions passed159.7s;
+final19-case focused module adds two later race/lost-completion-ack proofs7.3s.
+No RELEASE PASS yet. Review order #74→#75→#76→#77→#78→#79. Freeze a settled
+composition next, without merging PRs or changing production resources.

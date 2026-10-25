@@ -31,6 +31,10 @@ This ledger records source qualification, not deployment or native acceptance.
 - [Draft #78](https://github.com/kcook98765/kodi-lab/pull/78), `6b87f12`,
   adds durable exact source-copy admission, surviving ordinary detail pruning.
   153 focused + 135 interactions passed in 144.0s; no release qualification.
+- [Draft #79](https://github.com/kcook98765/kodi-lab/pull/79), `6aaa097`,
+  adds explicit guided baseline copy and shared Source selected-session admission.
+  29 focused +293 interactions passed in159.7s; final19-case focused module
+  adds two later concurrency/lost-completion-ack proofs (7.3s). No release result.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -1083,3 +1087,45 @@ existing attachment, no auto enable/start/trust/grants, and clearly distinguish
 registered baseline from private workspace edits. Private review:
 `guided-source-copy-web-review.md`. Then freeze a settled combined candidate for
 one new full gate. Failed557dcdd and successfulcbc8894 remain distinct pins.
+
+### Guided source-copy Web workflow published; settled composition next
+
+[Draft #79](https://github.com/kcook98765/kodi-lab/pull/79), `6aaa097`, follows
+#78. The preparation checklist explicitly copies only the already attached
+registered-source baseline into the selected stopped disposable profile. Caller
+inputs are request UUID and exact generation; all resource scope is derived.
+Private workspace edits remain separate. Saved per-session receipt links recover
+lost replies. GET is stored-only, while explicit continuation can submit only the
+same queued child with exact unclaimed typed reservations. Running, failed,
+uncertain, missing/pruned or foreign work is never reset/recreated. Unacknowledged
+submission preserves the original work; existing atomic worker admission allows
+one initial legal copy across duplicate submissions.
+
+Shared selected-source policy now covers queue/worker writer claims and independent
+broker resolution, including exact retained generation for guided children. Same-
+scope partial successor restores refuse. Selected-scope uncertainty leaves fences;
+existing positive unclaimed profile-drift refusal remains atomic/exact. Current
+worker/broker state needs0085 with no missing-table fallback. Inactive legacy
+behavior stays on the current schema. No new table/tool/grant, automatic source
+attachment, native enable/start, Bridge trust or general task framework. Existing
+Web auth/Origin/CSRF/closed inputs/no-store and maintenance remain. Core preparation
+facts still use one snapshot; bounded copy receipts are read separately for only
+the displayed generation. D0460 and user/agent documentation explain the scope.
+
+**INTEGRATION PASS**159.7s:29 focused (17 application workflow,9 Web,3 materially
+changed preparation), then293 Source/broker/session/replacement/admission/lineage/
+Web/full-migration/foundation interactions; Ruff/mypy across8files. Initial Web
+missing-attachment assertion expected422; corrected to existing409/unsupported,
+retaining no-attachment/no-operation assertions. Two additional proof cases were
+then added without product-source changes: final19-case workflow module FOCUSED
+PASS7.3s covers simultaneous explicit continuation and a lost submit acknowledgement
+after completed copy, with one real application producer dispatch through fake
+transport. Later cases are focused-only until a new frozen full gate. No native
+Kodi/live Docker/platform acceptance. No release result for this source.
+
+The code stack is now settled for one new combined full qualification, including
+#74's historical fixture correction and #75–#79. Freeze a separate worktree,
+retain exact commit/tree/all tracked entries/changed-file SHA manifest and current
+ledger snapshot, use standard auto tmpfs plus separate snapshot scratch, and run
+all unchanged release stages without competing tests. Keep557dcdd failed and
+CBC/Phase1 successful pins distinct. Do not merge/deploy or migrate running Lab.
