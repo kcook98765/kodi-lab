@@ -145,3 +145,20 @@ no migration/catalog/grant expansion. 38 focused + 221 interactions passed in
 frozen `557dcdd` / tree `611eb6f` combined #72–#74 full gate is running, with
 1,802 tracked entries and 38 changed-file SHA values recorded. No release result
 yet; the `cbc8894` and earlier release results remain separately pinned.
+
+The frozen `557dcdd` #72–#74 combined gate **FAILED**: 5,617 passed / 1 historical
+fixture failure / 38 gated, 32m09s attempt, clean owned-scratch removal and source
+manifest reverification. Final build/history/import stages did not run. #74's
+later test-only `79d7d24` seeds actual 0078 data for real recovery and passed
+51 focused + 164 interactions, 102.2s. No successful full result for either pin.
+
+[#75](https://github.com/kcook98765/kodi-lab/pull/75), draft `d56e30a`, follows
+#74 and scopes fresh receipt/prior-copy/running-smoke selection to the exact
+current profile under active policy. Identical regression file: 7 behavior
+failures / 2 legacy-history passes on untouched `557dcdd`, all 9 pass with fix.
+60 focused + 238 interactions passed in 128.8s. Historical recovery, promotion,
+retention and replay retain original scope; current-profile ambiguity and live
+proof remain mandatory. No new table/catalog/grant. Independent checklist work
+shares preflight imports but changes separate query/session-ownership blocks;
+preserve both complete increments and D0456/D0457 when composing. Neither
+inherits any prior release result. #72–#75 remain draft pending settled review.

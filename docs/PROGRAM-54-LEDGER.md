@@ -19,11 +19,11 @@ This ledger records source qualification, not deployment or native acceptance.
   no RELEASE PASS for this pin or later bytes. Standalone evidence is below.
 - Later source, outside that pin: private stored preparation checklist on
   `feat/51-session-preparation-checklist-20261025` (uncommitted/static only).
-  A separate `feat/51-profile-deployment-lineage-20261025` worktree now contains
-  a SQL selection prototype and nine queued profile-lineage regression cases.
-  Neither has a test result yet. The full gate has ended; after the fixture
-  correction, run the same regression file against untouched `557dcdd` source
-  and the prototype, and verify the checklist independently.
+  [Draft #75](https://github.com/kcook98765/kodi-lab/pull/75), `d56e30a`, now
+  scopes deployment lineage to the exact selected profile: 60 focused + 238
+  interaction cases passed in 128.8s. The identical corrected regression file
+  failed 7 behavior cases on untouched `557dcdd` and passed all 9 with the fix.
+  The checklist's own checks are running; neither increment has RELEASE PASS.
 - Main `e198592`, 24 original worktrees, stash, 210 container identity/state
   records and preserved log branch `3dddbc2` were reverified unchanged.
   No merges, deployments, grant changes or existing-resource operations.
@@ -912,3 +912,42 @@ verified unchanged after the failed gate. #72–#74 remain draft. The latest
 completed release result remains separately pinned to `cbc8894` (5,515/38,
 32m12s); Phase 1 remains `02c4054` (5,234/38, 29m59s). Group the next full gate
 only after the fixture correction and later checklist/lineage source settle.
+
+### Historical recovery-fixture correction and profile-lineage increment
+
+#74 now has test-only follow-up `79d7d2410a24bfaf3650df2d7c117a3ff2f47d52`:
+actual 0078 interrupted receipt data is seeded before invoking the real recovery
+coordinator. No current guard or production code was disabled. **INTEGRATION
+PASS**, 3 historical migration + 48 admission focused cases, static checks and
+164 recovery/full-history/foundation/OSTree interactions in 102.2s. This corrects
+the failed frozen-gate test fixture; no successful full rerun is claimed.
+
+[Draft #75](https://github.com/kcook98765/kodi-lab/pull/75), head
+`d56e30a035bd015d9dce537a6713cf9157a675ee`, follows #74. A shared correlated
+SQL predicate requires exact original-container/runtime/target/workspace/source
+for fresh managed deployment lineage when a session is active. Execute/recheck,
+GUI launch, preflight/prior workspace-copy and running-smoke authority counts
+agree. Old same-version/source-generation receipts remain historical; inactive
+legacy and external semantics, exact original-request replay, recovery/promotion
+and reference-safe retention remain separate. No tool/grant/table or guessed
+latest unrelated operation, and no live tree/identity check was removed.
+
+The identical corrected nine-case file was run against untouched `557dcdd`:
+7 behavior failures / 2 legacy-history passes. With the fix all 9 passed.
+Initial extra-argument fixture errors were corrected on both sides and retained
+separately; they are not counted as product regressions. Broader **INTEGRATION
+PASS**: 60 focused cases (9 lineage, 48 admission, 3 real historical migration),
+Ruff/strict mypy across nine files, then 238 core/launch/preflight/recovery/session/
+repository/broker/Web interactions, 128.8s. The new early refusal checks assert
+precise `execution_not_deployed`/`launch_not_deployed` and no allocated receipt;
+all no-dispatch/no-lease assertions remain. Test-only expectation spelling issues
+were corrected. Real SQL smoke-authority and broker baseline resolvers participate
+with fake Docker/native transports; no native acceptance or incident diagnosis.
+
+The source manifest/test SHA and before/after logs are recorded privately in
+`profile-lineage-comparison.json`. The checklist and lineage worktrees adopted
+the exact #74 test-only follow-up before testing, preserving uncommitted source.
+The checklist's focused and integration lane is now running; no result or PR is
+claimed yet. Both new increments remain outside the failed `557dcdd` gate and
+the older successful `cbc8894` qualification. Continue to the explicit selected
+source-copy foundation after these checks, then qualify a settled composition.
