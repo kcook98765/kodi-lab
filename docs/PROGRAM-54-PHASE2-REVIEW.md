@@ -132,3 +132,8 @@ with AST proof that all existing route functions are unchanged. Integration
 passed 24 new cases individually/static checks plus 20 affected Web interactions
 in 48.9s. This overlay is not RELEASE PASS. The original release worktree remains
 clean at `f6449a4`, and all earlier qualifications retain their exact boundaries.
+
+[#73](https://github.com/kcook98765/kodi-lab/pull/73), draft `27abf6f`, follows
+#72 with bounded referenced crash-report metadata and legacy capture readers.
+91 focused plus 115 interaction cases passed in 78.4s. This source is outside
+the `cbc8894` release pin. No broker catalog/grant/schema migration change.

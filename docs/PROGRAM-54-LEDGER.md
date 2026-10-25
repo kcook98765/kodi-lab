@@ -713,3 +713,26 @@ native crash-report names explicitly referenced by collected logs. Official
 Nexus/Omega launcher sources confirm that such references exist; this does not
 prove a current report, crash cause or supported stack. Avoid general directory
 exports, arbitrary paths, report-body exposure or agent permission changes.
+
+### Continued increment: bounded referenced crash-report metadata
+
+[Draft #73](https://github.com/kcook98765/kodi-lab/pull/73), head `27abf6f`,
+stacked on #72. Schema 3 captures retain HEAD-only size/time/state metadata for
+at most two strict `/home/kodi/kodi_crashlog-YYYYMMDD_HHMMSS.log` names explicitly
+reported by complete retained log lines. No directory listing or report-body
+read, arbitrary path input, new permission or cause inference. Schema 1/2 saved
+captures remain readable; private Web evidence survives explicit disposable
+profile replacement and retains the original identity. Upstream pinned Nexus
+20.5/Omega 21.3 launcher formats were checked and hashed privately, without
+claiming those launchers ran here. Unreferenced reports remain unobserved.
+
+**INTEGRATION PASS**: 91 cases across four individually focused modules, then
+115 interaction cases, 78.4s, including installed Docker SDK HTTP HEAD-only
+fixtures and durable session replacement/private evidence interactions. No native
+Docker/Kodi was launched. #72/#73 remain outside the `cbc8894` RELEASE PASS;
+qualify one settled combined candidate after the next bounded admission review.
+
+Next: inspect runtime workspace deploy/execute/launch admission against the
+selected session workspace/source. Any implementation must only narrow an
+explicit active session, preserve existing grants/trust/baselines and replay,
+and leave offline workspace editing and external development behavior intact.
