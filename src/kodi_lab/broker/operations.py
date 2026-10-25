@@ -150,6 +150,13 @@ from kodi_lab.broker.snapshots import (
     SqliteSnapshotDeleteResolver,
     SqliteSnapshotRestoreResolver,
 )
+from kodi_lab.broker.stopped_diagnostics import (
+    SqliteStoppedDiagnosticsResolver,
+    StoppedDiagnosticsError,
+    StoppedDiagnosticsInput,
+    StoppedManagedRuntimeProvider,
+    StoppedRuntimeDiagnostics,
+)
 from kodi_lab.domain.smoke_diagnostics import (
     AddonExceptionDiagnostic,
     SmokeDiagnosticStatus,
@@ -325,7 +332,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=38)
+    operations: list[str] = Field(max_length=39)
     protocol_version: Literal[1]
 
 
@@ -1492,6 +1499,8 @@ def build_foundation_registry(
     managed_bridge_resolver: SqliteManagedBridgeTrustResolver | None = None,
     managed_bridge_provider: DockerManagedBridgeTrustProvider | None = None,
     capacity_admission: ManagedCapacityAdmission | None = None,
+    stopped_diagnostics_resolver: SqliteStoppedDiagnosticsResolver | None = None,
+    stopped_diagnostics_provider: StoppedManagedRuntimeProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -2053,6 +2062,45 @@ def build_foundation_registry(
         },
     )
 
+    def read_stopped_managed_diagnostics(
+        params: StoppedDiagnosticsInput,
+    ) -> StoppedRuntimeDiagnostics:
+        resolver = (
+            stopped_diagnostics_resolver
+            or SqliteStoppedDiagnosticsResolver.production()
+        )
+        inspector = stopped_diagnostics_provider or StoppedManagedRuntimeProvider()
+        try:
+            spec = resolver.resolve(params)
+            result = inspector.inspect(spec)
+            if (
+                result.managed_instance_id,
+                result.runtime_revision_id,
+                result.container_id,
+                result.image_id,
+            ) != (
+                spec.target_id,
+                spec.revision_id,
+                spec.container_id,
+                spec.image_id,
+            ) or resolver.resolve(params) != spec:
+                raise StoppedDiagnosticsError("managed_diagnostics_identity_changed")
+            return result
+        except StoppedDiagnosticsError as error:
+            raise OperationError(
+                error.code, "Stopped managed-runtime metadata could not be confirmed."
+            ) from error
+
+    registry.register(
+        name="read_stopped_managed_diagnostics",
+        params_model=StoppedDiagnosticsInput,
+        result_model=StoppedRuntimeDiagnostics,
+        handler=read_stopped_managed_diagnostics,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id
+        },
+    )
+
     def provision_managed_container(
         params: ProvisionManagedContainerParams,
     ) -> ProvisionManagedContainerResult:
@@ -2061,7 +2109,22 @@ def build_foundation_registry(
         }
         try:
             spec = resolver.resolve(params.managed_instance_id)
-            outcome = provisioner.provision_managed_container(spec)
+            outcome = (
+                provisioner.provision_managed_container(spec)
+                if capacity is None
+                or (provisioning_provider is not None and capacity_admission is None)
+                else capacity.run_provision(
+                    instance_id=params.managed_instance_id,
+                    revision_id=spec.runtime_revision_id,
+                    dispatch=lambda: provisioner.provision_managed_container(spec),
+                )
+            )
+        except ManagedCapacityError as error:
+            raise OperationError(
+                error.code,
+                "Managed provisioning requires session or reservation review.",
+                audit_fields=audit_fields,
+            ) from error
         except PersistentProvisioningUnsupportedError as error:
             raise OperationError(
                 "persistent_provisioning_unsupported",

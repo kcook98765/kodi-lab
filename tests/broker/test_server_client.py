@@ -100,6 +100,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "provision_managed_container",
                 "read_promotion_kodi_log_window",
                 "read_smoke_log_window",
+                "read_stopped_managed_diagnostics",
                 "reconstruction_destination",
                 "remove_mismatched_managed_container",
                 "reviewed_runtime_image_present",

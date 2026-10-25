@@ -17,6 +17,7 @@
 {% endblock %}
 {% block content %}
       <h1>{{ detail.runtime.name }}</h1>
+<p><a href="/api/instances/{{ detail.runtime.managed_instance_id }}/stopped-diagnostics">Stopped-runtime exit metadata (JSON)</a></p>
       <section aria-labelledby="instance-controls-heading" data-instance-controls="{{ detail.runtime.managed_instance_id }}" data-mutation-active="{{ 'true' if detail.mutation_active else 'false' }}">
         <h2 id="instance-controls-heading">Manage this Kodi</h2>
         <p>Each action is a separate request. Provision creates the stopped runtime; Start runs Kodi; Stop preserves its profile. No action is retried automatically.</p>
@@ -267,6 +268,7 @@
           <h3>{{ item.summary }}</h3>
           <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
           {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+          {% if item.deployment_recovery_available %}<p>A verified copy from this failed deployment needs explicit tree inspection. <a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ item.operation_uuid }}">Review recovery for this operation</a>.</p>{% endif %}
         </article>
         {% else %}<p>No retained activity.</p>{% endfor %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>

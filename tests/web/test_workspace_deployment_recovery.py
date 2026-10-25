@@ -15,6 +15,44 @@ from kodi_lab.application.workspace_deployment_recovery import (
 from tests.web.conftest import INSTANCE_ID, ORIGIN, login
 
 
+@pytest.mark.parametrize("eligible", [False, True])
+def test_history_offers_explicit_recovery_only_for_projected_candidate(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, eligible: bool
+) -> None:
+    from datetime import UTC, datetime
+
+    from kodi_lab.application.activity import (
+        ManagedInstanceActivityItem,
+        ManagedInstanceActivityKind,
+        ManagedInstanceActivityService,
+    )
+
+    operation_id = uuid4()
+    item = ManagedInstanceActivityItem(
+        kind=ManagedInstanceActivityKind.MCP_WORKSPACE_DEPLOYMENT,
+        operation_uuid=operation_id,
+        original_managed_instance_id=INSTANCE_ID,
+        requested_at=datetime.now(UTC),
+        started_at=None,
+        completed_at=None,
+        state="failed",
+        summary="Retained inventory failure",
+        reconciliation_required=False,
+        deployment_recovery_available=eligible,
+    )
+    monkeypatch.setattr(
+        ManagedInstanceActivityService,
+        "list_for_live_instance",
+        lambda _self, _target, **_kwargs: [item],
+    )
+    login(client)
+    page = client.get(f"/instances/{INSTANCE_ID}/history")
+    assert page.status_code == 200
+    assert (f'data-deployment-id="{operation_id}"' in page.text) is eligible
+    assert ("Inspect stopped deployment" in page.text) is eligible
+    assert "managed-launch-reconcile.js" in page.text
+
+
 def test_recovery_requires_session_origin_csrf_and_an_empty_payload(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

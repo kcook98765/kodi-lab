@@ -91,6 +91,11 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
+    WorkspaceDeploymentPreflightService,
+)
 from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryError,
     WorkspaceExecutionRecoveryResult,
@@ -969,6 +974,25 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
+    def workspace_deploy_preflight(
+        self, principal: McpPrincipal, operation: DeploymentPreflightInput
+    ) -> DeploymentPreflightResult:
+        def authorize() -> object:
+            return self._authorization.authorize_workspace_target_scope(
+                principal,
+                "workspace_deploy_preflight",
+                operation.workspace_id,
+                operation.target_id,
+            )
+
+        authorize()
+        result = WorkspaceDeploymentPreflightService(self._session_factory).inspect(
+            operation
+        )
+        authorize()
+        self._require_development_bounded(result)
+        return result
+
     def workspace_import_preview(
         self,
         principal: McpPrincipal,
@@ -1176,7 +1200,7 @@ class McpTargetToolService:
                 deployment_mode=operation.deployment_mode,
             )
         except McpWorkspaceDevelopmentError as error:
-            raise McpAuthorizationError(error.code) from error
+            raise McpAuthorizationError(error.code, reason=error.reason) from error
         self._require_development_bounded(result)
         return result
 

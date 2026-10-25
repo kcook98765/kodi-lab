@@ -44,7 +44,6 @@ from kodi_lab.kodi.addons import (
 )
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.storage.engine import create_session_factory
-from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
@@ -62,6 +61,7 @@ from kodi_lab.storage.repositories import (
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceMutationLeaseRepository,
 )
+from tests.efficiency import CurrentSchemaTemplate
 
 INSTANCE_ID = UUID("e8100000-0000-4000-8000-000000000001")
 SOURCE_ID = UUID("e8100000-0000-4000-8000-000000000002")
@@ -83,9 +83,12 @@ class Clock:
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
-    engine = create_engine(f"sqlite:///{tmp_path / 'enablements.db'}")
-    Base.metadata.create_all(engine)
+def factory(
+    tmp_path: Path, current_schema: CurrentSchemaTemplate
+) -> Iterator[sessionmaker[Session]]:
+    database_path = tmp_path / "enablements.db"
+    current_schema.clone(database_path)
+    engine = create_engine(f"sqlite:///{database_path}")
     with create_session_factory(engine).begin() as session:
         session.add(
             RuntimeDefinitionRow(
