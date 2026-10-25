@@ -111,6 +111,10 @@ def test_real_uncertain_admission_on_upgraded_schema_blocks_lossy_downgrade(
     engine = create_database_engine(url)
     environment = Environment(create_session_factory(engine))
     command.upgrade(config, REVISION)
+    # Current broker admission requires its matched current schema. Empty later
+    # migrations downgrade back to 0076, whose real uncertain-start guard must
+    # still prevent losing the retained reservation on the way to 0075.
+    command.upgrade(config, "head")
     with pytest.raises(PostStartVerificationError):
         environment.start(0, dispatch=PostStartVerificationError("fixture unknown"))
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
