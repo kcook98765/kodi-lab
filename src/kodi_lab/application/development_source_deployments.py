@@ -50,6 +50,7 @@ from kodi_lab.domain import (
     ManagedInstanceMutationKind,
     RepositoryReplacementOperationState,
 )
+from kodi_lab.storage.development_sessions import require_source_session_admission
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AgentWorkspacePromotionOperationRepository,
@@ -249,6 +250,13 @@ class DevelopmentSourceDeploymentOperationCoordinator:
                     raise DevelopmentSourceDeploymentConflictError(
                         "Source deployment scope changed before queue claim."
                     )
+                require_source_session_admission(
+                    session,
+                    target_id=str(instance_id),
+                    revision_id=str(current.runtime_revision_id),
+                    source_id=str(source_id),
+                    container_id=container_id,
+                )
                 operations = DevelopmentSourceDeploymentOperationRepository(session)
                 if operations.active_for_instance(instance_id) is not None:
                     raise DevelopmentSourceDeploymentConflictError(
@@ -401,6 +409,14 @@ class DevelopmentSourceDeploymentOperationCoordinator:
                         "Exact queued reservation release was not confirmed."
                     )
             else:
+                require_source_session_admission(
+                    session,
+                    target_id=str(lease.managed_instance_id),
+                    revision_id=str(fresh.runtime_revision_id),
+                    source_id=str(fresh.development_source_id),
+                    container_id=container_id,
+                    operation_id=str(operation_id),
+                )
                 claimed_mutation = mutations.claim(
                     lease.managed_instance_id,
                     operation_id=lease.operation_id,

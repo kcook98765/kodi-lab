@@ -13,6 +13,7 @@ from kodi_lab.storage.models import (
     DevelopmentSessionRow,
     ManagedProvisionReservationRow,
     ManagedStartReservationRow,
+    SessionSourceCopyAdmissionRow,
 )
 
 if TYPE_CHECKING:
@@ -103,3 +104,54 @@ def require_workspace_session_admission(
     ):
         raise DevelopmentSessionConflict("development_session_runtime_pending")
     return current
+
+
+def require_source_session_admission(
+    session: Session,
+    *,
+    target_id: str,
+    revision_id: str,
+    source_id: str,
+    container_id: str,
+    operation_id: str | None = None,
+) -> DevelopmentSessionRow | None:
+    """Narrow source copy; guided children also retain their exact generation."""
+    current = active_session(session)
+    receipt = (
+        None
+        if operation_id is None
+        else session.scalar(
+            select(SessionSourceCopyAdmissionRow).where(
+                SessionSourceCopyAdmissionRow.operation_id == operation_id
+            )
+        )
+    )
+    if receipt is not None and (
+        current is None
+        or receipt.session_generation != current.generation
+        or any(
+            getattr(receipt, name) != getattr(current, name)
+            for name in (
+                "target_id",
+                "runtime_revision_id",
+                "workspace_id",
+                "source_id",
+                "container_id",
+            )
+        )
+        or receipt.target_id != target_id
+        or receipt.runtime_revision_id != revision_id
+        or receipt.source_id != source_id
+        or receipt.container_id != container_id
+    ):
+        raise DevelopmentSessionConflict("session_source_copy_selection_changed")
+    if current is None:
+        return None
+    return require_workspace_session_admission(
+        session,
+        target_id=target_id,
+        revision_id=revision_id,
+        workspace_id=current.workspace_id,
+        source_id=source_id,
+        container_id=container_id,
+    )
