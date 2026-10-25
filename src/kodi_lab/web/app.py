@@ -264,6 +264,11 @@ from kodi_lab.application.live_display import (
 )
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
 from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
+from kodi_lab.application.managed_capability_prerequisites import (
+    CapabilityPrerequisitesUnavailable,
+    ManagedCapabilityPrerequisites,
+    ManagedCapabilityPrerequisiteService,
+)
 from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
 from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_observation_bridge import (
@@ -7242,6 +7247,46 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.provision(instance_id)
+
+    capability_prerequisites = ManagedCapabilityPrerequisiteService(session_factory)
+
+    def inspect_capability_prerequisites(
+        instance_id: UUID,
+    ) -> ManagedCapabilityPrerequisites:
+        try:
+            return capability_prerequisites.inspect(instance_id)
+        except CapabilityPrerequisitesUnavailable as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/instances/{instance_id}/capability-prerequisites",
+        response_model=ManagedCapabilityPrerequisites,
+    )
+    def managed_capability_prerequisites(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedCapabilityPrerequisites:
+        return inspect_capability_prerequisites(instance_id)
+
+    @app.get(
+        "/instances/{instance_id}/capability-prerequisites", response_class=HTMLResponse
+    )
+    def managed_capability_prerequisites_page(
+        request: Request,
+        instance_id: UUID,
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name="capability-prerequisites.html",
+            context={
+                "assessment": inspect_capability_prerequisites(instance_id),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
 
     @app.get("/api/instances/{instance_id}/reviewed-bridge")
     def reviewed_managed_bridge_status(

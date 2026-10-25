@@ -112,3 +112,29 @@ The explicit authenticated/CSRF route is
 After a failed/lost response the page prevents another mutation and points to
 status/history review. Refresh is bounded and cannot repair trust. No MCP install
 permission, grant, production behavior or native/screenshot policy changes.
+
+## Read saved capability prerequisites
+
+The authenticated Web link **Review native and Bridge capability prerequisites**
+opens `/instances/{id}/capability-prerequisites`; the matching JSON read is
+`GET /api/instances/{id}/capability-prerequisites`. It reads only durable records.
+It does not call the runtime status getter, access a secret, inspect Docker,
+contact Kodi, enable/install an add-on, or recover trust. `checked_at` timestamps
+this record assessment; `last_authenticated_at` is historical authentication.
+Neither timestamp establishes current liveness, current container binding or
+prompt state. Those remain unknown and each capability performs its normal
+fresh identity/admission/permission checks when invoked.
+
+The approved candidate version is distinct from the last approved authenticated
+resident identity. No trust record permits conditional native UI fallback;
+non-active or invalid trust retains the existing UI identity denial. Older
+approved observation identities can satisfy stored UI/log prerequisites while
+still requiring the current reviewed build for manifest launch. Log inspection
+also needs the stored advertised `log_read` capability. A present saved Bridge
+prerequisite does not prove that its credential is currently available or that
+its container still exists. Native remote actions, broker screenshots and direct
+workspace deployment have independent prerequisites; Bridge state adds no new
+condition to them. Missing records do not prove add-on absence. Prepared reviewed
+intent can suggest the existing explicit continuation, subject to its live lease,
+generation, runtime, container and identity checks. It never offers a mutation
+without that admission. No MCP tool/schema, grants or security policy changed.
