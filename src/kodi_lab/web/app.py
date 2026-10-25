@@ -436,6 +436,10 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotStatus,
     ScreenshotServiceError,
 )
+from kodi_lab.application.session_preparation import (
+    SessionPreparation,
+    SessionPreparationService,
+)
 from kodi_lab.application.session_replacement_reviews import (
     ReplacementEvidenceSelection,
     ReplacementReviewCancel,
@@ -3900,6 +3904,7 @@ def create_app(
         data_root=settings.data_root,
     )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
+    session_preparation = SessionPreparationService(session_factory)
     session_reviews = SessionReplacementReviewService(session_service)
     session_replacements = SessionReplacementService(session_service, context.lifecycle)
 
@@ -4207,6 +4212,38 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
             },
         )
+
+    @app.get("/development-session/preparation", response_class=HTMLResponse)
+    def development_session_preparation_page(
+        request: Request,
+        expected_generation: int | None = Query(default=None, ge=1),
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "session-preparation.html",
+            {
+                "assessment": session_preparation.inspect(
+                    expected_generation=expected_generation
+                ),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/api/development-session/preparation", response_model=SessionPreparation | None
+    )
+    def development_session_preparation_status(
+        response: Response,
+        expected_generation: int | None = Query(default=None, ge=1),
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionPreparation | None:
+        response.headers["Cache-Control"] = "no-store"
+        return session_preparation.inspect(expected_generation=expected_generation)
 
     @app.get("/api/development-session", response_model=SessionView)
     def development_session_status(

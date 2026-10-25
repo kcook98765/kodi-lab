@@ -6,6 +6,7 @@ unknown. Stored target readiness or active trust cannot prove current liveness.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID
@@ -162,7 +163,12 @@ class WorkspaceDeploymentPreflightService:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
 
-    def inspect(self, operation: DeploymentPreflightInput) -> DeploymentPreflightResult:
+    def inspect(
+        self,
+        operation: DeploymentPreflightInput,
+        *,
+        read_session: Session | None = None,
+    ) -> DeploymentPreflightResult:
         checks: list[PrerequisiteCheck] = []
         actions: list[PreflightNextAction] = []
 
@@ -191,7 +197,9 @@ class WorkspaceDeploymentPreflightService:
             if item not in actions:
                 actions.append(item)
 
-        with self._sessions() as session:
+        with (
+            self._sessions() if read_session is None else nullcontext(read_session)
+        ) as session:
             workspace = AgentWorkspaceRepository(session).get(operation.workspace_id)
             target = session.get(TargetRow, str(operation.target_id))
             instance = ManagedInstanceRepository(session).get(operation.target_id)
@@ -427,7 +435,7 @@ class WorkspaceDeploymentPreflightService:
         if managed:
             reconciliation = ManagedInstanceReconciliationService(
                 self._sessions
-            ).status(operation.target_id)
+            ).status(operation.target_id, read_session=read_session)
             check(
                 "reconciliation",
                 "blocked" if reconciliation.blocking else "satisfied",

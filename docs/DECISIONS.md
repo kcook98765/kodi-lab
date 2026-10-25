@@ -6919,6 +6919,27 @@ administrator session-review link, while keeping all live facts unknown. This
 adds a closed output reason/action vocabulary without changing tool permissions,
 tool count, mutation behavior or creating a reservation during assessment.
 
+## D0456 - Compose session preparation as one read-only stored snapshot
+
+The administrator preparation checklist borrows one explicit SQLite read
+transaction across the existing session, deployment preflight, reconciliation
+and Bridge-prerequisite projections. This avoids combining two session/runtime
+identities during a concurrent switch without taking a writer reservation or
+adding a scheduler. Existing projection callers keep their ordinary ownership
+of sessions; a borrowed read session stays open for its caller.
+
+A stale requested generation or inconsistent stored workspace/source/runtime
+refuses. The view preserves unknown live container/native/Bridge/prompt/add-on
+facts and does not assess agent authority. Its authenticated, uncached HTML/JSON
+links only to existing reviewed actions. There is no probe, credential read,
+mutation, new tool/grant, schema migration, automatic baseline/enablement or
+settings/screenshot policy change. A coherent snapshot may become historical
+immediately; mutation-time exact admission remains mandatory.
+
+Existing Web authentication last-use tracking and bounded retention middleware
+remain unchanged. Read-only here describes the preparation computation, whose
+single read session is shared by its component projections; it does not suppress
+ordinary request maintenance or its existing safety checks.
 
 ## D0457 - Scope fresh deployment lineage to the selected disposable profile
 
