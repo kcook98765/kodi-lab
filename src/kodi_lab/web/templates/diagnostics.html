@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Saved test diagnostics · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
+{% block content %}
+<h1>Saved test diagnostics</h1>
+<p>Selected stopped-container logs stay outside Kodi, so they remain available after a restart, reset or profile removal. Saving evidence never starts Kodi, repairs reconciliation or authorizes profile disposal.</p>
+<p>Captures contain bounded, redacted excerpts of the current and previous Kodi logs, internal Kodi stdout, Xvfb log and a bounded Docker stdout/stderr window. Unavailable, oversized and unsafe files are reported explicitly. Native report bodies remain uncollected. Limited metadata is checked only for approved names referenced in retained excerpts. Docker output is a bounded window, not the complete output history.</p>
+<p>Only the Web administrator can read these captures. Redaction removes recognized secret patterns and cannot identify every sensitive value. Review excerpts before sharing them.</p>
+{% if target_id %}
+<section aria-labelledby="capture-heading">
+  <h2 id="capture-heading">Save this stopped test</h2>
+  {% if container_id %}
+  <form method="post" action="/instances/{{ target_id }}/diagnostics">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="request_id" value="{{ request_id }}">
+    <input type="hidden" name="expected_runtime_revision_id" value="{{ runtime_revision_id }}">
+    <input type="hidden" name="expected_container_id" value="{{ container_id }}">
+    <label>Deployment operation ID (optional)<input name="deployment_operation_id" maxlength="36"></label>
+    <p>An operation is associated only when its saved runtime and original container match this test exactly. The association does not establish the cause of a failure.</p>
+    <label><input type="checkbox" name="capture_ack" value="yes" required> Retain these redacted log excerpts privately outside Kodi.</label>
+    <button type="submit">Save stopped diagnostics</button>
+  </form>
+  <p>This form has one request ID. Resubmitting the same form retrieves that capture instead of reading logs again. After a lost response, review the saved capture list before starting another capture.</p>
+  {% else %}<p>No single matching stopped container was observed. Check the existing instance controls, then refresh this page. No resource is changed here.</p>{% endif %}
+  <p><a href="/instances/{{ target_id }}">Return to instance controls</a></p>
+</section>
+{% endif %}
+<p>Up to 64 retained or pending captures and 256 historical records are accepted. Each retained payload is at most 48 KiB. Captures are marked for review after 30 days and remain until you explicitly discard their bodies. There is no automatic expiry, pruning or overwrite.</p>
+<table>
+  <thead><tr><th>Saved capture</th><th>State</th><th>Target</th><th>Created</th><th>Review</th></tr></thead>
+  <tbody>{% for capture in captures %}<tr><td><a href="/diagnostics/{{ capture.capture_id }}">{{ capture.capture_id }}</a></td><td>{{ capture.state }}</td><td>{{ capture.target_id }}</td><td>{{ capture.created_at }}</td><td>{{ 'Review due' if capture.review_due else capture.review_after }}</td></tr>{% else %}<tr><td colspan="5">No captures saved.</td></tr>{% endfor %}</tbody>
+</table>
+<p><a href="/development-session">Development session</a> · <a href="/diagnostics">All saved captures</a></p>
+{% endblock %}

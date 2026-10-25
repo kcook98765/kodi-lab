@@ -233,6 +233,127 @@ class ManagedStartReservationRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class DevelopmentSessionRow(Base):
+    """Retained logical session generation; no runtime readiness is implied."""
+
+    __tablename__ = "development_sessions"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="development_session_request"),
+        CheckConstraint("generation > 0", name="development_session_generation"),
+        CheckConstraint(
+            "phase IN ('reserved','provisioning','bound','uncertain','closed')",
+            name="development_session_phase",
+        ),
+        CheckConstraint(
+            "container_id IS NULL OR length(container_id)=64",
+            name="development_session_container",
+        ),
+        CheckConstraint(
+            "phase != 'bound' OR container_id IS NOT NULL",
+            name="development_session_bound",
+        ),
+    )
+    generation: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class SessionSourceCopyAdmissionRow(Base):
+    """Retained request identity independent of prunable copy-operation detail."""
+
+    __tablename__ = "session_source_copy_admissions"
+    __table_args__ = (
+        UniqueConstraint("operation_id", name="session_source_copy_operation"),
+        CheckConstraint(
+            "length(request_id)=36 AND length(operation_id)=36 AND "
+            "length(target_id)=36 AND length(runtime_revision_id)=36 AND "
+            "length(workspace_id)=36 AND length(source_id)=36",
+            name="session_source_copy_identity",
+        ),
+        CheckConstraint("session_generation>0", name="session_source_copy_generation"),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*'",
+            name="session_source_copy_container",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27", name="session_source_copy_timestamp"
+        ),
+        Index("ix_session_source_copy_generation", "session_generation"),
+    )
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("development_sessions.generation", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class DevelopmentSessionPolicyRow(Base):
+    """Presence of an active generation opts into one provisioned environment."""
+
+    __tablename__ = "development_session_policy"
+    __table_args__ = (CheckConstraint("id=1", name="development_session_singleton"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    active_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation", ondelete="RESTRICT")
+    )
+
+
+class ManagedProvisionReservationRow(Base):
+    """Every broker provision reserves before dispatch, including outside sessions."""
+
+    __tablename__ = "managed_provision_reservations"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('reserved','uncertain')", name="managed_provision_phase"
+        ),
+        CheckConstraint(
+            "length(runtime_revision_id)=36 AND length(operation_id)=36",
+            name="managed_provision_binding",
+        ),
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    session_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation", ondelete="RESTRICT")
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class ManagedAgentLifecycleRequestRow(Base):
     """Exact client/request ownership binds replay to one lifecycle operation."""
 
@@ -8139,3 +8260,248 @@ class NativeZipInstallationRow(Base):
     zip_get_requested_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class ManagedDiagnosticCaptureRow(Base):
+    """Web-selected historical evidence, independent of disposable resources."""
+
+    __tablename__ = "managed_diagnostic_captures"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="diagnostic_capture_request"),
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND length(target_id)=36 "
+            "AND length(runtime_revision_id)=36",
+            name="diagnostic_capture_ids",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' AND "
+            "length(image_id)=71 AND substr(image_id,1,7)='sha256:'",
+            name="diagnostic_capture_binding",
+        ),
+        CheckConstraint(
+            "state IN ('capturing','retained','failed','discarded')",
+            name="diagnostic_capture_state",
+        ),
+        CheckConstraint(
+            "length(context_json) BETWEEN 2 AND 2048", name="diagnostic_capture_context"
+        ),
+        CheckConstraint(
+            "payload_json IS NULL OR length(CAST(payload_json AS BLOB)) BETWEEN "
+            "2 AND 49152",
+            name="diagnostic_capture_payload_bound",
+        ),
+        CheckConstraint(
+            "payload_sha256 IS NULL OR (length(payload_sha256)=64 AND "
+            "payload_sha256 NOT GLOB '*[^0-9a-f]*')",
+            name="diagnostic_capture_hash",
+        ),
+        CheckConstraint(
+            "(state='retained' AND payload_json IS NOT NULL AND payload_sha256 "
+            "IS NOT NULL) OR (state<>'retained' AND payload_json IS NULL)",
+            name="diagnostic_capture_body_state",
+        ),
+        CheckConstraint(
+            "(state='capturing' AND completed_at IS NULL) OR (state<>'capturing' "
+            "AND completed_at IS NOT NULL)",
+            name="diagnostic_capture_completion",
+        ),
+        CheckConstraint(
+            "(state='discarded' AND discarded_at IS NOT NULL) OR "
+            "(state<>'discarded' AND discarded_at IS NULL)",
+            name="diagnostic_capture_discard",
+        ),
+        CheckConstraint(
+            "(state='failed' AND failure_code IS NOT NULL) OR (state<>'failed' "
+            "AND failure_code IS NULL)",
+            name="diagnostic_capture_failure",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 64",
+            name="diagnostic_capture_failure_bound",
+        ),
+        Index("ix_diagnostic_capture_target_created", "target_id", "created_at"),
+        Index(
+            "uq_diagnostic_capture_active_target",
+            "target_id",
+            unique=True,
+            sqlite_where=text("state='capturing'"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    context_json: Mapped[str] = mapped_column(String(2048), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    review_after: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    discarded_at: Mapped[str | None] = mapped_column(String(27))
+    payload_json: Mapped[str | None] = mapped_column(Text)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class DevelopmentSessionReplacementReviewRow(Base):
+    """An evidence hold and reviewed intent, never lifecycle dispatch authority."""
+
+    __tablename__ = "development_session_replacement_reviews"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="session_replacement_request"),
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND session_generation>0",
+            name="session_replacement_identity",
+        ),
+        CheckConstraint(
+            "state IN ('open','cancelled')", name="session_replacement_state"
+        ),
+        CheckConstraint(
+            "length(CAST(snapshot_json AS BLOB)) BETWEEN 2 AND 16384 AND "
+            "length(snapshot_sha256)=64 AND snapshot_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_replacement_snapshot",
+        ),
+        CheckConstraint(
+            "(state='open' AND cancelled_at IS NULL) OR "
+            "(state='cancelled' AND cancelled_at IS NOT NULL)",
+            name="session_replacement_cancellation",
+        ),
+        CheckConstraint(
+            "successor_generation IS NULL OR (state='open' AND "
+            "successor_generation>session_generation)",
+            name="session_replacement_successor",
+        ),
+        Index(
+            "uq_session_replacement_open",
+            "state",
+            unique=True,
+            sqlite_where=text("state='open' AND successor_generation IS NULL"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("development_sessions.generation", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    cancelled_at: Mapped[str | None] = mapped_column(String(27))
+    successor_generation: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("development_sessions.generation")
+    )
+
+
+class DevelopmentSessionEvidenceHoldRow(Base):
+    __tablename__ = "development_session_evidence_holds"
+    __table_args__ = (
+        CheckConstraint(
+            "length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_evidence_hold_hash",
+        ),
+    )
+    review_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_session_replacement_reviews.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    capture_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_diagnostic_captures.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ManagedRuntimeRetirementRow(Base):
+    """Historical exact scope; only atomic terminalization confirms retirement."""
+
+    __tablename__ = "managed_runtime_retirements"
+    __table_args__ = (
+        CheckConstraint(
+            "length(operation_id)=36 AND length(original_managed_instance_id)=36 "
+            "AND length(runtime_revision_id)=36",
+            name="runtime_retirement_identity",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' "
+            "AND length(image_id)=71 AND substr(image_id,1,7)='sha256:' "
+            "AND substr(image_id,8) NOT GLOB '*[^0-9a-f]*'",
+            name="runtime_retirement_binding",
+        ),
+        CheckConstraint(
+            "length(prepared_at)=27 AND (confirmed_at IS NULL OR "
+            "(length(confirmed_at)=27 AND confirmed_at>=prepared_at))",
+            name="runtime_retirement_confirmation",
+        ),
+    )
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instance_lifecycle_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    prepared_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    confirmed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class DevelopmentSessionReplacementRow(Base):
+    """One explicit review execution bound to its exact retirement child."""
+
+    __tablename__ = "development_session_replacements"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="session_replacement_execution_request"),
+        UniqueConstraint(
+            "retirement_operation_id", name="session_replacement_retirement"
+        ),
+        UniqueConstraint(
+            "prepare_operation_id", name="session_replacement_preparation"
+        ),
+        CheckConstraint(
+            "length(request_id)=36 AND length(retirement_operation_id)=36",
+            name="session_replacement_execution_identity",
+        ),
+        CheckConstraint(
+            "length(review_snapshot_sha256)=64 AND "
+            "review_snapshot_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="session_replacement_execution_hash",
+        ),
+        CheckConstraint(
+            "profile_disposal_confirmed=1",
+            name="session_replacement_disposal_confirmation",
+        ),
+        CheckConstraint(
+            "prepare_operation_id IS NULL OR length(prepare_operation_id)=36",
+            name="session_replacement_prepare_identity",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(released_at IS NULL OR length(released_at)=27)",
+            name="session_replacement_execution_timestamps",
+        ),
+    )
+    review_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_session_replacement_reviews.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    review_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    retirement_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_runtime_retirements.operation_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    prepare_operation_id: Mapped[str | None] = mapped_column(String(36))
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    profile_disposal_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    released_at: Mapped[str | None] = mapped_column(String(27))

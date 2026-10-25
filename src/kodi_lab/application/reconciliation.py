@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -1452,8 +1453,14 @@ class ManagedInstanceReconciliationService:
         self._data_root = data_root
         self._readiness = readiness
 
-    def status(self, instance_id: UUID) -> ManagedInstanceReconciliationStatus:
-        with self._session_factory() as session:
+    def status(
+        self, instance_id: UUID, *, read_session: Session | None = None
+    ) -> ManagedInstanceReconciliationStatus:
+        with (
+            self._session_factory()
+            if read_session is None
+            else nullcontext(read_session)
+        ) as session:
             records: list[tuple[ReconciliationOperationKind, object]] = []
             records.extend(
                 (ReconciliationOperationKind.LIFECYCLE, item)

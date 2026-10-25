@@ -7,7 +7,7 @@ import secrets
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Protocol
@@ -79,6 +79,10 @@ from kodi_lab.kodi.addons import (
     KodiAddonSmokeTimeoutError,
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_source_session_admission,
+)
 from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -176,6 +180,8 @@ class DevelopmentSourceSmokeTestLease:
     instance_id: UUID
     source_id: UUID
     token: str
+    selected_generation: int | None = None
+    expected_container_id: str | None = None
 
     @property
     def token_digest(self) -> str:
@@ -238,6 +244,24 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
         )
         try:
             with self._session_factory.begin() as session:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                selected = require_source_session_admission(
+                    session,
+                    target_id=str(instance_id),
+                    revision_id=str(instance.runtime_revision_id),
+                    source_id=str(source_id),
+                    container_id=None,
+                )
+                if selected is not None and selected.container_id is None:
+                    raise DevelopmentSessionConflict(
+                        "development_session_requires_review"
+                    )
+                operation = replace(
+                    operation,
+                    expected_container_id=None
+                    if selected is None
+                    else selected.container_id,
+                )
                 operations = DevelopmentSourceSmokeTestOperationRepository(session)
                 if operations.active_for_instance(instance_id) is not None:
                     raise DevelopmentSourceSmokeTestConflictError(
@@ -262,6 +286,10 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
             )
         if operation is None or operation.managed_instance_id is None:
             return None
+        if operation.state is not DevelopmentSourceSmokeTestOperationState.QUEUED:
+            raise DevelopmentSourceSmokeTestConflictError(
+                "Smoke test is already claimed or terminal."
+            )
         lease = DevelopmentSourceSmokeTestLease(
             operation.id,
             operation.managed_instance_id,
@@ -271,30 +299,144 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
         now = self._clock()
         expires = now + SMOKE_OPERATION_BOUND
         with self._session_factory.begin() as session:
-            mutation = ManagedInstanceMutationLeaseRepository(session).claim(
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            operations = DevelopmentSourceSmokeTestOperationRepository(session)
+            fresh = operations.get(operation_id)
+            leases = ManagedInstanceMutationLeaseRepository(session)
+            mutation = leases.current(lease.instance_id)
+            intent = (
+                "original_managed_instance_id",
+                "managed_instance_id",
+                "development_source_id",
+                "runtime_revision_id",
+                "expected_container_id",
+                "addon_id",
+                "addon_version",
+                "source_logical_name",
+                "requested_at",
+            )
+            if (
+                fresh is None
+                or fresh.state is not DevelopmentSourceSmokeTestOperationState.QUEUED
+                or fresh.original_managed_instance_id != lease.instance_id
+                or tuple(getattr(fresh, name) for name in intent)
+                != tuple(getattr(operation, name) for name in intent)
+                or fresh.phase is not DevelopmentSourceSmokeTestOperationPhase.ACQUIRE
+                or fresh.invocation_dispatched
+                or fresh.reconciliation_required
+                or fresh.lease_token_digest is not None
+                or fresh.lease_expires_at is not None
+                or mutation is None
+                or mutation.operation_kind
+                is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST
+                or mutation.operation_id != str(operation_id)
+                or mutation.lease_token_digest is not None
+                or mutation.lease_expires_at is not None
+                or mutation.acquired_at is not None
+                or mutation.heartbeat_at is not None
+            ):
+                raise DevelopmentSourceSmokeTestConflictError(
+                    "Exact unclaimed smoke authority is unavailable."
+                )
+            selected = require_source_session_admission(
+                session,
+                target_id=str(lease.instance_id),
+                revision_id=str(fresh.runtime_revision_id),
+                source_id=str(lease.source_id),
+                container_id=fresh.expected_container_id,
+            )
+            if selected is not None and selected.container_id is None:
+                raise DevelopmentSessionConflict("development_session_requires_review")
+            lease = replace(
+                lease,
+                selected_generation=None if selected is None else selected.generation,
+                expected_container_id=fresh.expected_container_id
+                or (None if selected is None else selected.container_id),
+            )
+            mutation_claimed = leases.claim(
                 lease.instance_id,
                 operation_id=lease.operation_id,
                 token_digest=lease.token_digest,
                 now=now,
                 expires_at=expires,
             )
-            acquired = DevelopmentSourceSmokeTestOperationRepository(session).acquire(
+            acquired = operations.acquire(
                 lease.operation_id,
                 token_digest=lease.token_digest,
-                expected_container_id=None,
+                expected_container_id=fresh.expected_container_id,
                 now=now,
                 lease_expires_at=expires,
             )
-            if not (mutation and acquired):
+            if not (mutation_claimed and acquired):
                 raise DevelopmentSourceSmokeTestConflictError(
                     "Smoke-test authority could not be acquired."
                 )
         return lease
 
+    def _require_owned(
+        self,
+        session: Session,
+        lease: DevelopmentSourceSmokeTestLease,
+    ) -> DevelopmentSourceSmokeTestOperation:
+        operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
+            lease.operation_id
+        )
+        leases = ManagedInstanceMutationLeaseRepository(session)
+        mutation = leases.current(lease.instance_id)
+        now = self._clock()
+        if (
+            operation is None
+            or operation.state is not DevelopmentSourceSmokeTestOperationState.RUNNING
+            or operation.managed_instance_id != lease.instance_id
+            or operation.original_managed_instance_id != lease.instance_id
+            or operation.development_source_id != lease.source_id
+            or operation.lease_token_digest != lease.token_digest
+            or operation.lease_expires_at is None
+            or operation.lease_expires_at <= now
+            or mutation is None
+            or mutation.operation_kind
+            is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST
+            or not leases.renew(
+                lease.instance_id,
+                operation_id=lease.operation_id,
+                token_digest=lease.token_digest,
+                now=now,
+                expires_at=operation.lease_expires_at,
+            )
+        ):
+            raise DevelopmentSourceSmokeTestConflictError(
+                "Exact live smoke authority is unavailable."
+            )
+        return operation
+
+    @staticmethod
+    def _require_scope(
+        session: Session,
+        lease: DevelopmentSourceSmokeTestLease,
+        operation: DevelopmentSourceSmokeTestOperation,
+        container_id: str,
+    ) -> None:
+        selected = require_source_session_admission(
+            session,
+            target_id=str(lease.instance_id),
+            revision_id=str(operation.runtime_revision_id),
+            source_id=str(lease.source_id),
+            container_id=container_id,
+        )
+        generation = None if selected is None else selected.generation
+        if generation != lease.selected_generation or (
+            lease.expected_container_id is not None
+            and lease.expected_container_id != container_id
+        ):
+            raise DevelopmentSessionConflict("development_session_identity_changed")
+
     def set_expected_container(
         self, lease: DevelopmentSourceSmokeTestLease, container_id: str
     ) -> None:
         with self._session_factory.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            operation = self._require_owned(session, lease)
+            self._require_scope(session, lease, operation, container_id)
             if not DevelopmentSourceSmokeTestOperationRepository(
                 session
             ).set_expected_container(
@@ -327,6 +469,15 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
         self, lease: DevelopmentSourceSmokeTestLease
     ) -> None:
         with self._session_factory.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            operation = self._require_owned(session, lease)
+            if operation.expected_container_id is None:
+                raise DevelopmentSourceSmokeTestConflictError(
+                    "Observed smoke profile binding is required."
+                )
+            self._require_scope(
+                session, lease, operation, operation.expected_container_id
+            )
             if not DevelopmentSourceSmokeTestOperationRepository(
                 session
             ).mark_invocation_dispatched(
@@ -358,6 +509,8 @@ class DevelopmentSourceSmokeTestOperationCoordinator:
             state is DevelopmentSourceSmokeTestOperationState.RECONCILIATION_REQUIRED
         )
         with self._session_factory.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            self._require_owned(session, lease)
             if confidence is not None:
                 DevelopmentSourceDeploymentRepository(session).mark_confidence(
                     lease.instance_id, lease.source_id, confidence
@@ -662,6 +815,16 @@ class DevelopmentSourceSmokeTestService:
                 duration_ms=duration,
                 item_count=count,
             )
+        except DevelopmentSessionConflict as error:
+            if dispatched:
+                return self._reconciliation(
+                    DevelopmentSourceSmokeTestOverallResult.RECONCILIATION_REQUIRED,
+                    DevelopmentSourceSmokeTestExecutionResult.AMBIGUOUS,
+                    duration_ms=duration,
+                    item_count=count,
+                    reason="smoke_invocation_ambiguous",
+                )
+            return self._failed(error.code)
         except Exception:
             if dispatched:
                 return self._reconciliation(

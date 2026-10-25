@@ -279,6 +279,16 @@ class ManagedBridgeTrustService:
         with self._gate.enter(target_id):
             return self._prepare(target_id, replace=replace)
 
+    def resume_reviewed(self, target_id: UUID, *, expected_generation: int) -> None:
+        """Explicit lifecycle continuation; prepared intent is not staging proof."""
+        with self._gate.enter(target_id):
+            if not self._prepare(
+                target_id,
+                replace=False,
+                expected_prepared_generation=expected_generation,
+            ):
+                raise ManagedBridgeTrustError("managed_bridge_installation_incomplete")
+
     def stage_reviewed(self, target_id: UUID) -> None:
         """Explicit lifecycle admission only; restart must confirm resident identity."""
         with self._gate.enter(target_id):
@@ -304,13 +314,21 @@ class ManagedBridgeTrustService:
             return {
                 "state": row.state if row else "uninstalled",
                 "generation": row.generation if row else 0,
+                "resume_available": bool(
+                    row and row.state == "prepared" and row.reviewed_installation
+                ),
                 "addon_version": approved_bridge_build(profile.kodi_release.canonical)[
                     "addon_version"
                 ],
             }
 
     def _prepare(
-        self, target_id: UUID, *, replace: bool, install_reviewed: bool = False
+        self,
+        target_id: UUID,
+        *,
+        replace: bool,
+        install_reviewed: bool = False,
+        expected_prepared_generation: int | None = None,
     ) -> bool:
         observed, profile = self._admit(target_id)
         if install_reviewed and profile.kodi_release.canonical not in {
@@ -322,6 +340,16 @@ class ManagedBridgeTrustService:
             row = session.get(ManagedBridgeTrustRow, str(target_id))
             if row is not None:
                 session.expunge(row)
+        if expected_prepared_generation is not None and (
+            row is None
+            or row.state != "prepared"
+            or not row.reviewed_installation
+            or row.generation != expected_prepared_generation
+            or row.container_id != observed.container_id
+            or row.runtime_revision_id != observed.runtime_revision_id
+            or not row.secret_reference
+        ):
+            raise ManagedBridgeTrustError("managed_bridge_resume_unavailable")
         if row is not None and row.state == "active" and not replace:
             try:
                 if (

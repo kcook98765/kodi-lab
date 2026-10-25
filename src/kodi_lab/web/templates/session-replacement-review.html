@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Review Fresh Test or Switch · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
+{% block content %}
+<h1>Review Fresh Test or Switch</h1>
+<p>A fresh test replaces the current disposable profile. Source, workspace, Git history and selected saved evidence stay outside Kodi. Saving a review holds that evidence and keeps the current profile. Replacement requires a separate final confirmation below.</p>
+<p><a href="/development-session">Back to development session</a> · <a href="/diagnostics">Save or review diagnostics</a></p>
+{% if review %}
+<h2>Saved {{ 'Fresh Test' if review.snapshot.mode == 'fresh_test' else 'Switch Version' }} review</h2>
+<p>State: {{ review.state }}. Session {{ review.snapshot.request.expected_generation }}; add-on {{ review.snapshot.addon_id }}.</p>
+<p>Current container: <code>{{ review.snapshot.request.expected_container_id }}</code>. Selected runtime: <code>{{ review.snapshot.request.next_runtime_revision_id }}</code>.</p>
+<p>Observed {{ review.snapshot.observed_at }}. These are saved facts; later execution must recheck the current session, busy/reconciliation state, runtime eligibility and exact evidence.</p>
+<ul>{% for item in review.snapshot.request.evidence %}<li><a href="/diagnostics/{{ item.capture_id }}">Selected capture {{ item.capture_id }}</a></li>{% endfor %}</ul>
+{% if replacement %}
+<h2>Replacement status</h2>
+<p>{{ replacement.phase }}. Retirement: {{ replacement.retirement_state.value }}; confirmation: {{ replacement.retirement_confirmation }}. Current native readiness has not been observed here.</p>
+{% if replacement.phase == 'retirement_unconfirmed' %}
+<p>Retirement has not been confirmed. Do not resubmit or discard the selected evidence. Review the exact Kodi operation and existing recovery workflow. Missing inventory, elapsed time and service restart do not prove completion.</p>
+{% elif replacement.phase == 'retired' %}
+<p>The exact old profile was retired. Its reservation and selected evidence are retained until you continue or explicitly release the empty environment. Review the selected version and Kodi history if a prerequisite blocks preparation.</p>
+{% for action, label, acknowledgement in [('continue', 'Continue preparation', 'Continue from the confirmed retirement using the displayed approved cached runtime. Keep source, workspace and selected evidence.'), ('release', 'Release retired reservation', 'Release only this confirmed retired empty reservation and its evidence holds. Keep saved captures, source and workspace.') ] %}
+<form method="post" action="/development-session/replacement/{{ review.review_id }}/{{ action }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="request_id" value="{{ replacement.request_id }}">
+  <input type="hidden" name="expected_snapshot_sha256" value="{{ review.snapshot_sha256 }}">
+  <label><input type="checkbox" name="confirmation_ack" value="yes" required> {{ acknowledgement }}</label>
+  <button type="submit">{{ label }}</button>
+</form>
+{% endfor %}
+{% elif replacement.successor %}
+<p>Successor session {{ replacement.successor.generation }} is {{ replacement.successor.phase }}. Original preparation attempt: {{ replacement.prepare_state.value if replacement.prepare_state else replacement.prepare_history }}. Session binding alone does not prove native, Bridge or add-on readiness.</p>
+<p><a href="/development-session">Resume / Stop / Prepare the selected session</a> · <a href="/instances/{{ replacement.successor.target_id }}">Independent source, native and Bridge setup</a> · <a href="/agent-workspaces/{{ replacement.successor.workspace_id }}">Persistent workspace</a></p>
+<p>Unknown preparation remains fenced. Review history before acting; status refresh and request replay do not dispatch another create.</p>
+{% elif replacement.phase == 'released_after_retirement' %}
+<p>The retired reservation is released. Saved captures and history remain. Choose a new approved cached environment from the development session.</p>
+{% endif %}
+{% elif review.state == 'open' %}
+<p>Selected evidence is held against discard until this review is cancelled. Resume and Stop remain available. No replacement runs automatically.</p>
+<p>Replacing this test permanently removes exactly the displayed stopped container and its writable Kodi profile, including installed add-ons, settings, unsaved logs and unselected artifacts. Native crash reports remain uncollected. Selected saved excerpts may be incomplete. Runtime images, source, workspace and Git history are retained.</p>
+<form method="post" action="/development-session/replacement/{{ review.review_id }}/execute">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="request_id" value="{{ replacement_request_id }}">
+  <input type="hidden" name="expected_snapshot_sha256" value="{{ review.snapshot_sha256 }}">
+  <label><input type="checkbox" name="confirmation_ack" value="yes" required> Permanently remove this exact stopped disposable profile, keep the selected saved evidence, and prepare a clean stopped test from the displayed approved cached runtime. I have reviewed the incomplete evidence and data loss.</label>
+  <button type="submit">Replace profile and prepare selected test</button>
+</form>
+<form method="post" action="/development-session/replacement/{{ review.review_id }}/cancel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="expected_snapshot_sha256" value="{{ review.snapshot_sha256 }}">
+  <label><input type="checkbox" name="cancel_ack" value="yes" required> Cancel this review and release its evidence holds. Keep the current Kodi profile.</label>
+  <button type="submit">Cancel review</button>
+</form>
+{% else %}<p>Evidence holds are released. The review remains in history.</p>{% endif %}
+{% else %}
+<form method="get" action="/development-session/replacement">
+  <label>Kodi version <select name="target_id" required>{% for choice in choices %}<option value="{{ choice.target_id }}" {% if selection and choice.target_id == selection.next_target_id %}selected{% endif %}>Kodi {{ choice.kodi_version }} — {{ choice.name }}</option>{% endfor %}</select></label>
+  <button type="submit">Review selected version</button>
+</form>
+{% if selection %}
+<p>Current session {{ selection.expected_generation }}; stopped container <code>{{ selection.expected_container_id }}</code>.</p>
+<p>Selected approved cached runtime <code>{{ selection.next_runtime_revision_id }}</code>, image <code>{{ selection.next_image_id }}</code>. Choosing a version does not copy grants, Bridge trust or deployment baselines.</p>
+{% if captures %}
+<form method="post" action="/development-session/replacement">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="request_id" value="{{ request_id }}">
+  <input type="hidden" name="selection_json" value="{{ selection.model_dump_json() }}">
+  <fieldset><legend>Select 1–8 saved captures to retain during review</legend>
+  {% for capture in captures %}<label><input type="checkbox" name="evidence" value="{{ capture.capture_id }}:{{ capture.payload_sha256 }}"> <a href="/diagnostics/{{ capture.capture_id }}">Capture {{ capture.created_at }}</a> ({{ capture.capture_id }})</label>{% endfor %}
+  </fieldset>
+  <label><input type="checkbox" name="crash_reports_ack" value="yes" required> Native crash reports have not been collected. Selected excerpts may be partial, rotated or unavailable and do not establish crash cause.</label>
+  <label><input type="checkbox" name="review_ack" value="yes" required> Save this exact review and hold selected evidence. Profile disposal requires a separate final confirmation and fresh safety checks.</label>
+  <button type="submit">Save review and hold evidence</button>
+</form>
+{% else %}<p>Save at least one diagnostic capture from this exact stopped test before reviewing replacement.</p>{% endif %}
+{% else %}<p>Use a bound, stopped, idle session with an approved cached runtime. Resolve busy or uncertain operations through their existing recovery workflow.</p>{% if reason %}<p>Review status: <code>{{ reason }}</code>.</p>{% endif %}{% endif %}
+{% endif %}
+<p>Saving a review alone never authorizes profile disposal or clears a fence. Final replacement rechecks exact identity, evidence, leases and runtime eligibility. Unknown dispatch stays fenced; no background replacement or idle cleanup runs.</p>
+{% endblock %}

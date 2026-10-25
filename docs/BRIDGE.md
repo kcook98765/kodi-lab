@@ -88,3 +88,53 @@ not retained in the Bridge replay cache or routine MCP audit records.
 Bridge 1.1.25 (RC1 overlay 1.1.26) adds managed-only
 [manifest entry-point launch](MANIFEST-ENTRY-LAUNCH.md), with a durable dispatch
 receipt and separate UI acceptance. External OTP pairing grants no launch authority.
+
+## Continue a prepared managed installation
+
+A recorded `prepared` state does not prove the reviewed add-on was installed.
+For a matching prepared reviewed installation, the Web panel offers **Continue
+Bridge setup**. Start Kodi first and check native readiness. Continuation calls
+the existing enablement/establishment/authentication path synchronously under an
+existing lifecycle mutation lease; it does not restart Kodi or reinstall files.
+It advances trust generation, retires the prepared secret and requires the fresh
+reviewed identity before active trust can be recorded.
+
+The request binds the displayed generation. Changed container/runtime/generation,
+retired/unreviewed state and absent credentials refuse continuation. Missing or
+wrong-version resident material remains unconfirmed and requires installation
+review. Native prompts can still require operator or independently authorized
+remote action; active trust does not prove that every prompt is dismissed.
+
+The explicit authenticated/CSRF route is
+`POST /api/instances/{id}/reviewed-bridge/resume` with
+`{"expected_generation": <displayed generation>}`. Status reads remain read-only;
+`resume_available` describes recorded intent, not live eligibility or liveness.
+After a failed/lost response the page prevents another mutation and points to
+status/history review. Refresh is bounded and cannot repair trust. No MCP install
+permission, grant, production behavior or native/screenshot policy changes.
+
+## Read saved capability prerequisites
+
+The authenticated Web link **Review native and Bridge capability prerequisites**
+opens `/instances/{id}/capability-prerequisites`; the matching JSON read is
+`GET /api/instances/{id}/capability-prerequisites`. It reads only durable records.
+It does not call the runtime status getter, access a secret, inspect Docker,
+contact Kodi, enable/install an add-on, or recover trust. `checked_at` timestamps
+this record assessment; `last_authenticated_at` is historical authentication.
+Neither timestamp establishes current liveness, current container binding or
+prompt state. Those remain unknown and each capability performs its normal
+fresh identity/admission/permission checks when invoked.
+
+The approved candidate version is distinct from the last approved authenticated
+resident identity. No trust record permits conditional native UI fallback;
+non-active or invalid trust retains the existing UI identity denial. Older
+approved observation identities can satisfy stored UI/log prerequisites while
+still requiring the current reviewed build for manifest launch. Log inspection
+also needs the stored advertised `log_read` capability. A present saved Bridge
+prerequisite does not prove that its credential is currently available or that
+its container still exists. Native remote actions, broker screenshots and direct
+workspace deployment have independent prerequisites; Bridge state adds no new
+condition to them. Missing records do not prove add-on absence. Prepared reviewed
+intent can suggest the existing explicit continuation, subject to its live lease,
+generation, runtime, container and identity checks. It never offers a mutation
+without that admission. No MCP tool/schema, grants or security policy changed.

@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -25,6 +25,7 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -37,7 +38,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    model_validator,
+)
 from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -146,6 +154,16 @@ from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentError,
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
+)
+from kodi_lab.application.development_session_workflow import (
+    DevelopmentSessionWorkflow,
+    SessionGenerationRequest,
+    SessionView,
+)
+from kodi_lab.application.development_sessions import (
+    DevelopmentSessionRequest,
+    DevelopmentSessionService,
+    DevelopmentSessionStatus,
 )
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
@@ -264,6 +282,11 @@ from kodi_lab.application.live_display import (
 )
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
 from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
+from kodi_lab.application.managed_capability_prerequisites import (
+    CapabilityPrerequisitesUnavailable,
+    ManagedCapabilityPrerequisites,
+    ManagedCapabilityPrerequisiteService,
+)
 from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
 from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_observation_bridge import (
@@ -367,6 +390,13 @@ from kodi_lab.application.reset_status import (
     ManagedInstanceResetStatus,
     ResetStatusService,
 )
+from kodi_lab.application.retained_diagnostics import (
+    DiagnosticCaptureInput,
+    DiagnosticCaptureSummary,
+    DiagnosticDiscardInput,
+    RetainedDiagnosticsError,
+    RetainedDiagnosticsService,
+)
 from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
 )
@@ -394,6 +424,9 @@ from kodi_lab.application.runtime_reconstruction import (
     ReconstructionEligibility,
     ReconstructionStatus,
 )
+from kodi_lab.application.runtime_retirement_receipts import (
+    RuntimeRetirementReceiptError,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -409,6 +442,30 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ManagedScreenshotStatus,
     ScreenshotServiceError,
+)
+from kodi_lab.application.session_preparation import (
+    SessionPreparation,
+    SessionPreparationService,
+)
+from kodi_lab.application.session_replacement_reviews import (
+    ReplacementEvidenceSelection,
+    ReplacementReviewCancel,
+    ReplacementReviewRequest,
+    ReplacementReviewStatus,
+    ReplacementSelection,
+    SessionReplacementReviewError,
+    SessionReplacementReviewService,
+)
+from kodi_lab.application.session_replacements import (
+    SessionReplacementError,
+    SessionReplacementRequest,
+    SessionReplacementService,
+    SessionReplacementStatus,
+)
+from kodi_lab.application.session_source_copy import (
+    SessionSourceCopyAccepted,
+    SessionSourceCopyReceipt,
+    SessionSourceCopyService,
 )
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
@@ -454,6 +511,11 @@ from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
 )
+from kodi_lab.application.workspace_deployment_preflight import (
+    DeploymentPreflightInput,
+    DeploymentPreflightResult,
+    WorkspaceDeploymentPreflightService,
+)
 from kodi_lab.application.workspace_launch import (
     WorkspaceLaunchError,
     WorkspaceLaunchResult,
@@ -476,6 +538,7 @@ from kodi_lab.broker.errors import (
     ClientTransportError,
     RemoteBrokerError,
 )
+from kodi_lab.broker.stopped_diagnostics import StoppedRuntimeDiagnostics
 from kodi_lab.config import Settings
 from kodi_lab.development import (
     MAX_COMPRESSED_BYTES,
@@ -526,6 +589,7 @@ from kodi_lab.repository.development import (
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import (
     read_resource_policy as managed_resource_policy,
 )
@@ -1167,6 +1231,11 @@ class ExternalDeploymentReconciliationRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class ReviewedBridgeResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+
+
 class HistoricalContainmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1175,12 +1244,69 @@ class HistoricalContainmentRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class SessionSourceCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    expected_generation: StrictInt = Field(ge=1)
+
+
+class SessionSourceCopyForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_generation: int = Field(ge=1)
+
+
+class DiagnosticCaptureForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_runtime_revision_id: UUID
+    expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    capture_ack: Literal["yes"]
+    deployment_operation_id: str = Field(default="", max_length=36)
+
+
+class DiagnosticDiscardForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    expected_state: Literal["capturing", "retained", "failed"]
+    expected_payload_sha256: str = Field(default="", max_length=64)
+    discard_ack: Literal["yes"]
+
+
+class SessionReplacementReviewForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    selection_json: str = Field(max_length=4096)
+    evidence: list[str] = Field(min_length=1, max_length=8)
+    review_ack: Literal["yes"]
+    crash_reports_ack: Literal["yes"]
+
+
+class SessionReplacementCancelForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cancel_ack: Literal["yes"]
+
+
+class SessionReplacementActionForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    request_id: UUID
+    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmation_ack: Literal["yes"]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
     auth: WebAuthenticationService
     throttler: LoginThrottler
     status: ManagedRuntimeStatusService
+    retained_diagnostics: RetainedDiagnosticsService
     lifecycle: ManagedRuntimeLifecycleService
     managed_resources: ManagedResourceService
     managed_agent_lifecycle: ManagedAgentLifecycleService
@@ -1993,6 +2119,9 @@ def create_app(
         session_factory, activity, snapshot_status
     )
     context = WebApplicationContext(
+        retained_diagnostics=RetainedDiagnosticsService(
+            session_factory, broker, data_root=settings.data_root
+        ),
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
@@ -3793,6 +3922,465 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
             },
         )
+
+    session_service = DevelopmentSessionService(
+        session_factory,
+        broker.managed_container_inventory,
+        data_root=settings.data_root,
+    )
+    session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
+    session_preparation = SessionPreparationService(session_factory)
+    session_source_copy = SessionSourceCopyService(
+        session_factory, context.development_source_deployment_operations
+    )
+    session_reviews = SessionReplacementReviewService(session_service)
+    session_replacements = SessionReplacementService(session_service, context.lifecycle)
+
+    @app.exception_handler(SessionReplacementError)
+    async def session_replacement_failure(
+        _request: Request, error: SessionReplacementError
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Review the saved replacement, Kodi history and retained evidence.",
+        )
+
+    @app.exception_handler(RuntimeRetirementReceiptError)
+    async def retirement_receipt_failure(
+        _request: Request, error: RuntimeRetirementReceiptError
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Retirement proof is unavailable. Preserve the session and review history.",
+        )
+
+    @app.exception_handler(SessionReplacementReviewError)
+    async def session_replacement_review_failure(
+        _request: Request, error: SessionReplacementReviewError
+    ) -> JSONResponse:
+        return _json_error(
+            409, error.code, "Review the current session and selected evidence."
+        )
+
+    @app.get(
+        "/api/development-session/replacement-offer",
+        response_model=ReplacementSelection,
+    )
+    def session_replacement_offer(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementSelection:
+        return session_reviews.offer(target_id)
+
+    @app.get(
+        "/api/development-session/replacement-review",
+        response_model=ReplacementReviewStatus | None,
+    )
+    def current_session_replacement_review(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementReviewStatus | None:
+        return session_reviews.active()
+
+    @app.post(
+        "/api/development-session/replacement-review",
+        response_model=ReplacementReviewStatus,
+    )
+    def save_session_replacement_review(
+        body: ReplacementReviewRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.create(body)
+
+    @app.get(
+        "/api/development-session/replacement-review/{review_id}",
+        response_model=ReplacementReviewStatus,
+    )
+    def session_replacement_review_status(
+        review_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.get(review_id)
+
+    @app.post(
+        "/api/development-session/replacement-review/{review_id}/cancel",
+        response_model=ReplacementReviewStatus,
+    )
+    def cancel_session_replacement_review(
+        review_id: UUID,
+        body: ReplacementReviewCancel,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReplacementReviewStatus:
+        return session_reviews.cancel(review_id, body)
+
+    @app.get("/development-session/replacement", response_class=HTMLResponse)
+    def session_replacement_review_page(
+        request: Request, target_id: UUID | None = None
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        current = session_service.status()
+        review = session_reviews.active()
+        selection = None
+        reason = None
+        if review is None and current is not None:
+            try:
+                selection = session_reviews.offer(target_id or current.target_id)
+            except (SessionReplacementReviewError, DevelopmentSessionConflict) as error:
+                reason = error.code
+        captures = (
+            []
+            if current is None
+            else [
+                item
+                for item in context.retained_diagnostics.list(current.target_id)
+                if item.state == "retained"
+                and item.container_id == current.container_id
+                and item.runtime_revision_id == current.runtime_revision_id
+            ]
+        )
+        replacement = (
+            None if review is None else session_replacements.get(review.review_id)
+        )
+        return templates.TemplateResponse(
+            request,
+            "session-replacement-review.html",
+            {
+                "review": review,
+                "selection": selection,
+                "reason": reason,
+                "choices": session_workflow.choices(),
+                "captures": captures,
+                "request_id": uuid4(),
+                "replacement": replacement,
+                "replacement_request_id": uuid4()
+                if replacement is None
+                else replacement.request_id,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/development-session/replacement/{review_id}", response_class=HTMLResponse
+    )
+    def saved_session_replacement_review_page(
+        request: Request, review_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        replacement = session_replacements.get(review_id)
+        return templates.TemplateResponse(
+            request,
+            "session-replacement-review.html",
+            {
+                "review": session_reviews.get(review_id),
+                "replacement": replacement,
+                "replacement_request_id": uuid4()
+                if replacement is None
+                else replacement.request_id,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/development-session/replacement")
+    def save_session_replacement_review_form(
+        request: Request,
+        body: SessionReplacementReviewForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        try:
+            selection = ReplacementSelection.model_validate_json(body.selection_json)
+            evidence = [
+                ReplacementEvidenceSelection.model_validate(
+                    dict(
+                        zip(
+                            ("capture_id", "payload_sha256"),
+                            item.split(":"),
+                            strict=True,
+                        )
+                    )
+                )
+                for item in body.evidence
+            ]
+            operation = ReplacementReviewRequest(
+                **selection.model_dump(),
+                request_id=body.request_id,
+                evidence=evidence,
+                confirm_review=True,
+                acknowledge_uncollected_crash_reports=True,
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="Invalid reviewed selection."
+            ) from None
+        result = session_reviews.create(operation)
+        return RedirectResponse(
+            f"/development-session/replacement/{result.review_id}", status_code=303
+        )
+
+    @app.post("/development-session/replacement/{review_id}/cancel")
+    def cancel_session_replacement_review_form(
+        request: Request,
+        review_id: UUID,
+        body: SessionReplacementCancelForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        session_reviews.cancel(
+            review_id,
+            ReplacementReviewCancel(
+                expected_snapshot_sha256=body.expected_snapshot_sha256,
+                confirm_cancel=True,
+            ),
+        )
+        return RedirectResponse(
+            f"/development-session/replacement/{review_id}", status_code=303
+        )
+
+    @app.get(
+        "/api/development-session/replacement/{review_id}",
+        response_model=SessionReplacementStatus | None,
+    )
+    def session_replacement_status(
+        review_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionReplacementStatus | None:
+        return session_replacements.get(review_id)
+
+    @app.post(
+        "/api/development-session/replacement/{review_id}/{action}",
+        response_model=SessionReplacementStatus,
+    )
+    def session_replacement_action(
+        review_id: UUID,
+        action: Literal["execute", "continue", "release"],
+        body: SessionReplacementRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SessionReplacementStatus:
+        method = {
+            "execute": session_replacements.execute,
+            "continue": session_replacements.continue_retired,
+            "release": session_replacements.release_retired,
+        }[action]
+        return method(review_id, body)
+
+    @app.post("/development-session/replacement/{review_id}/{action}")
+    def session_replacement_action_form(
+        request: Request,
+        review_id: UUID,
+        action: Literal["execute", "continue", "release"],
+        body: SessionReplacementActionForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        method = {
+            "execute": session_replacements.execute,
+            "continue": session_replacements.continue_retired,
+            "release": session_replacements.release_retired,
+        }[action]
+        try:
+            method(
+                review_id,
+                SessionReplacementRequest(
+                    request_id=body.request_id,
+                    expected_snapshot_sha256=body.expected_snapshot_sha256,
+                    confirm_profile_disposal=True,
+                ),
+            )
+        except (
+            SessionReplacementError,
+            DevelopmentSessionConflict,
+            SessionReplacementReviewError,
+            RuntimeRetirementReceiptError,
+        ):
+            if session_replacements.get(review_id) is None:
+                raise
+            # A claimed action has its own durable outcome. Show that outcome
+            # without suggesting that retirement/preparation succeeded.
+        return RedirectResponse(
+            f"/development-session/replacement/{review_id}", status_code=303
+        )
+
+    @app.exception_handler(DevelopmentSessionConflict)
+    async def development_session_conflict(
+        _request: Request, error: DevelopmentSessionConflict
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Review session status and Kodi history before another action.",
+        )
+
+    @app.get("/development-session", response_class=HTMLResponse)
+    async def development_session_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "development-session.html",
+            {
+                "choices": session_workflow.choices(),
+                "workspaces": context.agent_workspaces.list_workspaces(),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get("/development-session/preparation", response_class=HTMLResponse)
+    def development_session_preparation_page(
+        request: Request,
+        expected_generation: int | None = Query(default=None, ge=1),
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        assessment = session_preparation.inspect(
+            expected_generation=expected_generation
+        )
+        return templates.TemplateResponse(
+            request,
+            "session-preparation.html",
+            {
+                "assessment": assessment,
+                "source_copy_receipts": ()
+                if assessment is None
+                else session_source_copy.list_for_session(
+                    assessment.session.generation
+                ),
+                "source_copy_request_id": uuid4(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/api/development-session/preparation", response_model=SessionPreparation | None
+    )
+    def development_session_preparation_status(
+        response: Response,
+        expected_generation: int | None = Query(default=None, ge=1),
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionPreparation | None:
+        response.headers["Cache-Control"] = "no-store"
+        return session_preparation.inspect(expected_generation=expected_generation)
+
+    @app.post(
+        "/api/development-session/source-copy",
+        response_model=SessionSourceCopyAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def request_session_source_copy(
+        body: SessionSourceCopyRequest,
+        response: Response,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SessionSourceCopyAccepted:
+        response.headers["Cache-Control"] = "no-store"
+        return session_source_copy.request_copy(
+            request_id=body.request_id,
+            expected_generation=body.expected_generation,
+            submit=context.development_source_deployment_executor.submit,
+        )
+
+    @app.post("/development-session/source-copy")
+    def request_session_source_copy_form(
+        request: Request,
+        body: SessionSourceCopyForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        result = session_source_copy.request_copy(
+            request_id=body.request_id,
+            expected_generation=body.expected_generation,
+            submit=context.development_source_deployment_executor.submit,
+        )
+        return RedirectResponse(
+            f"/development-session/source-copy/{result.receipt.request_id}",
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get(
+        "/api/development-session/source-copy/{request_id}",
+        response_model=SessionSourceCopyReceipt,
+    )
+    def session_source_copy_status(
+        request_id: UUID,
+        response: Response,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionSourceCopyReceipt:
+        response.headers["Cache-Control"] = "no-store"
+        receipt = session_source_copy.get(request_id)
+        if receipt is None:
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
+        return receipt
+
+    @app.get(
+        "/development-session/source-copy/{request_id}", response_class=HTMLResponse
+    )
+    def session_source_copy_page(request: Request, request_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        receipt = session_source_copy.get(request_id)
+        if receipt is None:
+            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
+        return templates.TemplateResponse(
+            request,
+            "session-source-copy.html",
+            {"receipt": receipt, "csrf_token": authenticated.csrf_token},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/development-session", response_model=SessionView)
+    def development_session_status(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SessionView:
+        return session_workflow.view()
+
+    @app.post(
+        "/api/development-session/reserve", response_model=DevelopmentSessionStatus
+    )
+    def reserve_development_session(
+        body: DevelopmentSessionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSessionStatus:
+        return session_service.reserve(body)
+
+    @app.post(
+        "/api/development-session/close-absent", response_model=DevelopmentSessionStatus
+    )
+    def close_development_session(
+        body: SessionGenerationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSessionStatus:
+        return session_service.close_absent(body.expected_generation)
+
+    @app.post("/api/development-session/{action}", response_model=ManagedRuntimeStatus)
+    def development_session_action(
+        action: Literal["prepare", "resume", "stop"],
+        body: SessionGenerationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return session_workflow.act(action, body.expected_generation)
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
     async def agent_workspace_list_page(request: Request) -> Response:
@@ -5950,6 +6538,28 @@ def create_app(
         return context.agent_workspaces.get(workspace_id)
 
     @app.get(
+        "/api/agent-workspaces/{workspace_id}/deployment-preflight",
+        response_model=DeploymentPreflightResult,
+    )
+    def workspace_deployment_preflight(
+        workspace_id: UUID,
+        target_id: UUID,
+        expected_generation: int = Query(ge=0),
+        deployment_mode: Literal["auto", "direct", "repository"] = "auto",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DeploymentPreflightResult:
+        # This projection deliberately cannot reach runtime status/convergence.
+        context.agent_workspaces.get(workspace_id)
+        return WorkspaceDeploymentPreflightService(session_factory).inspect(
+            DeploymentPreflightInput(
+                workspace_id=workspace_id,
+                target_id=target_id,
+                expected_generation=expected_generation,
+                deployment_mode=deployment_mode,
+            )
+        )
+
+    @app.get(
         "/api/agent-workspaces/{workspace_id}/capture-status",
         response_model=WorkspaceCaptureStatus,
     )
@@ -7238,6 +7848,272 @@ def create_app(
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.provision(instance_id)
 
+    @app.get(
+        "/api/instances/{instance_id}/stopped-diagnostics",
+        response_model=StoppedRuntimeDiagnostics,
+    )
+    def stopped_managed_diagnostics(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> StoppedRuntimeDiagnostics:
+        from kodi_lab.domain import InstanceType
+
+        with session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if (
+                instance is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+            ):
+                raise HTTPException(
+                    status_code=404, detail="managed_diagnostics_unavailable"
+                )
+        inventory = broker.managed_container_inventory(
+            managed_instance_id=str(instance_id)
+        )
+        if len(inventory.containers) != 1 or inventory.containers[
+            0
+        ].managed_instance_id != str(instance_id):
+            raise HTTPException(
+                status_code=409, detail="managed_diagnostics_identity_changed"
+            )
+        return cast(
+            StoppedRuntimeDiagnostics,
+            broker.read_stopped_managed_diagnostics(
+                managed_instance_id=str(instance_id),
+                expected_runtime_revision_id=str(instance.runtime_revision_id),
+                expected_container_id=inventory.containers[0].container_id,
+            ),
+        )
+
+    capability_prerequisites = ManagedCapabilityPrerequisiteService(session_factory)
+
+    def inspect_capability_prerequisites(
+        instance_id: UUID,
+    ) -> ManagedCapabilityPrerequisites:
+        try:
+            return capability_prerequisites.inspect(instance_id)
+        except CapabilityPrerequisitesUnavailable as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/instances/{instance_id}/capability-prerequisites",
+        response_model=ManagedCapabilityPrerequisites,
+    )
+    def managed_capability_prerequisites(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedCapabilityPrerequisites:
+        return inspect_capability_prerequisites(instance_id)
+
+    @app.get(
+        "/instances/{instance_id}/capability-prerequisites", response_class=HTMLResponse
+    )
+    def managed_capability_prerequisites_page(
+        request: Request,
+        instance_id: UUID,
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name="capability-prerequisites.html",
+            context={
+                "assessment": inspect_capability_prerequisites(instance_id),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.exception_handler(RetainedDiagnosticsError)
+    async def retained_diagnostics_failure(
+        _request: Request, error: RetainedDiagnosticsError
+    ) -> Response:
+        return JSONResponse(
+            status_code=404 if error.code == "diagnostic_capture_not_found" else 409,
+            content={"detail": error.code},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post(
+        "/api/instances/{instance_id}/diagnostic-captures",
+        response_model=DiagnosticCaptureSummary,
+    )
+    def retain_stopped_diagnostics(
+        instance_id: UUID,
+        body: DiagnosticCaptureInput,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.capture(instance_id, body)
+
+    @app.get("/api/diagnostic-captures", response_model=list[DiagnosticCaptureSummary])
+    def diagnostic_capture_list(
+        target_id: UUID | None = None,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[DiagnosticCaptureSummary]:
+        return context.retained_diagnostics.list(target_id)
+
+    @app.get(
+        "/api/diagnostic-captures/{capture_id}", response_model=DiagnosticCaptureSummary
+    )
+    def diagnostic_capture_status(
+        capture_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.status(capture_id)
+
+    @app.get("/api/diagnostic-captures/{capture_id}/evidence")
+    def diagnostic_capture_evidence(
+        capture_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        evidence = context.retained_diagnostics.read(capture_id)
+        return JSONResponse(
+            evidence.model_dump(mode="json"),
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.post(
+        "/api/diagnostic-captures/{capture_id}/discard",
+        response_model=DiagnosticCaptureSummary,
+    )
+    def discard_diagnostic_capture(
+        capture_id: UUID,
+        body: DiagnosticDiscardInput,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DiagnosticCaptureSummary:
+        return context.retained_diagnostics.discard(capture_id, body)
+
+    @app.get("/diagnostics", response_class=HTMLResponse)
+    def diagnostic_capture_index(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "diagnostics.html",
+            {
+                "captures": context.retained_diagnostics.list(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/instances/{instance_id}/diagnostics", response_class=HTMLResponse)
+    def stopped_diagnostic_capture_page(
+        request: Request, instance_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        with session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail="managed_instance_not_found")
+        inventory = broker.managed_container_inventory(
+            managed_instance_id=str(instance_id)
+        ).containers
+        selected = (
+            inventory[0]
+            if len(inventory) == 1
+            and inventory[0].runtime_revision_id == str(instance.runtime_revision_id)
+            and inventory[0].runtime_state is ContainerRuntimeState.STOPPED
+            else None
+        )
+        return templates.TemplateResponse(
+            request,
+            "diagnostics.html",
+            {
+                "captures": context.retained_diagnostics.list(instance_id),
+                "target_id": instance_id,
+                "runtime_revision_id": instance.runtime_revision_id,
+                "container_id": None if selected is None else selected.container_id,
+                "request_id": uuid4(),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/diagnostics/{capture_id}", response_class=HTMLResponse)
+    def diagnostic_capture_page(request: Request, capture_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        capture = context.retained_diagnostics.status(capture_id)
+        evidence = (
+            context.retained_diagnostics.read(capture_id)
+            if capture.state == "retained"
+            else None
+        )
+        return templates.TemplateResponse(
+            request,
+            "diagnostic-evidence.html",
+            {
+                "capture": capture,
+                "evidence": evidence,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def diagnostic_form_authority(
+        request: Request, authenticated: AuthenticatedWebSession, csrf: str
+    ) -> None:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf):
+            raise HTTPException(status_code=403)
+
+    @app.post("/instances/{instance_id}/diagnostics")
+    def stopped_diagnostic_capture_form(
+        request: Request,
+        instance_id: UUID,
+        body: DiagnosticCaptureForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        diagnostic_form_authority(request, authenticated, body.csrf_token)
+        try:
+            operation_id = (
+                UUID(body.deployment_operation_id)
+                if body.deployment_operation_id
+                else None
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="invalid_deployment_operation"
+            ) from None
+        capture = context.retained_diagnostics.capture(
+            instance_id,
+            DiagnosticCaptureInput(
+                request_id=body.request_id,
+                expected_runtime_revision_id=body.expected_runtime_revision_id,
+                expected_container_id=body.expected_container_id,
+                deployment_operation_id=operation_id,
+                retain_redacted_logs=True,
+            ),
+        )
+        return RedirectResponse(f"/diagnostics/{capture.capture_id}", status_code=303)
+
+    @app.post("/diagnostics/{capture_id}/discard")
+    def discard_diagnostic_capture_form(
+        request: Request,
+        capture_id: UUID,
+        body: DiagnosticDiscardForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        diagnostic_form_authority(request, authenticated, body.csrf_token)
+        context.retained_diagnostics.discard(
+            capture_id,
+            DiagnosticDiscardInput(
+                expected_state=body.expected_state,
+                expected_payload_sha256=body.expected_payload_sha256 or None,
+                confirm_discard=True,
+            ),
+        )
+        return RedirectResponse(f"/diagnostics/{capture_id}", status_code=303)
+
     @app.get("/api/instances/{instance_id}/reviewed-bridge")
     def reviewed_managed_bridge_status(
         instance_id: UUID,
@@ -7263,6 +8139,24 @@ def create_app(
 
         try:
             return context.lifecycle.install_reviewed_bridge(instance_id)
+        except ManagedBridgeTrustError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/instances/{instance_id}/reviewed-bridge/resume",
+        response_model=ManagedRuntimeStatus,
+    )
+    def resume_reviewed_managed_bridge(
+        instance_id: UUID,
+        body: ReviewedBridgeResumeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        try:
+            return context.lifecycle.resume_reviewed_bridge(
+                instance_id, expected_generation=body.expected_generation
+            )
         except ManagedBridgeTrustError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

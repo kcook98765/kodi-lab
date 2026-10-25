@@ -51,10 +51,17 @@ snapshot data live below those roots so pytest cannot erase the ownership marker
 The command rejects symlinks, live matching PID/start-time identities, foreign
 owners, permissive roots, malformed markers, and unrelated names.
 
-Each gate stage reports elapsed time. The full pytest stage has a 900-second
+Each gate stage reports elapsed time. The full pytest stage has a 2,400-second
 watchdog by default; `KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS` may raise that bound
 for a known slower environment. A timeout is a harness failure to diagnose, not
 permission to skip tests or reduce snapshot storage safety.
+
+The #54 baseline on main `e198592` hit the previous 900-second limit at about
+71%. The complete combined source candidate `02c4054` passed all 5,272 collected
+cases (5,234 passed, 38 gated skips) with the explicit 2,400-second override;
+its pytest stage took 1,747 seconds and the complete gate 29m59s. The new default
+matches that successfully exercised bound. Test selection, assertions, stages,
+storage reserves, explicit overrides and invalid-value refusal are unchanged.
 
 ## Migration fixture architecture
 
@@ -125,6 +132,20 @@ lanes print ten. Read complete summaries and the process exit status before
 claiming a pass. An interrupted process can leave incomplete pytest artifacts.
 The TSV records completed stages, including failures; a successful pytest JSON
 alone does not establish that the later release stages passed.
+
+Inspect retained timings without running tests again:
+
+```console
+uv run --locked python -m scripts.summarize_test_report /tmp/kodi-lab-check-results.EXAMPLE/pytest.json
+```
+
+The report ranks files by summed setup/call/teardown cost and retains failed,
+skipped and incomplete cases and the pytest exit status. Phase sums are not
+elapsed lane time; check `stages.tsv` for release-stage status. `--json` provides
+machine-readable totals, and `--limit 20` changes only the number of ranked files
+shown. It does not filter the totals or execute any tests. Interrupted runs may
+have no completed JSON artifact; retain their stage/log evidence rather than
+treating absent measurements as zero or repeating a full gate just for a report.
 
 ## Case scratch cleanup
 

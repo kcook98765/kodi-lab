@@ -34,6 +34,11 @@ from kodi_lab.domain import (
     PromotionVerificationState,
     RepositoryReplacementOperationState,
 )
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_source_session_admission,
+    require_workspace_session_admission,
+)
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
@@ -55,7 +60,10 @@ from kodi_lab.storage.repositories import (
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
-from kodi_lab.storage.workspace_deployments import prior_workspace_copy
+from kodi_lab.storage.workspace_deployments import (
+    prior_workspace_copy,
+    selected_profile_lineage_sql,
+)
 
 BROKER_DEVELOPMENT_ROOT = Path("/mnt/kodi-lab-development")
 
@@ -312,6 +320,20 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     raise DevelopmentSourceDeploymentStateError(
                         "Development-source deployment requires a disposable instance."
                     )
+                try:
+                    require_source_session_admission(
+                        session,
+                        target_id=managed_instance_id,
+                        revision_id=str(instance.runtime_revision_id),
+                        source_id=development_source_id,
+                        container_id=expected_container_id,
+                        operation_id=deployment_operation_id,
+                    )
+                except DevelopmentSessionConflict as error:
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Selected development session does not admit this source copy.",
+                        code=error.code,
+                    ) from error
                 if (
                     operation is None
                     or operation.state
@@ -726,6 +748,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         .where(
                             McpWorkspaceDeploymentOperationRow.id
                             != deployment_operation_id,
+                            selected_profile_lineage_sql(),
                             McpWorkspaceDeploymentOperationRow.workspace_id
                             == workspace_id,
                             McpWorkspaceDeploymentOperationRow.target_id
@@ -760,6 +783,21 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         )
                     )
                 )
+                if instance is not None and workspace is not None:
+                    try:
+                        require_workspace_session_admission(
+                            session,
+                            target_id=managed_instance_id,
+                            revision_id=str(instance.runtime_revision_id),
+                            workspace_id=workspace_id,
+                            source_id=str(workspace.development_source_id),
+                            container_id=expected_container_id,
+                        )
+                    except DevelopmentSessionConflict as error:
+                        raise DevelopmentSourceDeploymentStateError(
+                            "Workspace differs from the active development session.",
+                            code="workspace_deployment_state_invalid",
+                        ) from error
             if (
                 instance is None
                 or workspace is None

@@ -6557,6 +6557,28 @@ independently verify the advertised checksum with a bounded no-redirect request.
 DNS/proxy origins need not resolve to a host interface; no address is inferred
 or rewritten. Existing origin migration/version and client-recovery rules apply.
 
+### 2026-10-24 addendum: verified-copy inventory failures (#44)
+
+Successful process containment after an inventory failure does not acknowledge
+the installed tree's provenance. Such deployments retain reconciliation until
+the existing stopped-tree verifier records requested/prior containment.
+
+For historical terminal failures, an explicit Web administrator inspection may
+enroll only an inventory-phase `deployment_verification_failed` with complete
+ordered copy/start markers, source/destination digests and an original container
+binding. Under the workspace lock and a serialized database transaction, recheck
+unchanged workspace/source identity and digest, pre-operation baseline/runtime
+binding, and absence of another lease or unresolved operation. Persist the
+reconciliation fence before broker observation. Interruption therefore remains
+blocked and resumable; no new lease kind or permission is introduced.
+
+The ordinary full stopped-tree proof remains mandatory before a contained failed
+receipt can become prior-copy evidence. A later no-write conflict neither erases
+the earlier receipt nor becomes trusted itself. Preserve original request,
+generation, completion timestamp and failure cause; recovery time does not reorder
+historical copy lineage. Inspection never starts, copies, resets or replays a
+deployment, and never establishes native readiness or successful deployment.
+
 ## D-0440: Passive repository ZIP admission and native delivery are separate
 
 The shared ZIP importer may classify a strictly validated passive repository
@@ -6586,3 +6608,486 @@ Native repository downloads do not inherit Lab's HTTPS fetcher/ZIP limits or
 establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
+
+## D-0443: Opt-in reviewed-tree imports with removal lineage (#45)
+
+- Context: the add/replace importer cannot represent reviewed source removals or
+  resolve private overlaps, blocking a persistent single-add-on workspace.
+- Decision: retain default changes mode. Opt-in reviewed_tree assesses private-only
+  paths and requires explicit per-path keep_private/take_source choices. Preview
+  digests bind all choices and preimages; apply recaptures under the existing
+  exclusive workspace lock and preserves grants, generation, identity and quotas.
+  Only an eligible plan without retained private differences claims exact source
+  equality, proved by complete staged digest before atomic exchange.
+- Ordinary file removals affect staged bytes only. Unsupported directory/type/mode
+  transitions remain rejected. Retain original baseline and old tree; versioned
+  JSON receipts carry tombstones and replay input while reading old list receipts.
+  No new persisted enum, migration or grant. Existing receipt capacity/cleanup and
+  populated-data downgrade refusals remain. Older code cannot consume new receipts.
+- Publication uncertainty retains both trees and reconciliation; replay proves the
+  durable tree/journal without capturing newer source. No force import, implicit
+  conflict adoption, profile reset, deployment or native-acceptance claim.
+
+### Publication cancellation addendum
+
+A reproduced post-commit cancellation could previously roll back only the private
+filesystem while durable generation/digest had advanced. Before permitting rollback,
+read the exact journal/workspace publication state. Confirmed commits keep their
+receipt/tree; confirmed unpublished ordinary failures retain normal rollback;
+unknown outcomes preserve both trees and quarantine either the original or already
+advanced generation. Replay must prove both full trees and may acknowledge an
+already committed generation without another increment. Preserve the ordinary
+failure, stale-input, authorization and legacy-receipt checks; no migration or
+new grant is introduced.
+
+## D-0444: Separate durable deployment scope from runtime eligibility (#46)
+
+A shared read-only durable prerequisite service serves authenticated Web and the
+additive workspace_deploy_preflight MCP read. The read retains workspace.deploy,
+workspace/source ownership, target grant, preset intersection, current credential
+and production veto, then rechecks scope after assessment. Existing mutation
+admission delegates to the same durable scope and retains all its technical,
+workspace-state and capability checks. No grant or preset migration occurs.
+
+The first projection explicitly has no live probes, convergence, lease cleanup,
+readiness scheduling or mutation dispatch. Native/add-on liveness and authenticated
+Bridge readiness stay unknown; direct deployment does not acquire a Bridge
+requirement. Historical baseline/validation facts include real evidence times
+where available; checked_at is assessment time. Unknown/stale digests and prior
+workspace receipt bindings remain distinguishable. No durable-only result claims
+ready or reserves a future operation. Unsupported external/repository assessments
+stay unknown. Closed reason/action arrays omit global and foreign operation IDs.
+
+## D-0445: Explicit prepared Bridge confirmation under a live lifecycle lease
+
+Prepared reviewed intent does not establish installed material or authenticated
+capability readiness. A Web-only, generation-bound continuation may use the
+existing enable/establish/authenticate path for the unchanged exact runtime and
+container. It runs synchronously inside the existing lifecycle START operation
+lease, avoiding reliance on a later background readiness callback's lease timing.
+It never starts/stops/restarts Kodi or restages files itself. Unknown/stale,
+unreviewed, retired and incomplete material remain refused or unconfirmed.
+
+Reuse the existing prepared CAS, secret retirement, build/release pin and fresh
+identity checks; no direct prepared-to-active state edit. Native prompts remain
+independent authorized work. Expose only recorded continuation availability in
+GET status and preserve bounded polling/uncertain-POST safeguards in the browser.
+No new persisted vocabulary, permission, MCP mutation or production capability.
+
+## D-0446: Durable opt-in session reservation and shared provision admission (#51)
+
+Reuse canonical exact targets and one persistent add-on workspace; do not create a
+pool or scheduler. A singleton active-generation pointer opts into one provisioned
+container, including stopped containers. Initial claim refuses all existing managed
+containers and in-flight reservations/leases. Session history retains exact source,
+workspace, runtime and container identity outside disposable profiles.
+
+Every production broker provision now records a pre-dispatch slot, even outside
+sessions, serialized with session claims and existing start reservations using
+BEGIN IMMEDIATE. Thus an already dispatched Advanced operation cannot be mistaken
+for an empty slot. Active policy also constrains all broker starts/provisions;
+unknown/uncertain state remains blocked across restart. Reuse existing running
+capacity, per-instance leases, runtime eligibility and identity proofs.
+
+Do not implicitly adopt existing or unexpectedly replaced containers. Exact initial
+post-create inventory binds the session; explicit absent/idle close retains its
+history. Uncertain provision remains fenced even on current absence; timeout/absence does
+not prove daemon dispatch settlement. No absence-only clearing API is exposed.
+Workspace cleanup refuses referenced history. No automatic idle deletion, grant
+inheritance, settings/Bridge-credential reuse, profile replacement or version switch.
+Migration 0080 is additive/empty by default and refuses populated evidence loss.
+Full Web composition and diagnostic retention remain separate prerequisite slices.
+
+## D-0447: Web-only exact stopped-container exit metadata foundation (#50)
+
+Expose one fixed metadata read for an exact stopped disposable managed target,
+independent of resident Bridge/native usability. Resolve target/runtime/artifact
+from canonical storage; prove owner/name/container/revision/image and stopped
+state twice, recheck the storage binding and reject inconsistent provider/client
+results. Return typed exit/OOM/timestamps with fresh observation time; do not infer
+root cause or a normal Lab stop from an exit number. No raw daemon error, file/log
+body, shell/path parameter or operation-wide authority is exposed.
+
+The privileged broker adds one explicit read-only operation; its bounded catalog
+increases from 38 to exactly 39 entries. Preserve exact UID authorization, closed
+parameter/result contracts and exact catalog regressions. Web authentication is
+required; existing MCP/production grants and live log behavior remain unchanged.
+Coordinate retention with preserved 09d847e/3dddbc2 without changing their bytes.
+Historical operation association, private artifact retention, agent log-body
+access/redaction and native symbolication remain subsequent work, not implied by
+this metadata-only foundation.
+
+## D-0448: Minimal Web composition for an opt-in development session
+
+Expose one workspace/version reservation and Prepare/Resume/Stop using existing
+canonical runtime eligibility and lifecycle services. Generation/runtime checks
+run inside lifecycle claim; exact container identity is rechecked before resume
+or stop dispatch. Preparation creates one stopped profile, not a deployment or a
+native/Bridge-ready assertion. Existing reviewed source and Bridge actions remain
+separate until their complete readiness/retention composition is qualified.
+
+Use authenticated Web/Origin/CSRF actions with closed payloads. UI status is an
+explicit read, not a new scheduler; lost/failed mutation responses prevent page
+resubmission. Closing only an ordinary absent/idle reservation retains history.
+Do not expose Fresh Test/Switch/deletion or clear uncertain dispatch from this UI.
+No automatic image acquisition, multi-instance manager, new MCP authority or grant.
+
+## D-0449: Saved capability prerequisites are separate from live readiness
+
+For #49/#51, one read-only managed-target service projects durable runtime and
+Bridge prerequisites into authenticated Web HTML/JSON. It has only the session
+factory and executes SELECTs; no runtime getter, broker, secret store, native
+adapter, readiness registry or trust repair participates. Candidate and approved
+historical resident versions remain separate. Native readiness, current
+container binding, prompt state and every capability's live readiness stay
+unknown. A saved prerequisite is never operation authority or a reservation.
+
+Reuse the existing approved identity predicates with historical approval for
+observation/logs and current approval for launch. No-record native fallback,
+non-active/drifted trust denial, missing log capability and launch-upgrade reasons
+remain distinct. Screenshots/native remote/direct deployment stay independent.
+Prepared reviewed intent can point to the existing Web continuation but cannot
+prove eligibility; that mutation rechecks all live ownership/generation/identity
+conditions. Do not infer installed bytes from prepared state or a candidate pin,
+or unattended completion from active trust. No new MCP access or grants.
+
+## D-0450: Explicit private stopped-log captures survive disposable profiles
+
+For #50/#51, keep diagnostic capture separate from lifecycle, source deployment,
+agent grants and disposal authority. Use one fixed read-only broker operation,
+exact stopped target/runtime/container/image and private standard profile
+checks, bounded source/archive/tail bytes and explicit missing/unsafe/oversize/
+changed states. Redact the complete bounded input before taking a retained tail.
+Do not run Kodi, exec a helper, mutate logs or duplicate preserved recipe/rotation
+work. Source/SDK/socket fixtures do not establish native/platform acceptance.
+
+Retain selected redacted payloads in a new empty 0081 table independent of live
+resource foreign keys. Exact request replay, a global pending slot and bounded
+body/history capacity share SQLite writer admission. Mark review due after 30
+days without automatic expiry/pruning/overwrite. Discard is explicit and binds
+state/digest; retain historical identity. Atomic publication survives cancellation
+and a late abandoned read cannot publish. An uncertain create is a different
+operation and cannot be cleared by abandoning a diagnostic capture.
+
+An optional terminal workspace-deployment association requires exact original
+container/runtime/target; preserve its generation/add-on context and never guess
+a latest operation or infer crash causality. Existing reconciliation fences
+remain. Body access is Web-administrator-only with same-origin/CSRF mutations,
+non-cacheable escaped output and no bodies in routine audit fields. No new MCP
+permission or authority is introduced. Partial/uncollected evidence cannot
+claim complete diagnostics or authorize profile disposal. Populated downgrade
+refuses evidence loss. No migration/deployment or existing-resource removal is
+part of implementation qualification.
+
+The schema-2 snapshot adds a fixed non-following, timestamped Docker stdout/
+stderr window (200 lines, 64 KiB encoded response, strict multiplex or TTY
+decoding, 4 KiB redacted tail). Its byte count describes that returned window,
+not complete history. Schema-1 retained captures remain readable. Native crash
+reports and rotation remain unobserved. Check the reserve on both the data-root
+and actual database filesystems; sanitize failures to fixed safe reason codes.
+No caller-selected stream options, generic artifact paths or agent body access
+are introduced.
+
+## D-0451: Durable single-session replacement reviews hold selected evidence
+
+For #51, save one bounded explicit Fresh/Switch review against the exact stopped
+current session, workspace generation/tree, immutable next cached runtime and
+1–8 selected retained capture IDs/digests. Preserve source/add-on binding. The
+SQLite writer transaction checks shared busy/uncertainty, stored reconciliation,
+the sole stopped container, cached runtime eligibility and complete bounded
+capture integrity before recording its evidence holds. At most one open review
+and 128 history records; refuse capacity/storage failure without pruning.
+
+Keep review separate from lifecycle execution and final disposal confirmation.
+No background worker runs the plan; no grants, Bridge trust or deployment
+baselines are inherited. Saved facts may become stale and must be rechecked by
+future execution. Existing lifecycle history does not contain the exact old
+container retirement witness needed for atomic replacement. Absence or timeout
+cannot settle an uncertain create.
+
+New empty migration 0082 adds review/hold history after diagnostic retention.
+Explicit discard and review claim serialize on the same SQLite writer boundary.
+Open holds protect selected bodies; an exact digest-bound cancellation releases
+only its own holds while keeping history and the current session/profile.
+Cancellation never clears a reconciliation or create fence. No automatic expiry,
+history pruning, profile removal, agent permission or MCP tool is introduced.
+Retain schema/reader compatibility and refuse lossy populated downgrades.
+
+## D-0452: Exact retirement confirmation shares owned lifecycle terminalization
+
+For #51, optional trusted scoped deprovision records original disposable target,
+immutable runtime/image and exact container in new empty 0083 retirement history.
+Claim the prepared scope with the existing child operation/lease. Recheck stored
+scope before claim and actual container scope inside the leased action before
+readiness/trust/evidence invalidation. Do not infer scope for historical or
+ordinary unscoped operations and do not introduce another public lifecycle tool.
+
+Publish confirmation only after the matching broker removal reply and successful
+unprovisioned postcondition. The terminal hook runs after existing projection/
+lease ownership guards, in the same transaction as success and lease release.
+Callback failure rolls back terminalization; post-commit cancellation preserves
+the receipt. Lost reply, changed scope, failed postcondition or interrupted
+dispatch remains unconfirmed even if later inventory is empty. No receipt
+settles an uncertain Docker create or supplies disposal permission.
+
+Retain referenced operation history against pruning. Bound scoped history at 256
+and refuse admission rather than deleting evidence. No runtime/target FK erases
+the original identity. Validate typed read against the exact operation; never
+reconstruct positive proof from an unrelated success. Populated history refuses
+lossy downgrade. Atomic successor admission and final Fresh/Switch confirmation
+remain separate composition work; native/platform evidence is not inferred.
+
+## D-0453: Consume an exact review with atomic successor admission
+
+For #51, require a separate final explicit data-loss confirmation and bind its
+request/review digest to the owned scoped retirement child at claim. Recheck
+the stopped scope, review/workspace generation, evidence, capacity, eligibility,
+busy/uncertain reservations and stored reconciliation before disposal. No replay
+or passive status redispatches retirement. Never settle unknown removal/create
+from inventory absence, elapsed time or restart.
+
+After positive exact retirement, keep the old session active until one SQLite
+writer commit closes it, reserves the successor, advances the singleton pointer
+and consumes the review. Require empty global inventory, no pending authority/
+reconciliation, unchanged selected immutable next pin/image, same ready source/
+workspace/add-on and retained exact evidence. Keep workspace bytes/edits outside
+the profile. Do not copy grants, trust, baselines or deployment/launch receipts.
+Prepare one clean stopped profile through existing lifecycle/shared admission;
+native/Bridge and add-on setup stay separately reviewed.
+
+New 0084 adds an execution binding and nullable successor reference without
+rebuilding a populated review parent or disabling foreign keys. The unique
+active-review slot excludes consumed reviews. Review completion means successor
+admission, not runtime readiness. Explicit continuation only advances confirmed
+retirement; explicit release only closes a proven retired empty slot. Execution
+claim prevents ordinary review cancellation/unholding. Unknown creates keep
+existing durable reservations; no worker, timer, automatic retry or scheduler.
+
+Keep original retirement proof protected. Retain preparation UUID independently
+of ordinary bounded lifecycle-history detail and report missing history honestly.
+Known pre-create refusal permits the existing explicit Prepare flow; request
+replay never substitutes a new attempt. Preserve historical schema fixtures and
+refuse populated execution/consumption downgrade. No new agent authority or
+native/platform acceptance is inferred from source/temporary-DB tests.
+
+## D-0454: Observe only explicitly referenced approved crash-report metadata
+
+For #50, schema-3 stopped log snapshots may inspect metadata for at most two
+strict approved report names quoted by complete retained log lines. The pinned
+official Nexus/Omega launcher sources print timestamped report locations; this
+justifies a narrow parser, not a claim about installed/native execution. Accept
+only the fixed private home path and valid calendar name, including a bounded
+Docker timestamp prefix. Prefer end-of-window startup references, deduplicate
+sources and report reference-limit truncation. Do not infer timezone or causal
+cross-file chronology from filenames or log order.
+
+Use only fixed HEAD observations of safe ancestors and the exact derived leaf,
+checking metadata stability and the same final stopped container identity.
+Retain name, availability, size and modification time without downloading report
+bodies or exporting a directory. Names/metadata are log claims, not authenticated
+native crash origin or proof of stack availability. Unreferenced reports remain
+unobserved and an empty list cannot establish absence. Existing time, byte,
+private-layout, ownership, pin and admission boundaries remain.
+
+Keep schema-1/2 reads, explicit schema-3 reference/content binding and matched
+reader requirements. Save selected metadata under existing private Web-only
+capture retention/digest/hold/discard policy. No new MCP tool/grant, gdb/debug
+installation, symbolication, rotation duplication, recipe or live resource
+mutation. Source/fixture success does not establish native/platform acceptance.
+
+
+## D0455 - Narrow workspace runtime work to the selected disposable session
+
+When a durable single-session policy is active, managed workspace deployment,
+bounded smoke/negative execution and GUI dispatch require its exact bound target,
+runtime, workspace and source. Observed-container checks precede runtime mutation;
+unknown/pending provision/start refuses admission. The guard participates in the
+existing writer claim and typed mutation leases, and the broker workspace-copy
+resolver independently rechecks the selection. Selection provides no grant,
+attachment, baseline, trust, validation or Kodi readiness of its own.
+
+No policy backfill, schema/catalog change, grant copying or agent session CRUD is
+introduced. Existing historical receipt replay, offline editing and external
+paths remain separate; unsupported partial policy restoration is rechecked before
+dispatch. Existing cleanup/reconciliation and security fences are not cleared.
+Code-only fixture validation does not authorize live migration, deployment or
+resource disposal. Ordinary administrator source preparation/recovery is not
+reclassified as workspace runtime dispatch by this decision.
+
+Read-only deployment preflight exposes the same stored session restriction and an
+administrator session-review link, while keeping all live facts unknown. This
+adds a closed output reason/action vocabulary without changing tool permissions,
+tool count, mutation behavior or creating a reservation during assessment.
+
+## D0456 - Compose session preparation as one read-only stored snapshot
+
+The administrator preparation checklist borrows one explicit SQLite read
+transaction across the existing session, deployment preflight, reconciliation
+and Bridge-prerequisite projections. This avoids combining two session/runtime
+identities during a concurrent switch without taking a writer reservation or
+adding a scheduler. Existing projection callers keep their ordinary ownership
+of sessions; a borrowed read session stays open for its caller.
+
+A stale requested generation or inconsistent stored workspace/source/runtime
+refuses. The view preserves unknown live container/native/Bridge/prompt/add-on
+facts and does not assess agent authority. Its authenticated, uncached HTML/JSON
+links only to existing reviewed actions. There is no probe, credential read,
+mutation, new tool/grant, schema migration, automatic baseline/enablement or
+settings/screenshot policy change. A coherent snapshot may become historical
+immediately; mutation-time exact admission remains mandatory.
+
+Existing Web authentication last-use tracking and bounded retention middleware
+remain unchanged. Read-only here describes the preparation computation, whose
+single read session is shared by its component projections; it does not suppress
+ordinary request maintenance or its existing safety checks.
+
+## D0457 - Scope fresh deployment lineage to the selected disposable profile
+
+Under an active single-session policy, fresh managed workspace execution,
+GUI launch and prior-copy selection require the exact bound original container,
+runtime, target, workspace and source. A shared correlated SQL predicate narrows
+historical candidates; an old same-version/source-generation success or nullable
+historical container binding cannot stand in for the successor profile's receipt.
+Current-profile ambiguity remains an error, and live tree/native/identity checks
+remain mandatory after selection.
+
+Inactive legacy policy and external development retain their existing selection
+semantics. Original request replay, historical inspection, recovery/containment
+and reference-safe retention keep their exact original scope; old receipts are
+not deleted or reattributed. No latest unrelated receipt is guessed, no policy is
+cleared, and no new grant/tool/table or agent lifecycle authority is introduced.
+The existing source baseline can supply the new profile's initial copy lineage;
+its positive current binding remains required. Source-only qualification cannot
+establish native or operational acceptance.
+
+
+## D0458 - Retain stopped-source queue identity through worker admission
+
+New source-copy queues persist the stopped container observed before reservation
+in the existing expected-container field. Repository acquire can bind an older
+nullable queue or claim that same positive identity; it cannot overwrite a
+queued pin. Trusted application preconditions run in the queue's writer claim
+before operation/lease creation, with current runtime/type/attachment rechecked.
+
+Acquire serializes fresh scope and exact ownership of both unclaimed typed
+reservations. Positive profile/runtime/attachment drift may fail only that queued
+operation and release those exact unclaimed reservations atomically. Running,
+claimed, malformed or foreign authority is never terminalized by this path;
+unknown inventory preserves the existing fence. Commit cancellation preserves
+rollback before commit and the authoritative failure receipt after commit. No
+copy is dispatched on refusal and no baseline is invented or reattributed.
+
+This reuses existing columns, failed-queue representation and the existing source
+executor. No migration, new grant/tool, generic scheduler or guided retry API.
+Legacy nullable queued records retain their existing claim-time binding semantics.
+Durable request attribution must precede any new guided copy/replay interface;
+ordinary bounded operation-history pruning is not an idempotence guarantee.
+
+## D0459 - Retain guided source-copy admission independently of operation detail
+
+An explicit single-session source-copy request retains a global request UUID,
+server-namespaced child operation UUID and exact session/target/runtime/workspace/
+source/container scope. Migration 0085 adds only an empty admission table with a
+RESTRICT reference to session history. The child UUID is a historical identifier;
+ordinary bounded Source operation-detail pruning does not delete its admission.
+There is no automatic receipt pruning: 1,024 total or 32 per generation refuses
+new work and requires a separately reviewed history policy.
+
+Admission uses the existing stopped Source coordinator. Trusted precondition and
+on-claim callbacks run in its BEGIN IMMEDIATE writer claim; operation, both typed
+reservations and receipt commit atomically. Exact nonce replay reads stored scope,
+including after session closure or detail pruning. Missing detail is reported as
+not retained; it never reconstructs, resets or requeues work. Partial restored
+scope, stale generation, positive profile drift and current pending lifecycle
+reservations refuse. Existing source validation, attachment, reconciliation and
+broker admission remain required.
+
+This increment supplies no endpoint or executor submission. It neither copies
+private workspace edits nor enables/starts Kodi, attaches a source, changes
+agent grants, accepts native/Bridge readiness or introduces a general scheduler.
+Explicit guided Web continuation can later submit only the same queued child
+through the existing executor and its independent exact unclaimed-worker checks.
+
+
+## D0460 - Explicit guided baseline copy uses shared selected-session admission
+
+The Web administrator can copy the already attached registered source into the
+selected stopped disposable profile using only request UUID and exact session
+generation. Target/runtime/workspace/source/container are derived server-side.
+Plain HTML and JSON require existing authentication, Origin and CSRF controls,
+with closed inputs and uncached private responses. Copying the registered source
+baseline is distinct from validating/deploying private workspace edits; no source
+attachment, grants, native enablement/start or Bridge acceptance is implied.
+
+Saved receipt links recover lost replies. GET reads stored progress and never
+submits work. Explicit continuation submits only the same admitted queued child
+with exact unclaimed typed reservations; it does not reset or reconstruct absent,
+terminal, running, uncertain or foreign work. Submission errors mean acknowledgement
+is unavailable, not that native copy failed. Existing worker acquire independently
+permits one initial legal dispatch; no new task framework or automatic retry loop.
+
+The shared selected-session Source check now covers queue writer admission,
+worker writer claim and independent broker resolution. It applies selected exact
+source/target/runtime/container and pending lifecycle exclusions to legacy Source
+copy while active policy exists. A guided child also checks its retained receipt
+against the selected generation, including same-scope partial successor restores.
+Worker/broker checks require the current0085 schema; they never fall back around
+missing evidence tables. Inactive legacy behavior remains on the upgraded schema.
+A selected-scope refusal preserves queued/running fences; existing positive
+unclaimed profile-drift refusal can still atomically fail only its owned work.
+
+The checklist's core session/preflight/capability facts retain one read snapshot.
+Its separate bounded receipt read is explicitly scoped to that displayed original
+generation, so it cannot display another generation's request as the selection.
+Normal Web authentication last-use and retention maintenance remain unchanged.
+
+## D0461 - Narrow synchronous source enablement to its selected session scope
+
+The existing Web-admin source enablement coordinator checks selected source,
+target, runtime and pending lifecycle reservations in its typed writer claim.
+It retains selected generation/container in the synchronous in-process handle;
+metadata-only admission before observation supplies no native identity proof.
+After native runtime observation and before recording prior enabled state or
+marking mutation dispatch, it rechecks positive observed CID and the same selected
+generation. Those writer marker boundaries also require and renew the matching
+unexpired typed operation/token lease; foreign, expired or wrong-kind authority
+cannot mark native dispatch. A same-scope successor cannot borrow the original operation's scope.
+
+All existing source validation, exact copied baseline/tree, native identity,
+dependency, bytecode-policy, service-add-on restrictions and enabled readback
+remain mandatory. A selected-scope failure before native dispatch can record
+that precise failed preflight; ambiguity after dispatch retains existing
+reconciliation. Inactive legacy behavior stays on the current migrated schema.
+This adds no new durable request/history promise, migration, tool/grant, endpoint,
+automatic enablement or Bridge/native readiness claim. Old enablement receipts
+remain history and cannot supply current native readiness. Guided source copy
+still requires positive CID in worker/broker checks; optional None applies only
+to trusted metadata admission before native observation.
+
+## D0462 - Keep generic queued source smoke within its physical scope
+
+Reuse the existing expected-container field for new active-session source-smoke
+queues. Queue admission runs in the writer claim and stores the selected desired
+CID; this is expected scope, not live observation. Create persists that field,
+acquire preserves positive pins and exact unclaimed typed ownership, and observed
+binding can fill an older nullable record or confirm the same positive value.
+It cannot overwrite a positive pin. Original historical target must also match
+the leased target at acquire and live boundaries. Foreign, malformed, claimed, dispatched or
+reconciliation-marked queued work remains fenced.
+
+The existing worker captures its current selected generation/CID when acquiring
+and rechecks actual observed CID and that same acquired selection before native
+invocation. Its observation/dispatch/finish boundaries require exact live typed
+kind/op/token ownership. Heartbeats retain the original operation expiry, so the
+90-second running bound does not become a renewable scheduler. Finish checks
+ownership before confidence/history writes and cannot clear foreign authority;
+pre-dispatch scope failure can settle only its own work. Post-dispatch ambiguity,
+original native identity, tree/dependency checks and bounded history remain.
+
+No new migration, queue framework, endpoint/tool/grant or durable nonce/generation
+promise is introduced. This is the existing generic, unversioned source action.
+Fresh profiles have different immutable CIDs and existing reservations prohibit
+legitimate replacement while queued/running. Legacy nullable queues keep honest
+current observed-binding compatibility, without fabricated original queue proof.
+A future versioned/guided smoke request would need separately established durable
+request semantics; ordinary prunable operation IDs do not provide idempotence.

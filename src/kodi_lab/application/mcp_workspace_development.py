@@ -135,6 +135,10 @@ from kodi_lab.repository.workspace_package import (
     bridge_manifest_for_zip,
     build_workspace_package,
 )
+from kodi_lab.storage.development_sessions import (
+    DevelopmentSessionConflict,
+    require_workspace_session_admission,
+)
 from kodi_lab.storage.models import (
     AgentWorkspaceCaptureOperationRow,
     AgentWorkspacePromotionPlanRow,
@@ -170,6 +174,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeReconciliationBlockedError,
     RuntimeExecutionProfileRepository,
 )
+from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 from kodi_lab.workspace import (
     AgentWorkspaceStorageError,
     capture_workspace_deployment_tree,
@@ -363,6 +368,16 @@ def _matches_existing_adoption(
         and linked.installed_before_version == publication.version
         and linked.published_at == publication.published_at
     )
+
+
+MANAGED_BASELINE_REASONS = frozenset(
+    {
+        "source_baseline_missing",
+        "source_baseline_stale",
+        "source_baseline_unknown",
+        "source_baseline_runtime_mismatch",
+    }
+)
 
 
 class McpWorkspaceDevelopmentError(RuntimeError):
@@ -2243,6 +2258,28 @@ class McpWorkspaceDevelopmentService:
             )
         return len(deployments) + len(executions)
 
+    @staticmethod
+    def _session_admission(
+        session: Session,
+        *,
+        target_id: str,
+        revision_id: str | None,
+        workspace_id: str,
+        source_id: str,
+        container_id: str | None = None,
+    ) -> None:
+        try:
+            require_workspace_session_admission(
+                session,
+                target_id=target_id,
+                revision_id=revision_id,
+                workspace_id=workspace_id,
+                source_id=source_id,
+                container_id=container_id,
+            )
+        except DevelopmentSessionConflict as error:
+            raise McpWorkspaceDevelopmentError(error.code) from error
+
     def _claim_deployment(
         self,
         client_id: UUID,
@@ -2455,6 +2492,19 @@ class McpWorkspaceDevelopmentService:
                 target = session.get(TargetRow, str(target_id))
                 if workspace is None or workspace.generation != generation:
                     raise McpWorkspaceDevelopmentError("workspace_generation_conflict")
+                if target is None:
+                    raise McpWorkspaceDevelopmentError("execution_not_deployed")
+                if target.target_type is TargetType.MANAGED:
+                    instance = session.get(ManagedInstanceRow, str(target_id))
+                    self._session_admission(
+                        session,
+                        target_id=str(target_id),
+                        revision_id=(
+                            None if instance is None else instance.runtime_revision_id
+                        ),
+                        workspace_id=str(workspace_id),
+                        source_id=str(workspace.development_source_id),
+                    )
                 deployments = list(
                     session.scalars(
                         select(McpWorkspaceDeploymentOperationRow)
@@ -2465,6 +2515,7 @@ class McpWorkspaceDevelopmentService:
                             == str(target_id),
                             McpWorkspaceDeploymentOperationRow.generation == generation,
                             McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                            selected_profile_lineage_sql(),
                         )
                         .limit(2)
                     )
@@ -2474,8 +2525,6 @@ class McpWorkspaceDevelopmentService:
                 if len(deployments) != 1:
                     raise McpWorkspaceDevelopmentError("execution_ambiguous")
                 deployment = deployments[0]
-                if target is None:
-                    raise McpWorkspaceDevelopmentError("execution_not_deployed")
                 if (
                     execution_kind
                     is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
@@ -2602,6 +2651,13 @@ class McpWorkspaceDevelopmentService:
                 or attachment is None
             ):
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+            self._session_admission(
+                session,
+                target_id=str(target_id),
+                revision_id=str(instance.runtime_revision_id),
+                workspace_id=str(workspace_id),
+                source_id=str(source.id),
+            )
             baseline = DevelopmentSourceDeploymentRepository(session).get(
                 target_id, source.id
             )
@@ -2624,6 +2680,7 @@ class McpWorkspaceDevelopmentService:
                     ),
                     McpWorkspaceDeploymentOperationRow.runtime_revision_id
                     == str(instance.runtime_revision_id),
+                    selected_profile_lineage_sql(),
                 )
                 .order_by(McpWorkspaceDeploymentOperationRow.completed_at.desc())
             )
@@ -2633,7 +2690,19 @@ class McpWorkspaceDevelopmentService:
                 is not DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
                 or baseline.runtime_revision_id != instance.runtime_revision_id
             ):
-                raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+                reason = (
+                    "source_baseline_missing"
+                    if baseline is None
+                    else "source_baseline_runtime_mismatch"
+                    if baseline.runtime_revision_id != instance.runtime_revision_id
+                    else "source_baseline_unknown"
+                    if baseline.confidence
+                    is DevelopmentSourceDeploymentConfidence.UNKNOWN
+                    else "source_baseline_stale"
+                )
+                raise McpWorkspaceDevelopmentError(
+                    "deployment_not_allowed", reason=reason
+                )
             return (
                 workspace,
                 validation,
@@ -2760,6 +2829,14 @@ class McpWorkspaceDevelopmentService:
             original_instance = session.get(ManagedInstanceRow, operation.target_id)
             if original_instance is None:
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=operation.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
             original_revision = original_instance.runtime_state_revision
         self._update_deployment(
             operation_id,
@@ -2895,7 +2972,10 @@ class McpWorkspaceDevelopmentService:
             )
             self._finish_deployment(
                 operation.id,
-                "failed" if contained else "reconciliation_required",
+                # Stopping contains the process, not the copied-tree provenance.
+                # Keep the fence until explicit stopped-tree inspection records
+                # a requested/prior-tree receipt for the next deployment.
+                "reconciliation_required",
                 "deployment_verification_failed"
                 if contained
                 else "deployment_ambiguous",
@@ -3378,6 +3458,15 @@ class McpWorkspaceDevelopmentService:
         observation, profile, container_id = self._runtime_context(
             UUID(operation.target_id)
         )
+        with self._sessions() as session:
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=deployment.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
         if profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS:
             self._finish_execution(
                 operation.id, "failed", "execution_unsupported", digest=digest
@@ -3768,6 +3857,21 @@ class McpWorkspaceDevelopmentService:
         deployment: McpWorkspaceDeploymentOperationRow,
     ) -> None:
         with self._sessions() as session:
+            if deployment.target_class == "internal_lab":
+                selected_instance = ManagedInstanceRepository(session).get(
+                    UUID(operation.target_id)
+                )
+                self._session_admission(
+                    session,
+                    target_id=operation.target_id,
+                    revision_id=(
+                        None
+                        if selected_instance is None
+                        else str(selected_instance.runtime_revision_id)
+                    ),
+                    workspace_id=operation.workspace_id,
+                    source_id=operation.development_source_id,
+                )
             successes = list(
                 session.scalars(
                     select(McpWorkspaceDeploymentOperationRow.id)
@@ -3779,6 +3883,7 @@ class McpWorkspaceDevelopmentService:
                         McpWorkspaceDeploymentOperationRow.generation
                         == operation.generation,
                         McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                        selected_profile_lineage_sql(),
                     )
                     .limit(2)
                 )
@@ -4075,6 +4180,14 @@ class McpWorkspaceDevelopmentService:
                 or lease.lease_token_digest != digest
             ):
                 raise McpWorkspaceDevelopmentError("execution_ambiguous")
+            self._session_admission(
+                session,
+                target_id=operation.target_id,
+                revision_id=deployment.runtime_revision_id,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                container_id=container_id,
+            )
             operation.phase = "invoke"
             operation.invocation_dispatched = True
             if (
