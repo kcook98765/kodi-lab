@@ -6608,3 +6608,35 @@ Native repository downloads do not inherit Lab's HTTPS fetcher/ZIP limits or
 establish network isolation. Repository activation and refresh retain separate
 trust/acceptance requirements. See NATIVE-ZIP-INSTALLATION.md for lifecycle,
 configuration, compatibility and rollback requirements.
+
+
+## D-0443: Opt-in reviewed-tree imports with removal lineage (#45)
+
+- Context: the add/replace importer cannot represent reviewed source removals or
+  resolve private overlaps, blocking a persistent single-add-on workspace.
+- Decision: retain default changes mode. Opt-in reviewed_tree assesses private-only
+  paths and requires explicit per-path keep_private/take_source choices. Preview
+  digests bind all choices and preimages; apply recaptures under the existing
+  exclusive workspace lock and preserves grants, generation, identity and quotas.
+  Only an eligible plan without retained private differences claims exact source
+  equality, proved by complete staged digest before atomic exchange.
+- Ordinary file removals affect staged bytes only. Unsupported directory/type/mode
+  transitions remain rejected. Retain original baseline and old tree; versioned
+  JSON receipts carry tombstones and replay input while reading old list receipts.
+  No new persisted enum, migration or grant. Existing receipt capacity/cleanup and
+  populated-data downgrade refusals remain. Older code cannot consume new receipts.
+- Publication uncertainty retains both trees and reconciliation; replay proves the
+  durable tree/journal without capturing newer source. No force import, implicit
+  conflict adoption, profile reset, deployment or native-acceptance claim.
+
+### Publication cancellation addendum
+
+A reproduced post-commit cancellation could previously roll back only the private
+filesystem while durable generation/digest had advanced. Before permitting rollback,
+read the exact journal/workspace publication state. Confirmed commits keep their
+receipt/tree; confirmed unpublished ordinary failures retain normal rollback;
+unknown outcomes preserve both trees and quarantine either the original or already
+advanced generation. Replay must prove both full trees and may acknowledge an
+already committed generation without another increment. Preserve the ordinary
+failure, stale-input, authorization and legacy-receipt checks; no migration or
+new grant is introduced.
