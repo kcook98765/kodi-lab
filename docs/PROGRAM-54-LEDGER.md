@@ -281,3 +281,31 @@ gate will cover settled Phase 2 shared changes rather than every PR separately.
 
 Next: #46 shared read-only durable assessment, keeping fresh native/Bridge facts
 unknown until independently observed; no runtime-status convergence or repair.
+
+### Phase 2 milestone: shared durable deployment prerequisites
+
+[PR #63](https://github.com/kcook98765/kodi-lab/pull/63), stacked on #57,
+branch `feat/46-read-only-preflight-20261024`, commit `3409cb9`: shared Web/MCP
+read-only durable assessment and fact/action DTO. Existing deployment permission,
+credential, source/workspace/target grants, preset intersection and production
+veto are reused and rechecked; mutation-time technical checks remain unchanged.
+No runtime getter, broker/native probe, cleanup, repair or task scheduling occurs.
+Native/add-on liveness and authenticated Bridge readiness remain unknown. This
+foundation never returns ready or claims a reservation. Direct deployment gains
+no Bridge requirement. Prior workspace evidence remains distinct from stale source
+confidence; unsupported external/repository modes stay unknown.
+
+**INTEGRATION PASS**, 53.7s: 17 application plus 2 authenticated Web/modern-and-
+legacy wire cases individually, Ruff/mypy across all changed Python, then 122
+authorization/deployment/baseline interactions. All six changed/new modules ran
+individually (104 total), including exact catalogs, production exclusion, native
+ZIP authority and existing MCP Web behavior; their initial lane reached a lint
+failure after every module passed, followed by corrected static checks and the
+settled integration lane. Typing/fixture/catalog corrections are retained in the
+private evidence logs. No new release or runtime acceptance is claimed.
+
+Next increment in progress: #51 migration and shared reservation/admission,
+serializing opt-in session claims against every broker provision and start. The
+new flow must refuse existing stopped containers, not count them as a free slot.
+#49 lifecycle-owned prepared continuation and #50 bounded evidence remain needed
+before claiming a complete fresh/version-switch development workflow.
