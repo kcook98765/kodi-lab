@@ -157,6 +157,11 @@ from kodi_lab.broker.stopped_diagnostics import (
     StoppedManagedRuntimeProvider,
     StoppedRuntimeDiagnostics,
 )
+from kodi_lab.broker.stopped_logs import (
+    SqliteStoppedLogResolver,
+    StoppedLogSnapshot,
+    StoppedManagedLogProvider,
+)
 from kodi_lab.domain.smoke_diagnostics import (
     AddonExceptionDiagnostic,
     SmokeDiagnosticStatus,
@@ -332,7 +337,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=39)
+    operations: list[str] = Field(max_length=40)
     protocol_version: Literal[1]
 
 
@@ -1501,6 +1506,8 @@ def build_foundation_registry(
     capacity_admission: ManagedCapacityAdmission | None = None,
     stopped_diagnostics_resolver: SqliteStoppedDiagnosticsResolver | None = None,
     stopped_diagnostics_provider: StoppedManagedRuntimeProvider | None = None,
+    stopped_log_provider: StoppedManagedLogProvider | None = None,
+    stopped_log_resolver: SqliteStoppedLogResolver | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -2098,6 +2105,42 @@ def build_foundation_registry(
         handler=read_stopped_managed_diagnostics,
         audit_builder=lambda result: {
             "broker_managed_instance_id": result.managed_instance_id
+        },
+    )
+
+    def read_stopped_managed_logs(
+        params: StoppedDiagnosticsInput,
+    ) -> StoppedLogSnapshot:
+        resolver = stopped_log_resolver or SqliteStoppedLogResolver.production()
+        try:
+            spec = resolver.resolve(params)
+            result = (stopped_log_provider or StoppedManagedLogProvider()).capture(spec)
+            observed = result.exit_metadata
+            if (
+                observed.managed_instance_id,
+                observed.runtime_revision_id,
+                observed.container_id,
+                observed.image_id,
+            ) != (
+                spec.target_id,
+                spec.revision_id,
+                spec.container_id,
+                spec.image_id,
+            ) or resolver.resolve(params) != spec:
+                raise StoppedDiagnosticsError("managed_diagnostics_identity_changed")
+            return result
+        except StoppedDiagnosticsError as error:
+            raise OperationError(
+                error.code, "Stopped internal logs could not be confirmed."
+            ) from error
+
+    registry.register(
+        name="read_stopped_managed_logs",
+        params_model=StoppedDiagnosticsInput,
+        result_model=StoppedLogSnapshot,
+        handler=read_stopped_managed_logs,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.exit_metadata.managed_instance_id
         },
     )
 

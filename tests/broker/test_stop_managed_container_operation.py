@@ -303,6 +303,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "read_promotion_kodi_log_window",
         "read_smoke_log_window",
         "read_stopped_managed_diagnostics",
+        "read_stopped_managed_logs",
         "reconstruction_destination",
         "remove_mismatched_managed_container",
         "reviewed_runtime_image_present",

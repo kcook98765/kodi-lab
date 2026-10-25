@@ -8223,3 +8223,85 @@ class NativeZipInstallationRow(Base):
     zip_get_requested_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class ManagedDiagnosticCaptureRow(Base):
+    """Web-selected historical evidence, independent of disposable resources."""
+
+    __tablename__ = "managed_diagnostic_captures"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="diagnostic_capture_request"),
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND length(target_id)=36 "
+            "AND length(runtime_revision_id)=36",
+            name="diagnostic_capture_ids",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' AND "
+            "length(image_id)=71 AND substr(image_id,1,7)='sha256:'",
+            name="diagnostic_capture_binding",
+        ),
+        CheckConstraint(
+            "state IN ('capturing','retained','failed','discarded')",
+            name="diagnostic_capture_state",
+        ),
+        CheckConstraint(
+            "length(context_json) BETWEEN 2 AND 2048", name="diagnostic_capture_context"
+        ),
+        CheckConstraint(
+            "payload_json IS NULL OR length(CAST(payload_json AS BLOB)) BETWEEN "
+            "2 AND 49152",
+            name="diagnostic_capture_payload_bound",
+        ),
+        CheckConstraint(
+            "payload_sha256 IS NULL OR (length(payload_sha256)=64 AND "
+            "payload_sha256 NOT GLOB '*[^0-9a-f]*')",
+            name="diagnostic_capture_hash",
+        ),
+        CheckConstraint(
+            "(state='retained' AND payload_json IS NOT NULL AND payload_sha256 "
+            "IS NOT NULL) OR (state<>'retained' AND payload_json IS NULL)",
+            name="diagnostic_capture_body_state",
+        ),
+        CheckConstraint(
+            "(state='capturing' AND completed_at IS NULL) OR (state<>'capturing' "
+            "AND completed_at IS NOT NULL)",
+            name="diagnostic_capture_completion",
+        ),
+        CheckConstraint(
+            "(state='discarded' AND discarded_at IS NOT NULL) OR "
+            "(state<>'discarded' AND discarded_at IS NULL)",
+            name="diagnostic_capture_discard",
+        ),
+        CheckConstraint(
+            "(state='failed' AND failure_code IS NOT NULL) OR (state<>'failed' "
+            "AND failure_code IS NULL)",
+            name="diagnostic_capture_failure",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 64",
+            name="diagnostic_capture_failure_bound",
+        ),
+        Index("ix_diagnostic_capture_target_created", "target_id", "created_at"),
+        Index(
+            "uq_diagnostic_capture_active_target",
+            "target_id",
+            unique=True,
+            sqlite_where=text("state='capturing'"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    context_json: Mapped[str] = mapped_column(String(2048), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    review_after: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    discarded_at: Mapped[str | None] = mapped_column(String(27))
+    payload_json: Mapped[str | None] = mapped_column(Text)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
