@@ -3,6 +3,8 @@
 Coordination: <https://github.com/kcook98765/kodi-lab/issues/54>.
 This ledger records source qualification, not deployment or native acceptance.
 
+Current requirement-by-requirement [Phase 2 source status and remaining decisions](PROGRAM-54-PHASE2-STATUS.md) distinguish the current state from historical milestones.
+
 ## Current Phase 2 checkpoint (2026-10-25 UTC)
 
 - Settled shared-native-boundary candidate **RUNNING**: `ba215e6`, tree

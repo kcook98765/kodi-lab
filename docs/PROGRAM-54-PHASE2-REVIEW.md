@@ -1,5 +1,7 @@
 # Program #54 Phase 2 integration review
 
+See the [current source status checklist](PROGRAM-54-PHASE2-STATUS.md) for resolved prerequisites and pending decisions. The entries below retain their milestone context.
+
 Live GitHub and local refs rechecked at Phase 2 entry on 2026-10-24 Pacific.
 `origin/main` and clean primary HEAD remain `e198592b634bc5bc2cf876fd5fbded88b7cd827d`.
 All six PRs are open, GitHub reports mergeable, and none has a submitted review.
