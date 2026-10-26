@@ -373,9 +373,9 @@ def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     )
 
 
-def test_exactly_seven_of_twenty_seven_tools_are_production_eligible() -> None:
+def test_exactly_seven_of_twenty_nine_tools_are_production_eligible() -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 27
+    assert len(registry.names()) == 29
     eligible = {
         "inspect_ui_state",
         "log_read",
@@ -805,6 +805,8 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     remote = registry.require("remote_action")
     assert registry.names() == (
         "addon_list",
+        "addon_settings_result",
+        "addon_settings_set",
         "development_source_list",
         "inspect_ui_state",
         "log_read",

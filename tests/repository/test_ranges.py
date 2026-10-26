@@ -42,7 +42,7 @@ def serving(tmp_path: Path) -> Iterator[str]:
     [
         "/install/repository.kodi-lab-1.0.0.zip",
         "/install/repository.kodi-lab-dev-1.0.0.zip",
-        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.27.zip",
+        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.29.zip",
         "/stable/addons.xml",
         "/development/addons.xml",
     ],

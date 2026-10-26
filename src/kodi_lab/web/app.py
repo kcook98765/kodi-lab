@@ -76,6 +76,7 @@ from kodi_lab.application.addon_repositories import (
     AddonRepositoryServiceError,
     AddonRepositorySourceRead,
 )
+from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
 from kodi_lab.application.addon_zip_enablements import (
     AddonZipEnablementError,
     AddonZipEnablementOperationCoordinator,
@@ -300,6 +301,7 @@ from kodi_lab.application.managed_resources import (
 )
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
+    EXPLICIT_ADDON_SETTINGS_PERMISSIONS,
     EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS,
     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS,
     FULL_LAB_CONTROL_PRESET_ID,
@@ -563,6 +565,7 @@ from kodi_lab.domain import (
     TargetType,
     normalize_development_source_logical_name,
 )
+from kodi_lab.kodi.addon_settings import AddonSettingsSetResult
 from kodi_lab.kodi.bridge import (
     SUPPORTED_V1_BRIDGE_ADDON_VERSION,
     ExternalBridgeClient,
@@ -1371,6 +1374,7 @@ class WebApplicationContext:
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
     workspace_launch: WorkspaceLaunchService
+    addon_settings: AddonSettingsService
     mcp_workspace_development: McpWorkspaceDevelopmentService
     historical_workspace_execution_containment: (
         HistoricalWorkspaceExecutionContainmentService
@@ -2053,6 +2057,12 @@ def create_app(
         ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
         data_root=settings.data_root,
     )
+    addon_settings = AddonSettingsService(
+        session_factory,
+        mcp_workspace_development,
+        workspace_launch,
+        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
+    )
     lan_endpoints = [
         urlsplit(url)
         for url in (
@@ -2092,6 +2102,7 @@ def create_app(
             workspace_source_captures=workspace_source_captures,
             managed_lifecycle=agent_lifecycle,
             workspace_launch=workspace_launch,
+            addon_settings=addon_settings,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -2193,6 +2204,7 @@ def create_app(
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
         workspace_launch=workspace_launch,
+        addon_settings=addon_settings,
         mcp_workspace_development=mcp_workspace_development,
         historical_workspace_execution_containment=(
             HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
@@ -3547,6 +3559,7 @@ def create_app(
                     }
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
+                    | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
                 ),
                 "capture_permission_template_ids": {
                     ADDON_DEVELOPMENT_PRESET_ID,
@@ -7174,6 +7187,35 @@ def create_app(
             end_reason = "display_stopped"
         finally:
             context.live_display.end(display_session, end_reason)
+
+    @app.get(
+        "/api/instances/{instance_id}/addon-settings/{operation_id}",
+        response_model=AddonSettingsSetResult,
+    )
+    def get_addon_settings_receipt(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonSettingsSetResult:
+        row = context.addon_settings._row(str(operation_id))
+        if row.target_id != str(instance_id):
+            raise HTTPException(status_code=404, detail="settings_receipt_unavailable")
+        return context.addon_settings._result(row)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-settings/{operation_id}/contain",
+        response_model=AddonSettingsSetResult,
+    )
+    def contain_addon_settings(
+        instance_id: UUID,
+        operation_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonSettingsSetResult:
+        try:
+            return context.addon_settings.contain(instance_id, operation_id)
+        except AddonSettingsError as error:
+            raise HTTPException(status_code=409, detail=error.code) from None
 
     @app.post(
         "/api/instances/{instance_id}/screenshots",

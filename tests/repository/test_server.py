@@ -36,8 +36,8 @@ def test_distribution_allowlist_and_methods(tmp_path: Path) -> None:
             "/stable/addons.xml",
             "/stable/addons.xml.sha256",
             "/stable/zips/repository.kodi-lab/repository.kodi-lab-1.0.0.zip",
-            "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.27.zip",
-            "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.27.zip.sha256",
+            "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.29.zip",
+            "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.29.zip.sha256",
         ):
             with urlopen(url + path) as response:
                 body = response.read()

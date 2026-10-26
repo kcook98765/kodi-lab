@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -11,7 +12,7 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.lifecycle_status import (
@@ -86,6 +87,7 @@ from kodi_lab.storage.models import (
     HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
     ManagedRuntimeReconstructionRow,
+    McpAddonSettingsOperationRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     McpWorkspaceLaunchRow,
@@ -160,6 +162,7 @@ class ReconciliationOperationKind(StrEnum):
     PROMOTION_VERIFICATION = "promotion_verification"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
+    MCP_ADDON_SETTINGS = "mcp_addon_settings"
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
@@ -199,6 +202,7 @@ class ReconciliationAction(StrEnum):
     PROMOTION_VERIFICATION = "promotion_verification"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
+    MCP_ADDON_SETTINGS = "mcp_addon_settings"
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
 
 
@@ -228,6 +232,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.PROMOTION_VERIFICATION,
     ReconciliationAction.MCP_WORKSPACE_DEPLOYMENT,
     ReconciliationAction.MCP_WORKSPACE_LAUNCH,
+    ReconciliationAction.MCP_ADDON_SETTINGS,
     ReconciliationAction.MCP_WORKSPACE_EXECUTION,
 ]
 
@@ -879,6 +884,19 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.MCP_ADDON_SETTINGS:
+            settings = session.get(McpAddonSettingsOperationRow, str(operation_id))
+            if (
+                settings is None
+                or settings.target_id != str(instance_id)
+                or settings.state not in {"pending", "dispatching"}
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired settings ownership is inconsistent."
+                )
+            settings.state = "failed" if settings.state == "pending" else "ambiguous"
+            settings.failure_code = "settings_interrupted"
+            settings.completed_at = _timestamp_text(now)
         elif kind is ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH:
             launch = session.get(McpWorkspaceLaunchRow, str(operation_id))
             if (
@@ -1437,6 +1455,109 @@ class StaleOperationReconciliationDispatcher:
             raise CoordinationCorruptionError("Expired global ownership changed.")
 
 
+_PRE_SETTINGS_REVISIONS = frozenset(
+    {
+        "0077_workspace_launch",
+        "0078_workspace_deploy_recovery",
+        "0079_native_zip_installation",
+        "0080_development_sessions",
+        "0081_managed_diagnostic_captures",
+        "0082_session_replacement_reviews",
+        "0083_managed_runtime_retirements",
+        "0084_session_replacements",
+        "0085_session_source_copy_admissions",
+    }
+)
+
+
+_PRE_SETTINGS_LEASE_KINDS = frozenset(
+    {
+        "addon_repository_attachment",
+        "addon_repository_installation",
+        "addon_zip_enablement",
+        "addon_zip_installation",
+        "addon_zip_smoke_test",
+        "agent_workspace_promotion",
+        "development_source_attachment",
+        "development_source_deployment",
+        "development_source_enablement",
+        "development_source_smoke_test",
+        "fixture_assignment",
+        "instance_delete",
+        "lifecycle",
+        "mcp_workspace_deployment",
+        "mcp_workspace_execution",
+        "mcp_workspace_launch",
+        "promotion_verification",
+        "repository_replacement",
+        "reset",
+        "runtime_reassignment",
+        "snapshot_create",
+        "snapshot_restore",
+        "workspace_execution_recovery",
+    }
+)
+
+
+def _settings_reconciliation_rows(
+    session: Session,
+    instance_id: UUID,
+) -> list[McpAddonSettingsOperationRow]:
+    """Historical recovery may inspect a known schema before settings existed.
+
+    Missing settings storage at current/unknown schema is corruption, never an
+    empty fence. Do not manufacture tables or stamp/migrate during observation.
+    """
+    inspector = inspect(session.connection())
+    if not inspector.has_table("mcp_addon_settings_operations"):
+        revisions = (
+            list(session.scalars(text("SELECT version_num FROM alembic_version")))
+            if inspector.has_table("alembic_version")
+            else []
+        )
+        checks = (
+            inspector.get_check_constraints("managed_instance_mutation_leases")
+            if inspector.has_table("managed_instance_mutation_leases")
+            else []
+        )
+        kind_checks = [
+            item["sqltext"]
+            for item in checks
+            if item["name"]
+            in {
+                "managed_instance_mutation_kind",
+                "ck_managed_instance_mutation_leases_managed_instance_mutation_kind",
+            }
+        ]
+        match = (
+            re.fullmatch(
+                r"operation_kind\s+IN\s*\(\s*((?:'[a-z_]+'\s*,\s*)*'[a-z_]+'\s*)\)",
+                kind_checks[0].strip(),
+            )
+            if len(kind_checks) == 1
+            else None
+        )
+        kinds = re.findall(r"'([a-z_]+)'", match.group(1)) if match is not None else []
+        if (
+            len(revisions) == 1
+            and revisions[0] in _PRE_SETTINGS_REVISIONS
+            and len(kinds) == len(set(kinds))
+            and frozenset(kinds) == _PRE_SETTINGS_LEASE_KINDS
+        ):
+            return []
+        raise CoordinationCorruptionError(
+            "Settings reconciliation storage is unavailable."
+        )
+    return list(
+        session.scalars(
+            select(McpAddonSettingsOperationRow).where(
+                McpAddonSettingsOperationRow.target_id == str(instance_id),
+                McpAddonSettingsOperationRow.state == "ambiguous",
+            )
+        )
+    )
+
+
 class ManagedInstanceReconciliationService:
     """Read typed unresolved records and enforce one bounded mutation policy."""
 
@@ -1585,6 +1706,10 @@ class ManagedInstanceReconciliationService:
                     )
                 )
             )
+            records.extend(
+                (ReconciliationOperationKind.MCP_ADDON_SETTINGS, item)
+                for item in _settings_reconciliation_rows(session, instance_id)
+            )
             recovery_outcomes: dict[str, str] = {}
             for execution_item in session.scalars(
                 select(McpWorkspaceExecutionOperationRow).where(
@@ -1669,6 +1794,27 @@ class ManagedInstanceReconciliationService:
                 blocked_actions=INSTANCE_MUTATIONS,
             )
         kind, raw = records[0]
+        if kind is ReconciliationOperationKind.MCP_ADDON_SETTINGS:
+            assert isinstance(raw, McpAddonSettingsOperationRow)
+            return ManagedInstanceReconciliationStatus(
+                required=True,
+                blocking=True,
+                operation_kind=kind,
+                operation_uuid=UUID(raw.id),
+                operation_state=raw.state,
+                last_phase="dispatch",
+                observed_state="settings_write_unconfirmed",
+                safe_reason=(
+                    "Settings may have changed. Stop the exact original profile "
+                    "and review the receipt; no retry is automatic."
+                ),
+                blocked_actions=[
+                    action
+                    for action in INSTANCE_MUTATIONS
+                    if action is not ReconciliationAction.STOP
+                ],
+                requested_at=_timestamp(raw.requested_at),
+            )
         operation = raw
         blocking = True
         observed = "runtime_state_uncertain"

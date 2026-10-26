@@ -283,6 +283,7 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "mcp_workspace_deployment",
         "mcp_workspace_execution",
         "mcp_workspace_launch",
+        "mcp_addon_settings",
     }
 
 

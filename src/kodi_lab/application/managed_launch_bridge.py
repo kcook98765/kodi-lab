@@ -3,6 +3,7 @@
 import json
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.managed_bridge_trust import (
@@ -13,6 +14,7 @@ from kodi_lab.application.managed_bridge_trust import (
 from kodi_lab.broker.managed_bridge_trust import approved_bridge_build
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import ExternalProtocolKind
+from kodi_lab.kodi.addon_settings import AddonSettingOutcome
 from kodi_lab.kodi.bridge import ExternalBridgeClient, ExternalBridgeError
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.kodi.launch import (
@@ -66,6 +68,64 @@ class ManagedLaunchBridgeService:
                 container_id=row.container_id,
                 generation=row.generation,
             )
+
+    def settings_binding(
+        self, observed: ObserveManagedKodiRuntimeResult, kodi_version: str
+    ) -> ManagedLaunchRuntimeBinding:
+        if kodi_version not in {"20.5", "21.3"}:
+            raise ExternalBridgeError("settings_kodi_unsupported")
+        binding = self.binding(observed, kodi_version)
+        # Current exact reviewed version/fingerprint pins this managed-only
+        # operation. Do not widen the external Bridge capability vocabulary.
+        return binding
+
+    def settings(
+        self,
+        observed: ObserveManagedKodiRuntimeResult,
+        kodi_version: str,
+        payload: dict[str, object],
+    ) -> tuple[AddonSettingOutcome, ...]:
+        pinned = self.settings_binding(observed, kodi_version)
+        if payload.get("runtime_binding") != pinned.model_dump(
+            mode="json"
+        ) or kodi_version not in {"20.5", "21.3"}:
+            raise ExternalBridgeError("managed_bridge_identity_mismatch")
+        with self._sessions() as session:
+            row = session.get(ManagedBridgeTrustRow, observed.managed_instance_id)
+            assert row is not None and row.secret_reference and row.bridge_id
+            session.expunge(row)
+        secret = self._secrets.read(
+            UUID(row.target_id), UUID(row.secret_reference), "request_authentication"
+        )
+        response = self._client._authenticated_json(
+            ValidatedExternalEndpoint(
+                ExternalProtocolKind.JSONRPC_HTTP,
+                observed.ipv4_address,
+                observed.jsonrpc_port,
+            ),
+            bridge_port=row.bridge_port,
+            target_id=UUID(row.target_id),
+            bridge_id=UUID(row.bridge_id),
+            secret=secret,
+            operation="managed_addon_settings_set",
+            payload=payload,
+        )
+        if not isinstance(response, dict) or set(response) != {"identity", "results"}:
+            raise ExternalBridgeError("settings_response_invalid")
+        identity = self._client._identity(response["identity"])
+        require_approved_identity(identity, kodi_version)
+        if (
+            identity_json(identity) != row.identity_json
+            or self.binding(observed, kodi_version) != pinned
+        ):
+            raise ExternalBridgeError("managed_bridge_identity_mismatch")
+        entries = response["results"]
+        if not isinstance(entries, list) or not 1 <= len(entries) <= 32:
+            raise ExternalBridgeError("settings_response_invalid")
+        try:
+            return tuple(AddonSettingOutcome.model_validate(entry) for entry in entries)
+        except ValidationError:
+            raise ExternalBridgeError("settings_response_invalid") from None
 
     def call(
         self,

@@ -91,6 +91,11 @@ from kodi_lab.application.workspace_imports import (
 )
 from kodi_lab.application.workspace_launch import WorkspaceLaunchResult
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
+from kodi_lab.kodi.addon_settings import (
+    AddonSettingsResultInput,
+    AddonSettingsSetInput,
+    AddonSettingsSetResult,
+)
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
@@ -183,6 +188,8 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_import",
         "workspace_execute",
         "workspace_launch",
+        "addon_settings_set",
+        "addon_settings_result",
         "workspace_execution_recover",
         "workspace_read",
         "workspace_status",
@@ -1119,6 +1126,37 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "addon_settings_result": Tool(
+            name="addon_settings_result",
+            title="Read an original settings-write receipt",
+            description=(
+                "Read this client's value-free original settings-write "
+                "receipt by its request UUID, only on the still-selected exact "
+                "profile. This never reads current values, calls Kodi, repeats "
+                "a write or resolves ambiguity. Use after response loss instead "
+                "of resubmitting a write."
+            ),
+            input_schema=AddonSettingsResultInput.model_json_schema(),
+            output_schema=AddonSettingsSetResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "addon_settings_set": Tool(
+            name="addon_settings_set",
+            title="Set selected development add-on settings",
+            description=(
+                "Write up to32 declared ordinary settings of the selected "
+                "managed development add-on through supported Kodi APIs. "
+                "Target/add-on are server-derived. Values are never returned. "
+                "Non-atomic per-key results; no automatic reload. Request UUID "
+                "is single-use; uncertain writes are never repeated. Explicit "
+                "opt-in settings permission required."
+            ),
+            input_schema=AddonSettingsSetInput.model_json_schema(),
+            output_schema=AddonSettingsSetResult.model_json_schema(),
+            annotations=execution_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_launch": Tool(
             name="workspace_launch",
             title="Launch a deployed manifest entry point",
@@ -1305,6 +1343,7 @@ def build_mcp_http_transport(
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
                 | WorkspaceLaunchResult
+                | AddonSettingsSetResult
                 | WorkspaceExecutionResult
                 | WorkspaceExecutionRecoveryResult
                 | PromotionRequestResult
@@ -1563,6 +1602,30 @@ def build_mcp_http_transport(
                     tools.workspace_deploy, principal, parsed_deploy
                 )
                 source_id = result.source_id
+            elif params.name == "addon_settings_result":
+                parsed_settings_result = AddonSettingsResultInput.model_validate(
+                    arguments
+                )
+                request_id = parsed_settings_result.request_id
+                result = await asyncio.to_thread(
+                    tools.addon_settings_result, principal, parsed_settings_result
+                )
+                workspace_id, target_id, generation = (
+                    result.workspace_id,
+                    result.target_id,
+                    result.generation,
+                )
+            elif params.name == "addon_settings_set":
+                parsed_settings = AddonSettingsSetInput.model_validate(arguments)
+                request_id = parsed_settings.request_id
+                result = await asyncio.to_thread(
+                    tools.addon_settings_set, principal, parsed_settings
+                )
+                workspace_id, target_id, generation = (
+                    result.workspace_id,
+                    result.target_id,
+                    result.generation,
+                )
             elif params.name == "workspace_launch":
                 parsed_launch = WorkspaceLaunchInput.model_validate(arguments)
                 workspace_id, target_id = (

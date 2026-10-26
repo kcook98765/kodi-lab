@@ -6,6 +6,7 @@ import errno
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -18,7 +19,7 @@ import xml.etree.ElementTree as ET
 import zlib
 from collections import OrderedDict
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import xbmc
@@ -30,10 +31,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.27"
+ADDON_VERSION = "1.1.29"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.27|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes"
+    b"kodi-lab-narrow-bridge|1.1.29|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -65,6 +66,7 @@ MAX_SCREENSHOT_HEIGHT = 2160
 MAX_SCREENSHOT_DECODED = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT * 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OPERATIONS = {
+    "managed_addon_settings_set",
     "managed_launch",
     "managed_launch_receipt",
     "log_read",
@@ -2136,6 +2138,362 @@ def _managed_launch(payload, state, *, status_only=False):
     return {"identity": _identity(state), "receipt": receipt}
 
 
+# Managed settings are derived from the verified deployed definition, never from
+# the caller's claimed schema. This operation never edits a profile file.
+SETTINGS_MAX_BATCH = 32
+SETTINGS_MAX_XML = 65536
+SETTINGS_MAX_TEXT = 1024
+_SETTINGS_ID = re.compile(r"[a-z][a-z0-9_.-]{0,63}\Z")
+_SETTINGS_SENSITIVE = re.compile(
+    r"password|passwd|secret|token|credential|api[_.-]?key|auth|login|username|pin(?:$|[_.-])",
+    re.I,
+)
+
+
+def _settings_schema(raw):
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= SETTINGS_MAX_XML:
+        raise ValueError("settings definition unavailable")
+    text = raw.decode("utf-8")
+    if "\x00" in text or "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+        raise ValueError("settings definition unsupported")
+    root = ET.fromstring(text)
+    if root.tag != "settings" or root.attrib.get("version", "") not in {"", "1"}:
+        raise ValueError("settings definition unsupported")
+    modern = root.attrib.get("version") == "1"
+    schema = {}
+    for node in root.iter("setting"):
+        key = node.attrib.get("id", "")
+        if not _SETTINGS_ID.fullmatch(key):
+            # Separators/labels without IDs are not writable declarations.
+            if key:
+                raise ValueError("settings definition unsupported")
+            continue
+        if key in schema:
+            raise ValueError("duplicate setting declaration")
+        kind = node.attrib.get("type", "")
+        if not modern:
+            kind = {"bool": "boolean", "number": "integer", "text": "string"}.get(kind)
+        reason = None
+        # All text readback is suppressed. Known sensitive settings are refused,
+        # including ordinary-looking numeric settings with secret-like identifiers.
+        definition_text = " ".join(
+            [key, node.attrib.get("label", ""), node.attrib.get("option", "")]
+            + [str(x) for child in node.iter("control") for x in child.attrib.values()]
+        )
+        if _SETTINGS_SENSITIVE.search(definition_text) or (
+            node.attrib.get("visible", "").lower() == "false"
+            or any(
+                (x.text or "").strip().lower() == "true" for x in node.iter("hidden")
+            )
+        ):
+            reason = "denied"
+        elif (
+            kind not in {"boolean", "integer", "number", "string"}
+            or node.find("dependencies") is not None
+            or node.find("updates") is not None
+        ):
+            reason = "unsupported_type"
+        elif node.find("constraints/options") is not None:
+            # Kodi dynamic/static option semantics are deliberately not inferred.
+            reason = "unsupported_type"
+        elif modern and any(
+            child.tag not in {"default", "level", "control", "constraints", "help"}
+            for child in node
+        ):
+            reason = "unsupported_type"
+        if modern:
+            for control in node.findall("control"):
+                allowed = {
+                    "boolean": {"toggle"},
+                    "integer": {"spinner", "slider", "edit"},
+                    "number": {"spinner", "slider", "edit"},
+                    "string": {"edit"},
+                }.get(kind, set())
+                if control.attrib.get("type") not in allowed or (
+                    kind == "string"
+                    and control.attrib.get("format", "string") != "string"
+                ):
+                    reason = reason or "unsupported_type"
+        option = node.attrib.get("option", "").strip().lower()
+        if (
+            "hidden" in option
+            or "password" in option
+            or node.attrib.get("hidden", "").lower() == "true"
+        ):
+            reason = "denied"
+        elif not modern and option:
+            reason = reason or "unsupported_type"
+        if (
+            node.attrib.get("parent")
+            or node.attrib.get("enable")
+            or (
+                node.attrib.get("visible")
+                and node.attrib.get("visible", "").lower() != "false"
+            )
+        ):
+            reason = reason or "unsupported_type"
+        minimum, maximum, step = None, None, None
+        allow_empty = True
+        constraints = node.find("constraints")
+        if constraints is not None:
+            if any(
+                x.tag not in {"minimum", "maximum", "step", "allowempty"}
+                for x in constraints
+            ):
+                reason = reason or "unsupported_type"
+            try:
+                allow_empty = (
+                    constraints.findtext("allowempty", "true").lower() == "true"
+                )
+                step_text = constraints.findtext("step")
+                if step_text is not None:
+                    step = float(step_text)
+                    if not math.isfinite(step) or step <= 0:
+                        raise ValueError
+                for tag in ("minimum", "maximum"):
+                    text = constraints.findtext(tag)
+                    if text is not None:
+                        value = float(text)
+                        if not math.isfinite(value):
+                            raise ValueError
+                        if tag == "minimum":
+                            minimum = value
+                        else:
+                            maximum = value
+                if minimum is not None and maximum is not None and minimum > maximum:
+                    raise ValueError
+            except (TypeError, ValueError, OverflowError):
+                reason = reason or "unsupported_type"
+        if kind not in {"integer", "number"} and (
+            minimum is not None or maximum is not None or step is not None
+        ):
+            reason = reason or "unsupported_type"
+        schema[key] = (kind, reason, minimum, maximum, step, allow_empty)
+        if len(schema) > 512:
+            raise ValueError("settings definition too large")
+    return schema
+
+
+def _settings_validate(key, value, schema):
+    if not isinstance(key, str) or not _SETTINGS_ID.fullmatch(key) or key not in schema:
+        return "invalid_or_unknown"
+    kind, reason, minimum, maximum, step, allow_empty = schema[key]
+    if reason:
+        return reason
+    expected = {"boolean": bool, "integer": int, "number": float, "string": str}[kind]
+    # Number settings also accept lossless JSON integer input.
+    if type(value) is not expected and not (kind == "number" and type(value) is int):
+        return "invalid_type"
+    if kind in {"number", "integer"}:
+        try:
+            if not math.isfinite(value) or not -2147483648 <= value <= 2147483647:
+                return "invalid_range"
+        except (TypeError, OverflowError):
+            return "invalid_range"
+        if (minimum is not None and value < minimum) or (
+            maximum is not None and value > maximum
+        ):
+            return "invalid_range"
+        if step is not None:
+            quotient = (value - (minimum or 0)) / step
+            if not math.isfinite(quotient) or not math.isclose(
+                quotient, round(quotient), rel_tol=0, abs_tol=1e-8
+            ):
+                return "invalid_range"
+    if kind == "string":
+        try:
+            if (
+                (not value and not allow_empty)
+                or len(value.encode("utf-8")) > SETTINGS_MAX_TEXT
+                or any(ord(c) < 32 for c in value)
+            ):
+                return "invalid_range"
+        except UnicodeError:
+            return "invalid_range"
+    return None
+
+
+def _settings_apply(addon, schema, settings, not_after=None):
+    results = []
+    for entry in settings:
+        key, value = entry["id"], entry["value"]
+        reason = _settings_validate(key, value, schema)
+        if not_after is not None and datetime.now(timezone.utc) >= not_after:  # noqa: UP017 - Kodi Python3.8
+            reason = "not_attempted"
+        result = {"id": key, "status": reason or "internal_failure"}
+        if reason is None:
+            kind = schema[key][0]
+            try:
+                api = addon.getSettings()
+                setter, getter = {
+                    "boolean": ("setBool", "getBool"),
+                    "integer": ("setInt", "getInt"),
+                    "number": ("setNumber", "getNumber"),
+                    "string": ("setString", "getString"),
+                }[kind]
+                # Only fixed supported Kodi20+ APIs; no evaluation/import/dispatch
+                # of caller-provided names or strings as code.
+                if not_after is not None and datetime.now(timezone.utc) >= not_after:  # noqa: UP017 - Kodi Python3.8
+                    result["status"] = "not_attempted"
+                    results.append(result)
+                    continue
+                applied = getattr(api, setter)(
+                    key, float(value) if kind == "number" else value
+                )
+                if applied is False:
+                    result["status"] = "internal_failure"
+                else:
+                    result["status"] = "applied_readback_unavailable"
+                    try:
+                        actual = getattr(api, getter)(key)
+                        if (
+                            type(actual)
+                            is type(float(value) if kind == "number" else value)
+                            and actual == value
+                        ):
+                            result["status"] = "verified"
+                        else:
+                            result["status"] = "applied_unverified"
+                    except Exception:
+                        pass
+            except Exception:
+                # Kodi exceptions can contain input values. Never stringify/log.
+                result["status"] = "write_unconfirmed"
+        # No values (including ordinary text), exception text or schema defaults
+        # enter responses, audit records or resident receipts.
+        results.append(result)
+    return results
+
+
+def _settings_receipt_path(operation_id):
+    return os.path.join(
+        os.path.dirname(xbmcvfs.translatePath(STATE_PATH)),
+        "settings-" + _uuid(operation_id) + ".json",
+    )
+
+
+def _settings_receipt(operation_id, receipt=None):
+    path = _settings_receipt_path(operation_id)
+    if receipt is None:
+        try:
+            with _deployment_file(path) as stream:
+                raw = stream.read(8193)
+        except FileNotFoundError:
+            return None
+        if len(raw) > 8192:
+            raise ValueError("settings receipt invalid")
+        return json.loads(raw.decode("utf-8"))
+    temporary = path + "." + str(uuid.uuid4()) + ".tmp"
+    try:
+        with _deployment_file(temporary, "xb", permissions=0o600) as stream:
+            stream.write(_canonical(receipt))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(os.path.dirname(path))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _addon_settings(payload, state):
+    if set(payload) != {
+        "operation_id",
+        "not_after",
+        "addon_id",
+        "addon_version",
+        "manifest_digest",
+        "runtime_binding",
+        "settings",
+    }:
+        raise ValueError("settings request invalid")
+    _uuid(payload["operation_id"])
+    if not isinstance(payload["not_after"], str) or len(payload["not_after"]) != 27:
+        raise ValueError("settings deadline invalid")
+    not_after = datetime.fromisoformat(payload["not_after"].replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)  # noqa: UP017 - Kodi Python3.8
+    if not_after.utcoffset() != timedelta(0) or not now < not_after <= now + timedelta(
+        seconds=15
+    ):
+        raise ValueError("settings deadline expired")
+    if payload["runtime_binding"] != _managed_launch_marker(state):
+        raise ValueError("settings runtime changed")
+    settings = payload["settings"]
+    if not isinstance(settings, list) or not 1 <= len(settings) <= SETTINGS_MAX_BATCH:
+        raise ValueError("settings batch invalid")
+    seen = set()
+    for entry in settings:
+        if not isinstance(entry, dict) or set(entry) != {"id", "value"}:
+            raise ValueError("settings batch invalid")
+        key = entry["id"]
+        if not isinstance(key, str) or not _SETTINGS_ID.fullmatch(key) or key in seen:
+            raise ValueError("settings identifier invalid")
+        seen.add(key)
+    addon_id = _addon_id(payload["addon_id"])
+    root = os.path.join(xbmcvfs.translatePath(ADDON_ROOT), addon_id)
+    with _deployment_directory(root):
+        _entries, digest, _files, _total = _tree_manifest(root)
+        observed_id, version, _eligible = _addon_descriptor(root)
+        if (digest, observed_id, version) != (
+            payload["manifest_digest"],
+            addon_id,
+            payload["addon_version"],
+        ):
+            raise ValueError("settings deployment changed")
+        enabled, _details = _addon_enabled(addon_id)
+        if not enabled:
+            raise ValueError("settings add-on unavailable")
+        with _deployment_directory(os.path.join(root, "resources")):  # noqa: SIM117
+            with _deployment_file(
+                os.path.join(root, "resources", "settings.xml")
+            ) as stream:
+                schema = _settings_schema(stream.read(SETTINGS_MAX_XML + 1))
+        # Kodi19 has typed legacy alternatives, but this reviewed operation is
+        # explicitly qualified for20.5/21.3 and requires the v20 Settings API.
+        addon = xbmcaddon.Addon(addon_id)
+        if not hasattr(addon, "getSettings"):
+            raise ValueError("settings API unsupported")
+        operation_id = payload["operation_id"]
+        fingerprint = hmac.new(
+            _decode_b64(state["secret"], 32),
+            b"managed-settings-v1|" + _canonical(payload),
+            hashlib.sha256,
+        ).hexdigest()
+        prior = _settings_receipt(operation_id)
+        if prior is not None:
+            if not hmac.compare_digest(prior["fingerprint"], fingerprint):
+                raise ValueError("settings request conflict")
+            results = (
+                prior["results"]
+                if prior["state"] == "completed"
+                else [
+                    {"id": item["id"], "status": "write_unconfirmed"}
+                    for item in settings
+                ]
+            )
+            return {"identity": _identity(state), "results": results}
+        receipt_root = os.path.dirname(_settings_receipt_path(operation_id))
+        if (
+            sum(
+                name.startswith("settings-") and name.endswith(".json")
+                for name in os.listdir(receipt_root)
+            )
+            >= 4096
+        ):
+            raise ValueError("settings receipt capacity")
+        receipt = {
+            "operation_id": operation_id,
+            "fingerprint": fingerprint,
+            "state": "dispatching",
+            "results": [],
+        }
+        _settings_receipt(operation_id, receipt)
+        results = _settings_apply(addon, schema, settings, not_after=not_after)
+        receipt.update(state="completed", results=results)
+        _settings_receipt(operation_id, receipt)
+        return {"identity": _identity(state), "results": results}
+
+
 def _stage_path(deployment_id):
     return os.path.join(
         xbmcvfs.translatePath(ADDON_ROOT), ".kodi-lab-stage-" + deployment_id
@@ -2593,6 +2951,22 @@ class Handler(BaseHTTPRequestHandler):
             if document["payload"] != {}:
                 raise ValueError
             self._screenshot_response(document, request_hash, secret)
+        elif document["operation"] == "managed_addon_settings_set":
+            try:
+                with (
+                    _DEPLOYMENT_LOCK,
+                    _state_guard(),
+                    _deployment_directory(xbmcvfs.translatePath(ADDON_ROOT)),
+                ):
+                    state = _load_state()
+                    _require_current_pairing(state, document, secret)
+                    result = _addon_settings(document["payload"], state)
+            except Exception:
+                self._json_error_response(
+                    document, request_hash, secret, "settings_request_failed"
+                )
+                return
+            self._json_response(document, request_hash, secret, result, cache=False)
         elif document["operation"] == "log_read":
             try:
                 result = _read_log(document["payload"])

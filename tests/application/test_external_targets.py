@@ -141,6 +141,8 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
     assert granted.target_grants == (created.target_id,)
     assert tuple(build_mcp_tool_registry().names()) == (
         "addon_list",
+        "addon_settings_result",
+        "addon_settings_set",
         "development_source_list",
         "inspect_ui_state",
         "log_read",
