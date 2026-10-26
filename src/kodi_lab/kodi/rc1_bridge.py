@@ -23,7 +23,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "77f68a85de430d75df9dc9504a9abb5086878778655a3016c39a73dd35bd07d7"
+RC1_ARCHIVE_SHA256 = "031373f6311a3950f9e5374304433d2e8ae0cc8d255034752891535c3ee71147"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,13 +84,14 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.25"', b'version="1.1.26"'
+        b'version="1.1.27"', b'version="1.1.28"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.25"', b'ADDON_VERSION = "1.1.26"')
-    source = source.replace(b"|1.1.25|protocol-1|", b"|1.1.26|protocol-1|")
+    source = source.replace(b'ADDON_VERSION = "1.1.27"', b'ADDON_VERSION = "1.1.28"')
+    source = source.replace(b"|1.1.27|protocol-1|", b"|1.1.28|protocol-1|")
     source = source.replace(
-        b',managed-manifest-launch"', b',managed-manifest-launch,exact-release"'
+        b',managed-manifest-launch,partial-execute-modes"',
+        b',managed-manifest-launch,partial-execute-modes,exact-release"',
     )
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")

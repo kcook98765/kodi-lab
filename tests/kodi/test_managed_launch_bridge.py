@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from kodi_lab.development.deployment import capture_development_tree
 from kodi_lab.kodi.bridge import b64url
 from tests.kodi.test_narrow_bridge_addon import _load
 
@@ -65,6 +66,63 @@ def setup_bridge(
     calls: list[str] = []
     monkeypatch.setattr(module["xbmc"], "executebuiltin", calls.append)
     return module, state, payload, calls
+
+
+@pytest.mark.parametrize(
+    "mode", [0o644, 0o645, 0o654, 0o655, 0o744, 0o745, 0o754, 0o755]
+)
+def test_launch_uses_actual_source_digest_with_ancillary_execute_masks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int
+) -> None:
+    module, state, payload, calls = setup_bridge(
+        tmp_path,
+        monkeypatch,
+        '<extension point="xbmc.python.pluginsource" library="main.py">'
+        "<provides>video</provides></extension>",
+    )
+    root = tmp_path / "addons"
+    extra = root / "plugin.video.launch/helper.sh"
+    extra.write_text("#!/bin/sh\n")
+    extra.chmod(mode)
+    source = capture_development_tree(root, "plugin.video.launch")
+    payload["manifest_digest"] = source.digest
+    first = module["_managed_launch"](payload, state)
+    assert first["receipt"]["state"] == "accepted"
+    assert module["_managed_launch"](payload, state) == first
+    assert calls == ["ActivateWindow(videos,plugin://plugin.video.launch/,return)"]
+
+
+@pytest.mark.parametrize("drift", ["mode", "content", "generation", "runtime"])
+def test_partial_execute_launch_retains_exact_tree_and_generation_fences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    module, state, payload, calls = setup_bridge(
+        tmp_path,
+        monkeypatch,
+        '<extension point="xbmc.python.script" library="main.py"/>',
+    )
+    root = tmp_path / "addons"
+    main = root / "plugin.video.launch/main.py"
+    main.chmod(0o744)
+    payload["manifest_digest"] = capture_development_tree(
+        root, "plugin.video.launch"
+    ).digest
+    if drift == "mode":
+        main.chmod(0o754)
+    elif drift == "content":
+        main.write_text("changed\n")
+    else:
+        payload["runtime_binding"] = {
+            **payload["runtime_binding"],
+            **(
+                {"generation": 2}
+                if drift == "generation"
+                else {"runtime_revision_id": str(uuid4())}
+            ),
+        }
+    with pytest.raises(ValueError):
+        module["_managed_launch"](payload, state)
+    assert calls == []
 
 
 @pytest.mark.parametrize("provides", ["video", " \nvideo\t"])
@@ -225,7 +283,7 @@ def test_authenticated_wire_launch_receipt_and_predispatch_error(
         )
         identity, receipt = client.managed_launch(endpoint, intent=intent, **kwargs)
         assert (
-            identity.addon_version == "1.1.25"
+            identity.addon_version == "1.1.27"
             and receipt is not None
             and receipt.state == "accepted"
         )

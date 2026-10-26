@@ -1,9 +1,13 @@
 # Reviewed managed Nexus Bridge compatibility
 
 The closed installer admits the exact managed Nexus **20.5** runtime to the
-existing stable Narrow Bridge **1.1.25**, without changing its bytes, version,
+current stable Narrow Bridge **1.1.27**, without a Nexus-specific byte, version,
 fingerprint, dependencies or authority. This extends managed bootstrap eligibility;
 it does not admit other Nexus patch releases or a caller-selected service ZIP.
+
+Initial managed Nexus support used unchanged stable 1.1.25. The separately reviewed
+1.1.27 [file-mode correction](FILE-MODE-CONTRACT.md) applies to Nexus and Omega
+together. Its new artifact identity does not change Nexus runtime eligibility.
 
 ## Runtime and API contract
 

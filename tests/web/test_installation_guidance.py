@@ -48,7 +48,7 @@ def test_reviewed_bridge_admission_requires_session_and_csrf(
     assert client.post(url, json={}, headers=ORIGIN).status_code == 403
     offered = client.get(url)
     assert offered.status_code == 200  # explicit reviewed upgrade now supports Omega
-    assert offered.json()["addon_version"] == "1.1.25"
+    assert offered.json()["addon_version"] == "1.1.27"
 
 
 def test_reviewed_bridge_requires_an_existing_running_target(

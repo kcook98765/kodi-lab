@@ -101,7 +101,7 @@ class Native:
             result = {
                 "addon": {
                     "addonid": "service.kodi_lab_bridge",
-                    "version": "1.1.25",
+                    "version": "1.1.27",
                     "enabled": self.enabled,
                 }
             }
@@ -156,12 +156,23 @@ def test_prepare_confirms_identity_before_active_and_reuses_after_restart(
     )
 
 
+@pytest.mark.parametrize("predecessor", [False, True])
+@pytest.mark.parametrize("release", ["21.3", "22.0-rc.1"])
 def test_existing_previous_bridge_keeps_its_credential_and_generation(
     setup: Any,
+    predecessor: bool,
+    release: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner, broker, client, secrets = setup
+    if release == "22.0-rc.1":
+        from tests.application.test_reviewed_bridge_recovery import rc
+
+        rc(owner, broker, client, monkeypatch).missing = False
     assert owner.prepare(INSTANCE_ID)
-    previous = approved_bridge_build(previous=True)
+    previous = approved_bridge_build(
+        release, previous=not predecessor, predecessor=predecessor
+    )
     client.value = replace(
         client.value,
         addon_version=previous["addon_version"],
@@ -183,6 +194,18 @@ def test_existing_previous_bridge_keeps_its_credential_and_generation(
     assert secrets.read(
         INSTANCE_ID, UUID(after.secret_reference), "request_authentication"
     )
+    if predecessor:
+        from kodi_lab.application.managed_launch_bridge import (
+            ManagedLaunchBridgeService,
+        )
+
+        observed, _ = owner._admit(INSTANCE_ID)
+        with pytest.raises(
+            ExternalBridgeError, match="managed_bridge_upgrade_required"
+        ):
+            ManagedLaunchBridgeService(owner.sessions, secrets).binding(
+                observed, release
+            )
 
 
 @pytest.mark.parametrize(

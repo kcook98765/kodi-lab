@@ -54,8 +54,9 @@ def approved_bridge_build(
     retained: bool = False,
     legacy: bool = False,
     historical: bool = False,
+    predecessor: bool = False,
 ) -> dict[str, Any]:
-    if sum((previous, retained, legacy, historical)) > 1:
+    if sum((previous, retained, legacy, historical, predecessor)) > 1:
         raise ValueError("ambiguous Bridge build selection")
     resource = (
         "managed_bridge_preview_build.json"
@@ -85,6 +86,12 @@ def approved_bridge_build(
             "managed_bridge_historical_preview_build.json"
             if kodi_release == "22.0-rc.1"
             else "managed_bridge_historical_build.json"
+        )
+    if predecessor:
+        resource = (
+            "managed_bridge_predecessor_preview_build.json"
+            if kodi_release == "22.0-rc.1"
+            else "managed_bridge_predecessor_build.json"
         )
     return cast(
         dict[str, Any],
@@ -239,7 +246,7 @@ def run():
     sources = value.get("reviewed_sources")
     if sources is not None:
         # Only broker-owned reviewed bytes arrive here. No destination parameter.
-        assert value["approved"]["addon_version"] in ("1.1.25", "1.1.26")
+        assert value["approved"]["addon_version"] in ("1.1.27", "1.1.28")
         directory(home + "/addons")
         lock = os.open(
             home + "/addons/.reviewed-bridge.lock",
