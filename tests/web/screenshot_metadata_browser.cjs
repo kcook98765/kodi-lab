@@ -47,7 +47,6 @@ const report = {scenarios:[], errors:[], unexpectedMutations:[]};
         await page.goto(base+'/');
         const preview = page.locator('#visual-access');
         const pause = preview.locator('[data-preview-pause]');
-        await pause.click();
         assert.equal(await pause.getAttribute('aria-pressed'),'true');
         assert.equal(captures,0);
         const metadata = preview.locator('[data-screenshot-metadata]');
