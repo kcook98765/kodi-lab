@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -11,7 +12,7 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.lifecycle_status import (
@@ -1454,6 +1455,109 @@ class StaleOperationReconciliationDispatcher:
             raise CoordinationCorruptionError("Expired global ownership changed.")
 
 
+_PRE_SETTINGS_REVISIONS = frozenset(
+    {
+        "0077_workspace_launch",
+        "0078_workspace_deploy_recovery",
+        "0079_native_zip_installation",
+        "0080_development_sessions",
+        "0081_managed_diagnostic_captures",
+        "0082_session_replacement_reviews",
+        "0083_managed_runtime_retirements",
+        "0084_session_replacements",
+        "0085_session_source_copy_admissions",
+    }
+)
+
+
+_PRE_SETTINGS_LEASE_KINDS = frozenset(
+    {
+        "addon_repository_attachment",
+        "addon_repository_installation",
+        "addon_zip_enablement",
+        "addon_zip_installation",
+        "addon_zip_smoke_test",
+        "agent_workspace_promotion",
+        "development_source_attachment",
+        "development_source_deployment",
+        "development_source_enablement",
+        "development_source_smoke_test",
+        "fixture_assignment",
+        "instance_delete",
+        "lifecycle",
+        "mcp_workspace_deployment",
+        "mcp_workspace_execution",
+        "mcp_workspace_launch",
+        "promotion_verification",
+        "repository_replacement",
+        "reset",
+        "runtime_reassignment",
+        "snapshot_create",
+        "snapshot_restore",
+        "workspace_execution_recovery",
+    }
+)
+
+
+def _settings_reconciliation_rows(
+    session: Session,
+    instance_id: UUID,
+) -> list[McpAddonSettingsOperationRow]:
+    """Historical recovery may inspect a known schema before settings existed.
+
+    Missing settings storage at current/unknown schema is corruption, never an
+    empty fence. Do not manufacture tables or stamp/migrate during observation.
+    """
+    inspector = inspect(session.connection())
+    if not inspector.has_table("mcp_addon_settings_operations"):
+        revisions = (
+            list(session.scalars(text("SELECT version_num FROM alembic_version")))
+            if inspector.has_table("alembic_version")
+            else []
+        )
+        checks = (
+            inspector.get_check_constraints("managed_instance_mutation_leases")
+            if inspector.has_table("managed_instance_mutation_leases")
+            else []
+        )
+        kind_checks = [
+            item["sqltext"]
+            for item in checks
+            if item["name"]
+            in {
+                "managed_instance_mutation_kind",
+                "ck_managed_instance_mutation_leases_managed_instance_mutation_kind",
+            }
+        ]
+        match = (
+            re.fullmatch(
+                r"operation_kind\s+IN\s*\(\s*((?:'[a-z_]+'\s*,\s*)*'[a-z_]+'\s*)\)",
+                kind_checks[0].strip(),
+            )
+            if len(kind_checks) == 1
+            else None
+        )
+        kinds = re.findall(r"'([a-z_]+)'", match.group(1)) if match is not None else []
+        if (
+            len(revisions) == 1
+            and revisions[0] in _PRE_SETTINGS_REVISIONS
+            and len(kinds) == len(set(kinds))
+            and frozenset(kinds) == _PRE_SETTINGS_LEASE_KINDS
+        ):
+            return []
+        raise CoordinationCorruptionError(
+            "Settings reconciliation storage is unavailable."
+        )
+    return list(
+        session.scalars(
+            select(McpAddonSettingsOperationRow).where(
+                McpAddonSettingsOperationRow.target_id == str(instance_id),
+                McpAddonSettingsOperationRow.state == "ambiguous",
+            )
+        )
+    )
+
+
 class ManagedInstanceReconciliationService:
     """Read typed unresolved records and enforce one bounded mutation policy."""
 
@@ -1604,12 +1708,7 @@ class ManagedInstanceReconciliationService:
             )
             records.extend(
                 (ReconciliationOperationKind.MCP_ADDON_SETTINGS, item)
-                for item in session.scalars(
-                    select(McpAddonSettingsOperationRow).where(
-                        McpAddonSettingsOperationRow.target_id == str(instance_id),
-                        McpAddonSettingsOperationRow.state == "ambiguous",
-                    )
-                )
+                for item in _settings_reconciliation_rows(session, instance_id)
             )
             recovery_outcomes: dict[str, str] = {}
             for execution_item in session.scalars(

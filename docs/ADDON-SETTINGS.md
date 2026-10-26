@@ -89,3 +89,9 @@ while preserving the actual0085 reverse contract.
 The dedicated0086 receipt/typed-lease migration is required for this capability.
 Campaign3 authorizes design and testing; deployment of that migration requires
 additional explicit approval. Do not apply it merely because source tests pass.
+
+Historical recovery readers retain explicit compatibility with known0077–0085
+revisions where settings storage did not exist and the closed lease constraint
+could not admit settings operations. Missing settings storage at0086, an unknown
+revision, or a schema admitting settings leases fails closed as coordination
+corruption. Observation never creates tables, changes stamps or runs migrations.
