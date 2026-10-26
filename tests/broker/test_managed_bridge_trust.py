@@ -376,6 +376,11 @@ def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == archive_sha
     with zipfile.ZipFile(archive) as package:
         package.extractall(home / "addons")
+        old_files = {
+            name.removeprefix("service.kodi_lab_bridge/"): package.read(name)
+            for name in package.namelist()
+            if not name.endswith("/")
+        }
     sources = (
         packaged_rc1_bridge_sources()
         if release == "22.0-rc.1"
@@ -397,6 +402,11 @@ def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
     assert first.returncode == 0, first.stderr
     backups = list((home / "userdata/managed-bridge-upgrades").iterdir())
     assert len(backups) == 1
+    assert {
+        str(path.relative_to(backups[0])): path.read_bytes()
+        for path in backups[0].rglob("*")
+        if path.is_file()
+    } == old_files
     assert f'version="{prior}"' in (backups[0] / "addon.xml").read_text()
     assert (
         f'version="{value["approved"]["addon_version"]}"'

@@ -12,6 +12,12 @@ manifest format and ZIP payload policy identity are unchanged. Normalized stagin
 and transport archives carry those exact masks. The repository-delivery path
 continues to reject executable regular files under its narrower package contract.
 
+Supported application backup/restore preserves actual safe workspace modes and
+numeric Web ownership, including partial execute masks inside the private root.
+Its existing checks still reject group/other writes, special bits, unsafe types,
+hardlinks and wrong ownership; no backup-mode exception or permission repair is
+needed for these eight masks.
+
 Managed destination readback records actual permission bits, UID/GID, type, size
 and content hashes. Verification compares them exactly against source plus approved
 runtime ownership. It does not normalize a wrong owner, widened mode, special bits,

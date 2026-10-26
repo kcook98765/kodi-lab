@@ -90,7 +90,8 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
     source = source.replace(b'ADDON_VERSION = "1.1.27"', b'ADDON_VERSION = "1.1.28"')
     source = source.replace(b"|1.1.27|protocol-1|", b"|1.1.28|protocol-1|")
     source = source.replace(
-        b',managed-manifest-launch,partial-execute-modes"', b',managed-manifest-launch,partial-execute-modes,exact-release"'
+        b',managed-manifest-launch,partial-execute-modes"',
+        b',managed-manifest-launch,partial-execute-modes,exact-release"',
     )
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")

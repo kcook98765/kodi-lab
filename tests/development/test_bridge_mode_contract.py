@@ -35,6 +35,9 @@ def test_all_execute_masks_match_through_staging_archive_and_resident(
     (addon / "addon.xml").write_text('<addon id="plugin.video.modes" version="1.0.0"/>')
     (addon / "main.py").write_text("pass\n")
     (addon / "main.py").chmod(0o644 | execute)
+    (addon / "resources").mkdir()
+    (addon / "resources/probe.sh").write_text("#!/bin/sh\n")
+    (addon / "resources/probe.sh").chmod(0o644 | execute)
     stage = tmp_path / "stage"
     stage.mkdir()
     source = capture_development_tree(root, "addon", stage_root=stage)
@@ -76,12 +79,23 @@ def test_all_execute_masks_match_through_staging_archive_and_resident(
     resident = tmp_path / "resident"
     resident.mkdir()
     for entry in source.entries:
+        if entry.entry_type == "directory":
+            (resident / entry.path).mkdir(mode=entry.mode)
+            continue
         with bridge["_deployment_file"](
             str(resident / entry.path), "xb", entry.mode
         ) as stream:
             stream.write((stage / entry.path).read_bytes())
         assert (resident / entry.path).stat().st_mode & 0o777 == entry.mode
     assert bridge["_tree_manifest"](str(resident))[1] == source.digest
+    # Recovery must preserve the same partial modes without a metadata bypass.
+    from kodi_lab.remote_lifecycle import _rollback_entry
+
+    for entry in source.entries:
+        metadata = _rollback_entry(
+            stage / entry.path, directory=entry.entry_type == "directory"
+        )
+        assert metadata.st_mode & 0o777 == entry.mode
 
 
 @pytest.mark.parametrize("failure", ["uid", "gid", "content", "mode", "special_bits"])

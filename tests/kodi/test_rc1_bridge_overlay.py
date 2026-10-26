@@ -18,7 +18,7 @@ from scripts.build_narrow_bridge import ADDON_VERSION, build_archive
 ROOT = Path(__file__).parents[2] / "bridge/service.kodi_lab_bridge"
 
 
-def test_candidate_matches_live_qualified_archive_and_preserves_stable(
+def test_candidate_matches_deterministic_archive_and_preserves_stable(
     tmp_path: Path,
 ) -> None:
     fragment = (
