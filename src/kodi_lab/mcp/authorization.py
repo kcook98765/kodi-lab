@@ -263,8 +263,10 @@ class McpAuthorizationService:
         principal: McpPrincipal,
         workspace_id: UUID,
         target_id: UUID,
+        *,
+        tool_name: str = "workspace_launch",
     ) -> None:
-        definition = self._definition("workspace_launch")
+        definition = self._definition(tool_name)
         client = self._require_client_permission(session, principal, definition)
         self._require_current_credential(session, principal, client)
         binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))

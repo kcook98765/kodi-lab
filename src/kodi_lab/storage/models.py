@@ -8505,3 +8505,55 @@ class DevelopmentSessionReplacementRow(Base):
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     profile_disposal_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     released_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class McpAddonSettingsOperationRow(Base):
+    """Durable settings-write identity and value-free results; never a request log."""
+
+    __tablename__ = "mcp_addon_settings_operations"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="mcp_settings_owner_request"),
+        Index("ix_mcp_settings_target_state", "target_id", "state"),
+        CheckConstraint(
+            "generation>=0 AND session_generation>0 AND runtime_state_revision"
+            ">=0 AND bridge_generation>0",
+            name="mcp_settings_generation",
+        ),
+        CheckConstraint(
+            "state IN ('pending','dispatching','completed','failed','ambiguous"
+            "','contained')",
+            name="mcp_settings_state",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' A"
+            "ND length(tree_digest) BETWEEN 64 AND 71 AND length(addon_id) BET"
+            "WEEN 1 AND 128 AND length(addon_version) BETWEEN 1 AND 128",
+            name="mcp_settings_identity",
+        ),
+        CheckConstraint(
+            "results_json IS NULL OR length(results_json)<=8192",
+            name="mcp_settings_result_bound",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    tree_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    results_json: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    session_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_generation: Mapped[int] = mapped_column(Integer, nullable=False)

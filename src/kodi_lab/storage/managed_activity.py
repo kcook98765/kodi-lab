@@ -17,6 +17,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedInstanceUseRow,
     ManagedResourcePolicyRow,
+    McpAddonSettingsOperationRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     McpWorkspaceLaunchRow,
@@ -156,6 +157,13 @@ def record_operation_activity(
             actor = f"mcp:{deployment.client_id}"
         if deployment.completed_at is not None:
             now = datetime.fromisoformat(deployment.completed_at.replace("Z", "+00:00"))
+    elif kind is ManagedInstanceMutationKind.MCP_ADDON_SETTINGS:
+        settings = session.get(McpAddonSettingsOperationRow, str(operation_id))
+        if settings is None or settings.state in {"pending", "failed"}:
+            return
+        actor = f"mcp:{settings.client_id}"
+        if settings.completed_at is not None:
+            now = datetime.fromisoformat(settings.completed_at.replace("Z", "+00:00"))
     elif kind is ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH:
         launch = session.get(McpWorkspaceLaunchRow, str(operation_id))
         if launch is None or launch.started_at is None:

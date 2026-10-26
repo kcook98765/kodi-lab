@@ -147,7 +147,7 @@
         <p>For ordinary Home inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'addon.install')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
           {% set permission_labels = {
             'target.inspect': 'Inspect Kodi health, add-ons and UI state',
             'target.visual': 'Capture Kodi screenshots',
@@ -160,6 +160,7 @@
             'workspace.inspect': 'Read and validate workspaces',
             'workspace.deploy': 'Deploy workspace builds',
             'development.execute': 'Execute development builds',
+            'development.settings.write': 'Write ordinary settings of the selected managed development add-on',
             'development.request_promotion': 'Request build promotion'
           } %}
           <fieldset class="agent-permissions"><legend>Exact permissions to grant</legend>
@@ -169,7 +170,7 @@
               ('Managed Kodi resources', 'Explicit opt-in to start the same granted managed instance, hold it awake, and release it when safe. External Kodi is excluded.', ['managed.lifecycle']),
               ('Native repository installation', 'Explicit opt-in for exact granted disposable targets. Kodi UI consent and installation remain required.', ['addon.install']),
               ('Development sources and workspaces', 'Access to development files and validation. Source grants and workspace bindings still apply.', ['development_source.inspect', 'workspace.capture', 'workspace.edit', 'workspace.inspect']),
-              ('Deployment and execution', 'Can deploy or run development builds, or request promotion. These are not ordinary inspection permissions.', ['workspace.deploy', 'development.execute', 'development.request_promotion']),
+              ('Deployment and execution', 'Can deploy or run development builds, or request promotion. These are not ordinary inspection permissions.', ['workspace.deploy', 'development.execute', 'development.settings.write', 'development.request_promotion']),
               ('Other permissions', 'Additional exact permissions available under the selected ceiling.', custom_preset_permissions | reject('in', permission_labels) | list)
             ] %}
             {% set group_permissions = members | select('in', custom_preset_permissions) | list %}

@@ -86,6 +86,7 @@ from kodi_lab.storage.models import (
     HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
     ManagedRuntimeReconstructionRow,
+    McpAddonSettingsOperationRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     McpWorkspaceLaunchRow,
@@ -160,6 +161,7 @@ class ReconciliationOperationKind(StrEnum):
     PROMOTION_VERIFICATION = "promotion_verification"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
+    MCP_ADDON_SETTINGS = "mcp_addon_settings"
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
@@ -199,6 +201,7 @@ class ReconciliationAction(StrEnum):
     PROMOTION_VERIFICATION = "promotion_verification"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
+    MCP_ADDON_SETTINGS = "mcp_addon_settings"
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
 
 
@@ -228,6 +231,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.PROMOTION_VERIFICATION,
     ReconciliationAction.MCP_WORKSPACE_DEPLOYMENT,
     ReconciliationAction.MCP_WORKSPACE_LAUNCH,
+    ReconciliationAction.MCP_ADDON_SETTINGS,
     ReconciliationAction.MCP_WORKSPACE_EXECUTION,
 ]
 
@@ -879,6 +883,19 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.MCP_ADDON_SETTINGS:
+            settings = session.get(McpAddonSettingsOperationRow, str(operation_id))
+            if (
+                settings is None
+                or settings.target_id != str(instance_id)
+                or settings.state not in {"pending", "dispatching"}
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired settings ownership is inconsistent."
+                )
+            settings.state = "failed" if settings.state == "pending" else "ambiguous"
+            settings.failure_code = "settings_interrupted"
+            settings.completed_at = _timestamp_text(now)
         elif kind is ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH:
             launch = session.get(McpWorkspaceLaunchRow, str(operation_id))
             if (
@@ -1585,6 +1602,15 @@ class ManagedInstanceReconciliationService:
                     )
                 )
             )
+            records.extend(
+                (ReconciliationOperationKind.MCP_ADDON_SETTINGS, item)
+                for item in session.scalars(
+                    select(McpAddonSettingsOperationRow).where(
+                        McpAddonSettingsOperationRow.target_id == str(instance_id),
+                        McpAddonSettingsOperationRow.state == "ambiguous",
+                    )
+                )
+            )
             recovery_outcomes: dict[str, str] = {}
             for execution_item in session.scalars(
                 select(McpWorkspaceExecutionOperationRow).where(
@@ -1669,6 +1695,27 @@ class ManagedInstanceReconciliationService:
                 blocked_actions=INSTANCE_MUTATIONS,
             )
         kind, raw = records[0]
+        if kind is ReconciliationOperationKind.MCP_ADDON_SETTINGS:
+            assert isinstance(raw, McpAddonSettingsOperationRow)
+            return ManagedInstanceReconciliationStatus(
+                required=True,
+                blocking=True,
+                operation_kind=kind,
+                operation_uuid=UUID(raw.id),
+                operation_state=raw.state,
+                last_phase="dispatch",
+                observed_state="settings_write_unconfirmed",
+                safe_reason=(
+                    "Settings may have changed. Stop the exact original profile "
+                    "and review the receipt; no retry is automatic."
+                ),
+                blocked_actions=[
+                    action
+                    for action in INSTANCE_MUTATIONS
+                    if action is not ReconciliationAction.STOP
+                ],
+                requested_at=_timestamp(raw.requested_at),
+            )
         operation = raw
         blocking = True
         observed = "runtime_state_uncertain"

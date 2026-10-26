@@ -7091,3 +7091,15 @@ legitimate replacement while queued/running. Legacy nullable queues keep honest
 current observed-binding compatibility, without fabricated original queue proof.
 A future versioned/guided smoke request would need separately established durable
 request semantics; ordinary prunable operation IDs do not provide idempotence.
+
+## D-0455: Selected managed add-on settings writes
+
+Campaign3 #52 uses one fixed Bridge operation and Kodi20+ typed add-on APIs.
+The selected bound development session supplies every target/add-on identity;
+expected session/workspace generations are assertions. An explicit default-denied
+`development.settings.write` permission intersects existing client, target,
+source and owned-workspace authority. Values never enter responses or receipts;
+recognizable sensitive declarations are refused. Batches have per-key outcomes,
+no atomicity/reload/retry promise. Dedicated0086 durable operation/lease ownership
+preserves post-crash ambiguity; deployment requires separate migration approval.
+See [contract](ADDON-SETTINGS.md).

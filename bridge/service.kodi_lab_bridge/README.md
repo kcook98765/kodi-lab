@@ -52,7 +52,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.27 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
+Bridge 1.1.29 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads

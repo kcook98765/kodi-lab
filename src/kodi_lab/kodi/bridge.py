@@ -32,7 +32,7 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.27"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.29"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 BRIDGE_CAPABILITIES = frozenset(
     {"screenshot", "workspace_deployment", "ui_observation", "log_read"}
@@ -41,6 +41,7 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
     {
         "launch_dispatch_unconfirmed",
         "launch_request_rejected",
+        "settings_request_failed",
         "log_request_invalid",
         "log_read_busy",
         "log_missing",
@@ -59,6 +60,7 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
 BRIDGE_OPERATIONS = frozenset(
     {
         "managed_launch",
+        "managed_addon_settings_set",
         "managed_launch_receipt",
         "log_read",
         "inspect_ui_state",

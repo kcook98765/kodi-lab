@@ -107,7 +107,7 @@ def bundle(tmp_path: Path) -> Path:
     bridge_provenance = {
         "schema": "kodi-lab-bridge-artifact-v1",
         "addon_id": "service.kodi_lab_bridge",
-        "version": "1.1.27",
+        "version": "1.1.29",
         "protocol": "1",
         "bootstrap": "otp-1",
         "license": "MIT",
@@ -360,7 +360,7 @@ def test_bridge_artifact_is_exact_and_tamper_is_rejected(bundle: Path) -> None:
     assert document["bridge"]["zip"] == bundle_tool["BRIDGE_ZIP"]
     archive = bundle / bundle_tool["BRIDGE_ZIP"]
     with zipfile.ZipFile(archive) as package:
-        assert package.read("service.kodi_lab_bridge/addon.xml").count(b"1.1.27") == 1
+        assert package.read("service.kodi_lab_bridge/addon.xml").count(b"1.1.29") == 1
     original = archive.read_bytes()
     archive.write_bytes(original + b"tampered")
     with pytest.raises(ValueError, match="artifact differs"):

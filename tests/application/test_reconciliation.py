@@ -468,7 +468,8 @@ def test_multiple_unresolved_records_fail_closed_with_bounded_projection(
     status = ManagedInstanceReconciliationService(factory).status(INSTANCE_ID)
     assert status.operation_kind is ReconciliationOperationKind.MULTIPLE
     assert status.blocking
-    assert len(status.blocked_actions) == 26
+    assert len(status.blocked_actions) == 27
+    assert ReconciliationAction.MCP_ADDON_SETTINGS in status.blocked_actions
     assert "secret" not in status.model_dump_json()
 
 

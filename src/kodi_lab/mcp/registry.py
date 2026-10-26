@@ -137,7 +137,40 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "development.execute",
                 "development.request_promotion",
                 "managed.lifecycle",
+                "development.settings.write",
             }
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="addon_settings_set",
+            schema_revision=1,
+            permissions=frozenset({"development.settings.write", "workspace.inspect"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_execution"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
+            adapter="agent_workspace.selected_addon_settings",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="addon_settings_result",
+            schema_revision=1,
+            permissions=frozenset({"development.settings.write", "workspace.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_execution"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_READ,
+            adapter="agent_workspace.selected_settings_receipt",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
         )
     )
     for name in ("managed_ensure_ready", "managed_release"):

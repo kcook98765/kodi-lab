@@ -21,6 +21,7 @@ from kodi_lab.application.addon_inventory import (
     KodiAddonProvenanceClassification,
     ManagedInstanceAddonInventoryService,
 )
+from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceNotFoundError,
@@ -129,6 +130,11 @@ from kodi_lab.domain import (
     AgentWorkspaceState,
     TargetType,
 )
+from kodi_lab.kodi.addon_settings import (
+    AddonSettingsResultInput,
+    AddonSettingsSetInput,
+    AddonSettingsSetResult,
+)
 from kodi_lab.kodi.bridge import ExternalBridgeError
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
@@ -136,7 +142,13 @@ from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATUR
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
-from kodi_lab.storage.models import ManagedInstanceRow, TargetRow
+from kodi_lab.storage.models import (
+    DevelopmentSessionPolicyRow,
+    DevelopmentSessionRow,
+    ManagedInstanceRow,
+    McpClientTargetGrantRow,
+    TargetRow,
+)
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 MAX_MCP_RESPONSE_BYTES = 64 * 1024
@@ -367,6 +379,7 @@ class WorkspaceSummary(BaseModel):
     lifecycle_state: str
     bytes_state: str
     generation: int = Field(ge=0)
+    selected_session_generation: int | None = Field(default=None, gt=0)
     creation_state: str
     created_at: datetime
     updated_at: datetime | None
@@ -733,6 +746,7 @@ class McpTargetToolService:
         workspace_source_captures: WorkspaceSourceCaptureService | None = None,
         managed_lifecycle: ManagedAgentLifecycleService | None = None,
         workspace_launch: WorkspaceLaunchService | None = None,
+        addon_settings: AddonSettingsService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -754,6 +768,7 @@ class McpTargetToolService:
         self._workspace_source_captures = workspace_source_captures
         self._managed_lifecycle = managed_lifecycle
         self._workspace_launch = workspace_launch
+        self._addon_settings = addon_settings
         self._workspace_imports = (
             None if workspaces is None else WorkspaceImportService(workspaces)
         )
@@ -1204,6 +1219,55 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
+    def addon_settings_result(
+        self, principal: McpPrincipal, request: AddonSettingsResultInput
+    ) -> AddonSettingsSetResult:
+        if self._addon_settings is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._addon_settings.result(
+                client_id=principal.client_id,
+                request_id=request.request_id,
+                authorize=lambda session, workspace, target: (
+                    self._authorization.recheck_workspace_launch(
+                        session,
+                        principal,
+                        workspace,
+                        target,
+                        tool_name="addon_settings_result",
+                    )
+                ),
+            )
+        except AddonSettingsError as error:
+            raise McpAuthorizationError(error.code) from None
+
+    def addon_settings_set(
+        self, principal: McpPrincipal, request: AddonSettingsSetInput
+    ) -> AddonSettingsSetResult:
+        if self._addon_settings is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._addon_settings.set(
+                client_id=principal.client_id,
+                request=request,
+                authorize=lambda session, workspace, target: (
+                    self._authorization.recheck_workspace_launch(
+                        session,
+                        principal,
+                        workspace,
+                        target,
+                        tool_name="addon_settings_set",
+                    )
+                ),
+            )
+        except (
+            AddonSettingsError,
+            WorkspaceLaunchError,
+            McpWorkspaceDevelopmentError,
+            ExternalBridgeError,
+        ) as error:
+            raise McpAuthorizationError(error.code) from None
+
     def workspace_launch(
         self, principal: McpPrincipal, operation: WorkspaceLaunchInput
     ) -> WorkspaceLaunchResult:
@@ -1354,8 +1418,45 @@ class McpTargetToolService:
                 cursor=self._uuid_cursor(cursor),
                 limit=limit,
             )
+        # Publish only the bound session generation for an already-authorized
+        # owned workspace whose exact selected target grant remains current.
+        # This lets an agent supply the settings assertion using ordinary MCP
+        # status, without requiring Web administration or another identity tool.
+        with self._session_factory() as session:
+            selected = session.scalar(
+                select(DevelopmentSessionRow)
+                .join(
+                    DevelopmentSessionPolicyRow,
+                    DevelopmentSessionPolicyRow.active_generation
+                    == DevelopmentSessionRow.generation,
+                )
+                .join(
+                    McpClientTargetGrantRow,
+                    McpClientTargetGrantRow.target_id
+                    == DevelopmentSessionRow.target_id,
+                )
+                .where(
+                    DevelopmentSessionPolicyRow.id == 1,
+                    DevelopmentSessionRow.phase == "bound",
+                    McpClientTargetGrantRow.client_id == str(principal.client_id),
+                    DevelopmentSessionRow.workspace_id.in_(
+                        [str(workspace.id) for workspace in authorized]
+                    ),
+                )
+            )
+            generations = {
+                workspace.id: selected.generation
+                for workspace in authorized
+                if selected is not None
+                and selected.workspace_id == str(workspace.id)
+                and selected.source_id == str(workspace.development_source_id)
+            }
         summaries = tuple(
-            self._workspace_summary(service.get(workspace.id), workspace.updated_at)
+            self._workspace_summary(
+                service.get(workspace.id), workspace.updated_at
+            ).model_copy(
+                update={"selected_session_generation": generations.get(workspace.id)}
+            )
             for workspace in authorized
         )
         result = WorkspaceStatusResult(

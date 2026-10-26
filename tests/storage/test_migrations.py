@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0085_session_source_copy_admissions",)
+        ).fetchone() == ("0086_addon_settings",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -426,6 +426,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_remote_observations",
         "external_reconnect_operations",
         "mcp_workspace_launches",
+        "mcp_addon_settings_operations",
         "managed_resource_policy",
         "managed_idle_states",
         "managed_instance_uses",
