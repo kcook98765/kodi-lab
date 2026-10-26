@@ -84,11 +84,11 @@
             if (event.data.length > 1024 || pending !== null || decoding) throw new Error("Unexpected frame metadata.");
             const meta = JSON.parse(event.data);
             if (meta.v !== 1 || meta.type !== "frame" || meta.mime !== "image/jpeg" || meta.width !== 640 || meta.height !== 360 || !Number.isInteger(meta.seq) || meta.seq !== lastSequence + 1) throw new Error("Invalid frame metadata.");
-            pending = meta;
+            pending = {meta, receivedAt: performance.now()};
             return;
           }
           if (!(event.data instanceof ArrayBuffer) || event.data.byteLength > 524288 || pending === null || decoding) throw new Error("Unexpected preview frame.");
-          const meta = pending; pending = null; decoding = true;
+          const {meta, receivedAt} = pending; pending = null; decoding = true;
           const decodeStarted = performance.now();
           const next = URL.createObjectURL(new Blob([event.data], {type: "image/jpeg"}));
           const previous = objectUrl; objectUrl = next;
@@ -101,7 +101,7 @@
           if (mine !== epoch || document.hidden || socket !== connected) return;
           if (image.naturalWidth !== 640 || image.naturalHeight !== 360) throw new Error("Invalid decoded frame size.");
           const decodeMs = performance.now() - decodeStarted;
-          lastSequence = meta.seq; lastShown = performance.now(); initialAge = Math.max(0, Number(meta.age_ms) || 0) + decodeMs;
+          lastSequence = meta.seq; lastShown = performance.now(); initialAge = Math.max(0, Number(meta.age_ms) || 0) + Math.max(0, performance.now() - receivedAt);
           if (ageTimer === null) ageTimer = setInterval(() => {
             if (age instanceof HTMLElement) age.textContent = `Frame age: ${((performance.now() - lastShown + initialAge) / 1000).toFixed(1)} seconds`;
           }, 250);

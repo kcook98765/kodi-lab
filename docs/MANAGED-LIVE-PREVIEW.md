@@ -72,3 +72,5 @@ Measure disabled,1FPS and adaptive3FPS on each exact native runtime. Retain the
 lower rate when broker/agent p95 rises by both20percent and100ms, or headroom
 is unsafe. Windows/WSL2 needs separate native and performance qualification;
 Ubuntu source/fixture evidence does not establish Windows runtime acceptance.
+
+Frame age is an estimate: the server capture-to-metadata age plus monotonic browser time since metadata arrival, including final authorization wait and decode/display. It does not depend on synchronized browser clocks and excludes the initial metadata packet transit time. Decode ACK timing remains decode/display time only.

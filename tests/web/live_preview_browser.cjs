@@ -35,7 +35,7 @@ function fixture() {
     "[data-preview-pause]": pause, "[data-preview-interval]": interval,
   })) nodes.set(key, value);
   const requests = [], sockets = [], urls = new Set(), timers = new Map();
-  let timer = 0, decode = null, delayStart = null, object = 0;
+  let timer = 0, decode = null, delayStart = null, object = 0, now = 0;
   class Socket extends Element {
     constructor(url) { super(); this.url = url; this.sent = []; sockets.push(this); }
     close() { this.closed = true; }
@@ -47,7 +47,7 @@ function fixture() {
   const context = {
     document, window, HTMLElement: Element, HTMLButtonElement: Button, HTMLImageElement: Image,
     WebSocket: Socket, CustomEvent: class { constructor(type, value) { this.type = type; this.detail = value.detail; } },
-    crypto, performance, ArrayBuffer, Blob, Number, String, Error, JSON, Promise,
+    crypto, performance: {now: () => now}, ArrayBuffer, Blob, Number, String, Error, JSON, Promise,
     URL: {createObjectURL: () => { const url = `blob:fixture-${++object}`; urls.add(url); return url; }, revokeObjectURL: url => urls.delete(url)},
     setInterval: (fn, ms) => { timers.set(++timer, {fn, ms, recurring: true}); return timer; },
     clearInterval: id => timers.delete(id), clearTimeout: id => timers.delete(id),
@@ -67,7 +67,7 @@ function fixture() {
   const meta = seq => ({v: 1, type: "frame", seq, mime: "image/jpeg", width: 640, height: 360, age_ms: 20, limited: false});
   const message = (socket, data) => socket.dispatchEvent({type: "message", data});
   return {nodes, section, panel, start, stop, image, still, pause, refresh, requests, sockets, urls, timers, document, window,
-    click, meta, message, delay: value => {delayStart = value;}, decode: value => {decode = value;}};
+    click, meta, message, advance: ms => {now += ms;}, delay: value => {delayStart = value;}, decode: value => {decode = value;}};
 }
 (async () => {
   {
@@ -131,6 +131,22 @@ function fixture() {
     assert.equal(f.timers.size, 0); assert.equal(f.urls.size, 0);
     await f.click(f.start); await f.window.dispatchEvent({type: "pagehide"});
     assert.equal(f.sockets[1].closed, true); assert.equal(f.requests.at(-1).body.enabled, false);
+  }
+  {
+    // Final authorization may delay pixels after metadata. Age must include
+    // that wait as well as browser decode, without relying on wall-clock sync.
+    const f = fixture(); await f.click(f.start); const socket = f.sockets[0], decode = deferred(); f.decode(decode);
+    await f.message(socket, JSON.stringify(f.meta(1))); f.advance(1200);
+    const decoding = f.message(socket, new ArrayBuffer(8)); await flush();
+    f.advance(80); decode.resolve(); await decoding;
+    const ageTimer = [...f.timers.values()].find(t => t.recurring && t.ms === 250);
+    ageTimer.fn(); assert.equal(f.nodes.get("[data-live-age]").textContent, "Frame age: 1.3 seconds");
+    assert.equal(socket.sent[0].decode_ms, 80); // ACK reports decode only.
+    f.advance(1700); ageTimer.fn(); assert.equal(f.nodes.get("[data-live-age]").textContent, "Frame age: 3.0 seconds");
+    f.decode(null); await f.message(socket, JSON.stringify(f.meta(2))); f.advance(100);
+    await f.message(socket, new ArrayBuffer(8)); ageTimer.fn();
+    assert.equal(f.nodes.get("[data-live-age]").textContent, "Frame age: 0.1 seconds");
+    await f.click(f.stop); assert.equal(f.timers.size, 0);
   }
   console.log("Preview browser state checks passed; no native/browser rendering claim.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
