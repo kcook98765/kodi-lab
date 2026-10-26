@@ -44,6 +44,7 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
 ) -> None:
     runtime_root = tmp_path / "broker-socket"
     runtime_root.mkdir(mode=0o750)
+    runtime_root.chmod(0o750)  # The listener contract requires this exact mode.
     socket_path = runtime_root / "broker.sock"
     containers = FakeContainers()
     own = {
