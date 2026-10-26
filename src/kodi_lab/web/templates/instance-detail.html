@@ -13,6 +13,7 @@
     <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/live-display.js') }}" defer></script>
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
 {% endblock %}
 {% block content %}
@@ -100,7 +101,17 @@
           {% endfor %}
           {% if detail.runtime.failure_code %}<dt>Failure code</dt><dd><code>{{ detail.runtime.failure_code }}</code></dd>{% endif %}
         </dl></details>
-        <h3>Screen preview</h3>
+        <div data-live-display data-display-available="{{ 'true' if visual.display_supported and visual.screenshot_available_now else 'false' }}">
+          <h3>Live Preview</h3>
+          <p class="secondary">Small view-only picture. Start checks this Kodi screen and enables preview for this browser session. Stop, hidden tabs and disconnection end it.</p>
+          <label>Preview rate <select data-live-rate><option value="1" selected>Conservative · 1 FPS</option><option value="3">Adaptive · up to 3 FPS</option></select></label>
+          <button type="button" data-live-start{% if not visual.display_supported or not visual.screenshot_available_now %} disabled{% endif %}>Start Live Preview</button>
+          <button type="button" data-live-stop hidden>Stop Live Preview</button>
+          <p data-live-status role="status">Live preview is off.</p>
+          <p data-live-age class="secondary">No live frame.</p>
+          <img data-live-image width="640" height="360" style="max-width:100%;height:auto" alt="Live Kodi preview" draggable="false" hidden>
+        </div>
+        <h3>Screen preview · Screenshot</h3>
         <p class="secondary">Read-only Kodi screenshots. Refresh pauses while this tab is hidden.</p>
         <button type="button" data-ui-state-inspect>Inspect current window and selection</button>
         <p class="secondary" data-ui-observation role="status">UI state has not been inspected.</p>
@@ -114,7 +125,7 @@
         </div>
         {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
         <label>Refresh interval <select data-preview-interval><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="30">30 seconds</option></select></label>
-        <button type="button" data-preview-pause aria-pressed="false">Pause preview</button>
+        <button type="button" data-preview-pause aria-pressed="true">Start periodic screenshots</button>
         <button type="button" data-screenshot-refresh{% if not visual.screenshot_available_now %} disabled{% endif %}>Refresh screenshot</button>
         <p data-screenshot-status class="secondary" role="status"{% if not visual.last_error_code %} hidden{% endif %}>{% if visual.last_error_code %}Last refresh failed: {{ visual.last_error_code|replace('_', ' ') }}. The prior valid screenshot, if any, was retained.{% endif %}</p>
         {% if remote_available %}

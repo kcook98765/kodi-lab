@@ -13,7 +13,8 @@
   const csrf = document.querySelector('meta[name="kodi-lab-csrf"]')?.getAttribute("content");
 
   let capturing = false;
-  let paused = false;
+  let paused = true;
+  let liveActive = false;
   let timer = null;
   const pause = section.querySelector("[data-preview-pause]");
   const interval = section.querySelector("[data-preview-interval]");
@@ -22,7 +23,7 @@
   function schedule() {
     clearTimeout(timer);
     timer = null;
-    if (!available || paused || document.hidden || capturing) return;
+    if (!available || paused || liveActive || document.hidden || capturing) return;
     const seconds = [5, 10, 30].includes(Number(interval?.value)) ? Number(interval.value) : 10;
     timer = setTimeout(capture, seconds * 1000);
   }
@@ -104,8 +105,12 @@
   button.addEventListener("click", capture);
   pause?.addEventListener("click", () => {
     paused = !paused;
-    pause.textContent = paused ? "Resume preview" : "Pause preview";
+    pause.textContent = paused ? "Resume periodic screenshots" : "Pause periodic screenshots";
     pause.setAttribute("aria-pressed", String(paused));
+    schedule();
+  });
+  section.addEventListener("kodi-lab-live-state", (event) => {
+    liveActive = event.detail?.active === true;
     schedule();
   });
   interval?.addEventListener("change", schedule);

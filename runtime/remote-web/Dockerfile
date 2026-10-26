@@ -7,6 +7,7 @@ COPY bridge/service.kodi_lab_bridge ./bridge/service.kodi_lab_bridge
 COPY migrations ./migrations
 COPY src ./src
 RUN uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file /build/requirements.txt >/dev/null \
+    && uv export --locked --no-dev --extra preview --no-emit-project --format requirements-txt --output-file /build/preview-requirements.txt >/dev/null \
     && uv build --wheel --no-build-isolation --out-dir /wheels
 
 FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS installed-runtime
@@ -38,6 +39,13 @@ RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements.t
     && install -d -m 0750 -o root -g kodi-lab /run/kodi-lab
 
 FROM installed-runtime AS web
+
+# Only the unprivileged Web target receives the fixed JPEG converter. The
+# broker's installed-runtime base deliberately has no Pillow/native codecs.
+COPY --from=wheel-build /build/preview-requirements.txt /tmp/preview-requirements.txt
+RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/preview-requirements.txt \
+    && python -m pip check \
+    && rm /tmp/preview-requirements.txt
 
 ENV KODI_LAB_WEB_BIND_HOST=0.0.0.0 \
     KODI_LAB_REMOTE_CONTAINER=1
