@@ -91,6 +91,15 @@ receipt and separate UI acceptance. External OTP pairing grants no launch author
 
 ## Continue a prepared managed installation
 
+The closed managed installer admits exact Nexus **20.5** and Omega **21.3**
+profiles with the same reviewed stable **1.1.25** artifact; the existing
+**22.0-rc.1** profile selects its separate overlay. Other patch releases do not
+inherit eligibility. See [Nexus compatibility](NEXUS-BRIDGE-COMPATIBILITY.md)
+for the artifact and API contract. Start the selected profile and confirm native
+readiness, then use **Install reviewed Bridge** on its instance page. Installation
+uses the existing lifecycle lease and restarts that same container. A source copy
+or ordinary start alone does not install missing Bridge files.
+
 A recorded `prepared` state does not prove the reviewed add-on was installed.
 For a matching prepared reviewed installation, the Web panel offers **Continue
 Bridge setup**. Start Kodi first and check native readiness. Continuation calls

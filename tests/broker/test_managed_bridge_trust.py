@@ -53,7 +53,69 @@ def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
         "0f93de93cf51623fd480198abda89b0f945581b542494b693049573f160fb2a2"
     )
     assert approved_bridge_build("21.3") == legacy
+    assert approved_bridge_build("20.5") == legacy
     assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.26"
+
+
+@pytest.mark.parametrize("release", ["20.5", "20.4", "19.4"])
+def test_broker_reviewed_nexus_installation_requires_exact_release_and_live_lease(
+    database: Any, tmp_path: Path, release: str
+) -> None:
+    from kodi_lab.application.lifecycle_operations import (
+        ManagedInstanceLifecycleOperationCoordinator,
+    )
+    from kodi_lab.domain import (
+        ManagedInstanceLifecycleKind,
+        ManagedInstanceSemanticState,
+    )
+    from tests.application.test_nexus_reviewed_bridge import set_release
+
+    set_release(database, release)
+    secrets = ExternalBridgeSecretStore(
+        tmp_path / "secrets", master_key=b"x" * 32, key_version=1
+    )
+    reference = secrets.write(INSTANCE_ID, "request_authentication", b"y" * 32)
+    with database.begin() as session:
+        session.add(
+            RuntimeContainerArtifactRow(
+                runtime_revision_id=str(REVISION_ID), image_id="sha256:" + "b" * 64
+            )
+        )
+        session.add(
+            ManagedBridgeTrustRow(
+                target_id=str(INSTANCE_ID),
+                runtime_revision_id=str(REVISION_ID),
+                container_id="a" * 64,
+                bridge_port=8765,
+                secret_reference=str(reference),
+                state="prepared",
+                generation=1,
+                prepared_at="2026-10-26T00:00:00.000000Z",
+                reviewed_installation=True,
+            )
+        )
+    resolver = SqliteManagedBridgeTrustResolver(database, secrets)
+    # Even an eligible release cannot install outside its typed lifecycle owner.
+    with pytest.raises(ManagedBridgeProvisionError):
+        resolver.resolve(str(INSTANCE_ID), "a" * 64, 1, install_reviewed=True)
+    ManagedInstanceLifecycleOperationCoordinator(database).begin(
+        INSTANCE_ID,
+        instance_name="Nexus test",
+        kind=ManagedInstanceLifecycleKind.START,
+        prior_state=ManagedInstanceSemanticState.RUNNING_USABLE,
+    )
+    if release != "20.5":
+        with pytest.raises(ManagedBridgeProvisionError, match="identity_mismatch"):
+            resolver.resolve(str(INSTANCE_ID), "a" * 64, 1, install_reviewed=True)
+    else:
+        spec = resolver.resolve(str(INSTANCE_ID), "a" * 64, 1, install_reviewed=True)
+        assert spec.kodi_release == "20.5" and spec.install_reviewed
+        assert spec.provisioning.runtime_uid == spec.provisioning.runtime_gid == 1000
+        for container, generation in [("b" * 64, 1), ("a" * 64, 2)]:
+            with pytest.raises(ManagedBridgeProvisionError, match="not_prepared"):
+                resolver.resolve(
+                    str(INSTANCE_ID), container, generation, install_reviewed=True
+                )
 
 
 @pytest.mark.parametrize(

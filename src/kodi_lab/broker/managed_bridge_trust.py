@@ -191,7 +191,7 @@ class SqliteManagedBridgeTrustResolver:
                 UUID(target_id), UUID(row.secret_reference), "request_authentication"
             )
             if install_reviewed:
-                if target.kodi_version not in {"21.3", "22.0-rc.1"}:
+                if target.kodi_version not in {"20.5", "21.3", "22.0-rc.1"}:
                     raise ManagedBridgeProvisionError(
                         "managed_bridge_identity_mismatch"
                     )

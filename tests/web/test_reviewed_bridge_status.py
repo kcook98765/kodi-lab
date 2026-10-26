@@ -11,6 +11,25 @@ from kodi_lab.storage.models import ManagedBridgeTrustRow
 from tests.web.conftest import INSTANCE_ID, REVISION_ID, login
 
 
+@pytest.mark.parametrize(
+    "release,available",
+    [("20.5", True), ("21.3", True), ("20.4", False), ("19.4", False)],
+)
+def test_reviewed_candidate_status_and_web_control_match_exact_release(
+    client: TestClient, database: sessionmaker[Session], release: str, available: bool
+) -> None:
+    from tests.application.test_nexus_reviewed_bridge import set_release
+
+    set_release(database, release)
+    login(client)
+    response = client.get(f"/api/instances/{INSTANCE_ID}/reviewed-bridge")
+    assert response.status_code == (200 if available else 404)
+    page = client.get(f"/instances/{INSTANCE_ID}").text
+    assert ("data-reviewed-bridge-install disabled" in page) is available
+    if available:
+        assert response.json()["addon_version"] == "1.1.25"
+
+
 def test_reviewed_bridge_exposes_explicit_status_refresh(client: TestClient) -> None:
     login(client)
     page = client.get(f"/instances/{INSTANCE_ID}").text
