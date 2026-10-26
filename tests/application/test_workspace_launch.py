@@ -21,6 +21,7 @@ from kodi_lab.application.workspace_launch import (
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.development import parse_captured_addon_xml
+from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.kodi.launch import (
     BridgeLaunchIntent,
     BridgeLaunchReceipt,
@@ -32,6 +33,7 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceLaunchRow,
 )
+from kodi_lab.workspace import capture_workspace_deployment_tree
 from tests.application import test_mcp_workspace_development as fixtures
 
 
@@ -77,14 +79,16 @@ def environment(
 ) -> tuple[fixtures.Environment, Bridge, WorkspaceLaunchService]:
     env = fixtures._environment(tmp_path)
     fixtures._deploy_workspace(env)
-    # The older smoke fixture uses deliberately unequal placeholder digests.
-    # Direct launch additionally requires an exact workspace/deployment tree.
+    # Use the production source/ownership digest domains, not equal placeholders.
+    manifest = capture_workspace_deployment_tree(tmp_path / "data", env.workspace_id)
     with env.sessions.begin() as session:
         workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
         deployment = session.scalar(select(McpWorkspaceDeploymentOperationRow))
         assert workspace is not None and deployment is not None
         deployment.source_manifest_digest = workspace.current_tree_digest
-        deployment.verified_destination_digest = workspace.current_tree_digest
+        deployment.verified_destination_digest = expected_destination_digest(
+            manifest, runtime_uid=1000, runtime_gid=1000
+        )
     bridge = Bridge()
     service = WorkspaceLaunchService(
         env.sessions,

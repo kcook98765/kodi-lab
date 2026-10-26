@@ -22,6 +22,7 @@ from kodi_lab.application.mcp_workspace_development import (
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
+from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.development.launch import manifest_launch_entries
 from kodi_lab.domain import (
     AgentWorkspaceBytesState,
@@ -49,9 +50,14 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedRuntimeProjectionRepository,
+    RuntimeExecutionProfileRepository,
 )
 from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
-from kodi_lab.workspace.storage import workspace_coordination_lock
+from kodi_lab.workspace.storage import (
+    AgentWorkspaceStorageError,
+    capture_workspace_deployment_tree,
+    workspace_coordination_lock,
+)
 
 
 class WorkspaceLaunchError(RuntimeError):
@@ -227,10 +233,40 @@ class WorkspaceLaunchService:
                 or latest.generation != generation
                 or not latest.addon_enabled
                 or latest.source_manifest_digest is None
-                or latest.verified_destination_digest != latest.source_manifest_digest
+                or latest.verified_destination_digest is None
                 or latest.source_manifest_digest.removeprefix("sha256:")
                 != (workspace.current_tree_digest or "").removeprefix("sha256:")
             ):
+                raise WorkspaceLaunchError("launch_not_deployed")
+            profile = RuntimeExecutionProfileRepository(session).get(
+                UUID(instance.runtime_revision_id)
+            )
+            if (
+                profile is None
+                or latest.runtime_revision_id != instance.runtime_revision_id
+            ):
+                raise WorkspaceLaunchError("launch_not_deployed")
+            try:
+                # The source digest excludes ownership; Docker readback includes
+                # the canonical runtime UID/GID. Prove their exact relationship
+                # from fresh private bytes under the caller's workspace lock.
+                manifest = capture_workspace_deployment_tree(
+                    self._data_root, workspace_id
+                )
+            except (AgentWorkspaceStorageError, OSError):
+                raise WorkspaceLaunchError("launch_not_deployed") from None
+            expected_owned_digest = expected_destination_digest(
+                manifest,
+                runtime_uid=profile.runtime_uid,
+                runtime_gid=profile.runtime_gid,
+            )
+            if manifest.digest.removeprefix(
+                "sha256:"
+            ) != latest.source_manifest_digest.removeprefix(
+                "sha256:"
+            ) or latest.verified_destination_digest.removeprefix(
+                "sha256:"
+            ) != expected_owned_digest.removeprefix("sha256:"):
                 raise WorkspaceLaunchError("launch_not_deployed")
             session.expunge(latest)
             return latest

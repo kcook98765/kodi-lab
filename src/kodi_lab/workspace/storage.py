@@ -659,9 +659,9 @@ def _capture_workspace_tree(
 
 
 def capture_workspace_deployment_tree(
-    data_root: Path, workspace_id: UUID, *, stage_root: Path
+    data_root: Path, workspace_id: UUID, *, stage_root: Path | None = None
 ) -> DevelopmentTreeManifest:
-    """Recapture and materialize one UUID-derived current tree for transfer."""
+    """Recapture one UUID-derived current tree, optionally staging its bytes."""
 
     locator = f"{workspace_id}/tree"
     try:

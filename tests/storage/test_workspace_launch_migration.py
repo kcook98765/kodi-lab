@@ -8,12 +8,14 @@ from alembic import command
 from sqlalchemy import inspect, select, text
 
 from kodi_lab.application.workspace_launch import WorkspaceLaunchService
+from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceLaunchRow,
 )
+from kodi_lab.workspace import capture_workspace_deployment_tree
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_workspace_launch import Bridge, launch
 from tests.storage.test_migrations import (  # noqa: F401
@@ -36,12 +38,17 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
     path = Path(str(engine.url.database))
     env = fixture._environment(tmp_path / "fixture", database_path=path)
     fixture._deploy_workspace(env)
+    manifest = capture_workspace_deployment_tree(
+        tmp_path / "fixture/data", env.workspace_id
+    )
     with env.sessions.begin() as session:
         workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
         deployment = session.scalar(select(McpWorkspaceDeploymentOperationRow))
         assert workspace is not None and deployment is not None
         deployment.source_manifest_digest = workspace.current_tree_digest
-        deployment.verified_destination_digest = workspace.current_tree_digest
+        deployment.verified_destination_digest = expected_destination_digest(
+            manifest, runtime_uid=1000, runtime_gid=1000
+        )
         deployment.original_container_id = None
         deployment.original_runtime_state_revision = None
     command.downgrade(config, "0076_managed_resource_policy")
