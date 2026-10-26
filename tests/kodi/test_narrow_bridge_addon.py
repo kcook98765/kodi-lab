@@ -837,6 +837,7 @@ def test_android_capture_keeps_private_owner_and_mode_checks(
     cache.mkdir()
     root = cache / "kodi-lab-bridge"
     root.mkdir(mode=0o771)
+    root.chmod(0o771)  # This fixture must be unsafe regardless of the caller's umask.
     monkeypatch.setenv("KODI_BINADDON_PATH", str(cache / "lib"))
     bridge = _load(monkeypatch, temp_root=tmp_path)
     module: Any = sys.modules["xbmc"]
