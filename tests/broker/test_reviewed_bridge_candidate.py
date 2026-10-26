@@ -15,18 +15,28 @@ from kodi_lab.broker.managed_bridge_trust import (
     ESTABLISH_PROGRAM,
     approved_bridge_build,
 )
-from kodi_lab.kodi.rc1_bridge import packaged_rc1_bridge_sources
+from kodi_lab.kodi.rc1_bridge import (
+    packaged_rc1_bridge_sources,
+    packaged_stable_bridge_sources,
+)
 from tests.web.conftest import REVISION_ID
 from tests.web.conftest import database as database
 
 
-def run_candidate(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Path]:
+def run_candidate(
+    tmp_path: Path, release: str = "22.0-rc.1"
+) -> tuple[subprocess.CompletedProcess[str], Path]:
     home = tmp_path / "kodi/.kodi"
     home.mkdir(parents=True, exist_ok=True)
     program = (
         ESTABLISH_PROGRAM.replace("/home/kodi/.kodi", str(home))
         .replace('directory("/home")', "")
         .replace('directory("/home/kodi")', "")
+    )
+    sources = (
+        packaged_rc1_bridge_sources()
+        if release == "22.0-rc.1"
+        else packaged_stable_bridge_sources()
     )
     value = {
         "target_id": "00000000-0000-4000-8000-000000000101",
@@ -35,14 +45,12 @@ def run_candidate(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Pat
         "generation": 1,
         "previous_inventories": {},
         "secret": base64.urlsafe_b64encode(b"x" * 32).decode().rstrip("="),
-        "approved": approved_bridge_build("22.0-rc.1"),
+        "approved": approved_bridge_build(release),
         "reviewed_inventory": {
-            name: hashlib.sha256(data).hexdigest()
-            for name, data in packaged_rc1_bridge_sources().items()
+            name: hashlib.sha256(data).hexdigest() for name, data in sources.items()
         },
         "reviewed_sources": {
-            k: base64.b64encode(v).decode()
-            for k, v in packaged_rc1_bridge_sources().items()
+            k: base64.b64encode(v).decode() for k, v in sources.items()
         },
     }
     return subprocess.run(
@@ -54,13 +62,21 @@ def run_candidate(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Pat
     ), home
 
 
-def test_closed_candidate_materialization_and_readback(tmp_path: Path) -> None:
-    result, home = run_candidate(tmp_path)
+@pytest.mark.parametrize("release", ["20.5", "21.3", "22.0-rc.1"])
+def test_closed_candidate_materialization_and_readback(
+    tmp_path: Path, release: str
+) -> None:
+    result, home = run_candidate(tmp_path, release)
     assert result.returncode == 0, result.stdout
     assert json.loads(result.stdout)["bridge_id"]
-    for name, data in packaged_rc1_bridge_sources().items():
+    sources = (
+        packaged_rc1_bridge_sources()
+        if release == "22.0-rc.1"
+        else packaged_stable_bridge_sources()
+    )
+    for name, data in sources.items():
         assert (home / "addons/service.kodi_lab_bridge" / name).read_bytes() == data
-    assert run_candidate(tmp_path)[0].returncode == 0
+    assert run_candidate(tmp_path, release)[0].returncode == 0
     assert json.loads(
         (home / "userdata/addon_data/service.kodi_lab_bridge/state.json").read_text()
     )["target_id"]

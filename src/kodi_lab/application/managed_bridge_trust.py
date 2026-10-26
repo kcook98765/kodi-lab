@@ -306,6 +306,7 @@ class ManagedBridgeTrustService:
                 else None
             )
             if profile is None or profile.kodi_release.canonical not in {
+                "20.5",
                 "21.3",
                 "22.0-rc.1",
             }:
@@ -332,6 +333,7 @@ class ManagedBridgeTrustService:
     ) -> bool:
         observed, profile = self._admit(target_id)
         if install_reviewed and profile.kodi_release.canonical not in {
+            "20.5",
             "21.3",
             "22.0-rc.1",
         }:

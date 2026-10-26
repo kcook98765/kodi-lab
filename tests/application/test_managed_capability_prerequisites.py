@@ -237,10 +237,10 @@ def test_missing_or_unsupported_profile_cannot_advertise_install_candidate(
         if profile_state == "missing":
             session.delete(profile)
         else:
-            profile.expected_kodi_version = "20.5"
+            profile.expected_kodi_version = "20.4"
     result = assessment(owner)
     assert result.candidate_addon_version is None
-    assert result.kodi_release == (None if profile_state == "missing" else "20.5")
+    assert result.kodi_release == (None if profile_state == "missing" else "20.4")
 
 
 def test_external_target_is_outside_managed_prerequisites(setup: Any) -> None:

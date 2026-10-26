@@ -116,7 +116,7 @@ class ManagedCapabilityPrerequisiteService:
             release = None if profile is None else profile.kodi_release.canonical
             candidate = (
                 approved_bridge_build(release)["addon_version"]
-                if release in {"21.3", "22.0-rc.1"}
+                if release in {"20.5", "21.3", "22.0-rc.1"}
                 else None
             )
             checks: list[CapabilityPrerequisite] = []

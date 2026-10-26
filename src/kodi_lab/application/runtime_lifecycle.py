@@ -207,7 +207,7 @@ class ManagedRuntimeLifecycleService:
 
         def install(target_id: UUID, profile: RuntimeExecutionProfile) -> None:
             if (
-                profile.kodi_release.canonical not in {"21.3", "22.0-rc.1"}
+                profile.kodi_release.canonical not in {"20.5", "21.3", "22.0-rc.1"}
                 or self._bridge_trust is None
             ):
                 raise LifecycleConflictError("reviewed Bridge candidate unavailable")
