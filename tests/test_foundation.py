@@ -288,6 +288,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "mcp_development_requests",
         "mcp_workspace_validations",
         "mcp_workspace_deployment_operations",
+        "mcp_addon_settings_operations",
         "mcp_workspace_execution_operations",
         "workspace_execution_recovery_operations",
         "historical_workspace_execution_containment_resolutions",
