@@ -36,6 +36,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeCurrentProjection,
     ManagedRuntimeProjectionRepository,
     ManagedRuntimeProjectionResult,
+    ManagedRuntimeReconciliationBlockedError,
 )
 
 
@@ -148,6 +149,10 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 ManagedInstanceLifecycleOperationRepository(session).create(operation)
                 if on_claim is not None:
                     on_claim(session, handle)
+        except ManagedRuntimeReconciliationBlockedError as error:
+            raise LifecycleOperationConflictError(
+                "Runtime recovery review is required before this lifecycle action."
+            ) from error
         except IntegrityError as error:
             raise LifecycleOperationConflictError(
                 "Another mutation is active for this managed instance."
