@@ -30,10 +30,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.25"
+ADDON_VERSION = "1.1.27"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.25|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch"
+    b"kodi-lab-narrow-bridge|1.1.27|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -1630,7 +1630,7 @@ def _deployment_file(path, mode="rb", permissions=0o644):
             try:
                 descriptor = os.open(
                     os.path.basename(path),
-                    flags | os.O_NOFOLLOW,
+                    flags | os.O_NOFOLLOW | os.O_NONBLOCK,
                     permissions,
                     dir_fd=parent,
                 )
@@ -1716,7 +1716,8 @@ def _validate_manifest(payload):
             digest = raw.get("sha256")
             if (
                 set(raw) != {"mode", "path", "sha256", "size", "type"}
-                or mode not in {0o644, 0o755}
+                or type(mode) is not int
+                or (mode & ~0o111) != 0o644
                 or type(size) is not int
                 or not 0 <= size <= MAX_FILE
                 or not isinstance(digest, str)
@@ -1836,7 +1837,7 @@ def _tree_manifest_guarded(root, expected_entries=None):
                 or total + cache_bytes > MAX_TOTAL
             ):
                 raise ValueError("tree bounds exceeded")
-            mode = 0o755 if metadata.st_mode & 0o111 else 0o644
+            mode = 0o644 | (metadata.st_mode & 0o111)
             if logical_modes_required:
                 # Retain authenticated manifest modes on NTFS and Android
                 # noexec mounts; bytes, sizes and paths stay exact.

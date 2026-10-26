@@ -86,7 +86,7 @@ def test_clean_nexus_candidate_stages_then_authenticates_independent_secret(
         "state": "uninstalled",
         "generation": 0,
         "resume_available": False,
-        "addon_version": "1.1.25",
+        "addon_version": "1.1.27",
     }
     assert approved_bridge_build("20.5") == approved_bridge_build("21.3")
     # Ordinary start does not bootstrap missing files or allocate a credential.
@@ -210,17 +210,17 @@ def test_saved_nexus_prerequisites_match_candidate_and_prepared_continuation(
     native = nexus(setup, monkeypatch)
     service = ManagedCapabilityPrerequisiteService(owner.sessions)
     before = service.inspect(INSTANCE_ID)
-    assert before.candidate_addon_version == "1.1.25"
+    assert before.candidate_addon_version == "1.1.27"
     assert broker.establishments == client.calls == 0 and not native.calls
     owner.stage_reviewed(INSTANCE_ID)
     prepared = row(owner)
     result = service.inspect(INSTANCE_ID)
-    assert result.candidate_addon_version == "1.1.25"
+    assert result.candidate_addon_version == "1.1.27"
     assert result.next_action == "resume_reviewed_bridge"
     assert result.native_readiness == "unknown"
     assert row(owner).generation == prepared.generation
     native.missing = False
     owner.resume_reviewed(INSTANCE_ID, expected_generation=prepared.generation)
     active = service.inspect(INSTANCE_ID)
-    assert active.last_authenticated_addon_version == "1.1.25"
+    assert active.last_authenticated_addon_version == "1.1.27"
     assert active.native_readiness == "unknown"

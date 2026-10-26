@@ -58,7 +58,7 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.25.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.27.zip` and
 `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -89,10 +89,16 @@ Bridge 1.1.25 (RC1 overlay 1.1.26) adds managed-only
 [manifest entry-point launch](MANIFEST-ENTRY-LAUNCH.md), with a durable dispatch
 receipt and separate UI acceptance. External OTP pairing grants no launch authority.
 
+Bridge 1.1.27 (RC1 overlay 1.1.28) preserves partial execute masks in manifests
+and refuses unsafe FIFO inspection without blocking. See the
+[file-mode contract](FILE-MODE-CONTRACT.md). Established exact 1.1.25/26 identities
+retain their credentials and observation eligibility; current launch requires the
+new reviewed build and fresh exact-tree evidence.
+
 ## Continue a prepared managed installation
 
 The closed managed installer admits exact Nexus **20.5** and Omega **21.3**
-profiles with the same reviewed stable **1.1.25** artifact; the existing
+profiles with the same reviewed stable **1.1.27** artifact; the existing
 **22.0-rc.1** profile selects its separate overlay. Other patch releases do not
 inherit eligibility. See [Nexus compatibility](NEXUS-BRIDGE-COMPATIBILITY.md)
 for the artifact and API contract. Start the selected profile and confirm native

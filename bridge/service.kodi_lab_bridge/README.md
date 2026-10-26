@@ -1,5 +1,11 @@
 # Kodi Lab narrow bridge
 
+Regular-file manifests preserve the source execute mask: `0644 | (mode & 0111)`.
+All eight masks from `0644` through `0755` are supported without expanding an
+owner-only execute bit to other users. Directories remain `0755`. Actual managed
+destination ownership and permissions are separately verified by the broker.
+Unsafe files, including FIFOs, are rejected without waiting for a writer.
+
 This ordinary Kodi service add-on provides an authenticated identity anchor,
 capability verification, bounded screenshots and protected UI observations for
 managed Kodi Lab targets, approved external-development targets and reviewed
@@ -46,7 +52,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.25 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
+Bridge 1.1.27 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -169,7 +175,7 @@ manifest modes without requiring POSIX chmod semantics. The corresponding
 exact-release RC1 overlay is 1.1.24.
 
 
-Bridge 1.1.25 (RC1 overlay 1.1.26) adds `managed_launch` and
+Bridge 1.1.25 (RC1 overlay 1.1.26) added `managed_launch` and
 `managed_launch_receipt`, available only with a private broker-provisioned
 managed runtime marker bound to the current pairing secret. Ordinary external
 OTP pairing does not create that marker. The request contains a server-recorded

@@ -48,13 +48,13 @@ def test_manifest_matches_packaged_approved_bridge() -> None:
 
 def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
     legacy = approved_bridge_build()
-    assert legacy["addon_version"] == "1.1.25"
+    assert legacy["addon_version"] == "1.1.27"
     assert legacy["build_fingerprint"] == (
-        "0f93de93cf51623fd480198abda89b0f945581b542494b693049573f160fb2a2"
+        "b672f5a190a5ed9623c29ee5311ba738e60dc4d6d699e4d5a386f0731e94f7bd"
     )
     assert approved_bridge_build("21.3") == legacy
     assert approved_bridge_build("20.5") == legacy
-    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.26"
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.28"
 
 
 @pytest.mark.parametrize("release", ["20.5", "20.4", "19.4"])
@@ -334,25 +334,54 @@ def test_partial_publication_removes_private_staging_material(tmp_path: Path) ->
     ).exists()
 
 
+@pytest.mark.parametrize(
+    "prior,release,archive_sha",
+    [
+        (
+            "1.1.23",
+            "21.3",
+            "a38c81d5198cbbb5dc3fbdb0453190102ddf5888d1e48666b9e9ef7bd4406533",
+        ),
+        (
+            "1.1.25",
+            "20.5",
+            "7e8a798c75ba042c96eaa9e8f049da9c038e3b4f78c617d52b1b87aa2b2f6f63",
+        ),
+        (
+            "1.1.26",
+            "22.0-rc.1",
+            "77f68a85de430d75df9dc9504a9abb5086878778655a3016c39a73dd35bd07d7",
+        ),
+    ],
+)
 def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
     tmp_path: Path,
+    prior: str,
+    release: str,
+    archive_sha: str,
 ) -> None:
     import shutil
     import zipfile
     from importlib.resources import files
 
-    from kodi_lab.kodi.rc1_bridge import packaged_stable_bridge_sources
+    from kodi_lab.kodi.rc1_bridge import (
+        packaged_rc1_bridge_sources,
+        packaged_stable_bridge_sources,
+    )
 
     program, home, value = local_program(tmp_path)
     addon = home / "addons/service.kodi_lab_bridge"
     shutil.rmtree(addon)
-    archive = Path(__file__).parents[1] / "fixtures/reviewed-bridge-1.1.23.zip"
-    assert hashlib.sha256(archive.read_bytes()).hexdigest() == (
-        "a38c81d5198cbbb5dc3fbdb0453190102ddf5888d1e48666b9e9ef7bd4406533"
-    )
+    archive = Path(__file__).parents[1] / f"fixtures/reviewed-bridge-{prior}.zip"
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == archive_sha
     with zipfile.ZipFile(archive) as package:
         package.extractall(home / "addons")
-    sources = packaged_stable_bridge_sources()
+    sources = (
+        packaged_rc1_bridge_sources()
+        if release == "22.0-rc.1"
+        else packaged_stable_bridge_sources()
+    )
+    value["approved"] = approved_bridge_build(release)
     value["reviewed_sources"] = {
         name: base64.b64encode(data).decode() for name, data in sources.items()
     }
@@ -368,8 +397,11 @@ def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
     assert first.returncode == 0, first.stderr
     backups = list((home / "userdata/managed-bridge-upgrades").iterdir())
     assert len(backups) == 1
-    assert 'version="1.1.23"' in (backups[0] / "addon.xml").read_text()
-    assert 'version="1.1.25"' in (addon / "addon.xml").read_text()
+    assert f'version="{prior}"' in (backups[0] / "addon.xml").read_text()
+    assert (
+        f'version="{value["approved"]["addon_version"]}"'
+        in (addon / "addon.xml").read_text()
+    )
     marker = json.loads(
         (
             home / "userdata/addon_data/service.kodi_lab_bridge/managed-launch.json"
