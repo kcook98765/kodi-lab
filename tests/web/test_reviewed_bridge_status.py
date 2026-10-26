@@ -3,9 +3,12 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
-from tests.web.conftest import INSTANCE_ID, login
+from kodi_lab.storage.models import ManagedBridgeTrustRow
+from tests.web.conftest import INSTANCE_ID, REVISION_ID, login
 
 
 def test_reviewed_bridge_exposes_explicit_status_refresh(client: TestClient) -> None:
@@ -14,6 +17,34 @@ def test_reviewed_bridge_exposes_explicit_status_refresh(client: TestClient) -> 
     assert "data-reviewed-bridge-install disabled" in page
     assert "data-reviewed-bridge-refresh>Refresh status" in page
     assert "data-reviewed-bridge-status" in page
+
+
+@pytest.mark.parametrize("reviewed", [None, False, True])
+def test_status_preserves_boolean_continuation_flag_through_web_serialization(
+    client: TestClient, database: sessionmaker[Session], reviewed: bool | None
+) -> None:
+    if reviewed is not None:
+        with database.begin() as session:
+            session.add(
+                ManagedBridgeTrustRow(
+                    target_id=str(INSTANCE_ID),
+                    runtime_revision_id=str(REVISION_ID),
+                    container_id="a" * 64,
+                    bridge_port=8765,
+                    secret_reference="00000000-0000-4000-8000-000000000301",
+                    state="prepared",
+                    generation=4,
+                    prepared_at="2026-10-26T10:00:00.000000Z",
+                    reviewed_installation=reviewed,
+                )
+            )
+    login(client)
+    response = client.get(f"/api/instances/{INSTANCE_ID}/reviewed-bridge")
+    assert response.status_code == 200
+    result = response.json()
+    # The browser deliberately requires === true before offering continuation.
+    assert result["resume_available"] is (reviewed is True)
+    assert result["generation"] == (0 if reviewed is None else 4)
 
 
 def test_reviewed_bridge_browser_bounds_and_uncertain_request_safety() -> None:

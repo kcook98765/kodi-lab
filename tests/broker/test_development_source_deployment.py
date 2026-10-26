@@ -146,6 +146,8 @@ class FakeDeploymentDockerClient:
         with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
             for member in archive:
                 names.append(member.name)
+                if path == "/home/kodi" and member.name == ".kodi/addons":
+                    continue
                 parts = member.name.split("/")
                 if path == "/home/kodi":
                     assert parts.pop(0) == ".kodi"
@@ -303,6 +305,30 @@ def test_initial_deployment_uses_runtime_ownership_and_stays_stopped(
     assert all(entry[2:] == (42, 43) for entry in client.entries.values())
     assert client.inspection["State"] == {"Status": "exited"}
     assert client.closed
+
+
+def test_initial_copy_owns_addons_parent_without_rewriting_profile_root(
+    tmp_path: Path,
+) -> None:
+    class ParentCheckingClient(FakeDeploymentDockerClient):
+        def put_archive(self, container: str, path: str, data: BinaryIO) -> bool:
+            with tarfile.open(fileobj=io.BytesIO(data.read())) as archive:
+                # Docker otherwise creates this implicit parent as root:root,
+                # preventing the non-root reviewed Bridge installer writing here.
+                parent = archive.getmember(".kodi/addons")
+                assert parent.isdir()
+                assert (parent.uid, parent.gid, parent.mode) == (42, 43, 0o755)
+                assert ".kodi" not in archive.getnames()
+                assert archive.getnames().index(".kodi/addons") < (
+                    archive.getnames().index(f".kodi/addons/{ADDON_ID}")
+                )
+            data.seek(0)
+            return super().put_archive(container, path, data)
+
+    client = ParentCheckingClient()
+    result = _apply(client, _spec(tmp_path))
+    assert result.result_classification == "initial_deployment"
+    assert client.inspection["State"] == {"Status": "exited"}
 
 
 def test_sync_transfers_only_changed_and_new_and_preserves_destination_only(
