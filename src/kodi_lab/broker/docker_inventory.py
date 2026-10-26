@@ -1733,6 +1733,10 @@ class DockerManagedContainerAdapter:
                     root_name=(
                         f".kodi/addons/{spec.addon_id}" if before is None else None
                     ),
+                    # Docker creates omitted archive parents as root. Keep the
+                    # fixed add-ons parent writable by the approved runtime user,
+                    # without changing the existing .kodi profile root.
+                    parent_directories=(".kodi/addons",) if before is None else (),
                 )
                 apply_destination = "/home/kodi" if before is None else destination
                 apply_started = True

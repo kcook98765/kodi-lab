@@ -8118,7 +8118,7 @@ def create_app(
     def reviewed_managed_bridge_status(
         instance_id: UUID,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> dict[str, str | int | None]:
+    ) -> dict[str, str | int | bool | None]:
         from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
 
         try:

@@ -482,14 +482,18 @@ def build_delta_archive(
     runtime_uid: int,
     runtime_gid: int,
     root_name: str | None,
+    parent_directories: tuple[str, ...] = (),
 ) -> None:
     """Create a deterministic tar containing only the actual applied delta."""
 
     entries = manifest.by_path()
     applied = set(delta.applied_paths)
     with tarfile.open(archive_path, "w", format=tarfile.PAX_FORMAT) as archive:
+        directory_names = list(parent_directories)
         if root_name is not None:
-            info = tarfile.TarInfo(root_name)
+            directory_names.append(root_name)
+        for directory_name in directory_names:
+            info = tarfile.TarInfo(directory_name)
             info.type = tarfile.DIRTYPE
             info.mode = 0o755
             info.uid = runtime_uid

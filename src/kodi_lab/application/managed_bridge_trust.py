@@ -295,7 +295,7 @@ class ManagedBridgeTrustService:
             if not self._prepare(target_id, replace=True, install_reviewed=True):
                 raise ManagedBridgeTrustError("managed_bridge_establishment_failed")
 
-    def status(self, target_id: UUID) -> dict[str, str | int | None]:
+    def status(self, target_id: UUID) -> dict[str, str | int | bool | None]:
         with self.sessions() as session:
             instance = session.get(ManagedInstanceRow, str(target_id))
             profile = (
