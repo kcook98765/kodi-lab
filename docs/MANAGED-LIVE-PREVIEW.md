@@ -53,6 +53,9 @@ then one JPEG. Metadata includes capture/encode timing and the preceding frame's
 value-free send/decode/total-worker timing for bounded performance assessment.
 The cumulative `skipped_frames` count reports transient capture contention;
 adaptive pacing is reported separately through the target and limited flag.
+When a still capture holds the shared slot, preview checks again after250ms
+instead of waiting its full adaptive period. These denied checks produce no
+broker capture or queued frame. Successful frames retain normal adaptive pacing.
 Session audit entries contain aggregate counts/timing, never frame pixels.
 Capture retains the screenshot service's current eligibility and exact broker
 identity checks, followed by full fresh eligibility validation before pixels
