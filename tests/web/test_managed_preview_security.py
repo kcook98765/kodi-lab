@@ -12,12 +12,69 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.websockets import WebSocketDisconnect
 
-from kodi_lab.application.live_display import LIVE_DISPLAY_REGISTRY, LiveDisplayError
+from kodi_lab.application.live_display import (
+    LIVE_DISPLAY_REGISTRY,
+    LiveDisplayError,
+    LiveDisplayFrameSkipped,
+)
 from kodi_lab.storage.models import RuntimeExecutionProfileRow
 from kodi_lab.web.live_preview import preview_owner
 from tests.web.conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 from tests.web.test_live_display import DISPLAY_URL, authenticated_headers, enable
 from tests.web.test_managed_screenshots import make_visual_ready
+
+
+def test_contended_slot_recovers_without_waiting_full_adaptive_frame_period(
+    client: TestClient, broker: FakeBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    csrf = login(client)
+    make_visual_ready(client, csrf)
+    enable(client)
+    display = cast(Any, client.app).state.kodi_lab.live_display
+    original_begin, original_capture = display.begin, display.capture
+    denied, delivered = threading.Event(), threading.Event()
+    attempts: list[float] = []
+
+    def begin(*args: Any, **kwargs: Any) -> Any:
+        active = original_begin(*args, **kwargs)
+        active.period_seconds = 5.0
+        return active
+
+    def capture(*args: Any, **kwargs: Any) -> Any:
+        attempts.append(time.monotonic())
+        try:
+            frame = original_capture(*args, **kwargs)
+        except LiveDisplayFrameSkipped:
+            denied.set()
+            raise
+        delivered.set()
+        return frame
+
+    monkeypatch.setattr(display, "begin", begin)
+    monkeypatch.setattr(display, "capture", capture)
+    coordinator = display._screenshots._coordinator
+    coordinator.acquire(INSTANCE_ID)
+    held = True
+    try:
+        with client.websocket_connect(
+            DISPLAY_URL, headers=authenticated_headers(client)
+        ) as socket:
+            assert denied.wait(1)
+            assert broker.screenshot_calls == 1  # Only the initial native probe.
+            coordinator.release(INSTANCE_ID)
+            held = False
+            assert delivered.wait(1.5), "Released slot waited the full five seconds"
+            assert socket.receive_json()["skipped_frames"] >= 1
+            socket.receive_bytes()
+            assert len(attempts) == 2
+            assert 0.2 <= attempts[1] - attempts[0] < 1.5
+            # No new capture before a decoded ACK, even after contention.
+            time.sleep(0.3)
+            assert len(attempts) == 2 and broker.screenshot_calls == 2
+    finally:
+        if held:
+            coordinator.release(INSTANCE_ID)
+    assert LIVE_DISPLAY_REGISTRY.active_count() == 0
 
 
 def test_default_disabled_policy_and_csrf_never_capture(

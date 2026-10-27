@@ -27,6 +27,7 @@ from kodi_lab.auth.service import WebAuthenticationService
 ACK_TIMEOUT_SECONDS = 3.0
 SEND_TIMEOUT_SECONDS = 2.0
 MIN_FRAME_PERIOD_SECONDS = 0.2
+CONTENTION_BACKOFF_SECONDS = 0.25
 
 
 def preview_owner(csrf_token: str) -> str:
@@ -220,7 +221,14 @@ async def stream_preview(
                 frame = await pending(capture)
             except LiveDisplayFrameSkipped:
                 session.skipped_frames += 1
-                next_frame = max(started + session.period_seconds, loop.time() + 0.05)
+                # A denied slot produced no frame and performed no broker
+                # capture. Waiting the full adaptive frame period can lock
+                # attempts onto periodic agent screenshots and starve preview.
+                # Recheck the slot at most four times per second; successful
+                # frames still use the ordinary adaptive pacing below.
+                next_frame = max(
+                    started + CONTENTION_BACKOFF_SECONDS, loop.time() + 0.05
+                )
                 continue
             current()
             worker_seconds = loop.time() - started
