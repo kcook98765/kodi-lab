@@ -157,7 +157,7 @@ def test_happy_path_stages_disabled_target_then_enables_after_commit(
     assert result.target_class == "external_development"
     assert result.enabled and result.verified and result.paired
     assert result.kodi_version == "21.3"
-    assert result.bridge_version == "1.1.29"
+    assert result.bridge_version == "1.1.31"
     assert (
         targets.get(result.target_id).administrative_state
         is ExternalAdministrativeState.ENABLED

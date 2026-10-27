@@ -1,7 +1,7 @@
 # Selected managed add-on settings
 
 `addon_settings_set` changes ordinary declared settings of the one selected
-managed development add-on using Kodi's supported typed add-on Settings API.
+managed development add-on using Kodi's supported typed Addon setters and Settings getters.
 The server derives workspace, source, add-on, target, deployed tree, container,
 runtime revision and Bridge identity. Caller IDs cannot select another add-on.
 
@@ -69,15 +69,20 @@ CSRF-protected `POST .../contain` with an empty object. Containment proves the
 original writer is stopped; it does not undo settings or prove they were unchanged.
 A Fresh Test remains a clean profile and does not inherit these settings.
 
-Current write capability requires the reviewed stable Bridge1.1.29 on exact
-Kodi20.5 or21.3. Established27/28 and older retained identities keep their
+Current write capability requires the reviewed stable Bridge1.1.31 on exact
+Kodi20.5 or21.3. Established27/28/29/30 and older retained identities keep their
 existing authentication/inspection compatibility but cannot use settings writes.
-The RC1 overlay1.1.30 has source/artifact evidence only until separately qualified.
+The RC1 overlay1.1.32 has source/artifact evidence only until separately qualified.
 Kodi19 provides older typed Addon methods, whereas getSettings and the reviewed
 Settings interface were introduced in20;19 is not enabled by this change.
-Source evidence for20.5/21.3 shows their typed setters save the add-on store:
-[20.5 Settings.cpp](https://github.com/xbmc/xbmc/blob/20.5-Nexus/xbmc/interfaces/legacy/Settings.cpp),
-[21.3 Settings.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Settings.cpp).
+Nexus20.5's newer `Settings.set*` methods can verify only an in-memory change:
+its add-on `Save()` override returns false. The fixed operation uses the typed
+`Addon.setSettingBool/Int/Number/String` methods, which explicitly invoke
+`CAddon::SaveSettings` on20/21, with typed read-back through `getSettings()`.
+No generic string setter or profile-file editing is used. Primary source:
+[20.5 Addon.cpp](https://github.com/xbmc/xbmc/blob/20.5-Nexus/xbmc/interfaces/legacy/Addon.cpp),
+[20.5 AddonSettings.h](https://github.com/xbmc/xbmc/blob/20.5-Nexus/xbmc/addons/settings/AddonSettings.h),
+[21.3 Addon.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Addon.cpp).
 Native Ubuntu acceptance and Windows/WSL2 acceptance are separate evidence.
 
 A server-owned deadline refuses starting another setter after API acquisition
@@ -87,8 +92,8 @@ restores the already supported reconstruction lease kind omitted by0077 (#90),
 while preserving the actual0085 reverse contract.
 
 The dedicated0086 receipt/typed-lease migration is required for this capability.
-Campaign3 authorizes design and testing; deployment of that migration requires
-additional explicit approval. Do not apply it merely because source tests pass.
+Apply it through the supported matched application update procedure, with a
+verified backup/export, isolated recovery proof and deployment authorization.
 
 Historical recovery readers retain explicit compatibility with known0077–0085
 revisions where settings storage did not exist and the closed lease constraint

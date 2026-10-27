@@ -89,6 +89,84 @@ class Settings:
         return call
 
 
+class Addon:
+    def __init__(self, api: Settings) -> None:
+        self.api = api
+        self.persisted: dict[str, Any] = {}
+        self.legacy_calls: list[str] = []
+
+    def getSettings(self) -> Settings:
+        return self.api
+
+    def _save(self, method: str, key: str, value: object) -> bool:
+        self.legacy_calls.append(method)
+        getattr(self.api, method)(key, value)
+        self.persisted = dict(self.api.values)
+        return True
+
+    def setSettingBool(self, key: str, value: bool) -> bool:
+        return self._save("setBool", key, value)
+
+    def setSettingInt(self, key: str, value: int) -> bool:
+        return self._save("setInt", key, value)
+
+    def setSettingNumber(self, key: str, value: float) -> bool:
+        return self._save("setNumber", key, value)
+
+    def setSettingString(self, key: str, value: str) -> bool:
+        return self._save("setString", key, value)
+
+
+def test_typed_addon_setters_persist_when_nexus_settings_api_only_changes_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = module(monkeypatch)
+    api = Settings()
+    addon = Addon(api)
+    # Model Nexus: Settings.set* mutates the in-memory view but Save() does not
+    # save the add-on store. Only Addon.setSetting* crosses that boundary.
+    api.setBool("debug", False)
+    assert addon.persisted == {}
+    api.calls.clear()
+    result = bridge["_settings_apply"](
+        addon,
+        bridge["_settings_schema"](SCHEMA),
+        [
+            {"id": "debug", "value": True},
+            {"id": "page_size", "value": 23},
+            {"id": "opacity", "value": 0.5},
+            {"id": "title", "value": "ordinary"},
+        ],
+    )
+    assert all(item["status"] == "verified" for item in result)
+    assert addon.legacy_calls == ["setBool", "setInt", "setNumber", "setString"]
+    api.values = dict(addon.persisted)  # A separate add-on instance/restart.
+    assert api.values == {
+        "debug": True,
+        "page_size": 23,
+        "opacity": 0.5,
+        "title": "ordinary",
+    }
+
+
+@pytest.mark.parametrize(
+    "returned,expected", [(False, "internal_failure"), (True, "applied_unverified")]
+)
+def test_typed_setter_failure_or_unchanged_readback_never_claims_verified(
+    monkeypatch: pytest.MonkeyPatch, returned: bool, expected: str
+) -> None:
+    bridge = module(monkeypatch)
+    api = Settings()
+    api.values["debug"] = False
+    addon = Addon(api)
+    monkeypatch.setattr(addon, "setSettingBool", lambda _key, _value: returned)
+    result = bridge["_settings_apply"](
+        addon, bridge["_settings_schema"](SCHEMA), [{"id": "debug", "value": True}]
+    )
+    assert result == [{"id": "debug", "status": expected}]
+    assert addon.persisted == {} and api.values == {"debug": False}
+
+
 def module(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return _load(monkeypatch)
 
@@ -121,7 +199,7 @@ def test_typed_validation_and_no_value_disclosure(
 ) -> None:
     bridge = module(monkeypatch)
     api = Settings()
-    addon = type("Addon", (), {"getSettings": lambda self: api})()
+    addon = Addon(api)
     result = bridge["_settings_apply"](
         addon, bridge["_settings_schema"](SCHEMA), [{"id": key, "value": value}]
     )
@@ -136,7 +214,7 @@ def test_partial_writes_and_readback_failure_are_not_atomic(
     bridge = module(monkeypatch)
     api = Settings()
     api.read_fail = True
-    addon = type("Addon", (), {"getSettings": lambda self: api})()
+    addon = Addon(api)
     result = bridge["_settings_apply"](
         addon,
         bridge["_settings_schema"](SCHEMA),
@@ -189,7 +267,7 @@ def test_full_handler_verifies_deployed_tree_and_managed_marker(
     monkeypatch.setattr(
         bridge["xbmcaddon"],
         "Addon",
-        lambda _addon: type("Addon", (), {"getSettings": lambda self: api})(),
+        lambda _addon: Addon(api),
     )
     payload = {k: v for k, v in launch.items() if k not in {"launch_id", "ordinal"}}
     payload.update(
@@ -230,7 +308,7 @@ def test_setter_exception_is_uncertain_and_never_discloses_exception_text(
     bridge = module(monkeypatch)
     api = Settings()
     api.fail = "debug"
-    addon = type("Addon", (), {"getSettings": lambda self: api})()
+    addon = Addon(api)
     result = bridge["_settings_apply"](
         addon,
         bridge["_settings_schema"](SCHEMA),
@@ -264,7 +342,7 @@ def test_legacy_hidden_and_unsupported_options_never_call_the_api(
         'option="' + option + '"/></settings>'
     ).encode()
     api = Settings()
-    addon = type("Addon", (), {"getSettings": lambda self: api})()
+    addon = Addon(api)
     result = bridge["_settings_apply"](
         addon,
         bridge["_settings_schema"](raw),

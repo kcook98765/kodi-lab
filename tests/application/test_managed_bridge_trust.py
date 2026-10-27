@@ -101,7 +101,7 @@ class Native:
             result = {
                 "addon": {
                     "addonid": "service.kodi_lab_bridge",
-                    "version": "1.1.29",
+                    "version": "1.1.31",
                     "enabled": self.enabled,
                 }
             }
@@ -156,11 +156,11 @@ def test_prepare_confirms_identity_before_active_and_reuses_after_restart(
     )
 
 
-@pytest.mark.parametrize("predecessor", [False, True])
+@pytest.mark.parametrize("tier", ["previous", "predecessor", "settings_predecessor"])
 @pytest.mark.parametrize("release", ["21.3", "22.0-rc.1"])
 def test_existing_previous_bridge_keeps_its_credential_and_generation(
     setup: Any,
-    predecessor: bool,
+    tier: str,
     release: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -170,9 +170,7 @@ def test_existing_previous_bridge_keeps_its_credential_and_generation(
 
         rc(owner, broker, client, monkeypatch).missing = False
     assert owner.prepare(INSTANCE_ID)
-    previous = approved_bridge_build(
-        release, previous=not predecessor, predecessor=predecessor
-    )
+    previous = approved_bridge_build(release, **{tier: True})
     client.value = replace(
         client.value,
         addon_version=previous["addon_version"],
@@ -194,7 +192,7 @@ def test_existing_previous_bridge_keeps_its_credential_and_generation(
     assert secrets.read(
         INSTANCE_ID, UUID(after.secret_reference), "request_authentication"
     )
-    if predecessor:
+    if tier != "previous":
         from kodi_lab.application.managed_launch_bridge import (
             ManagedLaunchBridgeService,
         )
@@ -206,6 +204,13 @@ def test_existing_previous_bridge_keeps_its_credential_and_generation(
             ManagedLaunchBridgeService(owner.sessions, secrets).binding(
                 observed, release
             )
+        if tier == "settings_predecessor" and release == "21.3":
+            with pytest.raises(
+                ExternalBridgeError, match="managed_bridge_upgrade_required"
+            ):
+                ManagedLaunchBridgeService(owner.sessions, secrets).settings_binding(
+                    observed, release
+                )
 
 
 @pytest.mark.parametrize(

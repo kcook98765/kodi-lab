@@ -58,6 +58,7 @@ def require_approved_identity(
 ) -> None:
     builds = [approved_bridge_build(kodi_version)]
     if established:
+        builds.append(approved_bridge_build(kodi_version, settings_predecessor=True))
         builds.append(approved_bridge_build(kodi_version, recent=True))
         builds.append(approved_bridge_build(kodi_version, predecessor=True))
         builds.append(approved_bridge_build(kodi_version, previous=True))

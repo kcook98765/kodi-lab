@@ -31,10 +31,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.29"
+ADDON_VERSION = "1.1.31"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.29|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings"
+    b"kodi-lab-narrow-bridge|1.1.31|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -2326,10 +2326,10 @@ def _settings_apply(addon, schema, settings, not_after=None):
             try:
                 api = addon.getSettings()
                 setter, getter = {
-                    "boolean": ("setBool", "getBool"),
-                    "integer": ("setInt", "getInt"),
-                    "number": ("setNumber", "getNumber"),
-                    "string": ("setString", "getString"),
+                    "boolean": ("setSettingBool", "getBool"),
+                    "integer": ("setSettingInt", "getInt"),
+                    "number": ("setSettingNumber", "getNumber"),
+                    "string": ("setSettingString", "getString"),
                 }[kind]
                 # Only fixed supported Kodi20+ APIs; no evaluation/import/dispatch
                 # of caller-provided names or strings as code.
@@ -2337,7 +2337,10 @@ def _settings_apply(addon, schema, settings, not_after=None):
                     result["status"] = "not_attempted"
                     results.append(result)
                     continue
-                applied = getattr(api, setter)(
+                # Nexus20.5 Settings.set* only changes memory: its add-on
+                # CSettingsBase::Save() override returns false. The supported
+                # typed Addon setters invoke CAddon::SaveSettings on20/21.
+                applied = getattr(addon, setter)(
                     key, float(value) if kind == "number" else value
                 )
                 if applied is False:

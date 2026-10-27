@@ -33,7 +33,7 @@ mkdir "$output/repository"
 cp "$repository/repository/STABLE.json" "$output/repository/STABLE.json"
 cp "$repository/repository/DEVELOPMENT.json" "$output/repository/DEVELOPMENT.json"
 python3 "$repository/scripts/build_narrow_bridge.py" \
-  --output "$output/bridge/service.kodi_lab_bridge-1.1.29.zip" \
+  --output "$output/bridge/service.kodi_lab_bridge-1.1.31.zip" \
   --provenance "$output/bridge/BRIDGE.json"
 
 build_network=${KODI_LAB_BUNDLE_BUILD_NETWORK:-default}
