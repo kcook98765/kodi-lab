@@ -1,8 +1,8 @@
 {
   "LICENSE": "94c2b0e7e7dcc7a3a05c29bd70c6ca1f06bd501cc1d705cdff08acbf0cc03e95",
-  "README.md": "6d198849e31e5035daf3fb5b048eaf31270f07ec19ab6bf9c7ac4d6e185f8865",
-  "addon.xml": "add06bac896146794ed3069a888d1b38953d77d49854d1303e3e2adc583cf336",
-  "narrow_bridge.py": "2f3f1ba547936db1e9c7bdcf0657ff6e5ce8f63f894f29ac94a56700ddd00e78",
+  "README.md": "7e3258cb64327caa583cb5549f3b06809017c5a10decbab5a5b51cf9d5471763",
+  "addon.xml": "67286d62230cae478585cf92cf88d5517f864736850207314629d26c7db9a497",
+  "narrow_bridge.py": "0291381bf596322b50fb6bbef3ff7de1b635ffd4c31d006f5ed8fcccbf6c12a2",
   "ui_observation.py": "1a4f718ac1630db96aeebf851ee83d5d2df91dd2f83b2192aafc902f1dcce3b1",
   "onboarding.py": "a0a9da06c86014636a8557316f58cf019a37507a66aea39ba3503c24f8992162",
   "pairing_ui.py": "0d42f356d1f2a7035c0d6285dc01ed19182ca63b60c1bfb5c8182c8edaf4a514",

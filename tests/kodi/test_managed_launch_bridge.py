@@ -283,7 +283,7 @@ def test_authenticated_wire_launch_receipt_and_predispatch_error(
         )
         identity, receipt = client.managed_launch(endpoint, intent=intent, **kwargs)
         assert (
-            identity.addon_version == "1.1.29"
+            identity.addon_version == "1.1.31"
             and receipt is not None
             and receipt.state == "accepted"
         )
