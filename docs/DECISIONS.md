@@ -7143,6 +7143,15 @@ a route-specific 64 KiB limit only in the qualification launcher; ordinary
 WebSockets retain 256 bytes. No public VNC port, managed mount or additional
 production service is introduced.
 
+Web-to-broker RFB data and trusted authorization pulses use separate envelope
+kinds. A two-second missing-Web-pulse deadline fences a frozen Web process;
+browser payload bytes cannot extend it. Auth/catalog reads have bounded waits
+and retain bounded read capacity until their underlying threads finish. Only
+the authenticated prototype page permits data images in CSP, as required by
+the pinned noVNC JPEG decoder. Other pages retain their existing policy. Default
+catalog selection rejects the experimental recipe unless its explicit internal
+Phase 1 selection policy is enabled.
+
 This is an experimental view-only transport, not interactive or audio authority.
 Native security, cleanup and measured performance determine its disposition.
 A controller lease requires separate implementation and owner approval.

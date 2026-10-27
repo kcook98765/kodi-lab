@@ -119,7 +119,7 @@ def main() -> None:
         try:
             server.serve_forever(stopped)
         finally:
-            (Path("/tmp") / "novnc-cleanup.json").write_text(
+            print(
                 json.dumps(
                     [
                         {
@@ -133,7 +133,8 @@ def main() -> None:
                         }
                         for r in lane.results
                     ]
-                )
+                ),
+                flush=True,
             )
     else:
         viewer = PrototypeViewer(settings.runtime_root / "display.sock", authority)

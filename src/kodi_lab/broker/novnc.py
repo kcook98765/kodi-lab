@@ -27,6 +27,7 @@ from kodi_lab.broker.socket_path import SocketPathConfig, prepare_unix_listener
 CHUNK = 65536
 BACKLOG = 1024 * 1024
 MAX_SESSION = 900.0
+WEB_LEASE_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,9 @@ class DockerViewTunnel:
         output = bytearray()
         from_exec = bytearray()
         to_exec = bytearray()
+        from_web = bytearray()
         renewed = 0.0
+        web_renewed = start
         try:
             if not self.valid():
                 raise ValueError("view identity denied")
@@ -131,6 +134,9 @@ class DockerViewTunnel:
             last_write = time.monotonic()
             while not stopped.is_set() and time.monotonic() - start < MAX_SESSION:
                 now = time.monotonic()
+                if now - web_renewed >= WEB_LEASE_SECONDS:
+                    self.result.reason = "web_lease_expired"
+                    break
                 if now - renewed >= 1:
                     # A fresh authority check, not browser traffic, renews the helper.
                     if not self.valid():
@@ -152,9 +158,24 @@ class DockerViewTunnel:
                             if not payload:
                                 self.result.reason = "disconnect"
                                 return
-                            self.result.bytes_up += len(payload)
-                            to_exec.extend(struct.pack("!BI", 1, len(payload)))
-                            to_exec.extend(payload)
+                            from_web.extend(payload)
+                            while len(from_web) >= 5:
+                                kind, size = struct.unpack("!BI", from_web[:5])
+                                if (
+                                    kind not in (1, 2)
+                                    or size > CHUNK
+                                    or (kind == 2 and size)
+                                ):
+                                    raise ValueError("invalid private view envelope")
+                                if len(from_web) < 5 + size:
+                                    break
+                                if kind == 2:
+                                    web_renewed = time.monotonic()
+                                else:
+                                    self.result.bytes_up += size
+                                    to_exec.extend(struct.pack("!BI", 1, size))
+                                    to_exec.extend(from_web[5 : 5 + size])
+                                del from_web[: 5 + size]
                         if mask & selectors.EVENT_WRITE and output:
                             size = web.send(output[:CHUNK])
                             del output[:size]
@@ -189,11 +210,15 @@ class DockerViewTunnel:
                         if mask & selectors.EVENT_WRITE and to_exec:
                             size = wire.send(to_exec[:CHUNK])
                             del to_exec[:size]
-                if max(len(output), len(from_exec), len(to_exec)) > BACKLOG:
+                if (
+                    max(len(output), len(from_exec), len(to_exec), len(from_web))
+                    > BACKLOG
+                ):
                     raise ValueError("display backlog exceeded")
                 if output and time.monotonic() - last_write > 2:
                     raise TimeoutError("display consumer stalled")
-            self.result.reason = "cancelled"
+            if self.result.reason == "failed":
+                self.result.reason = "cancelled"
         finally:
             ending = time.monotonic()
             selector.close()

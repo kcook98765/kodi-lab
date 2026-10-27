@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 
+from kodi_lab.broker import novnc as transport
 from kodi_lab.broker.authorization import ExactUidAuthorizationPolicy
 from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.novnc import (
@@ -73,7 +74,7 @@ def test_fragmented_docker_headers_and_trusted_lease_separation() -> None:
         assert client.helper.recv(5) == struct.pack("!BI", 2, 0)
         # Browser bytes that look like renewal are still enclosed as RFB data.
         forged = struct.pack("!BI", 2, 0)
-        web.sendall(forged)
+        web.sendall(struct.pack("!BI", 1, len(forged)) + forged)
         assert client.helper.recv(10) == struct.pack("!BI", 1, 5) + forged
         framed = struct.pack("!B3sI", 1, b"\0\0\0", 12) + b"RFB 003.008\n"
         for part in (framed[:3], framed[3:9], framed[9:]):
@@ -175,3 +176,27 @@ def test_closed_admission(change: dict[str, Any]) -> None:
     value.update(change)
     with pytest.raises(ValueError):
         ViewRequest.decode(json.dumps(value).encode(), "ticket")
+
+
+def test_browser_data_cannot_renew_a_stalled_web_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(transport, "WEB_LEASE_SECONDS", 0.2)
+    client = DockerDouble()
+    tunnel = make_tunnel(client)
+    web, broker = socket.socketpair()
+    thread = Thread(target=tunnel.run, args=(broker, Event()))
+    thread.start()
+    try:
+        began = time.monotonic()
+        while time.monotonic() - began < 0.35:
+            web.sendall(struct.pack("!BI", 1, 1) + b"x")
+            time.sleep(0.03)
+        thread.join(1)
+        assert not thread.is_alive()
+        assert tunnel.result.terminated
+        assert tunnel.result.reason == "web_lease_expired"
+    finally:
+        web.close()
+        broker.close()
+        thread.join(1)

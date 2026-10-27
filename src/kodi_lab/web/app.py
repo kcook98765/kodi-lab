@@ -2420,6 +2420,13 @@ def create_app(
             "img-src 'self' blob:; connect-src 'self'; object-src 'none'; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
+        if (
+            novnc_viewer is not None
+            and getattr(request.scope.get("route"), "name", None) == "novnc_phase1_page"
+        ):
+            response.headers["Content-Security-Policy"] = response.headers[
+                "Content-Security-Policy"
+            ].replace("img-src 'self' blob:", "img-src 'self' blob: data:")
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response

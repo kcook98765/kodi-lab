@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from threading import Barrier, Event, Thread
 from typing import Any
 from uuid import uuid4
 
@@ -135,6 +137,89 @@ def test_enabled_routes_require_admin_csrf_origin_and_closed_schema(
     assert client.post(path, json=body, headers=headers).status_code == 409
     page = client.get(f"/instances/{INSTANCE_ID}/novnc-phase1")
     assert page.status_code == 200 and "No input or audio" in page.text
+    assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
+    assert "data:" not in client.get("/").headers["content-security-policy"]
+
+
+def test_prototype_admission_body_is_bounded_before_auth(
+    enabled_client: TestClient,
+) -> None:
+    path = f"/api/instances/{INSTANCE_ID}/novnc-start"
+    assert enabled_client.post(path, content=b"x" * 513).status_code == 413
+
+    def chunks() -> Any:
+        yield b"x" * 256
+        yield b"x" * 257
+
+    assert enabled_client.post(path, content=chunks()).status_code == 413
+
+
+def test_pending_authority_checks_have_a_hard_capacity_limit() -> None:
+    service = viewer()
+    original = service.authority
+    entered = Barrier(3)
+    release = Event()
+    errors = []
+
+    def authority(instance: Any) -> ViewBinding:
+        entered.wait(timeout=2)
+        assert release.wait(2)
+        return original(instance)
+
+    service.authority = authority
+
+    def start() -> None:
+        try:
+            service.start(uuid4(), "owner", StartView(attempt=uuid4()))
+        except Exception as error:
+            errors.append(error)
+
+    threads = [Thread(target=start) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    try:
+        entered.wait(timeout=2)
+        with pytest.raises(ValueError, match="capacity"):
+            service.start(uuid4(), "owner", StartView(attempt=uuid4()))
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(2)
+        service.close()
+    assert not errors and not any(t.is_alive() for t in threads)
+
+
+def test_timed_out_checks_hold_only_bounded_real_worker_capacity() -> None:
+    service = viewer()
+    release = Event()
+
+    def blocked() -> bool:
+        assert release.wait(2)
+        return True
+
+    async def scenario() -> None:
+        try:
+            results = await asyncio.gather(
+                service.checked(blocked, timeout=0.05),
+                service.checked(blocked, timeout=0.05),
+                return_exceptions=True,
+            )
+            assert all(isinstance(x, TimeoutError) for x in results)
+            with pytest.raises(ValueError, match="capacity"):
+                await service.checked(lambda: True)
+        finally:
+            release.set()
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            try:
+                assert await service.checked(lambda: True)
+                break
+            except ValueError:
+                continue
+        else:
+            raise AssertionError("read capacity did not return after real completion")
+
+    asyncio.run(scenario())
 
 
 def test_websocket_rejects_missing_ticket_wrong_origin_and_query(
