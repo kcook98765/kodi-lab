@@ -54,6 +54,10 @@ value-free send/decode/total-worker timing for bounded performance assessment.
 The cumulative `skipped_frames` count reports transient capture contention;
 adaptive pacing is reported separately through the target and limited flag.
 Session audit entries contain aggregate counts/timing, never frame pixels.
+Capture retains the screenshot service's current eligibility and exact broker
+identity checks, followed by full fresh eligibility validation before pixels
+are sent. Lightweight current-authority checks guard the capture boundaries;
+they do not cache permissions or replace the final delivery validation.
 Its only accepted browser message is the exact decoded-frame ACK:
 `{"v":1,"ack":1,"decode_ms":12.5}`. ACKs cannot control Kodi. Each wait and
 completed frame revalidates Web authentication and current policy/identity.

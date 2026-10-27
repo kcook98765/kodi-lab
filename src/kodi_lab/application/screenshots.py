@@ -64,6 +64,10 @@ class ScreenshotServiceError(RuntimeError):
         super().__init__(self.safe_message)
 
 
+class ScreenshotIdentityChangedError(ScreenshotServiceError):
+    """Exact capture identity drift, retaining the existing still error code."""
+
+
 class ManagedScreenshotStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -442,7 +446,7 @@ class ManagedScreenshotService:
         prepared = False
         try:
             if self._eligible_container(instance_id) != container_id:
-                raise ScreenshotServiceError(
+                raise ScreenshotIdentityChangedError(
                     "screenshot_capture_unavailable",
                     "Managed runtime identity changed before capture.",
                 )
@@ -459,7 +463,7 @@ class ManagedScreenshotService:
                 or outcome.container_id != container_id
                 or outcome.runtime_revision_id != str(runtime_revision_id)
             ):
-                raise ScreenshotServiceError(
+                raise ScreenshotIdentityChangedError(
                     "screenshot_capture_unavailable",
                     "Screenshot runtime identity changed during capture.",
                 )
@@ -541,7 +545,7 @@ class ManagedScreenshotService:
 
     def _revalidate_container(self, instance_id: UUID, container_id: str) -> None:
         if self._eligible_container(instance_id) != container_id:
-            raise ScreenshotServiceError(
+            raise ScreenshotIdentityChangedError(
                 "screenshot_capture_unavailable",
                 "Managed runtime identity changed before screenshot publication.",
             )

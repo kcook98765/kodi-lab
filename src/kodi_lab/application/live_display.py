@@ -21,6 +21,7 @@ from kodi_lab.application.runtime_status import (
 from kodi_lab.application.screenshots import (
     EphemeralJpegFrame,
     ManagedScreenshotService,
+    ScreenshotIdentityChangedError,
     ScreenshotServiceError,
 )
 from kodi_lab.broker.docker_inventory import (
@@ -582,13 +583,21 @@ class ManagedLiveDisplayService:
         return self._registry.session_id(instance_id)
 
     def capture(self, session: LiveDisplaySession) -> EphemeralJpegFrame:
-        self._validate_session(session)
+        # Screenshot capture already checks current eligibility, exact broker
+        # identities and post-read container identity. Keep the cheap revocable
+        # authority barriers here; full delivery validation still runs after
+        # metadata and immediately before pixel submission.
+        self.check_current(session)
         try:
             frame = self._screenshots.capture_preview(
                 session.instance_id,
                 expected_runtime_revision_id=session.runtime_revision_id,
                 expected_container_id=session.container_id,
             )
+        except ScreenshotIdentityChangedError as error:
+            raise LiveDisplayError(
+                "display_unavailable", "Managed runtime identity changed."
+            ) from error
         except ScreenshotServiceError as error:
             if error.code in {
                 "screenshot_capture_in_progress",
@@ -596,11 +605,13 @@ class ManagedLiveDisplayService:
             }:
                 raise LiveDisplayFrameSkipped from error
             if error.code in {
+                "display_unavailable",
                 "visual_instance_not_running",
                 "visual_kodi_not_ready",
                 "screenshot_unsupported",
             }:
                 mapping = {
+                    "display_unavailable": "display_unavailable",
                     "visual_instance_not_running": "display_instance_not_running",
                     "visual_kodi_not_ready": "display_kodi_not_ready",
                     "screenshot_unsupported": "display_unsupported",
@@ -615,7 +626,7 @@ class ManagedLiveDisplayService:
             raise LiveDisplayError(
                 "display_backend_failed", "The live-display backend failed safely."
             ) from error
-        self._validate_session(session)
+        self.check_current(session)
         return frame
 
     def record_delivery(self, session: LiveDisplaySession, byte_count: int) -> None:
