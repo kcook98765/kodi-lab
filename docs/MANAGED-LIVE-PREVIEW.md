@@ -51,6 +51,8 @@ separate from campaign-level native performance/acceptance evidence.
 The existing authenticated WebSocket endpoint sends bounded version1 metadata
 then one JPEG. Metadata includes capture/encode timing and the preceding frame's
 value-free send/decode/total-worker timing for bounded performance assessment.
+The cumulative `skipped_frames` count reports transient capture contention;
+adaptive pacing is reported separately through the target and limited flag.
 Session audit entries contain aggregate counts/timing, never frame pixels.
 Its only accepted browser message is the exact decoded-frame ACK:
 `{"v":1,"ack":1,"decode_ms":12.5}`. ACKs cannot control Kodi. Each wait and

@@ -242,6 +242,7 @@ async def stream_preview(
                 ),
                 "capture_ms": round(frame.capture_ms, 2),
                 "encode_ms": round(frame.encode_ms, 2),
+                "skipped_frames": session.skipped_frames,
                 "previous_delivery": session.previous_delivery,
                 "target_fps": session.target_fps,
                 "limited": session.period_seconds > 1 / session.target_fps + 0.01,

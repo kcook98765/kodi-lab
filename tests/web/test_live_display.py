@@ -63,9 +63,11 @@ def enable(client: TestClient) -> None:
 class FrameSocket:
     def __init__(self, socket: Any) -> None:
         self.socket = socket
+        self.metadata: dict[str, Any] | None = None
 
     def receive_bytes(self) -> bytes:
         metadata = self.socket.receive_json()
+        self.metadata = metadata
         assert metadata["v"] == 1 and metadata["mime"] == "image/jpeg"
         data = self.socket.receive_bytes()
         self.socket.send_json({"v": 1, "ack": metadata["seq"], "decode_ms": 1})
@@ -415,7 +417,10 @@ def test_transient_durable_capture_contention_skips_without_closing(
     monkeypatch.setattr(context.screenshots, "capture_preview", contend_once)
     with connect(client) as websocket:
         assert websocket.receive_bytes().startswith(JPEG_SIGNATURE)
+        assert websocket.metadata is not None
+        assert websocket.metadata["skipped_frames"] == 0
         assert websocket.receive_bytes().startswith(JPEG_SIGNATURE)
+        assert websocket.metadata["skipped_frames"] == 1
     assert calls == 4
 
 
