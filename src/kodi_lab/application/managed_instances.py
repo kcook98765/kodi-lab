@@ -86,11 +86,13 @@ class ManagedInstanceService:
         include_legacy: bool = False,
         include_prerelease: bool = False,
         preview_recipe_digest: str | None = None,
+        novnc_phase1: bool = False,
         reset_operations: ResetOperationCoordinator | None = None,
         mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._selection_policy = RuntimeSelectionPolicy(
+            novnc_phase1=novnc_phase1,
             trusted_custom_builds_enabled=trusted_custom_builds_enabled,
             include_legacy=include_legacy,
             include_prerelease=include_prerelease,

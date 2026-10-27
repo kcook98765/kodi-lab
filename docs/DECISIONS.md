@@ -7120,3 +7120,29 @@ monotonic pacing, bounded delivery and real-worker capacity retirement. The
 explicit1FPS default and adaptive3FPS target preserve measured broker headroom;
 lower achieved rates are acceptable. Still images remain independent and start
 with periodic capture paused. Native performance evidence is runtime-specific.
+
+## D-0457: Explicitly pinned view-only noVNC Phase 1 qualification
+
+The Phase 1 prototype preserves Xvfb and the existing JPEG/still paths. It is
+enabled only by an injected viewer and the separate qualification entrypoint,
+with a root-owned immutable target/image/container-start/catalog pin. Ordinary
+Web/broker launchers and the current Omega recipe selection remain unchanged.
+The optional Omega revision 3 recipe pins the signed TigerVNC package and a
+root-owned helper. Its x0 process disables TCP, keyboard, pointer, clipboard,
+primary selection and resize capabilities. The browser also selects view-only.
+
+A separate bounded broker Unix data listener authenticates the exact Web UID.
+Its workers own attached Docker exec streams independently of sequential broker
+commands. Only the broker creates renewal envelopes; a three-second helper
+watchdog expires without renewal, supervises/reaps x0, and arranges Linux
+parent-death termination. Failed cleanup retains broker capacity. Authenticated
+same-origin browser attachment uses short-lived one-use tab tickets, existing
+CSRF and the shared one-per-instance/two-global display registry. Catalog and
+runtime identities are revalidated on a bounded watchdog. RFB messages receive
+a route-specific 64 KiB limit only in the qualification launcher; ordinary
+WebSockets retain 256 bytes. No public VNC port, managed mount or additional
+production service is introduced.
+
+This is an experimental view-only transport, not interactive or audio authority.
+Native security, cleanup and measured performance determine its disposition.
+A controller lease requires separate implementation and owner approval.

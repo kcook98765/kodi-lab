@@ -620,6 +620,8 @@ from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
 )
+from kodi_lab.web.novnc import PrototypeViewer
+from kodi_lab.web.novnc import install_routes as install_novnc_routes
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
     STATE_LABELS,
@@ -1416,6 +1418,7 @@ def create_app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     broker: Any,
+    novnc_viewer: PrototypeViewer | None = None,
     readiness: ReadinessTaskRegistry | None = None,
     reset_activity: ResetActivityRegistry | None = None,
     auth: WebAuthenticationService | None = None,
@@ -2316,9 +2319,28 @@ def create_app(
         context.managed_idle_worker.start()
         context.mcp_workspace_retention.sweep(force=True)
         async with context.mcp_transport.server.session_manager.run():
+
+            async def expire_novnc_tickets() -> None:
+                while True:
+                    if novnc_viewer is not None:
+                        with novnc_viewer.lock:
+                            novnc_viewer._expire()
+                    await asyncio.sleep(0.25)
+
+            novnc_sweeper = (
+                asyncio.create_task(expire_novnc_tickets())
+                if novnc_viewer is not None
+                else None
+            )
             try:
                 yield
             finally:
+                if novnc_viewer is not None:
+                    novnc_viewer.close()
+                if novnc_sweeper is not None:
+                    novnc_sweeper.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await novnc_sweeper
                 context.managed_idle_worker.close()
                 context.reset_executor.close()
                 context.reconstruction_executor.close()
@@ -2368,6 +2390,7 @@ def create_app(
     # Older host processes can share the templates without these new routes.
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
+    templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
@@ -7106,6 +7129,17 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedScreenshotStatus:
         return context.screenshots.get_status(instance_id)
+
+    if novnc_viewer is not None:
+        install_novnc_routes(
+            app,
+            novnc_viewer,
+            context.auth,
+            settings.web_session_cookie_name,
+            current_session,
+            mutation_session,
+            _websocket_same_origin,
+        )
 
     @app.post("/api/instances/{instance_id}/display-policy")
     async def set_managed_display_policy(

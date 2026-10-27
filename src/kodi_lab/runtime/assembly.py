@@ -144,6 +144,13 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         if "xvfb_guard.py" in reviewed.assets
         else ""
     )
+    view_helper_copy = (
+        "COPY --chown=root:root novnc_view_helper.py "
+        "/usr/local/lib/kodi-lab-novnc-view.py\n"
+        "RUN chmod 0444 /usr/local/lib/kodi-lab-novnc-view.py\n"
+        if "novnc_view_helper.py" in reviewed.assets
+        else ""
+    )
     return (
         f"FROM {recipe.base_image_reference}\n"
         "ENV DEBIAN_FRONTEND=noninteractive\n"
@@ -168,6 +175,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         "    && install -d -m 1777 -o root -g root /tmp/.X11-unix\n"
         "COPY --chown=kodi:kodi entrypoint.sh /usr/local/bin/kodi-lab-entrypoint\n"
         f"{display_guard_copy}"
+        f"{view_helper_copy}"
         "COPY --chown=kodi:kodi healthcheck.sh "
         "/usr/local/bin/kodi-lab-kodi-healthcheck\n"
         "COPY --chown=kodi:kodi profile/guisettings.xml "

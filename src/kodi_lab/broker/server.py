@@ -26,6 +26,7 @@ from kodi_lab.broker.errors import (
     TrailingFrameDataError,
     TruncatedFrameError,
 )
+from kodi_lab.broker.novnc import DisplayLane
 from kodi_lab.broker.operations import OperationRegistry, build_foundation_registry
 from kodi_lab.broker.protocol import (
     Response,
@@ -107,6 +108,7 @@ class BrokerServer:
         audit_logger: logging.Logger | None = None,
         read_timeout: float = READ_TIMEOUT_SECONDS,
         write_timeout: float = WRITE_TIMEOUT_SECONDS,
+        display_lane: DisplayLane | None = None,
     ) -> None:
         self._socket_config = socket_config
         self._authorization = authorization
@@ -116,6 +118,7 @@ class BrokerServer:
         self._read_timeout = read_timeout
         self._write_timeout = write_timeout
         self._prepared: PreparedUnixListener | None = None
+        self._display_lane = display_lane
 
     @classmethod
     def production(cls) -> BrokerServer:
@@ -147,6 +150,8 @@ class BrokerServer:
     def close(self) -> None:
         """Close the listener and safely remove only its socket inode."""
 
+        if self._display_lane is not None:
+            self._display_lane.close()
         prepared = self._prepared
         self._prepared = None
         if prepared is not None:
@@ -161,6 +166,8 @@ class BrokerServer:
         listener = self._prepared.socket
         listener.settimeout(0.2)
         try:
+            if self._display_lane is not None:
+                self._display_lane.start(stop_event)
             while stop_event is None or not stop_event.is_set():
                 try:
                     connection, _address = listener.accept()

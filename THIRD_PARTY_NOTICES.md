@@ -89,3 +89,11 @@ from the distributed bundle/wheel. Redistributing prebuilt images would require
 matching source delivery and compliance with the applicable
 [Kodi distribution policy](https://kodi.wiki/view/Official:Distribution_Policy),
 including branding. That is not the on-demand installation workflow qualified here.
+
+The optional noVNC Phase 1 client vendors noVNC 1.6.0 from the upstream tagged
+release. Its MPL-2.0 license and component notices accompany the static assets
+under `src/kodi_lab/web/static/vendor/novnc/`; `SOURCE.json` records the archive
+and individual-file SHA256 identities. The optional runtime recipe installs
+TigerVNC from signed Ubuntu packages. TigerVNC and dependency licenses and
+source-offer obligations remain those supplied by Ubuntu and upstream; no
+prebuilt runtime image is published by this prototype.

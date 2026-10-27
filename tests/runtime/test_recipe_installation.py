@@ -41,7 +41,7 @@ from kodi_lab.runtime.install import (
     recipe_target_id,
 )
 from kodi_lab.runtime.lab import LabWorkflowError, repin_reviewed_runtime
-from kodi_lab.runtime.recipes import load_reviewed_recipe
+from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, load_reviewed_recipe
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.runtime.validation import ValidationResult
 from kodi_lab.storage import metadata
@@ -178,6 +178,48 @@ def _ready(
         data_root=Settings().data_root,
     )
     return operation_id
+
+
+def test_ready_novnc_candidate_requires_explicit_selection_policy(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.runtime_matrix import RuntimeMatrixService
+
+    reviewed = load_novnc_phase1_recipe()
+    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: reviewed)
+    operation = _ready(factory, generation="omega")
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation)
+        assert row is not None and row.runtime_revision_id is not None
+        assert row.recipe_revision == 3
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        assert revision is not None and definition is not None
+        policy = RuntimeRevisionEligibilityPolicy()
+        assert not policy.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(),
+        ).eligible
+        assert policy.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(novnc_phase1=True),
+        ).eligible
+        assert supports_reviewed_recipe_capability(session, revision.id, "screenshot")
+    matrix = RuntimeMatrixService(factory).list_matrix()
+    candidate = next(
+        x
+        for x in matrix.runtimes
+        if x.runtime_definition_id == reviewed.recipe.definition_id
+    )
+    assert not candidate.selectable and candidate.selected_revision_number is None
 
 
 def test_ready_install_is_eligible_and_creates_one_exact_managed_pin(

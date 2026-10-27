@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from kodi_lab.runtime.recipes import NOVNC_PHASE1_DIGEST
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
@@ -12,6 +13,7 @@ from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 # container, session and runtime-state token is separately bound by the grant.
 # Screenshot support alone never enables streaming. Other recipes fail closed.
 LIVE_PREVIEW_RECIPES = {
+    ("ubuntu-resolute-omega-21.3", 3): NOVNC_PHASE1_DIGEST,
     (
         "ubuntu-resolute-omega-21.3",
         2,

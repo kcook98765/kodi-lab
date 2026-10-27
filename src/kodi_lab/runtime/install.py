@@ -55,6 +55,7 @@ from kodi_lab.runtime.ostree_installation import (
     ostree_attestation,
 )
 from kodi_lab.runtime.recipes import (
+    NOVNC_PHASE1_DIGEST,
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
     FlathubOstreeProvider,
@@ -62,6 +63,7 @@ from kodi_lab.runtime.recipes import (
     SignedDistroAptProvider,
     load_inactive_ostree_recipe,
     load_installation_recipe,
+    load_novnc_phase1_recipe,
 )
 from kodi_lab.runtime.recipes import recipe_target_id as recipe_target_id
 from kodi_lab.runtime.temporary_networks import (
@@ -335,6 +337,7 @@ def _ready_installation(
                 definition=definition,
                 revision=revision,
                 policy=RuntimeSelectionPolicy(
+                    novnc_phase1=reviewed.digest == NOVNC_PHASE1_DIGEST,
                     include_legacy=True,
                     include_prerelease=reviewed.recipe.generation == "piers",
                     preview_recipe_digest=reviewed.digest
@@ -527,7 +530,9 @@ def bootstrap_recipe_instance(
             ):
                 raise RecipeInstallationError("managed generation pin conflicts")
             return {"target_id": str(target_id), "created": "false"}
-    ManagedInstanceService(factory).create(
+    ManagedInstanceService(
+        factory, novnc_phase1=reviewed.digest == NOVNC_PHASE1_DIGEST
+    ).create(
         target_id=target_id,
         selection=ExactRevisionSelection(reviewed.recipe.definition_id, revision_id),
         instance_type=InstanceType.DISPOSABLE,
@@ -671,10 +676,17 @@ def install_reviewed_runtime(
     settings: Settings,
     report: Callable[[str], None] = print,
     operation_id: UUID | None = None,
+    novnc_phase1: bool = False,
 ) -> InstallOutcome:
     """Install or ensure one reviewed generation through exact local evidence."""
 
-    reviewed = load_installation_recipe(generation)
+    if novnc_phase1 and generation != "omega":
+        raise RecipeInstallationError("Phase 1 is limited to Omega")
+    reviewed = (
+        load_novnc_phase1_recipe()
+        if novnc_phase1
+        else load_installation_recipe(generation)
+    )
     preview_ack = None
     if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
         from kodi_lab.runtime.preview import recorded_acknowledgement

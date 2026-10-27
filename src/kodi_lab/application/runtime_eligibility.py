@@ -27,6 +27,7 @@ from kodi_lab.runtime.attestation_integrity import (
     verify_attestation,
 )
 from kodi_lab.runtime.recipes import (
+    NOVNC_PHASE1_DIGEST,
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
     FlathubOstreeProvider,
@@ -63,6 +64,7 @@ class RuntimeSelectionPolicy:
     preview_recipe_digest: str | None = None
     trusted_custom_builds_enabled: bool = False
     validation_contract: str = KODI_RUNTIME_VALIDATION_CONTRACT
+    novnc_phase1: bool = False
 
     def permits(self, tier: RuntimeSupportTier) -> bool:
         if tier is RuntimeSupportTier.CURRENT:
@@ -236,6 +238,8 @@ class RuntimeRevisionEligibilityPolicy:
             return self._no(RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE)
         if required_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE)
+        if revision.manifest_digest == NOVNC_PHASE1_DIGEST and not policy.novnc_phase1:
+            return self._no(RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE)
         if not policy.permits(definition.support_tier):
             return self._no(RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED)
         if revision.approval_state is not RevisionApprovalState.APPROVED:
