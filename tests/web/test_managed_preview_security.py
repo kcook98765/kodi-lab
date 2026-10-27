@@ -9,11 +9,13 @@ from uuid import uuid4
 import pytest
 from fastapi import WebSocket
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.websockets import WebSocketDisconnect
 
 from kodi_lab.application.live_display import LIVE_DISPLAY_REGISTRY, LiveDisplayError
+from kodi_lab.storage.models import RuntimeExecutionProfileRow
 from kodi_lab.web.live_preview import preview_owner
-from tests.web.conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
+from tests.web.conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 from tests.web.test_live_display import DISPLAY_URL, authenticated_headers, enable
 from tests.web.test_managed_screenshots import make_visual_ready
 
@@ -47,6 +49,69 @@ def test_default_disabled_policy_and_csrf_never_capture(
         == 422
     )
     assert broker.screenshot_calls == 0 and LIVE_DISPLAY_REGISTRY.active_count() == 0
+
+
+def test_one_frame_and_fresh_delivery_stay_within_inventory_round_trip_budget(
+    client: TestClient, broker: FakeBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    csrf = login(client)
+    make_visual_ready(client, csrf)
+    enable(client)
+    display = cast(Any, client.app).state.kodi_lab.live_display
+    active = display.begin(INSTANCE_ID, preview_owner(csrf))
+    inventory_calls: list[dict[str, Any]] = []
+    original = broker.managed_container_inventory
+
+    def inventory(**kwargs: Any) -> Any:
+        inventory_calls.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(broker, "managed_container_inventory", inventory)
+    try:
+        frame = display.capture(active)
+        display.validate_delivery(active)
+        assert frame.jpeg.startswith(b"\xff\xd8")
+        assert broker.screenshot_calls == 2  # Native probe plus this one frame.
+        # Exact capture/post-read identity and full final delivery checks remain;
+        # repeating full eligibility around them added six costly broker RPCs.
+        assert len(inventory_calls) <= 6
+    finally:
+        display.end(active, "test_complete")
+    assert LIVE_DISPLAY_REGISTRY.active_count() == 0
+
+
+def test_capability_change_after_metadata_refuses_completed_frame_pixels(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csrf = login(client)
+    make_visual_ready(client, csrf)
+    enable(client)
+    entered, release = threading.Event(), threading.Event()
+    original = WebSocket.send_json
+
+    async def metadata(websocket: WebSocket, value: Any, **kwargs: Any) -> None:
+        entered.set()
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        await original(websocket, value, **kwargs)
+
+    monkeypatch.setattr(WebSocket, "send_json", metadata)
+    with client.websocket_connect(
+        DISPLAY_URL, headers=authenticated_headers(client)
+    ) as socket:
+        assert entered.wait(2)
+        with database.begin() as session:
+            profile = session.get(RuntimeExecutionProfileRow, str(REVISION_ID))
+            assert profile is not None
+            profile.expected_kodi_version = "21.4"
+        release.set()
+        assert socket.receive_json()["seq"] == 1
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_bytes()
+    assert broker.screenshot_calls == 2 and LIVE_DISPLAY_REGISTRY.active_count() == 0
 
 
 def test_no_next_capture_until_browser_decodes_and_acks(
