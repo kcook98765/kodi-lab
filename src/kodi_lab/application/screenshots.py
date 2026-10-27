@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
+from time import monotonic
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -29,6 +30,7 @@ from kodi_lab.broker.operations import (
     CaptureManagedKodiScreenshotResult,
     ManagedContainerInventoryResult,
 )
+from kodi_lab.kodi.preview import PREVIEW_HEIGHT, PREVIEW_WIDTH, x11_frame_to_preview
 from kodi_lab.kodi.screenshots import (
     PNG_MIME_TYPE,
     ScreenshotArtifactError,
@@ -43,6 +45,7 @@ from kodi_lab.kodi.screenshots import (
     validate_png,
     x11_frame_to_png,
 )
+from kodi_lab.runtime.live_preview import reviewed_live_preview_prerequisites
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.storage.models import (
     ManagedScreenshotRow,
@@ -109,6 +112,19 @@ class EphemeralPngFrame:
     runtime_revision_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class EphemeralJpegFrame:
+    jpeg: bytes
+    width: int
+    height: int
+    byte_size: int
+    container_id: str
+    runtime_revision_id: UUID
+    captured_at: datetime
+    capture_ms: float
+    encode_ms: float
+
+
 class _ScreenshotBroker(Protocol):
     def managed_container_inventory(self) -> ManagedContainerInventoryResult: ...
 
@@ -170,7 +186,9 @@ class ManagedScreenshotService:
         self._data_root = data_root
         self._coordinator = coordinator or ScreenshotCaptureCoordinator()
 
-    def get_status(self, instance_id: UUID) -> ManagedScreenshotStatus:
+    def get_status(
+        self, instance_id: UUID, *, include_cache: bool = True
+    ) -> ManagedScreenshotStatus:
         runtime = self._status.get(instance_id)
         supported = self._runtime_supported(runtime.runtime_revision_id)
         display_supported = self._display_runtime_supported(runtime.runtime_revision_id)
@@ -182,7 +200,11 @@ class ManagedScreenshotService:
             and not self._reconciliation.status(instance_id).blocking
         )
         with self._session_factory() as session:
-            row = session.get(ManagedScreenshotRow, str(instance_id))
+            row = (
+                session.get(ManagedScreenshotRow, str(instance_id))
+                if include_cache
+                else None
+            )
             return self._project(
                 instance_id,
                 supported,
@@ -350,6 +372,73 @@ class ManagedScreenshotService:
         container_id: str,
         capture_id: UUID,
     ) -> EphemeralPngFrame:
+        raw = self._capture_raw_frame(
+            instance_id=instance_id,
+            runtime_revision_id=runtime_revision_id,
+            container_id=container_id,
+            capture_id=capture_id,
+        )
+        png = x11_frame_to_png(raw)
+        validated = validate_png(png)
+        self._revalidate_container(instance_id, container_id)
+        return EphemeralPngFrame(
+            png=png,
+            width=validated.width,
+            height=validated.height,
+            byte_size=validated.byte_size,
+            container_id=container_id,
+            runtime_revision_id=runtime_revision_id,
+        )
+
+    def capture_preview(
+        self,
+        instance_id: UUID,
+        *,
+        expected_runtime_revision_id: UUID,
+        expected_container_id: str,
+    ) -> EphemeralJpegFrame:
+        """One Web-only ephemeral JPEG; no latest cache, audit pixels or PNG step."""
+        self._coordinator.acquire(instance_id)
+        try:
+            visual = self.get_status(instance_id, include_cache=False)
+            if not visual.display_supported or not visual.screenshot_available_now:
+                raise ScreenshotServiceError(
+                    "display_unavailable", "Live preview is unavailable."
+                )
+            start = monotonic()
+            raw = self._capture_raw_frame(
+                instance_id=instance_id,
+                runtime_revision_id=expected_runtime_revision_id,
+                container_id=expected_container_id,
+                capture_id=uuid4(),
+            )
+            captured = monotonic()
+            captured_at = datetime.now(UTC)
+            jpeg = x11_frame_to_preview(raw)
+            encoded = monotonic()
+            self._revalidate_container(instance_id, expected_container_id)
+            return EphemeralJpegFrame(
+                jpeg=jpeg,
+                width=PREVIEW_WIDTH,
+                height=PREVIEW_HEIGHT,
+                byte_size=len(jpeg),
+                container_id=expected_container_id,
+                runtime_revision_id=expected_runtime_revision_id,
+                captured_at=captured_at,
+                capture_ms=(captured - start) * 1000,
+                encode_ms=(encoded - captured) * 1000,
+            )
+        finally:
+            self._coordinator.release(instance_id)
+
+    def _capture_raw_frame(
+        self,
+        *,
+        instance_id: UUID,
+        runtime_revision_id: UUID,
+        container_id: str,
+        capture_id: UUID,
+    ) -> bytes:
         prepared = False
         try:
             if self._eligible_container(instance_id) != container_id:
@@ -383,17 +472,7 @@ class ManagedScreenshotService:
                 raise ScreenshotArtifactError(
                     "Screenshot broker returned an unsupported backend."
                 )
-            png = x11_frame_to_png(raw)
-            validated = validate_png(png)
-            self._revalidate_container(instance_id, container_id)
-            return EphemeralPngFrame(
-                png=png,
-                width=validated.width,
-                height=validated.height,
-                byte_size=validated.byte_size,
-                container_id=container_id,
-                runtime_revision_id=runtime_revision_id,
-            )
+            return raw
         finally:
             if prepared:
                 cleanup_capture_stage(self._data_root, capture_id)
@@ -556,7 +635,9 @@ class ManagedScreenshotService:
             )
             if definition is None:
                 return False
-            return is_supported_live_display_runtime(
+            return reviewed_live_preview_prerequisites(
+                session, runtime_revision_id
+            ) or is_supported_live_display_runtime(
                 runtime_revision_id=str(runtime_revision_id),
                 canonical_release=definition.kodi_version,
                 expected_application_name=profile.expected_application_name,

@@ -33,6 +33,7 @@ dev = [
   "hatchling>=1.27,<2",
   "httpx>=0.28,<1",
   "mypy>=1.17,<2",
+  "pillow==13.0.0",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]
@@ -46,6 +47,11 @@ kodi-lab-broker-healthcheck = "kodi_lab.broker_health:main"
 kodi-lab-runtime = "kodi_lab.runtime.distribution:main"
 kodi-lab-lab = "kodi_lab.runtime.lab:main"
 kodi-lab-repository = "kodi_lab.repository.server:main"
+
+[project.optional-dependencies]
+preview = [
+    "pillow==13.0.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kodi_lab"]

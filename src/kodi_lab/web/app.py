@@ -30,7 +30,6 @@ from fastapi import (
     Query,
     Request,
     WebSocket,
-    WebSocketDisconnect,
     status,
 )
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -278,7 +277,6 @@ from kodi_lab.application.lifecycle_operations import (
 )
 from kodi_lab.application.live_display import (
     LiveDisplayError,
-    LiveDisplayFrameSkipped,
     ManagedLiveDisplayService,
 )
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
@@ -617,6 +615,7 @@ from kodi_lab.web.admin_views import (
     admin_view_return_path,
 )
 from kodi_lab.web.kodi_views import KodiViews
+from kodi_lab.web.live_preview import preview_owner, stream_preview
 from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
@@ -689,6 +688,13 @@ class _WorkspaceMutationBodyLimitMiddleware:
             },
         )
         await response(scope, receive, send)
+
+
+class ManagedPreviewPolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+    attempt_id: UUID
+    target_fps: Literal[1, 3] = 1
 
 
 class EmptyActionRequest(BaseModel):
@@ -3265,6 +3271,7 @@ def create_app(
         csrf_token = csrf_value if isinstance(csrf_value, str) else None
         if not context.auth.csrf_matches(authenticated, csrf_token):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        context.live_display.retire_owner(preview_owner(authenticated.csrf_token))
         context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
@@ -7100,93 +7107,80 @@ def create_app(
     ) -> ManagedScreenshotStatus:
         return context.screenshots.get_status(instance_id)
 
+    @app.post("/api/instances/{instance_id}/display-policy")
+    async def set_managed_display_policy(
+        instance_id: UUID,
+        request: Request,
+        body: ManagedPreviewPolicyRequest,
+        authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, object]:
+        owner = preview_owner(authenticated.csrf_token)
+        try:
+            if not body.enabled:
+                context.live_display.disable_attempt(
+                    instance_id, owner, body.attempt_id
+                )
+                return {"enabled": False}
+            work = asyncio.create_task(
+                asyncio.to_thread(
+                    context.live_display.enable,
+                    instance_id,
+                    owner,
+                    target_fps=body.target_fps,
+                    attempt_id=body.attempt_id,
+                    authorize=lambda: (
+                        context.auth.resolve(
+                            request.cookies.get(settings.web_session_cookie_name)
+                        )
+                        is not None
+                    ),
+                )
+            )
+            try:
+                result = await asyncio.shield(work)
+            except asyncio.CancelledError:
+                context.live_display.disable_attempt(
+                    instance_id, owner, body.attempt_id
+                )
+
+                def consume(task: asyncio.Task[dict[str, object]]) -> None:
+                    with suppress(BaseException):
+                        task.exception()
+
+                work.add_done_callback(consume)
+                raise
+        except LiveDisplayError as error:
+            raise HTTPException(status_code=409, detail=error.code) from None
+        except (ScreenshotServiceError, OSError, ImportError):
+            raise HTTPException(
+                status_code=409, detail="display_backend_failed"
+            ) from None
+        if (
+            context.auth.resolve(request.cookies.get(settings.web_session_cookie_name))
+            is None
+        ):
+            context.live_display.disable_attempt(instance_id, owner, body.attempt_id)
+            raise HTTPException(status_code=401, detail="display_session_expired")
+        return result
+
     @app.websocket("/api/instances/{instance_id}/display")
     async def stream_instance_display(websocket: WebSocket, instance_id: UUID) -> None:
         token = websocket.cookies.get(settings.web_session_cookie_name)
         if context.auth.resolve(token) is None:
             await websocket.close(code=4401, reason="display_session_expired")
             return
-        if websocket.scope.get("query_string", b""):
+        if websocket.scope.get("query_string", b"") or not _websocket_same_origin(
+            websocket
+        ):
             await websocket.close(code=4403, reason="display_unavailable")
             return
-        if not _websocket_same_origin(websocket):
-            await websocket.close(code=4403, reason="display_unavailable")
-            return
-        try:
-            display_session = context.live_display.begin(instance_id)
-        except ManagedInstanceNotFoundError:
-            await websocket.close(code=4404, reason="managed_instance_not_found")
-            return
-        except LiveDisplayError as error:
-            await websocket.close(code=4409, reason=error.code)
-            return
-
-        end_reason = "display_accept_failed"
-        try:
-            await websocket.accept()
-            context.live_display.mark_established(display_session)
-            end_reason = "display_unavailable"
-            while True:
-                if context.auth.resolve(token) is None:
-                    raise LiveDisplayError(
-                        "display_session_expired",
-                        "The authenticated Web session is no longer valid.",
-                    )
-                capture_started = asyncio.get_running_loop().time()
-                try:
-                    frame = await asyncio.to_thread(
-                        context.live_display.capture, display_session
-                    )
-                except LiveDisplayFrameSkipped:
-                    try:
-                        message = await asyncio.wait_for(
-                            websocket.receive(), timeout=1.0
-                        )
-                    except TimeoutError:
-                        continue
-                    if message["type"] == "websocket.disconnect":
-                        end_reason = "display_stopped"
-                        break
-                    raise LiveDisplayError(
-                        "display_unavailable",
-                        "Browser data messages are not accepted on live display.",
-                    ) from None
-                if context.auth.resolve(token) is None:
-                    raise LiveDisplayError(
-                        "display_session_expired",
-                        "The authenticated Web session is no longer valid.",
-                    )
-                try:
-                    await asyncio.wait_for(websocket.send_bytes(frame.png), timeout=2.0)
-                except TimeoutError as error:
-                    raise LiveDisplayError(
-                        "display_backend_failed",
-                        "The browser did not accept the frame in time.",
-                    ) from error
-                context.live_display.record_delivery(display_session, frame.byte_size)
-                delay = max(
-                    0.05,
-                    capture_started + 1.0 - asyncio.get_running_loop().time(),
-                )
-                try:
-                    message = await asyncio.wait_for(websocket.receive(), timeout=delay)
-                except TimeoutError:
-                    continue
-                if message["type"] == "websocket.disconnect":
-                    end_reason = "display_stopped"
-                    break
-                raise LiveDisplayError(
-                    "display_unavailable",
-                    "Browser data messages are not accepted on live display.",
-                )
-        except LiveDisplayError as error:
-            end_reason = error.code
-            with suppress(RuntimeError, WebSocketDisconnect):
-                await websocket.close(code=1008, reason=error.code)
-        except WebSocketDisconnect:
-            end_reason = "display_stopped"
-        finally:
-            context.live_display.end(display_session, end_reason)
+        await stream_preview(
+            websocket,
+            instance_id,
+            token=token,
+            auth=context.auth,
+            display=context.live_display,
+        )
 
     @app.get(
         "/api/instances/{instance_id}/addon-settings/{operation_id}",

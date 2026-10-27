@@ -60,6 +60,50 @@ def inventory_failure(tmp_path: Path, *, historical: bool = False) -> tuple[Any,
     return env, row
 
 
+def test_stopped_deployment_recovery_fence_returns_lifecycle_conflict(
+    tmp_path: Path,
+) -> None:
+    from kodi_lab.application.lifecycle_operations import (
+        LifecycleOperationConflictError,
+        ManagedInstanceLifecycleOperationCoordinator,
+    )
+    from kodi_lab.domain import (
+        ManagedInstanceLifecycleKind,
+        ManagedInstanceSemanticState,
+    )
+    from kodi_lab.storage.models import (
+        ManagedInstanceLifecycleOperationRow,
+        ManagedInstanceMutationLeaseRow,
+    )
+
+    env, original = inventory_failure(tmp_path)
+    attempted_id = uuid4()
+    counts = (env.broker.sync_count, env.broker.start_count, env.broker.stop_count)
+    with pytest.raises(LifecycleOperationConflictError, match="recovery review"):
+        ManagedInstanceLifecycleOperationCoordinator(env.sessions).begin(
+            fixture.TARGET_ID,
+            instance_name="Recovery fixture",
+            kind=ManagedInstanceLifecycleKind.STOP,
+            prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
+            operation_id=attempted_id,
+        )
+    with env.sessions() as session:
+        assert (
+            session.get(ManagedInstanceLifecycleOperationRow, str(attempted_id)) is None
+        )
+        assert (
+            session.get(ManagedInstanceMutationLeaseRow, str(fixture.TARGET_ID)) is None
+        )
+        row = session.get(McpWorkspaceDeploymentOperationRow, original.id)
+        assert row is not None and row.state == "reconciliation_required"
+        assert row.failure_cause == "deployment_verification_failed"
+    assert counts == (
+        env.broker.sync_count,
+        env.broker.start_count,
+        env.broker.stop_count,
+    )
+
+
 def test_inventory_failure_retains_fence_until_explicit_tree_inspection(
     tmp_path: Path,
 ) -> None:

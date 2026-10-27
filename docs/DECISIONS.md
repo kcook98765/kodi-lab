@@ -7103,3 +7103,20 @@ recognizable sensitive declarations are refused. Batches have per-key outcomes,
 no atomicity/reload/retry promise. Dedicated0086 durable operation/lease ownership
 preserves post-crash ambiguity; deployment requires separate migration approval.
 See [contract](ADDON-SETTINGS.md).
+
+## D-0456: Explicit ephemeral managed live-preview authorization
+
+Managed preview uses the existing authenticated display WebSocket with a
+managed-specific, default-disabled process-local administrator grant. Start
+qualifies one exact runtime/container through a discarded native JPEG probe;
+a closed reviewed recipe prerequisite alone is not streaming authorization.
+The grant binds Web owner and current profile/session/runtime-state identities,
+is one-use and revocable, and disappears on restart. No schema or external/MCP
+permission expansion is required.
+
+Only the Web package extra receives pinned Pillow for validated raw X11 to
+640x360 JPEG conversion. One decoded-frame ACK gates each next capture, with
+monotonic pacing, bounded delivery and real-worker capacity retirement. The
+explicit1FPS default and adaptive3FPS target preserve measured broker headroom;
+lower achieved rates are acceptable. Still images remain independent and start
+with periodic capture paused. Native performance evidence is runtime-specific.

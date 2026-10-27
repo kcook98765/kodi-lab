@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from copy import deepcopy
 from typing import Any, cast
 
@@ -26,6 +28,42 @@ class McpAccessLogFilter(logging.Filter):
         return True
 
 
+class LivePreviewAuditFormatter(logging.Formatter):
+    """Serialize only bounded source-owned audit fields; never arbitrary extras."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        messages = {"managed live display started", "managed live display ended"}
+        data: dict[str, object] = {"event": "managed_live_display"}
+        data["message"] = (
+            record.msg if record.msg in messages else "managed live display"
+        )
+        for key in (
+            "display_session_id",
+            "managed_instance_id",
+            "interface",
+            "actor",
+            "started_at",
+            "ended_at",
+            "result",
+            "established",
+            "frame_count",
+            "aggregate_byte_count",
+            "skipped_frames",
+            "capture_ms",
+            "encode_ms",
+            "send_ms",
+            "decode_ms",
+        ):
+            value = getattr(record, key, None)
+            if (
+                (isinstance(value, str) and len(value) <= 128 and value.isprintable())
+                or type(value) in {bool, int}
+                or (type(value) is float and math.isfinite(value))
+            ):
+                data[key] = value
+        return json.dumps(data, separators=(",", ":"), sort_keys=True)
+
+
 def application_logging_config() -> dict[str, Any]:
     """Return the Web process logging graph, including bounded MCP audits."""
 
@@ -40,6 +78,17 @@ def application_logging_config() -> dict[str, Any]:
     }
     loggers["kodi_lab.screenshot.diagnostic"] = {
         "handlers": ["default"],
+        "level": "INFO",
+        "propagate": False,
+    }
+    config["formatters"]["live_preview"] = {"()": LivePreviewAuditFormatter}
+    config["handlers"]["live_preview"] = {
+        "class": "logging.StreamHandler",
+        "formatter": "live_preview",
+        "stream": "ext://sys.stderr",
+    }
+    loggers["kodi_lab.live_display.audit"] = {
+        "handlers": ["live_preview"],
         "level": "INFO",
         "propagate": False,
     }
@@ -59,6 +108,8 @@ def main() -> None:
         host=settings.effective_web_bind_host,
         port=settings.web_port,
         access_log=True,
+        ws_max_size=256,
+        ws_max_queue=1,
         log_config=application_logging_config(),
     )
 

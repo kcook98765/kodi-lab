@@ -80,3 +80,32 @@ def test_packaged_web_log_config_emits_mcp_audit_to_process_stderr() -> None:
         "tool": "target_list",
         "outcome": "success",
     }
+
+
+def test_live_audit_outputs_only_approved_fields() -> None:
+    script = "\n".join(
+        (
+            "import logging, logging.config",
+            "from kodi_lab.web.run import application_logging_config",
+            "logging.config.dictConfig(application_logging_config())",
+            "logger = logging.getLogger('kodi_lab.live_display.audit')",
+            "logger.info('managed live display ended', extra={",
+            "'display_session_id':'fixture-session','managed_instance_id':'fixture-target',",
+            "'result':'display_stopped','established':True,'frame_count':3,",
+            "'aggregate_byte_count':30000,'capture_ms':123.5,'encode_ms':4.25,",
+            "'send_ms':2.5,'decode_ms':18.0,'skipped_frames':1,",
+            "'password':'private-audit-canary','pixels':b'raw-image-canary',",
+            "'csrf_token':'private-token-canary'})",
+        )
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script], check=True, capture_output=True, text=True
+    )
+    assert completed.stdout == ""
+    payload = json.loads(completed.stderr.strip())
+    assert payload["event"] == "managed_live_display"
+    assert payload["frame_count"] == 3 and payload["capture_ms"] == 123.5
+    assert payload["encode_ms"] == 4.25 and payload["send_ms"] == 2.5
+    assert payload["decode_ms"] == 18.0 and payload["skipped_frames"] == 1
+    assert not {"password", "pixels", "csrf_token"} & set(payload)
+    assert "canary" not in completed.stderr
