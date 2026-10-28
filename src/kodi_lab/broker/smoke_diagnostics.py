@@ -9,7 +9,6 @@ from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
 from docker.errors import DockerException  # type: ignore[import-untyped]
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.kodi_logs import KodiLogAuthority, KodiLogWindowError
@@ -33,7 +32,6 @@ from kodi_lab.storage.models import (
     McpWorkspaceExecutionOperationRow,
     TargetRow,
 )
-from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 
 MAX_SMOKE_WINDOW_BYTES = 64 * 1024
 MAX_EXCEPTION_BLOCK_BYTES = 16 * 1024
@@ -63,6 +61,12 @@ class SqliteSmokeLogAuthorityResolver:
         return cls(sessionmaker(engine, expire_on_commit=False))
 
     def resolve(self, execution_id: str) -> KodiLogAuthority:
+        # Application package initialization itself loads broker operations.
+        from kodi_lab.application.workspace_deployment_selection import (
+            WorkspaceDeploymentAmbiguousError,
+            latest_verified_workspace_deployment,
+        )
+
         try:
             if str(UUID(execution_id)) != execution_id:
                 raise ValueError
@@ -105,24 +109,22 @@ class SqliteSmokeLogAuthorityResolver:
                     },
                 )
             )
-            success_count = (
-                0
-                if execution is None
-                else session.scalar(
-                    select(func.count())
-                    .select_from(McpWorkspaceDeploymentOperationRow)
-                    .where(
-                        McpWorkspaceDeploymentOperationRow.workspace_id
-                        == execution.workspace_id,
-                        McpWorkspaceDeploymentOperationRow.target_id
-                        == execution.target_id,
-                        McpWorkspaceDeploymentOperationRow.generation
-                        == execution.generation,
-                        McpWorkspaceDeploymentOperationRow.state == "succeeded",
-                        selected_profile_lineage_sql(),
+            try:
+                latest = (
+                    None
+                    if execution is None
+                    else latest_verified_workspace_deployment(
+                        session,
+                        workspace_id=execution.workspace_id,
+                        target_id=execution.target_id,
+                        source_id=execution.development_source_id,
+                        generation=execution.generation,
                     )
                 )
-            )
+            except WorkspaceDeploymentAmbiguousError as error:
+                raise KodiLogWindowError(
+                    "smoke_log_authority_invalid", "Smoke log authority is ambiguous."
+                ) from error
             if (
                 execution is None
                 or deployment is None
@@ -130,7 +132,8 @@ class SqliteSmokeLogAuthorityResolver:
                 or instance is None
                 or target is None
                 or attachment is None
-                or success_count != 1
+                or latest is None
+                or latest.id != deployment.id
                 or execution.state != "running"
                 or execution.phase != "invoke"
                 or not execution.invocation_dispatched

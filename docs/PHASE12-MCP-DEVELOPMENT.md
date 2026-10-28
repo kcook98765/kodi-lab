@@ -412,8 +412,21 @@ map.
 
 Execution never deploys. It requires a successful exact deployment for the same
 current workspace, generation and target, ready target state, matching enabled
-ID/version inventory and fresh destination provenance. The server parses the
-workspace descriptor, permits only one copied Python video-plugin entry point,
+ID/version inventory and fresh source and destination provenance. Repeated
+verified deployments of unchanged bytes are eligible: execution, GUI launch and
+smoke-log authority select the latest authoritative receipt for the selected
+profile. Selection orders request timestamps and receipt IDs deterministically,
+but rejects tied newest timestamps because UUID order cannot establish mutation
+order. A newer failed, pending, interrupted, uncertain or incomplete attempt
+blocks fallback; non-success attempts without a recorded container remain
+refusal evidence. Managed execution requires the recorded original container and runtime
+revision to match, including when selected-session policy is inactive. Legacy
+unbound receipts therefore require a fresh verified deployment. Current private
+bytes must match the source digest and its ownership-aware destination digest;
+live destination verification still runs before and after invocation.
+
+The server parses the workspace descriptor, permits only one copied Python
+video-plugin entry point,
 requires the suppress-bytecode runtime policy and invokes the existing fixed
 `Files.GetDirectory` smoke shape. All other add-on types return
 `execution_unsupported`. Success output remains semantic execution
