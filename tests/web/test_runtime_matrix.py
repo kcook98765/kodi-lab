@@ -416,3 +416,42 @@ def test_matrix_web_surface_has_no_catalog_or_evidence_mutation(
             "/api/runtime-builds",
         ):
             assert client.post(route, json={}).status_code == 404
+
+
+def test_installation_history_older_link_reaches_failure_after_256_records(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    import html
+    import re
+    from uuid import uuid4
+
+    from kodi_lab.runtime.recipes import load_reviewed_recipe
+    from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
+
+    login(client)
+    recipe = load_reviewed_recipe("omega")
+    operations = sorted((uuid4() for _ in range(257)), key=str)
+    now = datetime.now(UTC)
+    with database.begin() as db:
+        repo = RuntimeRecipeInstallationRepository(db)
+        for operation in operations:
+            repo.create(
+                operation_id=operation,
+                recipe_id=recipe.recipe.recipe_id,
+                recipe_revision=recipe.recipe.recipe_revision,
+                recipe_digest=recipe.digest,
+                generation="omega",
+                now=now,
+            )
+            repo.fail(operation, code="validation_failed", now=now)
+    first = client.get("/runtimes?include_legacy=true")
+    assert first.status_code == 200 and str(operations[0]) not in first.text
+    older = re.search(r'href="([^"]+)">Older records</a>', first.text)
+    assert older is not None
+    link = html.unescape(older.group(1))
+    assert "include_legacy=true" in link
+    second = client.get(link)
+    assert second.status_code == 200 and str(operations[0]) in second.text
+    assert '<details id="installation-records" open>' in second.text
+    assert "Newest records" in second.text and ">Older records</a>" not in second.text
+    assert client.get("/runtimes?history_before=invalid").status_code == 422

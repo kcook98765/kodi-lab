@@ -73,7 +73,7 @@
         </section>
         {% endfor %}
       </div>
-      <details class="runtime-records">
+      <details id="installation-records"{% if history_before %} open{% endif %}>
         <summary>Recent installation records and separately reviewed variants</summary>
         <p>These records retain their exact recipe and runtime identity. They do not select Current Kodi or authorize a new installation.</p>
         {% for record in installation_records %}
@@ -87,6 +87,11 @@
           <dl>{% for label, value in (record.technical_details or {}).items() %}<dt>{{ label|replace('_', ' ')|capitalize }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
         </article>
         {% else %}<p>No installation records.</p>{% endfor %}
+        <p class="secondary">Showing up to 256 records per page.</p>
+        <nav aria-label="Installation history pages">
+          {% if history_before %}<a href="/runtimes?include_legacy={{ "true" if matrix.include_legacy else "false" }}&amp;include_prerelease={{ "true" if matrix.include_prerelease else "false" }}#installation-records">Newest records</a>{% endif %}
+          {% if history_next %}<a href="/runtimes?history_before={{ history_next }}&amp;include_legacy={{ "true" if matrix.include_legacy else "false" }}&amp;include_prerelease={{ "true" if matrix.include_prerelease else "false" }}#installation-records">Older records</a>{% endif %}
+        </nav>
       </details>
       <details class="runtime-matrix-details">
         <summary>Curated runtime matrix · Technical details</summary>

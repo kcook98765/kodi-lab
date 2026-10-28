@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_eligibility import (
@@ -714,19 +714,37 @@ class RuntimeInstallationService:
         )
 
     def records(
-        self, *, include_preview: bool = False
+        self,
+        *,
+        include_preview: bool = False,
+        before: UUID | None = None,
+        limit: int = 256,
     ) -> list[RuntimeInstallationView]:
-        """Advanced recorded variants/history, without reconciling past operations."""
+        """One stable page of recorded history, without reconciling operations."""
         generations = (*GENERATIONS, "piers") if include_preview else GENERATIONS
         with self._factory() as session:
+            query = select(RuntimeRecipeInstallationRow).where(
+                RuntimeRecipeInstallationRow.generation.in_(generations)
+            )
+            if before is not None:
+                cursor = session.get(RuntimeRecipeInstallationRow, str(before))
+                if cursor is None or cursor.generation not in generations:
+                    return []
+                query = query.where(
+                    or_(
+                        RuntimeRecipeInstallationRow.created_at < cursor.created_at,
+                        and_(
+                            RuntimeRecipeInstallationRow.created_at
+                            == cursor.created_at,
+                            RuntimeRecipeInstallationRow.id < cursor.id,
+                        ),
+                    )
+                )
             rows = session.scalars(
-                select(RuntimeRecipeInstallationRow)
-                .where(RuntimeRecipeInstallationRow.generation.in_(generations))
-                .order_by(
+                query.order_by(
                     RuntimeRecipeInstallationRow.created_at.desc(),
                     RuntimeRecipeInstallationRow.id.desc(),
-                )
-                .limit(256)
+                ).limit(limit)
             ).all()
         capable = self._capable()
         return [

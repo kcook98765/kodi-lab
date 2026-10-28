@@ -3829,6 +3829,7 @@ def create_app(
         request: Request,
         include_legacy: Literal["false", "true"] = "false",
         include_prerelease: Literal["false", "true"] = "false",
+        history_before: UUID | None = None,
     ) -> Response:
         try:
             authenticated = current_session(request)
@@ -3848,16 +3849,22 @@ def create_app(
                     ]
                 }
             )
+        history = runtime_installations.records(
+            include_preview=request.cookies.get(ADMIN_VIEW_COOKIE) == "development",
+            before=history_before,
+            limit=257,
+        )
         return templates.TemplateResponse(
             request,
             "runtimes.html",
             {
                 "matrix": matrix,
                 "current_kodi": current_kodi.identity(),
-                "installation_records": runtime_installations.records(
-                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
-                    == "development"
-                ),
+                "installation_records": history[:256],
+                "history_before": history_before,
+                "history_next": history[255].operation_id
+                if len(history) > 256
+                else None,
                 "installations": runtime_installations.list(
                     include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
                     == "development"

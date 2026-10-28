@@ -139,3 +139,34 @@ def test_unreviewed_variant_never_links_to_canonical_when_broker_is_unavailable(
     assert rejected.unavailable_code == "recorded_recipe_unavailable"
     assert rejected.technical_details is not None
     assert rejected.technical_details["recipe_revision"] == "4"
+
+
+def test_history_cursor_keeps_an_old_failure_discoverable_after_256_records(
+    factory: sessionmaker[Session],
+) -> None:
+    recipe = load_reviewed_recipe("omega")
+    oldest = uuid4()
+    # Equal timestamps deliberately exercise the secondary immutable-ID cursor.
+    operations = sorted([oldest, *(uuid4() for _ in range(256))], key=str)
+    oldest = operations[0]
+    now = datetime.now(UTC)
+    with factory.begin() as db:
+        repo = RuntimeRecipeInstallationRepository(db)
+        for operation in operations:
+            repo.create(
+                operation_id=operation,
+                recipe_id=recipe.recipe.recipe_id,
+                recipe_revision=recipe.recipe.recipe_revision,
+                recipe_digest=recipe.digest,
+                generation="omega",
+                now=now,
+            )
+            repo.fail(operation, code="validation_failed", now=datetime.now(UTC))
+    service = RuntimeInstallationService(factory, FakeBroker())
+    first = service.records()
+    assert len(first) == 256 and str(oldest) not in {x.operation_id for x in first}
+    assert first[-1].operation_id is not None
+    second = service.records(before=UUID(first[-1].operation_id))
+    assert len(second) == 1 and second[0].operation_id == str(oldest)
+    assert second[0].status == "failed"
+    assert service.records(before=uuid4()) == []
