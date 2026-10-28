@@ -144,6 +144,7 @@ services:
       - FOWNER
       - SETUID
       - SETGID
+      - KILL
     security_opt:
       - no-new-privileges:true
     healthcheck:
