@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_workspace_development import (
@@ -542,11 +543,17 @@ class WorkspaceLaunchService:
                 )
                 session.add(row)
                 leases = ManagedInstanceMutationLeaseRepository(session)
-                leases.reserve(
-                    target_id,
-                    kind=ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH,
-                    operation_id=UUID(row.id),
-                )
+                try:
+                    leases.reserve(
+                        target_id,
+                        kind=ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH,
+                        operation_id=UUID(row.id),
+                    )
+                except IntegrityError as error:
+                    # Atomic input exclusion remains authoritative. Roll back the
+                    # unclaimed receipt and return a bounded MCP refusal, never
+                    # the database statement or a queued dispatch.
+                    raise WorkspaceLaunchError("launch_conflict") from error
                 digest = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 if not leases.claim(
                     target_id,
