@@ -23,7 +23,7 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     page = client.get("/runtimes").text
     assert "Guided managed Kodi setup" in page
     assert "Names for this guided setup are fixed by the reviewed recipe" in page
-    assert "Prepare runtime" in page and "Start Kodi" in page
+    assert "Prepare Kodi" in page and "Start Kodi" in page
     assert "Each step requires a separate action" in page
     assert "data-install-review" in page and "data-install-approved" in page
     assert "No operation recorded" in page

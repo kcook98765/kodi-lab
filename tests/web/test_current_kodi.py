@@ -727,3 +727,37 @@ def test_expanded_page_without_rendered_bound_selection_cannot_follow_future_pro
             'data-view-generation="1"'
             in client.get(f"/instances/{INSTANCE_ID}/novnc-phase1").text
         )
+
+
+@pytest.mark.parametrize(
+    "path", ["/", "/kodi", "/runtimes", f"/instances/{INSTANCE_ID}"]
+)
+def test_shared_templates_tolerate_older_process_without_current_context(
+    client: TestClient,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    login(client)
+    selected(client, database, monkeypatch)
+    response = client.get(path)
+    assert response.status_code == 200
+    context = dict(cast(Any, response).context)
+    context.pop("current_kodi")
+    if path == "/":
+        # The new app also provides this value as a template global. Override
+        # it explicitly to simulate an older process with no Add Kodi route.
+        context["add_kodi_enabled"] = False
+    rendered = cast(Any, response).template.render(**context)
+    assert "/development-session" in rendered
+    assert "No development Kodi is selected." not in rendered
+    assert "This is Current Kodi." not in rendered
+    assert "Not the currently selected Kodi." not in rendered
+    if path == "/":
+        assert 'href="/pair-kodi">Pair Kodi</a>' in rendered
+        assert 'href="/add-kodi"' not in rendered
+    if destination := os.getenv("KODI_LAB_CURRENT_UI_EVIDENCE"):
+        output = Path(destination) / "legacy-context-pages.json"
+        pages = json.loads(output.read_text()) if output.exists() else {}
+        pages[path] = rendered
+        output.write_text(json.dumps(pages))

@@ -20,7 +20,10 @@
       <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/#instances">Managed registrations</a></p>
       <h1>{{ detail.runtime.name }}</h1>
       <section class="notice" aria-label="Current Kodi selection">
-      {% if current_kodi.current and current_kodi.current.target_id == detail.runtime.managed_instance_id %}
+      {% set selected_kodi = current_kodi.current if current_kodi is defined else none %}
+      {% if current_kodi is not defined %}
+        <p>Open <a href="/development-session">Current Kodi</a> to confirm the selected environment. This Advanced page manages this exact registration.</p>
+      {% elif selected_kodi and selected_kodi.target_id == detail.runtime.managed_instance_id %}
         <p><strong>This is Current Kodi.</strong> Use <a href="/development-session">Current Kodi</a> for everyday viewing, Start and Stop.</p>
       {% else %}
         <p><strong>Not the currently selected Kodi.</strong> This page manages this exact registration and its retained history. <a href="/development-session">Open Current Kodi</a> to see the selected development environment.</p>
@@ -33,7 +36,7 @@
         <p>Each action is a separate request. Provision creates the stopped runtime; Start runs Kodi; Stop preserves its profile. No action is retried automatically.</p>
         <div class="actions">
           {% for action in ['provision', 'start', 'stop'] %}
-          <button type="button" data-instance-action="{{ action }}"{% if action not in detail.runtime.allowed_actions or detail.mutation_active or (action == 'provision' and current_kodi.current and current_kodi.current.target_id != detail.runtime.managed_instance_id) %} hidden disabled{% endif %}>{{ 'Prepare runtime' if action == 'provision' else action|capitalize ~ ' Kodi' }}</button>
+          <button type="button" data-instance-action="{{ action }}"{% if action not in detail.runtime.allowed_actions or detail.mutation_active or (action == 'provision' and selected_kodi and selected_kodi.target_id != detail.runtime.managed_instance_id) %} hidden disabled{% endif %}>{{ 'Prepare runtime' if action == 'provision' else action|capitalize ~ ' Kodi' }}</button>
           {% endfor %}
           <button type="button" data-instance-status-refresh>Refresh status</button>
         </div>

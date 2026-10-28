@@ -9,7 +9,7 @@
       <h1>Home</h1>
       <p>Connect Kodi, then give your agent access to inspect it.</p>
       <div class="actions home-next-actions">
-        {% if add_kodi_enabled %}<a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>{% endif %}
+        {% if add_kodi_enabled %}<a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %}
         <a class="button-link" href="/mcp-clients">Connect an agent</a>
       </div>
       {% include 'components/current-kodi-summary.html' %}
