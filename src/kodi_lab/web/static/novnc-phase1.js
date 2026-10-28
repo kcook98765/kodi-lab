@@ -20,6 +20,7 @@ let rfb = null;
 let mode = 'view-only';
 let switching = false;
 let rfbConnected = false;
+let cleanupEpoch = 0;
 
 function buttons(connected = false) {
     start.disabled = !permitted || identityRetired || attempt !== null;
@@ -47,6 +48,7 @@ async function post(action, body) {
 }
 async function end(expected = attempt) {
     if (expected !== attempt) return;
+    const endingEpoch = ++cleanupEpoch;
     const old = attempt;
     attempt = null;
     const previousRfb = rfb;
@@ -61,8 +63,9 @@ async function end(expected = attempt) {
     if (placeholder) placeholder.hidden = false;
     if (old) {
         try { await post('stop', {attempt: old}); }
-        catch (_) { if (attempt === null) status.textContent = 'Stopping. Input stays reserved until the server verifies release.'; }
+        catch (_) { if (endingEpoch === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Stopping. Input stays reserved until the server verifies release.'; }
     }
+    return endingEpoch;
 }
 function connect(current, result) {
     if (attempt !== current || document.hidden || identityRetired || !permitted) {end(current);return;}
@@ -106,8 +109,8 @@ start.onclick = async () => {
         connect(current, result);
     } catch (_) {
         if (attempt === current) {
-            await end(current);
-            if (attempt === null) status.textContent = 'Viewer unavailable. JPEG and still screenshots remain available.';
+            const ended = await end(current);
+            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Viewer unavailable. JPEG and still screenshots remain available.';
         }
     }
 };
@@ -136,8 +139,8 @@ async function change(action) {
             return;
         }
         if (previousRfb) previousRfb.disconnect();
-        await end(current);
-        if (attempt === null) status.textContent = 'Control change unavailable. Start viewing to recover after verified release.';
+        const ended = await end(current);
+        if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Control change unavailable. Start viewing to recover after verified release.';
     }
 }
 take.onclick = () => change('take-control');
@@ -213,7 +216,9 @@ if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
             currentStatus({observationConfirmed:true, current:value.current, state:value.viewer_state});
         } catch (_) {
             if (closed || document.hidden || requestEpoch !== epoch) return;
-            permitted = false;await end();buttons();
+            // Cleanup is best effort; server ownership stays fenced until
+            // release is proved. A stalled POST must not suspend status reads.
+            permitted = false;void end();buttons();
         } finally {
             clearTimeout(timeout);
             if (!closed && !document.hidden && requestEpoch === epoch) timer = setTimeout(checkSelection, 5000);

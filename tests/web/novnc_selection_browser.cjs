@@ -5,16 +5,16 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function boot(){
  const nodes=Object.fromEntries(['#start','#stop','#status','#viewer','#take-control','#release-control','#keyboard','#back','#text-input','.typing','#expand'].map(key=>[key,{addEventListener(){},disconnect(){}}]));
  const main={dataset:{instance:'fixture',viewGeneration:'1',viewRuntime:'revision',viewContainer:'container',viewWorkspace:'workspace',viewSource:'source'},querySelector:key=>nodes[key]||null};
- const events={},requests=[],timers=new Map();let serial=0,reloads=0;
+ const events={},requests=[],clients=[],timers=new Map();let serial=0,reloads=0;
  const add=(name,fn)=>(events[name]||=[]).push(fn);
  const document={hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:key.startsWith('meta')?{content:'csrf'}:null,addEventListener:add};
- const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:{randomUUID:()=> 'attempt'},RFB:class {},WebSocket:class {},
+ const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:{randomUUID:()=> 'attempt'},RFB:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {},
  setTimeout(fn,delay){timers.set(++serial,{fn,delay});return serial;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject})),};
  vm.runInNewContext(source,context);
  const signal=(name,event={})=>(events[name]||[]).forEach(fn=>fn(event));
  const ready=(request,extra={})=>request.resolve({ok:true,json:async()=>({current:{generation:1,target_id:'fixture',runtime_revision_id:'revision',container_id:'container',workspace_id:'workspace',source_id:'source',...extra},viewer_state:'ready'})});
- return {document,main,nodes,requests,timers,signal,ready,reloads:()=>reloads};
+ return {document,main,nodes,requests,clients,timers,signal,ready,reloads:()=>reloads};
 }
 (async()=>{
  const p=boot();assert.equal(p.nodes['#start'].disabled,true);
@@ -34,5 +34,21 @@ function boot(){
  changed.signal('visibilitychange');changed.ready(changed.requests.shift());await flush();
  assert.equal(changed.nodes['#start'].disabled,true,'retired identity cannot silently return');
  changed.signal('pagehide');
+ const stalled=boot();stalled.ready(stalled.requests.shift());await flush();
+ const starting=stalled.nodes['#start'].onclick();
+ stalled.requests.shift().resolve({ok:true,json:async()=>({ticket:'ticket',mode:'view-only'})});
+ await starting;stalled.clients[0].events.connect();
+ function nextPoll(page){const entry=[...page.timers].find(([,t])=>t.delay===5000);assert.ok(entry,'polling must continue independently of stalled cleanup');page.timers.delete(entry[0]);entry[1].fn();}
+ nextPoll(stalled);stalled.requests.shift().reject(new Error('status unavailable'));await flush();
+ const stopPending=stalled.requests.shift();assert.ok(stopPending.url.endsWith('novnc-stop'));
+ assert.equal(stalled.nodes['#start'].disabled,true);
+ nextPoll(stalled);stalled.ready(stalled.requests.shift());await flush();
+ assert.equal(stalled.nodes['#start'].disabled,false);assert.equal(stalled.clients.length,1,'status recovery must not reconnect');
+ stalled.document.hidden=true;stalled.signal('visibilitychange');
+ stalled.document.hidden=false;stalled.signal('visibilitychange');stalled.ready(stalled.requests.shift());await flush();
+ const status=stalled.nodes['#status'].textContent;
+ stopPending.reject(new Error('late cleanup failure'));await flush();
+ assert.equal(stalled.nodes['#status'].textContent,status,'obsolete cleanup cannot overwrite post-return controls');
+ assert.equal(stalled.nodes['#start'].disabled,false);stalled.signal('pagehide');
  console.log('expanded-viewer epochs, lifecycle and complete rendered binding guards passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
