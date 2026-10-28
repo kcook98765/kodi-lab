@@ -110,3 +110,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests", "migrations"]
+# Standalone, hash-pinned runtime data mirrors. The canonical helpers remain
+# checked; check each archived asset directory separately to avoid module-name
+# collisions between scripts that are not importable application packages.
+exclude = [
+  '^src/kodi_lab/runtime/assembly_assets/omega-21\.3-novnc-phase1-r3/',
+  '^src/kodi_lab/runtime/assembly_assets/omega-21\.3-novnc-phase2-r4/',
+]
