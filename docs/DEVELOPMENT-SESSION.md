@@ -1,21 +1,56 @@
-# One add-on, one disposable Kodi test environment
+# Current Kodi: one add-on, one development environment
 
-Use **Development → Development session** for one persistent add-on workspace
+Use **Kodi → Current Kodi** (`/development-session`) for one persistent add-on workspace
 and one disposable Kodi profile. This guide describes the composed feature-branch
 workflow. Code review and source tests do not install it into an existing Lab;
 matched application, broker and schema deployment and native/platform acceptance
 remain separate. Existing runtime/version eligibility still decides which cached
 versions can be selected.
 
+The page always follows the durable selected development session. A stopped
+selection remains Current Kodi. Opening an older registration does not select it;
+its Advanced page identifies it as noncurrent. Home and Kodi link here in both
+administrator views. Household and external Kodi retain their separate management.
+
+The live screen reuses the existing noVNC controller and private transport for
+only the qualified, explicitly enabled Omega r4 instance. **Start Viewing** is
+explicit and defaults to view-only; **Stop Viewing** leaves Kodi running.
+**Take Control / Release Control** retain exclusive server-enforced input
+ownership and the original ten-minute deadline. Stop Kodi holds the existing lifecycle exclusion while it verifies viewer
+release before dispatch; fresh admission is refused under that claim. An uncertain release blocks Stop;
+no queued action is replayed. An expanded page opened without a selected, bound
+profile has no viewing controls and links back to Current Kodi. A changed environment retires the old panel and
+requires a page reload and fresh explicit viewing. Admission and control handoff
+recheck the rendered session and profile, so an old page cannot attach a fresh
+profile on the same registration. Other runtimes gain no noVNC
+qualification. Screenshots, JPEG preview and browser remote remain in Advanced.
+
+Native readiness, stored development prerequisites and a particular agent's
+permissions remain separate. A running container or saved Bridge record is not
+shown as complete development readiness. Runtime installations now distinguish
+canonical acquisition from separately reviewed development variants; a newer r4
+record does not make the canonical r2 installation appear unavailable. All recorded
+failures remain inspectable under **Advanced → Reviewed runtime installations**.
+
+Advanced retains exact instance pins, Bridge/source/ZIP administration, recovery,
+resource policy, logs/diagnostics/activity, snapshots, reset, runtime removal and
+deletion. These operations keep their existing eligibility and confirmations.
+
+## Interface comparison
+
+![Previous Development session beside Current Kodi](images/current-kodi-comparison.png)
+
+Firefox 158 against disposable API/RFB fixtures using the actual templates,
+styles and viewer controller. This image demonstrates navigation and layout; it
+does not establish native Kodi, authenticated MCP or physical-device acceptance.
+
 ## Everyday walkthrough
 
 1. **Choose the add-on and version.** Select a ready workspace and eligible
-   approved cached Kodi version, then **Reserve test environment**. If another
+   approved cached Kodi version, then **Choose Kodi**. If another
    managed profile or unresolved operation blocks reservation, review it through
-   existing setup/history. The session does not adopt or remove it. Use **Add
-   Kodi** separately when an eligible cached runtime is unavailable.
-2. **Prepare the stopped profile.** Use **Prepare Kodi**, then open **Review the
-   selected add-on's preparation checklist**. Preparation creates the clean
+   existing setup/history. The session does not adopt or remove it. Use **Advanced → Reviewed runtime installations** separately when an eligible cached runtime is unavailable.
+2. **Prepare the stopped profile.** Use **Prepare Kodi**, then open **Review development setup**. Preparation creates the clean
    stopped profile; it does not install the add-on, confirm native readiness or
    establish reviewed Bridge trust. Review uncertain history before another
    action. An empty inventory after a lost create reply does not permit retry.
@@ -25,7 +60,7 @@ versions can be selected.
    may replace add-on files in that profile; it does not deploy private workspace
    edits. Saved request links recover a lost reply. Refresh reads progress only;
    **Continue this queued copy** can continue the same still-queued request.
-4. **Resume and complete native setup.** Use **Resume**, review the linked
+4. **Start and complete native setup.** Use **Start Kodi**, review the linked
    native and Bridge status separately, and use the existing supported source
    enablement/setup controls as required. A saved baseline or session binding
    does not prove that the add-on is enabled, Kodi is usable, a Bridge is active,
@@ -34,10 +69,10 @@ versions can be selected.
 5. **Iterate in the same profile.** Edit and validate the workspace, check
    deployment preflight, then deploy/test that exact generation through the
    existing authorized workflow. See the [agent development loop](MANAGED-AGENT-LOOP.md).
-   Use **Stop** and **Resume** to keep the same profile between iterations.
+   Use **Stop Kodi** and **Start Kodi** to keep the same profile between iterations.
    Source changes do not require Fresh Test or Kodi image rebuilds.
 6. **Fresh Test or Switch Version deliberately.** Stop the current test, save
-   diagnostics from that exact profile, then open **Review Fresh Test or Switch**.
+   diagnostics from that exact profile, then open **Switch Kodi Version…** or **More options → Fresh Test…**.
    Select the cached version and 1–8 retained captures. Saving a review only holds
    evidence and keeps the profile. The separate **Replace profile and prepare
    selected test** confirmation names the exact profile and data loss. A confirmed
@@ -119,9 +154,9 @@ qualifications.
 
 ## Minimal Web workflow
 
-Open **Development → Development session**. Select one ready workspace and an
+Open **Kodi → Current Kodi**. Select one ready workspace and an
 eligible approved cached canonical runtime, then reserve the empty environment.
-**Prepare Kodi** creates only the selected clean stopped profile. **Resume** and
+**Prepare Kodi** creates only the selected clean stopped profile. **Start Kodi** and
 **Stop** reuse its exact container without resetting source iterations. Links lead
 to the selected Kodi's existing source/Bridge/native setup and workspace actions.
 Preparation alone is not an assertion of deployment or capability readiness.
@@ -141,7 +176,7 @@ remain separate from the route/Node/fixture evidence for this page.
 
 ## Save a Fresh Test / Switch review and hold evidence
 
-The session page links to **Review Fresh Test or Switch**. Stop the current
+The session page links to **Switch Kodi Version…** or **More options → Fresh Test…**. Stop the current
 session through the existing action, save diagnostics for that exact test, then
 select the approved cached version and 1–8 retained captures. The ordinary form
 displays the current session/container and next immutable runtime/image. It

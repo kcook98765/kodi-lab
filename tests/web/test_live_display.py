@@ -522,7 +522,7 @@ def test_ui_is_view_only_and_keeps_semantic_remote_visible(client: TestClient) -
     make_visual_ready(client, csrf)
     page = client.get(f"/instances/{INSTANCE_ID}")
     assert "Live Preview" in page.text
-    assert "Screenshot" in page.text
+    assert "Saved screenshot" in page.text
     assert "Browser remote" in page.text
     assert "live-display.js" in page.text
     assert "noVNC" not in page.text

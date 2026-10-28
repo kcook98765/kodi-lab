@@ -62,8 +62,11 @@ def test_standard_preserves_authenticated_deep_links(
     login(client)
     response = client.get(path)
     assert response.status_code == 200
-    assert "This is a Development administration page" in response.text
-    assert "Choose Development" in response.text
+    if path in {"/development", "/external-targets"}:
+        assert "This is a Development administration page" in response.text
+        assert "Choose Development" in response.text
+    else:
+        assert 'href="/settings" aria-current="page"' in response.text
 
 
 def test_preference_auth_csrf_origin_persistence_and_no_state_writes(

@@ -1,0 +1,25 @@
+{% from 'components/kodi-viewer.html' import kodi_viewer %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/novnc-phase1.css">
+  <title>Watch Kodi · Kodi Lab</title>
+</head>
+<body class="standalone-viewer">
+  <main>
+    <p><a href="/development-session">Current Kodi</a> · <a href="/instances/{{ instance }}#visual-access">Screenshots and JPEG fallback</a></p>
+    <h1>{{ viewer_name|default('Watch Kodi') }}</h1>
+    <p data-viewer-current-status>{{ viewer_context|default('This viewer stays bound to this exact instance. Open Current Kodi to check the selected environment.') }}</p>
+    {% if viewer_can_start|default(true) %}
+    {{ kodi_viewer(instance, viewer_generation|default(''), false, viewer_selection|default(none)) }}
+    {% else %}
+    <p>Open <a href="/development-session">Current Kodi</a> to select, prepare or watch the current environment. Reload this page after its exact profile is selected and prepared.</p>
+    {% endif %}
+  </main>
+  {% if viewer_can_start|default(true) %}<script type="module" src="/static/novnc-phase1.js"></script>{% endif %}
+</body>
+</html>

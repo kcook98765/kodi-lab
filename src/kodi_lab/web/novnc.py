@@ -17,7 +17,6 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from html import escape
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from typing import Any, Literal, cast
@@ -25,7 +24,8 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from kodi_lab.application.live_display import (
@@ -41,10 +41,45 @@ from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationServ
 from kodi_lab.broker.novnc import ViewBinding
 
 
+class ExpectedSelection(BaseModel):
+    """A stale human page may restrict admission, never choose a new binding."""
+
+    model_config = ConfigDict(extra="forbid")
+    generation: int = Field(ge=1, strict=True)
+    runtime_revision_id: UUID
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    workspace_id: UUID
+    source_id: UUID
+
+    def matches(self, binding: ViewBinding) -> bool:
+        return (
+            binding.container == self.container_id
+            and len(binding.identity) >= 6
+            and binding.identity[0] == str(self.runtime_revision_id)
+            and binding.identity[2:5]
+            == (self.generation, str(self.workspace_id), str(self.source_id))
+        )
+
+    @classmethod
+    def from_binding(cls, binding: ViewBinding) -> ExpectedSelection | None:
+        if len(binding.identity) < 6:
+            return None
+        return cls.model_validate(
+            {
+                "generation": binding.identity[2],
+                "runtime_revision_id": binding.identity[0],
+                "container_id": binding.container,
+                "workspace_id": binding.identity[3],
+                "source_id": binding.identity[4],
+            }
+        )
+
+
 class StartView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     attempt: UUID
     rate: Literal[2] = 2
+    expected_selection: ExpectedSelection | None = None
 
 
 class StopView(BaseModel):
@@ -240,6 +275,10 @@ class PrototypeViewer:
         deadline: str | None,
     ) -> Attachment:
         binding = self.binding(instance, mode)
+        if body.expected_selection is not None and not body.expected_selection.matches(
+            binding
+        ):
+            raise ValueError("view selection changed")
         with self.lock:
             self._expire()
             key = (owner, body.attempt)
@@ -374,7 +413,10 @@ class PrototypeViewer:
                 return self.start(
                     instance,
                     owner,
-                    StartView(attempt=body.next_attempt),
+                    StartView(
+                        attempt=body.next_attempt,
+                        expected_selection=ExpectedSelection.from_binding(item.binding),
+                    ),
                     mode=mode,
                     deadline=deadline,
                 )
@@ -537,7 +579,9 @@ def install_routes(
     current_session: Any,
     mutation_session: Any,
     same_origin: Callable[[WebSocket], bool],
+    page_context: Callable[[UUID], dict[str, Any]] | None = None,
 ) -> None:
+    templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
     login_dependency = Depends(current_session)
     mutation_dependency = Depends(mutation_session)
     app.add_middleware(AdmissionBodyLimit)
@@ -568,41 +612,23 @@ def install_routes(
         response_class=HTMLResponse,
         name="novnc_phase1_page",
     )
-    def page(instance: UUID, authenticated: Any = login_dependency) -> HTMLResponse:
+    def page(
+        request: Request, instance: UUID, authenticated: Any = login_dependency
+    ) -> HTMLResponse:
         if (
             viewer.enabled_instances is not None
             and instance not in viewer.enabled_instances
         ):
             raise HTTPException(404)
-        csrf = escape(authenticated.csrf_token, quote=True)
-        return HTMLResponse(
-            "<!doctype html><html><head>"
-            '<meta name="viewport" content="width=device-width">'
-            f'<meta name="kodi-lab-csrf" content="{csrf}">'
-            '<link rel="stylesheet" href="/static/novnc-phase1.css">'
-            "<title>Kodi Lab experimental viewer</title>"
-            "</head><body><h1>Kodi Lab experimental viewer</h1>"
-            "<p>Starts view-only. Take Control pauses conflicting agent and "
-            "Web input. No audio. Sessions end after 10 minutes.</p>"
-            f'<p><a href="/instances/{instance}">JPEG and still preview</a></p>'
-            f'<main data-instance="{instance}"><select id="rate">'
-            "<option>2</option></select>"
-            '<button id="start">Start viewing</button>'
-            '<button id="stop" disabled>Stop</button>'
-            '<button id="take-control" disabled>Take Control</button>'
-            '<button id="release-control" disabled>Release Control</button>'
-            '<button id="expand">Expand viewer</button>'
-            '<button id="keyboard" disabled>Keyboard</button>'
-            '<button id="back" disabled>Back</button>'
-            '<label class="typing" hidden>Type in Kodi <input '
-            'id="text-input" autocomplete="off" autocapitalize="off" '
-            'spellcheck="false"></label>'
-            '<p id="status">Off</p><div id="viewer"></div></main>'
-            '<script type="module" src="/static/novnc-phase1.js"></script>'
-            "</body></html>",
-            headers={
-                "Cache-Control": "no-store",
+        return templates.TemplateResponse(
+            request,
+            "novnc.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "instance": instance,
+                **({} if page_context is None else page_context(instance)),
             },
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.post("/api/instances/{instance}/novnc-start")

@@ -318,3 +318,25 @@ dd { margin: 0; }
   .home-page .home-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-page dl:not(.home-counts) { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* One selected managed environment; maintenance stays in existing Advanced pages. */
+.current-kodi-card { border: 1px solid var(--admin-border); border-radius: .6rem; padding: 1.4rem; margin: 1.5rem 0; background: var(--admin-surface, transparent); }
+.current-kodi-card h2 { margin-top: .25rem; }
+.eyebrow { font-size: .85rem; font-weight: 600; color: var(--admin-muted, inherit); margin: 0 0 .4rem; }
+.current-kodi-version { font-size: 1.4rem; font-weight: 600; }
+.current-kodi-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.current-kodi-heading h1 { margin: .25rem 0; }
+.current-kodi-state { font-size: 1.1rem; font-weight: 600; margin: .4rem 0; }
+.current-kodi-context { margin: .4rem 0; color: var(--admin-muted, inherit); }
+.current-screen { margin: 1.5rem 0; }
+.current-lifecycle, .viewer-actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+.current-kodi-page button, .current-kodi-page .button-link { min-height: 2.75rem; }
+.current-more, .instance-maintenance { margin: 1.5rem 0; }
+.current-more summary, .instance-maintenance summary { min-height: 2.75rem; cursor: pointer; }
+.current-development-status { max-width: 44rem; }
+.current-kodi-page [data-session-status] { max-width: 55rem; }
+@media (max-width: 600px) {
+  .current-kodi-heading { display: block; }
+  .current-kodi-card { padding: 1rem; }
+  .current-lifecycle > *, .viewer-actions > * { max-width: 100%; }
+}

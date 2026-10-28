@@ -4,9 +4,10 @@
 {% block main_class %}kodi-page{% endblock %}
 {% block content %}
 <div class="kodi-page-heading">
-  <div><h1>Kodi</h1><p>View the Kodi installations in your home.</p></div>
+  <div><h1>Kodi</h1><p>Open your managed development environment or a household Kodi.</p></div>
   <a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>
 </div>
+{% include 'components/current-kodi-summary.html' %}
 <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
 <section aria-labelledby="household-kodi-heading">
   <h2 id="household-kodi-heading">Kodi in your home</h2>
@@ -37,9 +38,8 @@
 <section class="navigation-group" aria-labelledby="development-kodi-heading">
   <h2 id="development-kodi-heading">Development Kodi</h2>
   <p>Managed and external development installations have their own administration.</p>
-  {% if managed_names %}<h3>Managed Kodi</h3><ul>{% for name in managed_names %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
   <ul class="destination-list">
-    <li><a href="/development">Development tools and managed Kodi controls</a></li>
+    <li><a href="/development">Development sources and testing tools</a></li>
     <li><a href="/external-targets">External development Kodi</a></li>
     <li><a href="/add-kodi?mode=development">Add Development Kodi</a></li>
   </ul>

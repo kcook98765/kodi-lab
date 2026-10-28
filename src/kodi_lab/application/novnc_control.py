@@ -84,6 +84,12 @@ class HumanViewerOwnership:
 
             db.execute(text("BEGIN IMMEDIATE"))
             require_resolved_view_work(db, instance, self.sessions)
+            # Serialize admission against Stop's existing lifecycle claim. Even
+            # view-only authority resolved before that claim must not create a
+            # successor after the pre-dispatch worker-release proof.
+            lease = db.get(ManagedInstanceMutationLeaseRow, str(instance))
+            if lease is not None and lease.operation_kind.value == "lifecycle":
+                raise ValueError("view lifecycle operation conflict")
             db.add(
                 NovncSessionRow(
                     instance_id=str(instance),

@@ -1,9 +1,12 @@
-body { margin: 1rem; font-family: system-ui, sans-serif; background: #171923; color: #edf2f7; }
-#viewer { width: 100%; height: 72vh; }
-button, select { padding: .6rem; margin: .3rem; }
-a { color: #a3d7ff; }
-#viewer { touch-action: none; min-height: 220px; }
-main.expanded, main:fullscreen { background: #171923; padding: .5rem; }
-main.expanded #viewer, main:fullscreen #viewer { height: calc(100vh - 12rem); }
-button:disabled { opacity: .5; }
-.typing input { font-size: 16px; max-width: 90%; }
+/* Shared by Current Kodi and the existing expanded viewer. */
+.kodi-viewer-screen { width: 100%; height: clamp(200px, 30vw, 360px); background: #171923; color: #edf2f7; border-radius: .35rem; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.kodi-viewer-screen canvas { max-width: 100%; }
+.kodi-viewer .viewer-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
+.kodi-viewer button { min-height: 2.75rem; }
+.kodi-viewer.expanded, .kodi-viewer:fullscreen { background: #171923; color: #edf2f7; padding: 1rem; }
+.kodi-viewer.expanded #viewer, .kodi-viewer:fullscreen #viewer { height: calc(100dvh - 14rem); }
+.kodi-viewer .typing input { font-size: 16px; max-width: 90%; }
+.standalone-viewer { max-width: 80rem; margin: auto; padding: 1rem; }
+@media (max-width: 600px) { .kodi-viewer-screen { height: 220px; } .kodi-viewer .viewer-actions { gap: .4rem; } }
+
+.kodi-viewer [hidden], .current-kodi-page [hidden] { display: none !important; }
