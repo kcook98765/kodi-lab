@@ -21,20 +21,17 @@ def test_overview_visible_in_standard_view_and_details_remain(
     login(client)
     page = client.get("/").text
     primary, details = page.split('<details id="managed-details"', 1)
-    for label in (
-        "System overview",
-        "Web administration is available",
-        "Managed Kodi at a glance",
-    ):
-        assert label in primary
-    assert f'href="/instances/{INSTANCE_ID}"' in primary
-    assert "Recorded status at page load" in primary
+    assert "Current Kodi" in primary
+    assert "No development Kodi is selected" in primary
+    assert 'href="/development-session"' in primary
+    assert f'href="/instances/{INSTANCE_ID}"' not in primary
+    assert "Managed Kodi at a glance" not in primary
     assert "Advanced status and runtime details" in details
     assert "Advanced fixture and exact runtime pin" in details
     assert 'data-action="deprovision"' not in details
     assert "Review lifecycle controls and runtime removal" in details
     assert 'data-action="start"' not in details
-    assert 'href="/managed-resources"' in primary
+    assert 'href="/managed-resources"' in details
     assert 'href="/settings">Advanced</a>' in primary
 
 
@@ -99,7 +96,8 @@ def test_home_failure_guidance_does_not_offer_retry(
     monkeypatch.setattr(context.status, "list_statuses", lambda: [instance])
     page = client.get("/").text
     primary, details = page.split('<details id="managed-details"', 1)
-    assert "deployment outcome is uncertain" in primary
+    assert "Advanced managed registrations need review" in primary
+    assert "Retained failure code" not in primary
     assert "Retained failure code" in details
 
 
@@ -113,8 +111,8 @@ def test_stored_reset_failure_is_counted_and_visible(
     )
     monkeypatch.setattr(context.reset_status, "list_statuses", lambda: [reset])
     primary = client.get("/").text.split('<details id="managed-details"', 1)[0]
-    assert "<dt>Needs review</dt><dd>1</dd>" in primary
-    assert "previous reset or reconstruction needs review" in primary
+    assert "Advanced managed registrations need review" in primary
+    assert "Retained reset failure" not in primary
 
 
 def test_advanced_destinations_available_in_both_views(client: TestClient) -> None:
@@ -138,7 +136,7 @@ def test_export_isolated_home_browser_fixtures(client: TestClient) -> None:
     routes = {
         path: client.get(path).text for path in ("/", "/settings", "/development")
     }
-    assert "System overview" in routes["/"]
+    assert "Current Kodi" in routes["/"]
     if destination := os.getenv("KODI_LAB_CAMPAIGN_BROWSER_EVIDENCE"):
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)

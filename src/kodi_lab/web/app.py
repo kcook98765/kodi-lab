@@ -602,7 +602,11 @@ from kodi_lab.storage.models import (
     RepositoryWorkspaceDeploymentRow,
     TargetRow,
 )
-from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
+from kodi_lab.storage.repositories import (
+    ManagedInstanceRepository,
+    SnapshotRepository,
+    TargetRepository,
+)
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
     ExternalCredentialStore,
@@ -614,6 +618,7 @@ from kodi_lab.web.admin_views import (
     admin_view_context,
     admin_view_return_path,
 )
+from kodi_lab.web.current_kodi import CurrentKodiPresentation, friendly_kodi_name
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.web.live_preview import preview_owner, stream_preview
 from kodi_lab.web.native_zip_installations import (
@@ -2431,10 +2436,9 @@ def create_app(
             "img-src 'self' blob:; connect-src 'self'; object-src 'none'; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
-        if (
-            novnc_viewer is not None
-            and getattr(request.scope.get("route"), "name", None) == "novnc_phase1_page"
-        ):
+        if novnc_viewer is not None and getattr(
+            request.scope.get("route"), "name", None
+        ) in {"novnc_phase1_page", "development_session_page"}:
             response.headers["Content-Security-Policy"] = response.headers[
                 "Content-Security-Policy"
             ].replace("img-src 'self' blob:", "img-src 'self' blob: data:")
@@ -3363,6 +3367,7 @@ def create_app(
             request,
             "index.html",
             {
+                "current_kodi": current_kodi.identity(),
                 "instances": instances,
                 "kodis": kodi_views.list(),
                 "add_kodi_enabled": True,
@@ -3399,6 +3404,7 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "kodis": kodi_views.list(),
                 "managed_names": kodi_views.managed_names(),
+                "current_kodi": current_kodi.identity(),
             },
         )
 
@@ -3847,6 +3853,11 @@ def create_app(
             "runtimes.html",
             {
                 "matrix": matrix,
+                "current_kodi": current_kodi.identity(),
+                "installation_records": runtime_installations.records(
+                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
+                    == "development"
+                ),
                 "installations": runtime_installations.list(
                     include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
                     == "development"
@@ -3997,6 +4008,13 @@ def create_app(
         data_root=settings.data_root,
     )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
+    current_kodi = CurrentKodiPresentation(
+        session_factory,
+        session_workflow,
+        session_service,
+        status_service,
+        reconciliation,
+    )
     session_preparation = SessionPreparationService(session_factory)
     session_source_copy = SessionSourceCopyService(
         session_factory, context.development_source_deployment_operations
@@ -4304,6 +4322,7 @@ def create_app(
             "development-session.html",
             {
                 "choices": session_workflow.choices(),
+                "current_kodi": current_kodi.identity(),
                 "workspaces": context.agent_workspaces.list_workspaces(),
                 "csrf_token": authenticated.csrf_token,
             },
@@ -4422,7 +4441,7 @@ def create_app(
     def development_session_status(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> SessionView:
-        view = session_workflow.view()
+        view = current_kodi.observe()
         if view.current is None:
             return view
         from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
@@ -4442,7 +4461,9 @@ def create_app(
                     session_service._runtime(
                         db, current.target_id, current.runtime_revision_id
                     )
-                runtime = status_service.get(current.target_id)
+                runtime = view.runtime
+                if runtime is None:
+                    return view
                 if runtime.container_state is ContainerRuntimeState.STOPPED:
                     view.viewer_state = "stopped"
                 elif current.phase == "bound":
@@ -4470,13 +4491,42 @@ def create_app(
     ) -> DevelopmentSessionStatus:
         return session_service.close_absent(body.expected_generation)
 
+    class ViewerReleaseUnproven(ValueError):
+        pass
+
+    def stop_human_viewing(instance_id: UUID) -> None:
+        if novnc_viewer is None:
+            return
+        novnc_viewer.revoke_instance(instance_id)
+        if novnc_viewer.ownership is not None:
+            try:
+                novnc_viewer.ownership.wait_released(instance_id)
+            except ValueError as error:
+                raise ViewerReleaseUnproven from error
+
     @app.post("/api/development-session/{action}", response_model=ManagedRuntimeStatus)
     def development_session_action(
         action: Literal["prepare", "resume", "stop"],
         body: SessionGenerationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        return session_workflow.act(action, body.expected_generation)
+    ) -> ManagedRuntimeStatus | JSONResponse:
+        if action != "stop":
+            return session_workflow.act(action, body.expected_generation)
+        current = session_service.status()
+        if current is None or current.generation != body.expected_generation:
+            raise DevelopmentSessionConflict("development_session_generation_conflict")
+        try:
+            return session_workflow.act(
+                action,
+                body.expected_generation,
+                before_stop=lambda: stop_human_viewing(current.target_id),
+            )
+        except ViewerReleaseUnproven:
+            return _json_error(
+                409,
+                "input_release_unproven",
+                "Viewing could not be safely released. No Kodi action was dispatched.",
+            )
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
     async def agent_workspace_list_page(request: Request) -> Response:
@@ -5079,6 +5129,7 @@ def create_app(
             "instance-detail.html",
             {
                 "detail": context.instance_detail.get(instance_id),
+                "current_kodi": current_kodi.identity(),
                 "resource_status": context.managed_resources.status(instance_id),
                 "visual": context.screenshots.get_status(instance_id),
                 "remote_available": context.browser_remote.available(instance_id),
@@ -7183,6 +7234,36 @@ def create_app(
     ) -> ManagedScreenshotStatus:
         return context.screenshots.get_status(instance_id)
 
+    def viewer_page_context(instance: UUID) -> dict[str, Any]:
+        view = current_kodi.identity()
+        selected = view.current is not None and view.current.target_id == instance
+        with session_factory() as db:
+            target = TargetRepository(db).get(instance)
+        return {
+            "viewer_name": friendly_kodi_name(
+                None if target is None else target.kodi_version
+            ),
+            "viewer_generation": str(view.current.generation)
+            if selected and view.current is not None
+            else "",
+            "viewer_selection": view.current if selected else None,
+            "viewer_can_start": bool(
+                selected
+                and view.current is not None
+                and view.current.phase == "bound"
+                and view.current.container_id
+            ),
+            "viewer_context": (
+                "Watching Current Kodi. Viewing starts explicitly "
+                "and stays bound to this environment."
+            )
+            if selected
+            else (
+                "Not the currently selected Kodi. This viewer manages this exact "
+                "registration. Open Current Kodi to see the selected environment."
+            ),
+        }
+
     if novnc_viewer is not None:
         install_novnc_routes(
             app,
@@ -7192,6 +7273,7 @@ def create_app(
             current_session,
             mutation_session,
             _websocket_same_origin,
+            page_context=viewer_page_context,
         )
 
     @app.post("/api/instances/{instance_id}/display-policy")
@@ -8323,12 +8405,12 @@ def create_app(
         _body: EmptyActionRequest = Body(),
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
-        if novnc_viewer is not None:
-            try:
-                novnc_viewer.revoke_instance(instance_id)
-            except ValueError:
-                raise HTTPException(409, "input_release_unproven") from None
-        return context.lifecycle.stop(instance_id)
+        try:
+            return context.lifecycle.stop(
+                instance_id, before_dispatch=lambda: stop_human_viewing(instance_id)
+            )
+        except ViewerReleaseUnproven:
+            raise HTTPException(409, "input_release_unproven") from None
 
     @app.post(
         "/api/instances/{instance_id}/workspace-executions/"

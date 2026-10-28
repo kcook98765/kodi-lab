@@ -1,0 +1,12 @@
+<section class="current-kodi-card" aria-labelledby="current-kodi-heading">
+  <p class="eyebrow">Managed development</p>
+  <h2 id="current-kodi-heading"><a href="/development-session">Current Kodi</a></h2>
+  {% if current_kodi.current %}
+  <p class="current-kodi-version">{{ current_kodi.summary.name }}</p>
+  <p>{{ current_kodi.summary.workspace_name }} · {{ current_kodi.summary.addon_id }}</p>
+  <p>Selected development environment. Open Current Kodi for live status, viewing and Start / Stop controls.</p>
+  {% else %}
+  <p>No development Kodi is selected.</p>
+  {% endif %}
+  <a class="button-link kodi-primary" href="/development-session">{{ 'Open Current Kodi' if current_kodi.current else 'Choose Kodi' }}</a>
+</section>

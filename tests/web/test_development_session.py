@@ -50,11 +50,12 @@ def test_session_page_and_actions_require_authentication(client: TestClient) -> 
     login(client)
     page = client.get("/development-session")
     assert (
-        page.status_code == 200 and "Resume and Stop keep the same profile" in page.text
+        page.status_code == 200
+        and "Stop keeps the same profile and workspace" in page.text
     )
     assert 'href="/development-session"' in client.get("/development").text
     assert "No approved cached development runtime" in page.text
-    assert "Watch this Kodi" in page.text
+    assert "Kodi screen" in page.text
 
 
 def test_reserve_prepare_replay_and_absence_only_close_have_closed_inputs(

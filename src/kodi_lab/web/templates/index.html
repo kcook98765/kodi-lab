@@ -4,8 +4,6 @@
 {% block main_class %}home-page{% endblock %}
 {% block head %}
 <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
-    {% if development_view %}<script src="{{ url_for('static', path='/app.js') }}" defer></script>{% endif %}
-    {% if development_view %}<script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>{% endif %}
 {% endblock %}
 {% block content %}
       <h1>Home</h1>
@@ -14,53 +12,8 @@
         {% if add_kodi_enabled %}<a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>{% endif %}
         <a class="button-link" href="/mcp-clients">Connect an agent</a>
       </div>
-      {% set overview = namespace(ready=0, stopped=0, attention=0) %}
-      {% for instance in instances %}
-        {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
-        {% set reset = reset_statuses.get(instance.managed_instance_id) %}
-        {% set reconstruction = reconstruction_statuses.get(instance.managed_instance_id) %}
-        {% if instance.usability_state == 'usable' %}{% set overview.ready = overview.ready + 1 %}{% endif %}
-        {% if instance.container_state in ['stopped', 'exited', 'created', 'missing'] %}{% set overview.stopped = overview.stopped + 1 %}{% endif %}
-        {% if instance.failure_code or instance.failure_detail or (reconciliation and reconciliation.required) or (reset and (reset.failure_reason or reset.reconciliation_required)) or (reconstruction and reconstruction.failure_reason) %}{% set overview.attention = overview.attention + 1 %}{% endif %}
-      {% endfor %}
-      <section aria-labelledby="system-overview-heading" class="home-overview">
-        <h2 id="system-overview-heading">System overview</h2>
-        <p>Web administration is available. Instance health below reflects recorded checks, not a new functional test.</p>
-        <dl class="home-counts">
-          <div><dt>Home Kodi</dt><dd>{{ kodis|length }}</dd></div>
-          <div><dt>Managed Kodi</dt><dd>{{ instances|length }}</dd></div>
-          <div><dt>Ready to use</dt><dd>{{ overview.ready }}</dd></div>
-          <div><dt>Stopped or not started</dt><dd>{{ overview.stopped }}</dd></div>
-          <div><dt>Needs review</dt><dd>{{ overview.attention }}</dd></div>
-        </dl>
-        {% if not kodis and not instances %}<p>No Kodi is configured. Add Home Kodi or <a href="/runtimes">set up managed Kodi for development</a>.</p>{% endif %}
-        <p><a href="/managed-resources">Review running limits and managed resources</a></p>
-      </section>
-      <section aria-labelledby="home-managed-heading">
-        <h2 id="home-managed-heading">Managed Kodi at a glance</h2>
-        <p class="secondary">Recorded status at page load. Open an instance for current checks and controls.</p>
-        <ul class="kodi-grid">
-        {% for instance in instances %}
-          {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
-          {% set reset = reset_statuses.get(instance.managed_instance_id) %}
-          {% set reconstruction = reconstruction_statuses.get(instance.managed_instance_id) %}
-          {% set busy = (reset and reset.operation and reset.operation.state in ['queued', 'running']) or (reconstruction and reconstruction.state in ['queued', 'running']) %}
-          {% set next_step = managed_next_step(instance, blocking=reconciliation and reconciliation.blocking, busy=busy) %}
-          <li class="kodi-card" data-managed-overview="{{ instance.managed_instance_id }}">
-            <h3>{{ instance.name }}</h3>
-            <p>Kodi {{ instance.kodi_version }} · {{ state_label(instance.usability_state) }}</p>
-            <p>{{ state_label(instance.container_state) }}</p>
-            {% if reconciliation and reconciliation.required %}<p class="reconciliation-warning">An earlier operation needs review. Automatic recovery will not repeat it.</p>{% endif %}
-            {% if instance.failure_code %}<p class="error">{{ error_messages.get(instance.failure_code, 'A status check needs attention. Review the instance diagnostics.') }}</p>{% endif %}
-            {% if (reset and (reset.failure_reason or reset.reconciliation_required)) or (reconstruction and reconstruction.failure_reason) %}<p class="error">A previous reset or reconstruction needs review. Open the instance to inspect the retained outcome before continuing.</p>
-            {% elif next_step %}<p class="home-next-step">{{ next_step }}</p>{% endif %}
-            <a class="button-link" href="/instances/{{ instance.managed_instance_id }}" aria-label="Open managed Kodi: {{ instance.name }}">Open instance</a>
-          </li>
-        {% else %}
-          <li class="kodi-empty">No managed Kodi yet. <a href="/runtimes">Choose a reviewed Kodi version</a> for an isolated development instance.</li>
-        {% endfor %}
-        </ul>
-      </section>
+      {% include 'components/current-kodi-summary.html' %}
+      <p><a href="#instances">Advanced managed registrations and history</a></p>
       <section aria-labelledby="home-kodi-heading">
         <h2 id="home-kodi-heading">Kodi in your home</h2>
         <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
@@ -92,9 +45,9 @@
       {% set attention.names = attention.names + [instance.name] %}
       {% endif %}
       {% endfor %}
-      <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Development Kodi needs attention: <span>{{ attention.names|join(', ') }}</span>. <a href="{{ '#instances' if development_view else '/development' }}">Review status</a></p>
-      <details id="managed-details" class="home-development"{% if not development_view %} hidden data-managed-deep-link data-managed-script="{{ url_for('static', path='/app.js') }}" data-managed-resource-script="{{ url_for('static', path='/managed-resources.js') }}"{% endif %}>
-      <summary>Development Kodi — managed instances ({{ instances|length }})</summary>
+      <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Advanced managed registrations need review: <span>{{ attention.names|join(', ') }}</span>. <a href="#instances">Review status</a></p>
+      <details id="managed-details" class="home-development" hidden data-managed-deep-link data-managed-script="{{ url_for('static', path='/app.js') }}" data-managed-resource-script="{{ url_for('static', path='/managed-resources.js') }}">
+      <summary>Advanced managed registrations ({{ instances|length }})</summary>
       <p>Runtime, reset and lifecycle controls for development and testing. <a href="/development">All development tools</a></p>
       <h2>Managed Kodi instances</h2>
       <p>Running slots: <strong data-managed-capacity>Loading</strong> · <a href="/managed-resources">Resource and idle settings</a></p>

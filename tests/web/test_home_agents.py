@@ -125,7 +125,7 @@ def test_home_managed_failure_visible_before_disclosure(
     notice = re.search(r'<p id="managed-attention".*?</p>', primary, re.S)
     assert notice is not None
     assert " hidden" not in notice.group()
-    assert "Development Kodi needs attention" in notice.group()
+    assert "Advanced managed registrations need review" in notice.group()
     assert 'href="#instances"' in notice.group()
     assert "Runtime check failed" in managed
 

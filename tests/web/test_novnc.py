@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from threading import Barrier, Event, Thread
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -16,7 +16,7 @@ from kodi_lab.application.live_display import (
 from kodi_lab.application.novnc_control import HumanControlBusyError
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.web.app import create_app
-from kodi_lab.web.novnc import PrototypeViewer, StartView
+from kodi_lab.web.novnc import ExpectedSelection, PrototypeViewer, StartView
 from kodi_lab.web.novnc_protocol import incoming_limit
 
 from . import conftest
@@ -46,6 +46,96 @@ def test_attachment_is_exact_owner_instance_and_one_use() -> None:
     with pytest.raises(ValueError):
         service.consume(INSTANCE_ID, "owner", ticket)
     service.end(start)
+
+
+@pytest.mark.parametrize(
+    "change", ["generation", "container", "revision", "workspace", "source"]
+)
+def test_rendered_selection_is_only_an_additional_admission_precondition(
+    change: str,
+) -> None:
+    revision, workspace, source = uuid4(), uuid4(), uuid4()
+    binding = ViewBinding(
+        "a" * 64,
+        "sha256:" + "b" * 64,
+        "start",
+        (str(revision), 1, 4, str(workspace), str(source), 9),
+    )
+    expected = ExpectedSelection(
+        generation=4,
+        runtime_revision_id=revision,
+        container_id="a" * 64,
+        workspace_id=workspace,
+        source_id=source,
+    )
+    service = PrototypeViewer(
+        Path("/tmp/no-fixture-display-socket"),
+        lambda _: binding,
+        registry=LiveDisplaySessionRegistry(),
+    )
+    stale = expected.model_copy(
+        update={
+            {
+                "generation": "generation",
+                "container": "container_id",
+                "revision": "runtime_revision_id",
+                "workspace": "workspace_id",
+                "source": "source_id",
+            }[change]: 3
+            if change == "generation"
+            else "f" * 64
+            if change == "container"
+            else uuid4(),
+        }
+    )
+    with pytest.raises(ValueError, match="selection changed"):
+        service.start(
+            INSTANCE_ID, "owner", StartView(attempt=uuid4(), expected_selection=stale)
+        )
+    assert not service.attachments and service.registry.active_count() == 0
+    item = service.start(
+        INSTANCE_ID, "owner", StartView(attempt=uuid4(), expected_selection=expected)
+    )
+    assert item.binding == binding and item.mode == "view-only"
+    service.end(item)
+
+
+def test_control_handoff_cannot_follow_a_replacement_profile() -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from kodi_lab.web.novnc import ChangeMode
+
+    binding = ViewBinding(
+        "a" * 64,
+        "sha256:" + "b" * 64,
+        "start",
+        (str(uuid4()), 1, 1, str(uuid4()), str(uuid4()), 0),
+    )
+    current = [binding]
+    ownership = SimpleNamespace(
+        require_control_available=lambda _: None,
+        create=lambda *_: "2026-10-29T12:00:00+00:00",
+        revoke=lambda *_: None,
+        wait_released=lambda _: current.__setitem__(
+            0, replace(binding, container="f" * 64)
+        ),
+    )
+    service = PrototypeViewer(
+        Path("/tmp/no-fixture-display-socket"),
+        lambda _: current[0],
+        registry=LiveDisplaySessionRegistry(),
+        ownership=cast(Any, ownership),
+    )
+    first = service.start(INSTANCE_ID, "owner", StartView(attempt=uuid4()))
+    with pytest.raises(ValueError, match="selection changed"):
+        service.handoff(
+            INSTANCE_ID,
+            "owner",
+            ChangeMode(attempt=first.attempt, next_attempt=uuid4()),
+            "interactive",
+        )
+    assert not service.attachments and service.registry.active_count() == 0
 
 
 def test_stop_before_start_lifecycle_cancellation_and_capacity() -> None:
@@ -137,7 +227,8 @@ def test_enabled_routes_require_admin_csrf_origin_and_closed_schema(
     assert "ticket" in reply.json()
     assert client.post(path, json=body, headers=headers).status_code == 409
     page = client.get(f"/instances/{INSTANCE_ID}/novnc-phase1")
-    assert page.status_code == 200 and "No audio" in page.text
+    assert page.status_code == 200 and "Not the currently selected Kodi" in page.text
+    assert "data-novnc-viewer" not in page.text
     assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
     assert "data:" not in client.get("/").headers["content-security-policy"]
 

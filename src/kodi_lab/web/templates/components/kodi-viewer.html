@@ -1,0 +1,17 @@
+{% macro kodi_viewer(instance_id, generation='', admission_required=false, selection=none) %}
+<section class="kodi-viewer" data-novnc-viewer data-instance="{{ instance_id }}" data-view-generation="{{ generation }}"{% if admission_required %} data-admission-required="true"{% endif %}{% if selection %} data-view-runtime="{{ selection.runtime_revision_id }}" data-view-container="{{ selection.container_id or '' }}" data-view-workspace="{{ selection.workspace_id }}" data-view-source="{{ selection.source_id }}"{% endif %} aria-label="Kodi live screen">
+  <div id="viewer" class="kodi-viewer-screen"><p data-viewer-placeholder>Start viewing to watch this Kodi.</p></div>
+  <div class="actions viewer-actions">
+    <button type="button" id="start"{% if admission_required %} disabled{% endif %}>Start Viewing</button>
+    <button type="button" id="stop" hidden disabled>Stop Viewing</button>
+    <button type="button" id="take-control" hidden disabled>Take Control</button>
+    <button type="button" id="release-control" hidden disabled>Release Control</button>
+    <button type="button" id="expand">Expand screen</button>
+    <button type="button" id="keyboard" hidden disabled>Keyboard</button>
+    <button type="button" id="back" hidden disabled>Back</button>
+  </div>
+  <label class="typing" hidden>Type in Kodi <input id="text-input" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+  <p id="status" role="status">Viewing is off.</p>
+  <p class="secondary">Starts view-only. Take Control blocks conflicting agent input. No audio. Sessions end after 10 minutes.</p>
+</section>
+{% endmacro %}

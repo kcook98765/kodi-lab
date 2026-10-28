@@ -1,5 +1,9 @@
 """Small Web composition over durable session bindings and existing lifecycle."""
 
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -34,6 +38,26 @@ class SessionView(BaseModel):
     viewer_state: (
         Literal["ready", "stopped", "unavailable", "unsupported", "disabled"] | None
     ) = None
+    summary: CurrentKodiSummary | None = None
+    runtime: ManagedRuntimeStatus | None = None
+
+
+class CurrentKodiSummary(BaseModel):
+    """Ephemeral Web wording; existing services retain all action authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    workspace_name: str
+    addon_id: str
+    status: str
+    detail: str
+    actions: list[Literal["prepare", "resume", "stop", "close-absent"]]
+    checked_at: datetime
+    recovery_url: str
+    native_status: str = "Not checked"
+
+
+SessionView.model_rebuild()
 
 
 class SessionTargetChoice(BaseModel):
@@ -115,7 +139,11 @@ class DevelopmentSessionWorkflow:
                 raise DevelopmentSessionConflict("development_session_identity_changed")
 
     def act(
-        self, action: Literal["prepare", "resume", "stop"], generation: int
+        self,
+        action: Literal["prepare", "resume", "stop"],
+        generation: int,
+        *,
+        before_stop: Callable[[], None] | None = None,
     ) -> ManagedRuntimeStatus:
         current = self._sessions.status()
         if current is None or current.generation != generation:
@@ -133,11 +161,15 @@ class DevelopmentSessionWorkflow:
             return self._lifecycle.provision(
                 current.target_id, precondition=precondition
             )
+
+        def before_dispatch() -> None:
+            self._confirm_container(generation, current.target_id)
+            if action == "stop" and before_stop is not None:
+                before_stop()
+
         method = self._lifecycle.start if action == "resume" else self._lifecycle.stop
         return method(
             current.target_id,
             precondition=precondition,
-            before_dispatch=lambda: self._confirm_container(
-                generation, current.target_id
-            ),
+            before_dispatch=before_dispatch,
         )

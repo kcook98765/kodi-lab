@@ -79,7 +79,7 @@ def test_monitoring_keeps_screenshot_controls_and_separate_ui_inspection(
         "Kodi process",
         "JSON-RPC",
         "Readiness",
-        "Screen preview",
+        "Saved screenshot",
     ]:
         assert label in monitoring.group()
     for hook in [

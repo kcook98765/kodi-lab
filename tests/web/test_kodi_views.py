@@ -434,7 +434,9 @@ def test_multiple_household_and_development_separation(
         managed_name = session.scalar(
             select(TargetRow.name).where(TargetRow.id == str(INSTANCE_ID))
         )
-    assert managed_name is not None and escape(managed_name) in page
+    assert managed_name is not None and escape(managed_name) not in page
+    assert "Current Kodi" in page
+    assert "No development Kodi is selected" in page
     assert "<script>not markup</script>" not in page
     assert 'href="/development"' in page
     assert 'href="/external-targets"' in page

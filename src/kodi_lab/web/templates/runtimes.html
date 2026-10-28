@@ -1,18 +1,20 @@
 {% extends 'base.html' %}
-{% set nav_section = 'development' %}
-{% block title %}Reviewed runtimes · Kodi Lab{% endblock %}
+{% set nav_section = 'settings' %}
+{% block title %}Runtime installations · Kodi Lab{% endblock %}
 {% block head %}
 <script src="{{ url_for('static', path='/runtime-installations.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-      <h1>Reviewed runtimes</h1>
+      <h1>Runtime installations</h1>
+      <p>Advanced · Reviewed canonical installations are separate from your selected development environment.</p>
+      {% include 'components/current-kodi-summary.html' %}
       <p><a href="/#instances">Managed instances</a></p>
       <section aria-labelledby="managed-setup-heading">
         <h2 id="managed-setup-heading">Guided managed Kodi setup</h2>
         <ol>
           <li>Choose a reviewed version below and review its canonical instance name.</li>
           <li>Review and approve installation. The runtime is downloaded and validated; stable versions create their stopped instance automatically. Preview offers a separate Create managed instance step after validation.</li>
-          <li>Open the managed instance, choose <strong>Prepare runtime</strong>, review its stopped state, then choose <strong>Start Kodi</strong>. Each step requires a separate action.</li>
+          <li>Open <a href="/development-session">Current Kodi</a>, choose the reviewed workspace and runtime, then Prepare Kodi and Start Kodi. Each step requires a separate action.</li>
         </ol>
         <label>1. Kodi version <select data-setup-version><option value="">Choose a version…</option>{% for item in installations %}<option value="{{ item.generation }}">{{ item.display_name }} · {{ item.version }}</option>{% endfor %}</select></label>
         <p data-setup-name role="status">Choose a version to review the instance name.</p>
@@ -28,7 +30,7 @@
         <button type="button" data-install-cancel>Cancel review</button>
       </section>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
-      <p>Install acquires and validates the approved runtime, then makes a stopped managed instance available. Open the instance to provision and start it using the existing lifecycle controls.</p>
+      <p>Install acquires and validates the approved runtime, then makes a stopped managed instance available. Use Current Kodi to select, prepare and start a development environment.</p>
       <p>The technical matrix describes recorded runtime eligibility. Installation also requires a compatible, reachable broker and verified local runtime files.</p>
       <p class="error" role="alert" data-runtime-install-error hidden></p>
       <div class="runtime-install-grid" data-runtime-installations>
@@ -47,6 +49,7 @@
           {% endif %}
           <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>
           <p class="runtime-install-message">{{ item.failure_message or '' }}</p>
+          {% if item.eligibility_reason %}<p>Eligibility review: {{ item.eligibility_reason|replace('_', ' ') }}</p>{% endif %}
           <p class="runtime-install-note">{{ item.note or '' }}</p>
           <p>Canonical name: <strong>{{ item.managed_instance_name }}</strong></p>
           <button type="button" data-install-recover hidden>Inspect saved setup before another action</button>
@@ -70,6 +73,21 @@
         </section>
         {% endfor %}
       </div>
+      <details class="runtime-records">
+        <summary>Recent installation records and separately reviewed variants</summary>
+        <p>These records retain their exact recipe and runtime identity. They do not select Current Kodi or authorize a new installation.</p>
+        {% for record in installation_records %}
+        <article>
+          <h3>{{ record.managed_instance_name }}</h3>
+          <p>{{ record.phase }} · {{ record.note or '' }}</p>
+          {% if record.failure_message %}<p class="error">{{ record.failure_message }}</p>{% endif %}
+          {% if record.eligibility_reason %}<p>Eligibility review: {{ record.eligibility_reason|replace('_', ' ') }}</p>{% endif %}
+          <p>Recorded operation: <code>{{ record.operation_id }}</code></p>
+          {% if record.managed_instance_url %}<p><a href="{{ record.managed_instance_url }}">Review this exact registration in Advanced</a></p>{% endif %}
+          <dl>{% for label, value in (record.technical_details or {}).items() %}<dt>{{ label|replace('_', ' ')|capitalize }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+        </article>
+        {% else %}<p>No installation records.</p>{% endfor %}
+      </details>
       <details class="runtime-matrix-details">
         <summary>Curated runtime matrix · Technical details</summary>
       <form method="get" action="/runtimes" class="matrix-filters">

@@ -323,7 +323,8 @@ def test_matrix_html_is_explicit_and_omits_backend_authority(
             assert text in page.text
         for forbidden in (IMAGE_ID, "evidence_reference", "source_reference"):
             assert forbidden not in page.text
-        assert "Reviewed runtimes" in client.get("/development").text
+        assert "Current Kodi" in client.get("/development").text
+        assert "Reviewed runtime installations" in client.get("/settings").text
 
 
 def test_target_selection_preview_is_exact_and_server_resolved(

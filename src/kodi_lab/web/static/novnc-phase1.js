@@ -1,17 +1,20 @@
 import RFB from './vendor/novnc/core/rfb.js';
 
-const main = document.querySelector('main');
+const main = document.querySelector('[data-novnc-viewer]');
+const element = selector => main.querySelector(selector);
 const instance = main.dataset.instance;
 const csrf = document.querySelector('meta[name="kodi-lab-csrf"]').content;
-const start = document.querySelector('#start');
-const stop = document.querySelector('#stop');
-const take = document.querySelector('#take-control');
-const release = document.querySelector('#release-control');
-const keyboard = document.querySelector('#keyboard');
-const back = document.querySelector('#back');
-const text = document.querySelector('#text-input');
-const typing = document.querySelector('.typing');
-const status = document.querySelector('#status');
+const start = element('#start');
+const stop = element('#stop');
+const take = element('#take-control');
+const release = element('#release-control');
+const keyboard = element('#keyboard');
+const back = element('#back');
+const text = element('#text-input');
+const typing = element('.typing');
+const status = element('#status');
+let permitted = main.dataset.admissionRequired !== 'true' || main.dataset.available === 'true';
+let identityRetired = false;
 let attempt = null;
 let rfb = null;
 let mode = 'view-only';
@@ -19,7 +22,11 @@ let switching = false;
 let rfbConnected = false;
 
 function buttons(connected = false) {
-    start.disabled = attempt !== null;
+    start.disabled = !permitted || identityRetired || attempt !== null;
+    start.hidden = attempt !== null;
+    stop.hidden = attempt === null;
+    take.hidden = !connected || mode !== 'view-only';
+    release.hidden = keyboard.hidden = back.hidden = !connected || mode !== 'interactive';
     stop.disabled = attempt === null;
     take.disabled = switching || !connected || mode !== 'view-only';
     release.disabled = switching || !connected || mode !== 'interactive';
@@ -49,19 +56,23 @@ async function end(expected = attempt) {
     switching = false;
     if (previousRfb) previousRfb.disconnect();
     buttons();
-    status.textContent = 'Off';
+    status.textContent = identityRetired ? 'This environment changed. Open Current Kodi before viewing again.' : 'Viewing is off.';
+    const placeholder = main.querySelector('[data-viewer-placeholder]');
+    if (placeholder) placeholder.hidden = false;
     if (old) {
         try { await post('stop', {attempt: old}); }
         catch (_) { if (attempt === null) status.textContent = 'Stopping. Input stays reserved until the server verifies release.'; }
     }
 }
 function connect(current, result) {
-    if (attempt !== current || document.hidden) return;
+    if (attempt !== current || document.hidden || identityRetired || !permitted) {end(current);return;}
     mode = result.mode;
     const url = new URL(`/api/instances/${instance}/novnc`, location.href);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(url, ['novnc', `view.${result.ticket}`]);
-    const client = new RFB(document.querySelector('#viewer'), ws);
+    const placeholder = main.querySelector('[data-viewer-placeholder]');
+    if (placeholder) placeholder.hidden = true;
+    const client = new RFB(element('#viewer'), ws);
     rfb = client;
     client.viewOnly = mode !== 'interactive';
     client.scaleViewport = true;
@@ -80,12 +91,18 @@ function connect(current, result) {
     client.addEventListener('disconnect', () => { if (rfb === client) rfbConnected = false; end(current); });
 }
 start.onclick = async () => {
+    if (start.disabled || identityRetired || !permitted) return;
     const current = crypto.randomUUID();
     attempt = current;
     buttons();
     status.textContent = 'Connecting';
     try {
-        const result = await post('start', {attempt: current, rate: 2});
+        const expected = main.dataset.viewGeneration && main.dataset.viewRuntime ? {
+            generation:Number(main.dataset.viewGeneration),
+            runtime_revision_id:main.dataset.viewRuntime,container_id:main.dataset.viewContainer,
+            workspace_id:main.dataset.viewWorkspace,source_id:main.dataset.viewSource,
+        } : null;
+        const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {})});
         connect(current, result);
     } catch (_) {
         if (attempt === current) {
@@ -147,7 +164,7 @@ text.addEventListener('keydown', event => {
         rfb.sendKey(event.key === 'Enter' ? 0xff0d : 0xff08, event.key);
     }
 });
-document.querySelector('#expand').onclick = async () => {
+element('#expand').onclick = async () => {
     main.classList.toggle('expanded');
     if (!document.fullscreenElement && main.requestFullscreen) await main.requestFullscreen().catch(() => {});
     else if (document.fullscreenElement) await document.exitFullscreen();
@@ -155,3 +172,55 @@ document.querySelector('#expand').onclick = async () => {
 document.addEventListener('visibilitychange', () => { if (document.hidden) end(); });
 window.addEventListener('pagehide', () => end());
 buttons();
+
+function currentStatus(detail) {
+    const selected = detail.current;
+    const expectedGeneration = main.dataset.viewGeneration;
+    if (detail.observationConfirmed !== false && expectedGeneration && (!selected || String(selected.generation) !== expectedGeneration || selected.target_id !== instance || ['runtime', 'container', 'workspace', 'source'].some(field => {const expected = main.dataset['view' + field[0].toUpperCase() + field.slice(1)];const actual = selected[{runtime:'runtime_revision_id',container:'container_id',workspace:'workspace_id',source:'source_id'}[field]];return expected !== undefined && expected !== String(actual || '');}))) {
+        identityRetired = true;
+        const context = document.querySelector('[data-viewer-current-status]');
+        if (context) context.textContent = 'Not the currently selected Kodi. Open Current Kodi to review the selected environment.';
+        permitted = false;
+        void end();
+        buttons();
+        return;
+    }
+    permitted = detail.state === 'ready' && !identityRetired;
+    if (!permitted && attempt) void end();
+    buttons(rfbConnected);
+}
+document.addEventListener('kodi-current-status', event => currentStatus(event.detail));
+// The expanded page shares the controller and checks its original session.
+// An inline panel receives these facts from Current Kodi's status controller.
+if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
+    let closed = false, epoch = 0, timer, controller;
+    function invalidate() {
+        epoch++;clearTimeout(timer);controller?.abort();controller = null;
+        permitted = false;void end();buttons();
+    }
+    async function checkSelection() {
+        if (closed || document.hidden) return;
+        const requestEpoch = ++epoch;
+        clearTimeout(timer);controller?.abort();controller = new AbortController();
+        const active = controller;
+        const timeout = setTimeout(() => active.abort(), 10000);
+        try {
+            const response = await fetch('/api/development-session', {credentials:'same-origin', cache:'no-store', signal:active.signal});
+            if (closed || document.hidden || requestEpoch !== epoch) return;
+            if (!response.ok) throw new Error();
+            const value = await response.json();
+            if (closed || document.hidden || requestEpoch !== epoch) return;
+            currentStatus({observationConfirmed:true, current:value.current, state:value.viewer_state});
+        } catch (_) {
+            if (closed || document.hidden || requestEpoch !== epoch) return;
+            permitted = false;await end();buttons();
+        } finally {
+            clearTimeout(timeout);
+            if (!closed && !document.hidden && requestEpoch === epoch) timer = setTimeout(checkSelection, 5000);
+        }
+    }
+    window.addEventListener('pagehide', () => {closed = true;invalidate();});
+    window.addEventListener('pageshow', event => {if (event.persisted) window.location.reload();});
+    document.addEventListener('visibilitychange', () => {invalidate();if (!document.hidden) checkSelection();});
+    permitted = false;buttons();checkSelection();
+}

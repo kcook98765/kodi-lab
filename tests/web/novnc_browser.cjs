@@ -5,6 +5,10 @@ const source = fs.readFileSync(process.argv[2], 'utf8').replace(/^import RFB[^\n
 const nodes = Object.fromEntries(['main', '#start', '#stop', '#status', '#rate', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand', 'meta[name="kodi-lab-csrf"]'].map(x => [x, {}]));
 for (const node of Object.values(nodes)) node.addEventListener = () => {};
 nodes.main.dataset = {instance: 'fixture'};
+nodes.main.querySelector = selector => nodes[selector] || null;
+nodes['[data-novnc-viewer]'] = nodes.main;
+const listeners = {};
+
 nodes['#rate'].value = '10';
 nodes['meta[name="kodi-lab-csrf"]'].content = 'csrf';
 const pending = [], clients = [];
@@ -17,7 +21,7 @@ class RFB {
     emit(type) { this.listeners[type](); }
 }
 const context = {
-    document: {querySelector: x => nodes[x], hidden: false, addEventListener() {}},
+    document: {querySelector: x => nodes[x], hidden: false, addEventListener(name, fn) {listeners[name] = fn;}},
     window: {addEventListener() {}}, RFB, WebSocket: class {}, URL,
     location: {href: 'https://lab.test/', protocol: 'https:'},
     crypto: {randomUUID: () => `attempt-${++sequence}`},
@@ -61,5 +65,14 @@ const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticke
     assert.equal(latest.closed, true, 'late handoff failure kept a retired attachment');
     assert.equal(nodes['#start'].disabled, false);
     assert.match(nodes['#status'].textContent, /Control change unavailable/);
-    console.log('stale disconnect and failed admission preserve newer viewer');
+    nodes.main.dataset.viewGeneration = '1';
+    listeners['kodi-current-status']({detail:{observationConfirmed:false,current:null,state:'unavailable'}});
+    assert.equal(nodes['#start'].disabled, true, 'uncertain status blocks viewing');
+    listeners['kodi-current-status']({detail:{observationConfirmed:true,current:{generation:1,target_id:'fixture'},state:'ready'}});
+    assert.equal(nodes['#start'].disabled, false, 'unchanged identity recovers explicit viewing');
+    listeners['kodi-current-status']({detail:{current:{generation:2,target_id:'fixture'},state:'ready'}});
+    assert.equal(nodes['#start'].disabled, true, 'old tab may not follow a new selection');
+    assert.match(nodes['#status'].textContent, /environment changed/);
+    assert.equal(clients.at(-1).closed, true);
+    console.log('stale callbacks, handoff arbitration and switched identity guards passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
