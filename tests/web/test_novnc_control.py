@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Thread
@@ -26,6 +27,7 @@ from kodi_lab.application.novnc_control import (
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.domain import ManagedInstanceMutationKind
 from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow, NovncSessionRow
+from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
 from kodi_lab.web.novnc import ChangeMode, PrototypeViewer, StartView
 
 from .conftest import INSTANCE_ID, REVISION_ID
@@ -175,34 +177,36 @@ def test_controller_and_agent_concurrent_admission_have_one_winner(
 ) -> None:
     ownership = HumanViewerOwnership(database)
     barrier = Barrier(2)
-    results = []
     handles = []
 
-    def control() -> None:
+    def control() -> str:
         barrier.wait(timeout=2)
         try:
             create(ownership)
-            results.append("control")
+            return "control"
         except IntegrityError:
-            pass
+            return "control_excluded"
 
-    def remote() -> None:
+    def remote() -> str:
         barrier.wait(timeout=2)
         try:
             if agent_operation == "mutation":
-                mutation(database)
+                with database.begin() as db:
+                    ManagedInstanceMutationLeaseRepository(db).reserve(
+                        INSTANCE_ID,
+                        kind=ManagedInstanceMutationKind.MCP_ADDON_SETTINGS,
+                        operation_id=uuid4(),
+                    )
             else:
                 handles.append(acquire_browser_remote(database, INSTANCE_ID))
-            results.append("remote")
+            return "agent"
         except (BrowserRemoteCoordinationConflict, IntegrityError):
-            pass
+            return "agent_excluded"
 
-    threads = [Thread(target=control), Thread(target=remote)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(3)
-    assert len(results) == 1 and not any(t.is_alive() for t in threads)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(control), pool.submit(remote)]
+        outcomes = {future.result(timeout=4) for future in futures}
+    assert outcomes in ({"control", "agent_excluded"}, {"agent", "control_excluded"})
     for handle in handles:
         release_browser_remote(handle)
 

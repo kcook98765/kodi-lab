@@ -13,6 +13,7 @@ from kodi_lab.application.live_display import (
     LiveDisplayError,
     LiveDisplaySessionRegistry,
 )
+from kodi_lab.application.novnc_control import HumanControlBusyError
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.web.app import create_app
 from kodi_lab.web.novnc import PrototypeViewer, StartView
@@ -152,6 +153,28 @@ def test_prototype_admission_body_is_bounded_before_auth(
         yield b"x" * 257
 
     assert enabled_client.post(path, content=chunks()).status_code == 413
+
+
+@pytest.mark.parametrize("early", [True, False])
+def test_handoff_route_distinguishes_untouched_busy_view_from_late_failure(
+    enabled_client: TestClient, monkeypatch: pytest.MonkeyPatch, early: bool
+) -> None:
+    def refused(*_args: Any, **_kwargs: Any) -> Any:
+        if early:
+            raise HumanControlBusyError("agent operation active")
+        raise ValueError("view successor unavailable")
+
+    monkeypatch.setattr(PrototypeViewer, "handoff", refused)
+    csrf = login(enabled_client)
+    q = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-take-control",
+        json={"attempt": str(uuid4()), "next_attempt": str(uuid4())},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert q.status_code == 409
+    assert q.json()["detail"] == (
+        "agent_operation_active" if early else "view_handoff_unavailable"
+    )
 
 
 def test_pending_authority_checks_have_a_hard_capacity_limit() -> None:

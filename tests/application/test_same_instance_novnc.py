@@ -286,6 +286,9 @@ def test_recognized_launch_recovery_allows_fresh_view_with_old_ticket_retired(
     assert launch(env, service, request_id=request).state == "accepted"
     assert bridge.calls == [False, True]
     assert authority.resolve(fixture.TARGET_ID) == item.binding
+    assert item.session.cancelled.is_set()
+    with pytest.raises(ValueError):
+        viewer.consume(fixture.TARGET_ID, item.owner, item.ticket)
     viewer.end(item)
     fresh = viewer.start(fixture.TARGET_ID, item.owner, StartView(attempt=uuid4()))
     assert fresh.mode == "view-only" and not fresh.session.cancelled.is_set()
@@ -343,6 +346,8 @@ def test_dispatched_smoke_requires_its_own_exact_incarnation(
     )
 
     env, _, _, authority, viewer, item = selected(tmp_path, monkeypatch)
+    verified = []
+    intentional_stop = RuntimeError("stop corrupt fixture before dispatch")
 
     def corrupt(phase: str) -> None:
         assert phase == "execution_dispatch_marker"
@@ -357,11 +362,13 @@ def test_dispatched_smoke_requires_its_own_exact_incarnation(
                 operation.original_runtime_state_revision += 1
         with pytest.raises(ValueError, match="operation conflict"):
             authority.resolve(fixture.TARGET_ID)
-        raise RuntimeError("stop corrupt fixture before dispatch")
+        verified.append(True)
+        raise intentional_stop
 
     env.development._failure = corrupt
-    with pytest.raises(McpWorkspaceDevelopmentError):
+    with pytest.raises(McpWorkspaceDevelopmentError) as error:
         fixture._execute_workspace(env)
+    assert verified == [True] and error.value.__cause__ is intentional_stop
     assert env.smoke.count == 0 and item.session.cancelled.is_set()
     viewer.end(item)
 

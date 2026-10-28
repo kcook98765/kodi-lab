@@ -55,5 +55,11 @@ const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticke
     assert.equal(latest.closed, false, 'busy Take Control disconnected view-only');
     assert.match(nodes['#status'].textContent, /Agent operation active/);
     assert.equal(nodes['#take-control'].disabled, false);
+    const late = nodes['#take-control'].onclick();
+    pending.shift().resolve({ok: false, status: 409, json: async () => ({detail: 'view_handoff_unavailable'})});
+    await late;
+    assert.equal(latest.closed, true, 'late handoff failure kept a retired attachment');
+    assert.equal(nodes['#start'].disabled, false);
+    assert.match(nodes['#status'].textContent, /Control change unavailable/);
     console.log('stale disconnect and failed admission preserve newer viewer');
 })().catch(error => { console.error(error); process.exitCode = 1; });
