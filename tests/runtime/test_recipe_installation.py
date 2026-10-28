@@ -41,7 +41,7 @@ from kodi_lab.runtime.install import (
     recipe_target_id,
 )
 from kodi_lab.runtime.lab import LabWorkflowError, repin_reviewed_runtime
-from kodi_lab.runtime.recipes import load_reviewed_recipe
+from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, load_reviewed_recipe
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.runtime.validation import ValidationResult
 from kodi_lab.storage import metadata
@@ -178,6 +178,61 @@ def _ready(
         data_root=Settings().data_root,
     )
     return operation_id
+
+
+def test_ready_novnc_candidate_requires_explicit_selection_policy(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.runtime_matrix import RuntimeMatrixService
+
+    reviewed = load_novnc_phase1_recipe()
+    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: reviewed)
+    operation = _ready(factory, generation="omega")
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation)
+        assert row is not None and row.runtime_revision_id is not None
+        assert row.recipe_revision == 4
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        assert revision is not None and definition is not None
+        policy = RuntimeRevisionEligibilityPolicy()
+        assert not policy.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(),
+        ).eligible
+        assert policy.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(novnc_phase1=True),
+        ).eligible
+        assert supports_reviewed_recipe_capability(session, revision.id, "screenshot")
+    matrix = RuntimeMatrixService(factory).list_matrix()
+    candidate = next(
+        x
+        for x in matrix.runtimes
+        if x.runtime_definition_id == reviewed.recipe.definition_id
+    )
+    assert not candidate.selectable and candidate.selected_revision_number is None
+
+    # Existing agent capture resolves the sealed runtime geometry without any
+    # viewer, private display lane, or viewer authority object.
+    from kodi_lab.broker.screenshots import SqliteScreenshotCaptureResolver
+    from kodi_lab.kodi.screenshots import prepare_capture_stage
+
+    bootstrap_recipe_instance(factory, reviewed, revision.id)
+    capture = uuid4()
+    prepare_capture_stage(Settings().data_root, capture)
+    resolved = SqliteScreenshotCaptureResolver(
+        factory, data_root=Settings().data_root
+    ).resolve(str(recipe_target_id(reviewed)), str(revision.id), str(capture))
+    assert resolved.experimental_image_id == IMAGE
 
 
 def test_ready_install_is_eligible_and_creates_one_exact_managed_pin(
@@ -698,3 +753,37 @@ def test_matrix_and_nexus_ready_records_are_separate(
         assert matrix_revision is not None and nexus_revision is not None
         assert matrix_revision.runtime_definition_id == matrix.recipe.definition_id
         assert nexus_revision.runtime_definition_id == nexus.recipe.definition_id
+
+
+def test_experimental_bootstrap_never_reuses_normal_omega_target_identity() -> None:
+    normal = load_reviewed_recipe("omega")
+    experimental = load_novnc_phase1_recipe()
+    assert recipe_target_id(normal) != recipe_target_id(experimental)
+    assert normal.recipe.definition_id == experimental.recipe.definition_id
+
+
+def test_normal_and_experimental_omega_registrations_coexist_without_repinning(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    normal = load_reviewed_recipe("omega")
+    operation = _ready(factory, generation="omega")
+    with factory() as db:
+        installation = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert installation is not None and installation.runtime_revision_id is not None
+        normal_revision = UUID(installation.runtime_revision_id)
+    bootstrap_recipe_instance(factory, normal, normal_revision)
+    experimental = load_novnc_phase1_recipe()
+    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: experimental)
+    operation = _ready(factory, image_id="sha256:" + "b" * 64, generation="omega")
+    with factory() as db:
+        installation = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert installation is not None and installation.runtime_revision_id is not None
+        experimental_revision = UUID(installation.runtime_revision_id)
+    bootstrap_recipe_instance(factory, experimental, experimental_revision)
+    with factory() as db:
+        ordinary = ManagedInstanceRepository(db).get(recipe_target_id(normal))
+        viewer = ManagedInstanceRepository(db).get(recipe_target_id(experimental))
+        assert ordinary is not None and viewer is not None
+        assert ordinary.runtime_revision_id == normal_revision
+        assert viewer.runtime_revision_id == experimental_revision
+        assert len(ManagedInstanceRepository(db).list()) == 2

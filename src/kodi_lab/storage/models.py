@@ -8557,3 +8557,104 @@ class McpAddonSettingsOperationRow(Base):
     session_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     bridge_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class NovncSessionRow(Base):
+    """Durable worker ownership; input fences survive expiry and process loss."""
+
+    __tablename__ = "novnc_sessions"
+    __table_args__ = (
+        CheckConstraint("mode IN ('view-only','interactive')", name="novnc_mode"),
+        CheckConstraint(
+            "state IN ('pending','active','revoking','blocked')", name="novnc_state"
+        ),
+        CheckConstraint(
+            "length(owner)=64 AND length(identity_json)<=4096",
+            name="novnc_identity_bound",
+        ),
+        CheckConstraint("expires_at<=absolute_expires_at", name="novnc_deadline"),
+    )
+    instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    attempt: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    owner: Mapped[str] = mapped_column(String(64), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    identity_json: Mapped[str] = mapped_column(String(4096), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    absolute_expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    broker_id: Mapped[str | None] = mapped_column(String(36))
+    exec_id: Mapped[str | None] = mapped_column(String(64))
+
+
+class ManagedRemoteGuardRow(Base):
+    """Cross-process exclusion for the existing Web and MCP remote dispatcher."""
+
+    __tablename__ = "managed_remote_guards"
+    instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    invocation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="reserved", server_default="reserved"
+    )
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    process_id: Mapped[str] = mapped_column(String(36), nullable=False)
+
+
+NOVNC_INPUT_TRIGGERS = (
+    "CREATE TRIGGER novnc_control_insert BEFORE INSERT ON novnc_sessions "
+    "WHEN NEW.mode='interactive' AND (EXISTS(SELECT 1 FROM "
+    "managed_instance_mutation_leases WHERE managed_instance_id=NEW.instance_id) "
+    "OR EXISTS(SELECT 1 FROM managed_remote_guards WHERE instance_id=NEW.instance_id)) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+    "CREATE TRIGGER novnc_control_update BEFORE UPDATE OF mode ON novnc_sessions "
+    "WHEN NEW.mode='interactive' AND (EXISTS(SELECT 1 FROM "
+    "managed_instance_mutation_leases WHERE managed_instance_id=NEW.instance_id) "
+    "OR EXISTS(SELECT 1 FROM managed_remote_guards WHERE instance_id=NEW.instance_id)) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+    "CREATE TRIGGER novnc_mutation_insert BEFORE INSERT ON "
+    "managed_instance_mutation_leases "
+    "WHEN (EXISTS(SELECT 1 FROM novnc_sessions WHERE "
+    "instance_id=NEW.managed_instance_id AND mode='interactive') "
+    "OR EXISTS(SELECT 1 FROM managed_remote_guards WHERE "
+    "instance_id=NEW.managed_instance_id)) "
+    "AND NOT (NEW.operation_kind='lifecycle' AND EXISTS(SELECT 1 FROM "
+    "managed_instance_lifecycle_operations WHERE id=NEW.operation_id "
+    "AND managed_instance_id=NEW.managed_instance_id AND kind='stop' "
+    "AND state='running')) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+    "CREATE TRIGGER novnc_mutation_update BEFORE UPDATE OF "
+    "managed_instance_id ON managed_instance_mutation_leases "
+    "WHEN (EXISTS(SELECT 1 FROM novnc_sessions WHERE "
+    "instance_id=NEW.managed_instance_id AND mode='interactive') "
+    "OR EXISTS(SELECT 1 FROM managed_remote_guards WHERE "
+    "instance_id=NEW.managed_instance_id)) "
+    "AND NOT (NEW.operation_kind='lifecycle' AND EXISTS(SELECT 1 FROM "
+    "managed_instance_lifecycle_operations WHERE id=NEW.operation_id "
+    "AND managed_instance_id=NEW.managed_instance_id AND kind='stop' "
+    "AND state='running')) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+    "CREATE TRIGGER novnc_remote_insert BEFORE INSERT ON managed_remote_guards "
+    "WHEN EXISTS(SELECT 1 FROM novnc_sessions WHERE "
+    "instance_id=NEW.instance_id AND mode='interactive') OR EXISTS(SELECT 1 FROM "
+    "managed_instance_mutation_leases WHERE managed_instance_id=NEW.instance_id) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+    "CREATE TRIGGER novnc_remote_update BEFORE UPDATE OF instance_id "
+    "ON managed_remote_guards "
+    "WHEN EXISTS(SELECT 1 FROM novnc_sessions WHERE "
+    "instance_id=NEW.instance_id AND mode='interactive') OR EXISTS(SELECT 1 FROM "
+    "managed_instance_mutation_leases WHERE managed_instance_id=NEW.instance_id) "
+    "BEGIN SELECT RAISE(ABORT,'managed input conflict'); END",
+)
+for _trigger_sql in NOVNC_INPUT_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )

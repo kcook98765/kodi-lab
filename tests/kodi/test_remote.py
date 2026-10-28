@@ -164,3 +164,54 @@ def test_kodi_rejection_and_ambiguous_timeout_never_retry() -> None:
     with pytest.raises(RemoteActionAmbiguousError):
         adapter(ambiguous).dispatch(BrowserRemoteAction.SELECT, INVOCATION_ID)
     assert len(ambiguous.requests) == 1
+
+
+def test_connection_failure_proves_no_control_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.kodi.remote import (
+        BoundedRemoteHttpTransport,
+        RemoteActionUndispatchedError,
+    )
+
+    class OfflineConnection:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def connect(self) -> None:
+            raise ConnectionRefusedError("offline")
+
+        def request(self, *_args: object, **_kwargs: object) -> None:
+            pytest.fail("Control request must not be attempted")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("http.client.HTTPConnection", OfflineConnection)
+    with pytest.raises(RemoteActionUndispatchedError):
+        BoundedRemoteHttpTransport().post(
+            host="127.0.0.1", port=1, path="/jsonrpc", body=b"{}", timeout=0.1
+        )
+
+
+@pytest.mark.parametrize("failure", ["transport", "invalid-json", "invalid-player"])
+def test_player_query_failure_proves_no_mutation(failure: str) -> None:
+    from kodi_lab.kodi.remote import RemoteActionUndispatchedError
+
+    class FailedQuery(RecordingTransport):
+        def post(self, **kwargs: Any) -> bytes:
+            document = json.loads(kwargs["body"])
+            self.requests.append(document)
+            assert document["method"] == "Player.GetActivePlayers"
+            if failure == "transport":
+                raise RemoteActionAmbiguousError("Read-only query lost")
+            if failure == "invalid-json":
+                return b"invalid"
+            return json.dumps(
+                {"jsonrpc": "2.0", "id": document["id"], "result": "invalid"}
+            ).encode()
+
+    transport = FailedQuery()
+    with pytest.raises(RemoteActionUndispatchedError):
+        adapter(transport).dispatch(BrowserRemoteAction.PLAY_PAUSE, INVOCATION_ID)
+    assert len(transport.requests) == 1

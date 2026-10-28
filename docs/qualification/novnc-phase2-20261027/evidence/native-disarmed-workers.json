@@ -1,0 +1,47 @@
+[
+  {
+    "case": "no-response",
+    "exec": "eba36f6bab88db85f9eaa450be2c1be512f38d324412bbe4acb768761b14cf4b",
+    "running": false,
+    "exit_code": 1,
+    "challenge_seen": true,
+    "native_workers_after": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:B1DD",
+        "00000000:1F90"
+      ]
+    }
+  },
+  {
+    "case": "untrusted-heartbeat",
+    "exec": "c9d620161c19480d20f7f71945ab0dcf2ffd8e925b892d768c5739c53e8cae6c",
+    "running": false,
+    "exit_code": 1,
+    "challenge_seen": true,
+    "native_workers_after": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:B1DD",
+        "00000000:1F90"
+      ]
+    }
+  },
+  {
+    "case": "wrong-challenge",
+    "exec": "49ffd01aa37b8150758c78012d390a9dd1379c1f138be624d59f1ce539fbcc12",
+    "running": false,
+    "exit_code": 1,
+    "challenge_seen": true,
+    "native_workers_after": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:B1DD",
+        "00000000:1F90"
+      ]
+    }
+  }
+]

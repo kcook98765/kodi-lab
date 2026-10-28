@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +47,8 @@ class Settings(BaseSettings):
     web_session_idle_seconds: Literal[43_200] = 43_200
     web_session_absolute_seconds: Literal[604_800] = 604_800
     trusted_custom_builds_enabled: bool = False
+    experimental_novnc_instances: tuple[UUID, ...] = ()
+
     external_target_master_key: SecretStr | None = None
     external_target_master_key_version: int = Field(default=1, ge=1, le=2_147_483_647)
     external_target_allowed_ports: tuple[int, ...] = (8080,)
@@ -56,6 +59,15 @@ class Settings(BaseSettings):
     # validation bridges. An absent pool retains Docker's ordinary allocator.
     temporary_network_pool: str | None = None
     temporary_network_child_prefix: int = Field(default=24, ge=24, le=28)
+
+    @field_validator("experimental_novnc_instances")
+    @classmethod
+    def _one_experimental_viewer(cls, value: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        if len(value) > 1:
+            raise ValueError(
+                "experimental viewer initially permits one explicit instance"
+            )
+        return value
 
     @field_validator("native_zip_base_url")
     @classmethod

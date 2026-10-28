@@ -1,0 +1,197 @@
+{
+  "observations": [
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147868888,
+      "observed_ms": 1793147868984.3635,
+      "delivery_upper_bound_ms": 96.363525390625,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          200,
+          220
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147868984,
+      "observed_ms": 1793147869096.8267,
+      "delivery_upper_bound_ms": 112.82666015625,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          200,
+          220
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147869102,
+      "observed_ms": 1793147869225.389,
+      "delivery_upper_bound_ms": 123.388916015625,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          235,
+          228
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147869226,
+      "observed_ms": 1793147869359.0913,
+      "delivery_upper_bound_ms": 133.09130859375,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          235,
+          228
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147869367,
+      "observed_ms": 1793147869506.0386,
+      "delivery_upper_bound_ms": 139.03857421875,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          270,
+          236
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147869506,
+      "observed_ms": 1793147869696.0955,
+      "delivery_upper_bound_ms": 190.095458984375,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          270,
+          236
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147869704,
+      "observed_ms": 1793147869892.899,
+      "delivery_upper_bound_ms": 188.89892578125,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          305,
+          244
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147869893,
+      "observed_ms": 1793147870025.221,
+      "delivery_upper_bound_ms": 132.220947265625,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          305,
+          244
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147870030,
+      "observed_ms": 1793147870135.0798,
+      "delivery_upper_bound_ms": 105.079833984375,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          340,
+          252
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147870135,
+      "observed_ms": 1793147870240.61,
+      "delivery_upper_bound_ms": 105.610107421875,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          340,
+          252
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "pointer",
+      "sent_ms": 1793147870249,
+      "observed_ms": 1793147870395.3508,
+      "delivery_upper_bound_ms": 146.350830078125,
+      "native": {
+        "keys": [],
+        "root_xy": [
+          375,
+          260
+        ],
+        "mask": 0
+      }
+    },
+    {
+      "kind": "key",
+      "sent_ms": 1793147870395,
+      "observed_ms": 1793147870512.8977,
+      "delivery_upper_bound_ms": 117.897705078125,
+      "native": {
+        "keys": [
+          38
+        ],
+        "root_xy": [
+          375,
+          260
+        ],
+        "mask": 0
+      }
+    }
+  ],
+  "pointer_upper_bound_ms": {
+    "n": 6,
+    "p50": 123.388916015625,
+    "p95": 188.89892578125,
+    "max": 188.89892578125
+  },
+  "key_upper_bound_ms": {
+    "n": 6,
+    "p50": 117.897705078125,
+    "p95": 190.095458984375,
+    "max": 190.095458984375
+  },
+  "method": "Actual Firefox WebDriver actions followed immediately by independent X11 queries. Includes query/exec/IPC overhead; bounds delivery, not exact device latency."
+}

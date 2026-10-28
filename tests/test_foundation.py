@@ -197,6 +197,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "external_reconnect_operations",
         "mcp_workspace_launches",
         "managed_resource_policy",
+        "managed_remote_guards",
+        "novnc_sessions",
         "managed_idle_states",
         "managed_instance_uses",
         "managed_start_reservations",

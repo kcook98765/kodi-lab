@@ -102,6 +102,10 @@ class RemoteKodiRejectedError(RuntimeError):
     """Kodi rejected or returned an invalid bounded response."""
 
 
+class RemoteActionUndispatchedError(RemoteKodiRejectedError):
+    """The adapter proves no mutating request could have been delivered."""
+
+
 class RemoteNoActivePlayerError(RuntimeError):
     """A player-relative action has no deterministic active player."""
 
@@ -156,7 +160,7 @@ class BoundedRemoteHttpTransport:
                 raise RemoteActionAmbiguousError(
                     "Kodi acknowledgement was not received"
                 ) from error
-            raise RemoteKodiRejectedError("Kodi is unavailable") from error
+            raise RemoteActionUndispatchedError("Kodi is unavailable") from error
         finally:
             connection.close()
 
@@ -258,7 +262,13 @@ def dispatch_semantic_remote(
 
     params: dict[str, object] | None
     if action in PLAYER_ACTIONS:
-        player_id = _active_player(request, invocation_id)
+        try:
+            player_id = _active_player(request, invocation_id)
+        except (RemoteKodiRejectedError, RemoteActionAmbiguousError) as error:
+            # Only a read-only query has run; no player mutation was attempted.
+            raise RemoteActionUndispatchedError(
+                "Active-player query failed before control dispatch"
+            ) from error
         method, params = _player_request(action, player_id)
     else:
         method, params = _DIRECT_REQUESTS[action]

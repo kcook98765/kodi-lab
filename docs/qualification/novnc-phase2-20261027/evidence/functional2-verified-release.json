@@ -1,0 +1,25 @@
+{
+  "held_key_before_click": {
+    "keys": [
+      38
+    ],
+    "root_xy": [
+      400,
+      250
+    ],
+    "mask": 0
+  },
+  "release": {
+    "mode": "view-only",
+    "handoff_ms": 564
+  },
+  "neutral_after_verified_release": {
+    "keys": [],
+    "root_xy": [
+      400,
+      250
+    ],
+    "mask": 0
+  },
+  "agent_resumed_ms": 1013.75
+}

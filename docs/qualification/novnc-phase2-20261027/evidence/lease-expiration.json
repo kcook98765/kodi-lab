@@ -1,0 +1,34 @@
+{
+  "deadline_unix": 1793146509.379697,
+  "observed_unix": 1793146513.961438,
+  "late_observation_seconds": 4.581741094589233,
+  "status": {
+    "status": "Off"
+  },
+  "cleanup": {
+    "cleanup_ms": 240.92711799312383,
+    "workers": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "00000000:1F90",
+        "0B00007F:8619"
+      ]
+    },
+    "ownership": [],
+    "xstate": {
+      "keys": [],
+      "root_xy": [
+        320,
+        180
+      ],
+      "mask": 0
+    }
+  },
+  "controller_exec": {
+    "id": "b58d3716fed10549b0339187bdf8529c1d91a9b4d0e5d4013b23c7290606955b",
+    "running": false,
+    "exit_code": 0
+  },
+  "agent_resumed_ms": 1123.513916015625
+}

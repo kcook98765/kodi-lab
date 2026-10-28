@@ -1,0 +1,27 @@
+{
+  "logout": {
+    "status": 200
+  },
+  "reused_cookie": 401,
+  "cleanup": {
+    "cleanup_ms": 270.4101769486442,
+    "workers": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:83D1",
+        "00000000:1F90"
+      ]
+    },
+    "ownership": [],
+    "xstate": {
+      "keys": [],
+      "root_xy": [
+        450,
+        290
+      ],
+      "mask": 0
+    }
+  },
+  "agent_ms": 1109.488037109375
+}

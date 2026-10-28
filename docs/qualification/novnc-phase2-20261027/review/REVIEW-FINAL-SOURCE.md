@@ -1,0 +1,32 @@
+## Disposition
+
+**No additional concrete P1/P2 issue established in the source inspected.** The inspected implementation is consistent with the central human-only architecture in `docs/EXPERIMENTAL-NOVNC.md` and D-0458.
+
+**This is not a complete final sign-off against `origin/main`:**
+- I could inspect the working-tree source, but did not obtain an `origin/main` source diff under the read-only/no-execution constraints.
+- Access to the external `review/REVIEW-*.md` directory was denied by the tool permissions. I therefore could not reconcile this review with the prior findings or confirm their recorded dispositions.
+
+No commands, tests, services, configuration changes, or edits were performed.
+
+## Boundary and lifecycle assessment
+
+References below are relative to the repository root.
+
+| Requirement | Static assessment and evidence |
+|---|---|
+| **Human-only noVNC** | **Confirmed at the inspected application-interface boundary.** Viewer admission uses authenticated Web sessions, CSRF-protected mutations, same-origin WebSockets, and owner-bound single-use tickets. It is not an MCP authentication path. See `src/kodi_lab/web/app.py:2434–2449` and `src/kodi_lab/web/novnc.py:287–301, 558–588, 656–697`. Searches of the MCP and authentication source found no VNC/RFB tool, grant, or credential integration. Existing MCP managed remote operations continue through the separate managed remote service (`application/mcp_target_adapters.py:493–510`). The expressly authorized isolated Firefox acceptance harness is not, by itself, a boundary violation; its external implementation/evidence was unavailable here. |
+| **Admission before native input enable** | **Confirmed structurally.** Interactive ownership is inserted durably before attachment (`web/novnc.py:251–258`); reciprocal SQLite triggers reject conflicting remote/mutation ownership (`migrations/versions/0087_novnc_control.py:11–54`). Broker claim binds attempt, owner, mode, runtime identity, and lease (`application/novnc_control.py:76–101`). The helper requires a fresh nonce response before launching X0 (`runtime/assembly_assets/omega-21.3-novnc-phase2-r4/novnc_view_helper.py:97–122`), and the broker rechecks authority before answering it (`broker/novnc.py:252–264`). |
+| **Verified handoff and release** | **Confirmed structurally—not merely a client-side `viewOnly` toggle.** Handoff cancels the old attempt, waits for durable ownership to disappear, then creates the replacement while carrying forward the original deadline (`web/novnc.py:342–368`). Broker teardown requires exec termination plus native proof (`broker/novnc.py:282–305`). Interactive proof includes a read-only neutral-input check; key/button release occurs in the original armed helper while it retains exclusion (`…/novnc_view_helper.py:189–212, 272–318`). |
+| **Ambiguous remote dispatch fails closed** | **Confirmed in the inspected managed dispatch path.** The durable guard is marked before dispatch; uncertainty retains it rather than deleting it (`application/browser_remote.py:310–355`; `application/browser_remote_coordination.py:115–161`). No expiry-based clearance exists in that coordinator. Remote dispatch and native Stop use the same cross-process flock (`browser_remote_coordination.py:44–85`; `application/runtime_lifecycle.py:270–299`). |
+| **Helper death and exact Stop recovery** | **Confirmed structurally.** The helper has independent renewal/lifetime limits, a child parent-death signal, and inherited flock ownership (`…/novnc_view_helper.py:26–29, 63–67, 90–95, 113–121, 134–139`). Unproven ownership remains blocked rather than becoming free on expiry (`application/novnc_control.py:147–189, 223–249`). Ordinary application Stop validates the matching container/instance stopped receipt before retiring remote and human fences, without requiring viewer wiring (`application/runtime_lifecycle.py:301–330`). Native process behavior still requires qualification. |
+| **Independent screenshots and geometry** | **Confirmed in the inspected path.** Screenshot geometry is selected from the validated experimental catalog revision and artifact, independently of viewer availability (`broker/screenshots.py:278–314`). Capture remains fixed X11 GetImage, with the experimental 640×360 pixels expanded to the existing 1280×720 format (`:44–163`). Experimental image/start identity is checked around capture (`:387–407, 470–481`); capture does not traverse RFB. |
+| **Bounded resources** | **Application-level bounds are present.** These include two display workers/handshakes, bounded retained results and stream backlogs, Web authority/mutation capacities, request-body limits, incoming-byte limits, and independent leases (`broker/novnc.py:27–30, 273–279, 386–430`; `web/novnc.py:79–95, 156–160, 438–453`; `web/novnc_protocol.py:15–25`). These do **not** establish a browser RSS ceiling. The documentation correctly treats browser memory as provisional qualification evidence, not a proven stable ceiling. |
+| **Default disabled; no audio** | **Confirmed in the inspected wiring.** Web routes are installed only when a viewer is explicitly injected (`web/app.py:7144–7153`); the broker display lane defaults to absent (`broker/server.py:111`). The experimental launcher explicitly injects both (`runtime/novnc_qualification.py:184–196, 220–239`). Ordinary Omega recipe selection remains separate (`runtime/recipes.py:393–428`). Native policy disables VNC TCP, clipboard, primary selection, and desktop resizing (`…/novnc_view_helper.py:37–56`). No audio implementation or default deployment authorization is inferred. |
+
+## Static-review limits
+
+I also inspected migration downgrade refusal, ownership recovery, Web mode JavaScript, and relevant regression-test source. Reading those tests is **not evidence that they passed**.
+
+This review does not establish deployed-image equivalence, vendor hash correctness, native TigerVNC termination/flock behavior, held-input cleanup under real failure, Firefox memory qualification, or physical keyboard/touch/IME compatibility. The unavailable baseline diff and prior-review artifacts remain gaps before calling this the requested **complete final independent review**.
+
+**Validation achieved: static review only; no FOCUSED PASS, INTEGRATION PASS, or RELEASE PASS claimed. Keep the feature disabled by default.**

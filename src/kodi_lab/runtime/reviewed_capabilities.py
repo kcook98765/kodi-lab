@@ -13,6 +13,7 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeSelectionPolicy,
 )
 from kodi_lab.runtime.recipes import (
+    NOVNC_PHASE1_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
@@ -49,6 +50,9 @@ def supports_reviewed_recipe_capability(
             definition=definition,
             revision=revision,
             policy=RuntimeSelectionPolicy(
+                # Capability consumption for an existing explicit pin never
+                # authorizes selecting this experimental revision as a new pin.
+                novnc_phase1=revision.manifest_digest == NOVNC_PHASE1_DIGEST,
                 include_legacy=True,
                 include_prerelease=revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND,
                 preview_recipe_digest=PREVIEW_INSTALLATION_DIGEST

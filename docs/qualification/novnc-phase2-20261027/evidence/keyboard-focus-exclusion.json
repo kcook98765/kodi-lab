@@ -1,0 +1,20 @@
+{
+  "before": {
+    "Control.GetLabel(312)": "",
+    "System.CurrentControl": "OK",
+    "System.CurrentWindow": "Virtual keyboard"
+  },
+  "after": {
+    "Control.GetLabel(312)": "",
+    "System.CurrentControl": "OK",
+    "System.CurrentWindow": "Virtual keyboard"
+  },
+  "native_while_unfocused_key_held": {
+    "keys": [],
+    "root_xy": [
+      320,
+      180
+    ],
+    "mask": 0
+  }
+}

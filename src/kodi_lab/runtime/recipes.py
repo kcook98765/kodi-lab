@@ -71,6 +71,9 @@ _ASSETS = (
 _DISPLAY_GUARD_ASSET = "xvfb_guard.py"
 REVIEWED_SIGNED_DISTRO_SOURCE_KIND = "reviewed-signed-distro-package"
 REVIEWED_OSTREE_SOURCE_KIND = "reviewed-flathub-ostree"
+NOVNC_PHASE1_DIGEST: Final = (
+    "sha256:44ff250db8587265c74ecf7114a74f51646f7f25ab4199c29c3181c02d9f2d15"
+)
 PREVIEW_INSTALLATION_DIGEST: Final = (
     "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793"
 )
@@ -328,6 +331,11 @@ class RuntimeRecipe(_ClosedModel):
         expected_assets = set(_ASSETS)
         if self.recipe_revision >= 2:
             expected_assets.add(_DISPLAY_GUARD_ASSET)
+        if self.recipe_id == "ubuntu-resolute-omega-21.3" and self.recipe_revision in (
+            3,
+            4,
+        ):
+            expected_assets.add("novnc_view_helper.py")
         if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
             for value in self.asset_hashes.values()
@@ -373,8 +381,9 @@ def recipe_target_id(reviewed: ReviewedRecipe) -> UUID:
     """A new exact Kodi release gets a new target; old instance pins survive."""
 
     recipe = reviewed.recipe
+    suffix = "-experimental-novnc" if reviewed.digest == NOVNC_PHASE1_DIGEST else ""
     return uuid5(
-        _TARGET_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}"
+        _TARGET_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}{suffix}"
     )
 
 
@@ -398,6 +407,8 @@ def load_recorded_reviewed_recipe(
         if generation == "piers"
         else _reviewed_for_generation(generation)
     )
+    if generation == "omega" and recipe_revision == 4 and digest == NOVNC_PHASE1_DIGEST:
+        entries = (*entries, load_novnc_phase1_recipe())
     for reviewed in entries:
         if (
             reviewed.recipe.recipe_id == recipe_id
@@ -406,6 +417,16 @@ def load_recorded_reviewed_recipe(
         ):
             return reviewed
     raise ValueError("recorded runtime recipe is no longer reviewed")
+
+
+def load_novnc_phase1_recipe() -> ReviewedAptRecipe:
+    """Explicit candidate only; ordinary Omega installation remains revision 2."""
+    reviewed = _load_recipe_file(
+        "omega", "omega-21.3-novnc-phase2-r4.json", NOVNC_PHASE1_DIGEST
+    )
+    if not isinstance(reviewed, ReviewedAptRecipe):
+        raise ValueError("Phase 1 requires the APT provider")
+    return reviewed
 
 
 def installation_generations() -> tuple[str, ...]:

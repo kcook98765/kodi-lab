@@ -7120,3 +7120,100 @@ monotonic pacing, bounded delivery and real-worker capacity retirement. The
 explicit1FPS default and adaptive3FPS target preserve measured broker headroom;
 lower achieved rates are acceptable. Still images remain independent and start
 with periodic capture paused. Native performance evidence is runtime-specific.
+
+## D-0457: Explicitly pinned view-only noVNC Phase 1 qualification
+
+The Phase 1 prototype preserves Xvfb and the existing JPEG/still paths. It is
+enabled only by an injected viewer and the separate qualification entrypoint,
+with a root-owned immutable target/image/container-start/catalog pin. Ordinary
+Web/broker launchers and the current Omega recipe selection remain unchanged.
+The optional Omega revision 3 recipe pins the signed TigerVNC package and a
+root-owned helper. Its x0 process disables TCP, keyboard, pointer, clipboard,
+primary selection and resize capabilities. The browser also selects view-only.
+
+A separate bounded broker Unix data listener authenticates the exact Web UID.
+Its workers own attached Docker exec streams independently of sequential broker
+commands. Only the broker creates renewal envelopes; a three-second helper
+watchdog expires without renewal, supervises/reaps x0, and arranges Linux
+parent-death termination. Failed cleanup retains broker capacity. Authenticated
+same-origin browser attachment uses short-lived one-use tab tickets, existing
+CSRF and the shared one-per-instance/two-global display registry. Catalog and
+runtime identities are revalidated on a bounded watchdog. RFB messages receive
+a route-specific 64 KiB limit only in the qualification launcher; ordinary
+WebSockets retain 256 bytes. No public VNC port, managed mount or additional
+production service is introduced.
+
+Web-to-broker RFB data and trusted authorization pulses use separate envelope
+kinds. A two-second missing-Web-pulse deadline fences a frozen Web process;
+browser payload bytes cannot extend it. Auth/catalog reads have bounded waits
+and retain bounded read capacity until their underlying threads finish. Only
+the authenticated prototype page permits data images in CSP, as required by
+the pinned noVNC JPEG decoder. Other pages retain their existing policy. Default
+catalog selection rejects the experimental recipe unless its explicit internal
+Phase 1 selection policy is enabled.
+
+This is an experimental view-only transport, not interactive or audio authority.
+Native security, cleanup and measured performance determine its disposition.
+A controller lease requires separate implementation and owner approval.
+
+
+## D-0458: Human-only experimental noVNC control
+
+Phase 2 is explicitly authorized as an optional human Web workflow. Agents retain
+existing independent X11 screenshots, Bridge inspection and MCP/remote tools;
+no viewer tool, grant, credential, VNC capture or agent input channel exists.
+An isolated deterministic Firefox harness is authorized only for qualification.
+Physical devices require their own evidence.
+
+The provisional configuration pins unmodified upstream noVNC1.7.0, Firefox,
+experimental r4 native640×360 Xvfb, LP_NUM_THREADS=1 and2FPS. Startup is explicit,
+view-only is default, and a viewer has an absolute ten-minute lifetime across
+handoffs. Production recipes/geometry and JPEG/still functionality are retained.
+Independent X11 capture selects the sealed r4 geometry without viewer wiring,
+then expands only that native capture to the existing1280×720 screenshot format.
+
+Take Control reserves durable administrator/tab/runtime ownership before any
+interactive worker can arm. Mode handoff proves old helper/X0 termination before
+establishing the next worker. Reciprocal SQLite guards exclude existing remote
+input and managed mutations; rejected writers do not cancel human control.
+Existing HTTP remote dispatch and native Stop share a cross-process flock.
+Ambiguous dispatch retains its fence until exact native Stop; no input replay or
+lease-expiry-only clearance is permitted. Typed Stop recovery remains available
+in the normal application without the viewer service.
+
+Native helpers require a fresh broker challenge response before launching X0,
+retain inherited flock ownership and independent renewal/lifetime watchdogs, and
+clean held keys/buttons while the original armed helper still owns exclusion.
+Separate cleanup probes are read-only; uncertain termination retains ownership
+and is independently reaped or recovered by exact native Stop. Clipboard, primary
+selection, desktop resizing, VNC TCP and audio remain disabled.
+
+The owner accepts a provisional256MiB peak incremental browserRSS allowance;
+128MiB incrementalPSS remains diagnostic. Monitoring, finite sessions and truthful
+retained-memory reports protect evaluation; a stable active-memory ceiling is
+not established by that allowance. Keep noVNC disabled by default pending native
+qualification and owner review. Audio remains a separately authorized future
+phase. Issues18 and96 remain independent.
+
+
+## D-0463: Optional human viewer in normal launchers
+
+Owner authorization permits deployment after release, migration and native smoke
+checks. An empty administrator-owned instance allowlist disables the feature by
+default. Normal Web and broker launchers share that allowlist; only the sealed,
+validated Ubuntu Omega r4 recipe is admitted. The supported explicit installer
+uses a separate target UUID and preserves ordinary Omega registrations. A bounded
+private UID-fenced binding lookup grants no input authority and adds no MCP tool
+or public VNC endpoint. Exclusive ownership and native worker revocation remain
+mandatory. HTTPS/WSS is required. Existing unrelated agent sessions are preserved.
+
+The accepted 127.30 ms interactive agent p95 increase is specific to this optional
+viewer, with no change to general gates. Peak incremental Firefox RSS/PSS was
+239.23/121.74 MiB; ten-minute sessions remain mandatory because long-term memory
+bounds are unproven. Physical touch devices remain pending. Audio is excluded.
+
+For production opt-in, authentication writes require HTTPS and administrator
+cookies are Secure. Root broker catalog connections are read-only. Ownership
+transactions use bounded one-shot state-owner subprocesses; SETUID/SETGID in the
+broker establish that identity, and no capabilities are added to Web. This avoids
+root-owned SQLite recovery journals without changing global journal policy.

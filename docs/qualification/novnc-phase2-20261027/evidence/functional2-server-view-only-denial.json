@@ -1,0 +1,20 @@
+{
+  "before": {
+    "keys": [],
+    "root_xy": [
+      320,
+      180
+    ],
+    "mask": 0
+  },
+  "attempted": {
+    "keys": [],
+    "root_xy": [
+      320,
+      180
+    ],
+    "mask": 0
+  },
+  "ui_unchanged": true,
+  "client_flag_only_overridden_for_negative_test": true
+}

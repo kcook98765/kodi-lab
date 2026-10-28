@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0086_addon_settings",)
+        ).fetchone() == ("0087_novnc_control",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -428,6 +428,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_workspace_launches",
         "mcp_addon_settings_operations",
         "managed_resource_policy",
+        "managed_remote_guards",
+        "novnc_sessions",
         "managed_idle_states",
         "managed_instance_uses",
         "managed_start_reservations",

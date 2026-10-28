@@ -73,3 +73,41 @@ def test_release_status_reports_unacquired_recipes_without_private_catalog(
     ]
     with pytest.raises(lab.LabWorkflowError, match="private archive selectors"):
         lab._run_control(settings, "start", ("19",))
+
+
+@pytest.mark.parametrize("experimental", (False, True))
+def test_explicit_omega_cli_uses_sealed_installer_without_default_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    experimental: bool,
+) -> None:
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    calls = []
+
+    def install(generation: str, **kwargs: object) -> object:
+        calls.append((generation, kwargs.get("novnc_phase1", False)))
+        return SimpleNamespace(
+            runtime_revision_id=uuid4(), image_id="sha256:" + "a" * 64, reused=False
+        )
+
+    monkeypatch.setenv("KODI_LAB_RELEASE_BUNDLE", "1")
+    monkeypatch.setattr("kodi_lab.runtime.install.install_reviewed_runtime", install)
+    args = ["install", "omega"]
+    if experimental:
+        args.append("--experimental-novnc")
+    assert main(args) == 0
+    assert calls == [("omega", experimental)]
+    assert ("experimental viewer target=" in capsys.readouterr().out) == experimental
+
+
+def test_experimental_cli_rejects_other_generations_before_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "kodi_lab.runtime.install.install_reviewed_runtime",
+        lambda *a, **k: pytest.fail("must not acquire another generation"),
+    )
+    with pytest.raises(SystemExit, match="2"):
+        main(["install", "nexus", "--experimental-novnc"])

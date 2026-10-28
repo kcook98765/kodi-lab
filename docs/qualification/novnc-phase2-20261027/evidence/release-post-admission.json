@@ -1,0 +1,18 @@
+{
+  "head": "8e7a48251fc344e6fd5a5fdab43739d99b679f32",
+  "tree": "298e67f83564043f06b42f8c04f1fa5cb0705f6a",
+  "native_source_commit": "c5e5a616d36785e69c213fb774762f76a8f63c28",
+  "only_changes_from_native_source": [
+    "pyproject.toml",
+    "tests/storage/test_migrations.py",
+    "tests/test_foundation.py"
+  ],
+  "executable_source_assets_vendor_and_migration_unchanged": true,
+  "original_check_sha256": "3ebcb91a9212f5e0b41faa42ad995dd5f2708b58771d3cba432ee90ea8b1d0f4",
+  "post_script_sha256": "3926fe57f18ce751d21d92cede7abe131c4160ad713d8dca5e2b971acae0f301",
+  "post_commands_original_unchanged": true,
+  "full_suite_runs": 1,
+  "full_suite_result": "6022 passed, 38 skipped, 1 stale table-allowlist failure",
+  "focused_migration_followup": "112 passed, Ruff and strict mypy PASS",
+  "at": 1793150745.1307096
+}

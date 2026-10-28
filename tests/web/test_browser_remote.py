@@ -367,3 +367,29 @@ def test_two_concurrent_remote_actions_conflict(
         assert broker.remote_calls == []
     finally:
         release_browser_remote(handle)
+
+
+@pytest.mark.parametrize("undispatched", [True, False])
+def test_only_proven_undispatched_failure_releases_input_fence(
+    client: TestClient, broker: FakeBroker, undispatched: bool
+) -> None:
+    from kodi_lab.kodi.remote import (
+        RemoteActionUndispatchedError,
+        RemoteKodiRejectedError,
+    )
+
+    csrf = login(client)
+    make_ready(client, csrf)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    broker.remote_error = (
+        RemoteActionUndispatchedError("Connection failed before request")
+        if undispatched
+        else RemoteKodiRejectedError("Invalid response after possible delivery")
+    )
+    url = f"/api/instances/{INSTANCE_ID}/remote-actions"
+    failed = client.post(url, json={"action": "left"}, headers=headers)
+    assert failed.status_code == 502
+    assert failed.json()["error"]["code"] == "remote_kodi_rejected"
+    broker.remote_error = None
+    recovered = client.post(url, json={"action": "right"}, headers=headers)
+    assert recovered.status_code == (200 if undispatched else 409)

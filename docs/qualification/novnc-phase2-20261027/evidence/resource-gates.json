@@ -1,0 +1,16 @@
+{
+  "perf2-motion-view-only-agents": {
+    "server_incremental_working_set_mib": 22.15811820652175,
+    "server_RAM_budget_mib": 160,
+    "server_RAM_pass": true,
+    "host_CPU_off": 45.84881153868259,
+    "host_CPU_on": 48.06325823866555
+  },
+  "perf2-motion-interactive-agents": {
+    "server_incremental_working_set_mib": 23.20652173913038,
+    "server_RAM_budget_mib": 160,
+    "server_RAM_pass": true,
+    "host_CPU_off": 45.84881153868259,
+    "host_CPU_on": 50.729772148252906
+  }
+}

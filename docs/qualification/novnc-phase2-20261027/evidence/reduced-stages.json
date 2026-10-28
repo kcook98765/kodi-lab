@@ -1,0 +1,3360 @@
+{
+  "preparation": {
+    "n": 3,
+    "host_CPU_mean_percent": 38.16120906801007,
+    "browser_CPU_one_core_mean_percent": 35.32890097021514,
+    "combined_server_working_set_mean_mib": 299.2903645833333,
+    "combined_server_working_set_peak_mib": 299.45703125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": null,
+        "working_set_mean_mib": null,
+        "working_set_peak_mib": 0
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 0.40467289415767316,
+        "working_set_mean_mib": 161.63020833333334,
+        "working_set_peak_mib": 161.796875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.3852520543013292,
+        "working_set_mean_mib": 137.66015625,
+        "working_set_peak_mib": 137.66015625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing3-blank": {
+    "n": 42,
+    "host_CPU_mean_percent": 32.1996663201454,
+    "browser_CPU_one_core_mean_percent": 5.499649150631177,
+    "combined_server_working_set_mean_mib": 278.45684523809524,
+    "combined_server_working_set_peak_mib": 442.6875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.345262721683781,
+        "working_set_mean_mib": 95.37849506578948,
+        "working_set_peak_mib": 110.40234375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 36.55039708610769,
+        "working_set_mean_mib": 138.5286775914634,
+        "working_set_peak_mib": 243.09375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 19.138401830555694,
+        "working_set_mean_mib": 105.0830078125,
+        "working_set_peak_mib": 142.8828125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.2144594368593506,
+        "RSS_mean_mib": 104.32087053571429
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.02380897441949213,
+        "RSS_mean_mib": 29.479073660714285
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing3-disconnected": {
+    "n": 6,
+    "host_CPU_mean_percent": 20.78289390523511,
+    "browser_CPU_one_core_mean_percent": 6.834395355502987,
+    "combined_server_working_set_mean_mib": 414.4485677083333,
+    "combined_server_working_set_peak_mib": 414.8046875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 13.449126860833864,
+        "working_set_mean_mib": 111.87109375,
+        "working_set_peak_mib": 112.21875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 3.217558865691864,
+        "working_set_mean_mib": 163.67708333333334,
+        "working_set_peak_mib": 164.00390625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 7.119744964206646,
+        "working_set_mean_mib": 138.900390625,
+        "working_set_peak_mib": 139.1015625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.6669432711644396,
+        "RSS_mean_mib": 249.734375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.16671019902904707,
+        "RSS_mean_mib": 65.3203125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing3-inactive": {
+    "n": 18,
+    "host_CPU_mean_percent": 37.00900478550459,
+    "browser_CPU_one_core_mean_percent": 7.722116182742677,
+    "combined_server_working_set_mean_mib": 415.02690972222223,
+    "combined_server_working_set_peak_mib": 434.0,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 56.82954293501385,
+        "working_set_mean_mib": 117.41145833333333,
+        "working_set_peak_mib": 125.6171875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 13.716587478208233,
+        "working_set_mean_mib": 160.37239583333334,
+        "working_set_peak_mib": 164.3828125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 11.397601105428715,
+        "working_set_mean_mib": 137.24305555555554,
+        "working_set_peak_mib": 146.99609375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 47.16725992004163,
+        "RSS_mean_mib": 247.76432291666666
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.6111219359210485,
+        "RSS_mean_mib": 65.77126736111111
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.3888749356616542,
+        "RSS_mean_mib": 7.682291666666667
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.22221525063869327,
+        "RSS_mean_mib": 11.602430555555555
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg1-blank": {
+    "n": 44,
+    "host_CPU_mean_percent": 38.01687839664052,
+    "browser_CPU_one_core_mean_percent": 6.727202907596181,
+    "combined_server_working_set_mean_mib": 272.13698508522725,
+    "combined_server_working_set_peak_mib": 414.3203125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 12.816029772253593,
+        "working_set_mean_mib": 90.99453125,
+        "working_set_peak_mib": 107.04296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 34.94555710043904,
+        "working_set_mean_mib": 138.05654761904762,
+        "working_set_peak_mib": 215.50390625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.116247382188142,
+        "working_set_mean_mib": 106.2380907012195,
+        "working_set_peak_mib": 151.859375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.045500408366438,
+        "RSS_mean_mib": 99.32164417613636
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.022727296637417505,
+        "RSS_mean_mib": 29.796519886363637
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg1-inactive": {
+    "n": 17,
+    "host_CPU_mean_percent": 29.959109196608097,
+    "browser_CPU_one_core_mean_percent": 4.000015512728538,
+    "combined_server_working_set_mean_mib": 402.8954503676471,
+    "combined_server_working_set_peak_mib": 439.01171875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 15.0232601987866,
+        "working_set_mean_mib": 108.82835477941177,
+        "working_set_peak_mib": 118.84765625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 25.25615246195321,
+        "working_set_mean_mib": 158.0457261029412,
+        "working_set_peak_mib": 183.85546875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 4.609848392501949,
+        "working_set_mean_mib": 136.02136948529412,
+        "working_set_peak_mib": 150.140625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.2352732990882975,
+        "RSS_mean_mib": 229.34926470588235
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.058821508189376835,
+        "RSS_mean_mib": 61.868795955882355
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.7922794117647058
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.1176507151589334,
+        "RSS_mean_mib": 2.594669117647059
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "smoke3-blank": {
+    "n": 33,
+    "host_CPU_mean_percent": 28.284762141890855,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 333.46377840909093,
+    "combined_server_working_set_peak_mib": 488.83203125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 10.51113671583731,
+        "working_set_mean_mib": 93.22157118055556,
+        "working_set_peak_mib": 111.85546875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 23.106845834649185,
+        "working_set_mean_mib": 160.866455078125,
+        "working_set_peak_mib": 241.3125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 16.038775218598396,
+        "working_set_mean_mib": 134.79322076612902,
+        "working_set_peak_mib": 155.890625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.69696320493105,
+        "RSS_mean_mib": 123.84434185606061
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.03030400572549264,
+        "RSS_mean_mib": 36.2734375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.390625
+      }
+    }
+  },
+  "smoke3-disconnected": {
+    "n": 6,
+    "host_CPU_mean_percent": 20.899603826456662,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 410.7096354166667,
+    "combined_server_working_set_peak_mib": 410.8203125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.74676189886408,
+        "working_set_mean_mib": 106.95572916666667,
+        "working_set_peak_mib": 107.3046875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 3.281235233061673,
+        "working_set_mean_mib": 166.79296875,
+        "working_set_peak_mib": 167.0390625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 6.862904141177606,
+        "working_set_mean_mib": 136.9609375,
+        "working_set_peak_mib": 137.45703125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.6668180043811325,
+        "RSS_mean_mib": 244.01171875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.16670630142073625,
+        "RSS_mean_mib": 55.764973958333336
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "smoke3-inactive": {
+    "n": 6,
+    "host_CPU_mean_percent": 19.597247592733684,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 400.5501302083333,
+    "combined_server_working_set_peak_mib": 408.6796875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.133565101276039,
+        "working_set_mean_mib": 112.09895833333333,
+        "working_set_peak_mib": 112.47265625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 10.099664512564667,
+        "working_set_mean_mib": 155.47591145833334,
+        "working_set_peak_mib": 160.7578125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 2.0562505902974744,
+        "working_set_mean_mib": 132.97526041666666,
+        "working_set_peak_mib": 135.44921875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.833576730521807,
+        "RSS_mean_mib": 243.85546875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.833447408237055,
+        "RSS_mean_mib": 66.70963541666667
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 2.166918748798442,
+        "RSS_mean_mib": 12.890625
+      }
+    }
+  },
+  "smoke3-interactive": {
+    "n": 7,
+    "host_CPU_mean_percent": 30.138276928589182,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 421.89732142857144,
+    "combined_server_working_set_peak_mib": 427.6640625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 20.786338264737225,
+        "working_set_mean_mib": 120.50613839285714,
+        "working_set_peak_mib": 124.94921875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 24.066017673502994,
+        "working_set_mean_mib": 164.41294642857142,
+        "working_set_peak_mib": 166.73828125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.46869667699267,
+        "working_set_mean_mib": 136.97823660714286,
+        "working_set_peak_mib": 137.5078125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.285760838937068,
+        "RSS_mean_mib": 243.92243303571428
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.7142975752254733,
+        "RSS_mean_mib": 67.66741071428571
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.2857055401568128,
+        "RSS_mean_mib": 11.515066964285714
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.14285350595214252,
+        "RSS_mean_mib": 17.772321428571427
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.2857013979728098,
+        "RSS_mean_mib": 7.366071428571429
+      }
+    }
+  },
+  "smoke3-view-only": {
+    "n": 6,
+    "host_CPU_mean_percent": 26.304130337432664,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 420.5358072916667,
+    "combined_server_working_set_peak_mib": 422.62109375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 15.107006796111811,
+        "working_set_mean_mib": 122.70572916666667,
+        "working_set_peak_mib": 124.75
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 8.385808778641449,
+        "working_set_mean_mib": 161.55143229166666,
+        "working_set_peak_mib": 161.88671875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 9.859449427778696,
+        "working_set_mean_mib": 136.27864583333334,
+        "working_set_peak_mib": 136.67578125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.1666971273790714,
+        "RSS_mean_mib": 243.85546875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.8334232580375461,
+        "RSS_mean_mib": 67.64713541666667
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.33324519896695654,
+        "RSS_mean_mib": 11.363932291666666
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.16666525601594415,
+        "RSS_mean_mib": 17.5
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.8334160185574937,
+        "RSS_mean_mib": 12.890625
+      }
+    }
+  },
+  "helper1-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 35.07739017470906,
+    "browser_CPU_one_core_mean_percent": 5.441871147473867,
+    "combined_server_working_set_mean_mib": 278.32885174418607,
+    "combined_server_working_set_peak_mib": 420.47265625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.216531800775297,
+        "working_set_mean_mib": 94.1484375,
+        "working_set_peak_mib": 110.0390625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 37.39574802558477,
+        "working_set_mean_mib": 138.02315848214286,
+        "working_set_peak_mib": 221.3203125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.916880434487037,
+        "working_set_mean_mib": 104.59022484756098,
+        "working_set_peak_mib": 154.61328125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.09366562801253,
+        "RSS_mean_mib": 106.359375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.04652228932626986,
+        "RSS_mean_mib": 30.874273255813954
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "helper1-inactive": {
+    "n": 13,
+    "host_CPU_mean_percent": 35.0259158216104,
+    "browser_CPU_one_core_mean_percent": 7.69225433418731,
+    "combined_server_working_set_mean_mib": 391.2614182692308,
+    "combined_server_working_set_peak_mib": 414.87109375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 23.2323895951771,
+        "working_set_mean_mib": 108.21647135416667,
+        "working_set_peak_mib": 116.96875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 8.781127485556889,
+        "working_set_mean_mib": 156.65264423076923,
+        "working_set_peak_mib": 163.94140625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 7.2798572124111605,
+        "working_set_mean_mib": 134.7166466346154,
+        "working_set_peak_mib": 144.4296875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 5.076722089282262,
+        "RSS_mean_mib": 205.97235576923077
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.15383393128012166,
+        "RSS_mean_mib": 56.38461538461539
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 4.157451923076923
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "functional1-blank": {
+    "n": 34,
+    "host_CPU_mean_percent": 30.0731819897926,
+    "browser_CPU_one_core_mean_percent": 9.250139424853936,
+    "combined_server_working_set_mean_mib": 334.54538143382354,
+    "combined_server_working_set_peak_mib": 491.671875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.258137810806454,
+        "working_set_mean_mib": 92.587890625,
+        "working_set_peak_mib": 111.66796875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 22.097291526343753,
+        "working_set_mean_mib": 163.53787878787878,
+        "working_set_peak_mib": 244.90625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 16.34939716662005,
+        "working_set_mean_mib": 134.725341796875,
+        "working_set_peak_mib": 148.21875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.793580965999781,
+        "RSS_mean_mib": 120.71966911764706
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.05869621775715698,
+        "RSS_mean_mib": 35.26999080882353
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.373046875
+      }
+    }
+  },
+  "functional1-inactive": {
+    "n": 8,
+    "host_CPU_mean_percent": 26.267260480167824,
+    "browser_CPU_one_core_mean_percent": 4.51375773119998,
+    "combined_server_working_set_mean_mib": 399.5654296875,
+    "combined_server_working_set_peak_mib": 401.14453125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 35.240205243513934,
+        "working_set_mean_mib": 112.6162109375,
+        "working_set_peak_mib": 114.02734375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 1.7536018146033518,
+        "working_set_mean_mib": 154.46484375,
+        "working_set_peak_mib": 154.79296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.4983143199747809,
+        "working_set_mean_mib": 132.484375,
+        "working_set_peak_mib": 132.484375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 29.25095198615534,
+        "RSS_mean_mib": 245.314453125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.8750240350407137,
+        "RSS_mean_mib": 66.62109375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.5000143597963636,
+        "RSS_mean_mib": 12.68359375
+      }
+    }
+  },
+  "functional1-view-only-static": {
+    "n": 24,
+    "host_CPU_mean_percent": 28.77035539393754,
+    "browser_CPU_one_core_mean_percent": 3.8748114065821775,
+    "combined_server_working_set_mean_mib": 418.2936197916667,
+    "combined_server_working_set_peak_mib": 447.9296875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 17.729020708136353,
+        "working_set_mean_mib": 119.72639266304348,
+        "working_set_peak_mib": 129.41796875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 14.504052560772323,
+        "working_set_mean_mib": 164.84749348958334,
+        "working_set_peak_mib": 174.22265625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 9.304680183223015,
+        "working_set_mean_mib": 138.70833333333334,
+        "working_set_peak_mib": 154.03125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 6.125047133149356,
+        "RSS_mean_mib": 237.51953125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.7500010232463422,
+        "RSS_mean_mib": 64.37158203125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.1249943559150335,
+        "RSS_mean_mib": 5.693522135416667
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.08332901840258712,
+        "RSS_mean_mib": 8.6591796875
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.750017655951062,
+        "RSS_mean_mib": 12.155110677083334
+      }
+    }
+  },
+  "typing1-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 32.6740480251322,
+    "browser_CPU_one_core_mean_percent": 7.668025471917137,
+    "combined_server_working_set_mean_mib": 278.7750726744186,
+    "combined_server_working_set_peak_mib": 442.375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 10.832877094461871,
+        "working_set_mean_mib": 93.15707236842105,
+        "working_set_peak_mib": 107.07421875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 36.5033668524398,
+        "working_set_mean_mib": 142.7534298780488,
+        "working_set_peak_mib": 243.18359375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 19.122320478708883,
+        "working_set_mean_mib": 106.4500762195122,
+        "working_set_peak_mib": 143.31640625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.9535415250284958,
+        "RSS_mean_mib": 101.31922238372093
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 28.825490552325583
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing1-inactive": {
+    "n": 12,
+    "host_CPU_mean_percent": 36.06689430873613,
+    "browser_CPU_one_core_mean_percent": 5.999862973986901,
+    "combined_server_working_set_mean_mib": 399.9443359375,
+    "combined_server_working_set_peak_mib": 439.125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 43.78838709921762,
+        "working_set_mean_mib": 113.49431818181819,
+        "working_set_peak_mib": 125.33984375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 10.973674731923508,
+        "working_set_mean_mib": 158.84798177083334,
+        "working_set_peak_mib": 167.40234375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 11.311017522386159,
+        "working_set_mean_mib": 137.05989583333334,
+        "working_set_peak_mib": 152.7578125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 31.418759578061948,
+        "RSS_mean_mib": 226.515625
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.5000264435262142,
+        "RSS_mean_mib": 60.3125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.2500033725551543,
+        "RSS_mean_mib": 4.388020833333333
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0833342862618469,
+        "RSS_mean_mib": 8.449544270833334
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg3-blank": {
+    "n": 44,
+    "host_CPU_mean_percent": 31.647090397913725,
+    "browser_CPU_one_core_mean_percent": 4.7951659928676955,
+    "combined_server_working_set_mean_mib": 272.90358664772725,
+    "combined_server_working_set_peak_mib": 441.6171875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 12.776556710372853,
+        "working_set_mean_mib": 90.4328125,
+        "working_set_peak_mib": 106.83984375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 33.88801568301663,
+        "working_set_mean_mib": 142.87404725609755,
+        "working_set_peak_mib": 242.4453125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 17.407259474345203,
+        "working_set_mean_mib": 108.531640625,
+        "working_set_peak_mib": 146.71484375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.8409153743478908,
+        "RSS_mean_mib": 99.4209872159091
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 28.715997869318183
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg3-inactive": {
+    "n": 36,
+    "host_CPU_mean_percent": 23.876382922684403,
+    "browser_CPU_one_core_mean_percent": 7.305272944626768,
+    "combined_server_working_set_mean_mib": 411.3177083333333,
+    "combined_server_working_set_peak_mib": 472.765625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.470112909768764,
+        "working_set_mean_mib": 108.34320746527777,
+        "working_set_peak_mib": 119.49609375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 12.771303237468057,
+        "working_set_mean_mib": 167.15256076388889,
+        "working_set_peak_mib": 229.23046875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.510915663266027,
+        "working_set_mean_mib": 135.82194010416666,
+        "working_set_peak_mib": 144.2890625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.972243000585072,
+        "RSS_mean_mib": 243.82682291666666
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.05555395799522992,
+        "RSS_mean_mib": 66.65071614583333
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.7506510416666666
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.08333264862390485,
+        "RSS_mean_mib": 3.425998263888889
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 30.83505743817909,
+    "browser_CPU_one_core_mean_percent": 2.883693431143905,
+    "combined_server_working_set_mean_mib": 276.64970930232556,
+    "combined_server_working_set_peak_mib": 432.23046875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 10.79901725904635,
+        "working_set_mean_mib": 94.79543585526316,
+        "working_set_peak_mib": 110.87109375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 34.873406317039354,
+        "working_set_mean_mib": 140.1909412202381,
+        "working_set_peak_mib": 232.76953125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 20.19590905322091,
+        "working_set_mean_mib": 105.1701171875,
+        "working_set_peak_mib": 143.31640625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.0463423768545015,
+        "RSS_mean_mib": 101.74800145348837
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.023253846143360873,
+        "RSS_mean_mib": 28.538335755813954
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-controller-read-only": {
+    "n": 22,
+    "host_CPU_mean_percent": 21.943212635170905,
+    "browser_CPU_one_core_mean_percent": 3.045502981803973,
+    "combined_server_working_set_mean_mib": 481.19992897727275,
+    "combined_server_working_set_peak_mib": 486.515625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 7.696975705683807,
+        "working_set_mean_mib": 120.99378551136364,
+        "working_set_peak_mib": 125.28515625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 16.056906219979002,
+        "working_set_mean_mib": 225.90500710227272,
+        "working_set_peak_mib": 230.29296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 7.7434361717264775,
+        "working_set_mean_mib": 134.30113636363637,
+        "working_set_peak_mib": 137.79296875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.000158806438553,
+        "RSS_mean_mib": 245.68093039772728
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.22728944832129214,
+        "RSS_mean_mib": 65.62890625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.45453377451957394,
+        "RSS_mean_mib": 13.609375
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.27274457687789205,
+        "RSS_mean_mib": 21.01171875
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-controller-until-expiry": {
+    "n": 580,
+    "host_CPU_mean_percent": 18.438806701475745,
+    "browser_CPU_one_core_mean_percent": 1.9872713518745764,
+    "combined_server_working_set_mean_mib": 414.72923626077585,
+    "combined_server_working_set_peak_mib": 432.34375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 7.682304564336981,
+        "working_set_mean_mib": 117.02871767241379,
+        "working_set_peak_mib": 124.77734375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 3.990240234703043,
+        "working_set_mean_mib": 161.0129849137931,
+        "working_set_peak_mib": 162.1328125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.60550562390927,
+        "working_set_mean_mib": 136.68753367456895,
+        "working_set_peak_mib": 151.23046875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.1213430372254773,
+        "RSS_mean_mib": 245.47013739224138
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.19587415582993628,
+        "RSS_mean_mib": 65.3591729525862
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.3224185872243085,
+        "RSS_mean_mib": 9.432704741379311
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.22241429428746406,
+        "RSS_mean_mib": 14.563294719827587
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-document-closed": {
+    "n": 30,
+    "host_CPU_mean_percent": 18.005501234503,
+    "browser_CPU_one_core_mean_percent": 0.6333314569236959,
+    "combined_server_working_set_mean_mib": 312.2272135416667,
+    "combined_server_working_set_peak_mib": 320.0546875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": null,
+        "working_set_mean_mib": null,
+        "working_set_peak_mib": 0
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 0.7626715116164926,
+        "working_set_mean_mib": 168.61119791666667,
+        "working_set_peak_mib": 168.90234375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.1475148818017855,
+        "working_set_mean_mib": 143.616015625,
+        "working_set_peak_mib": 151.65234375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-expired-disconnected": {
+    "n": 22,
+    "host_CPU_mean_percent": 26.406040579200877,
+    "browser_CPU_one_core_mean_percent": 1.9999287180951164,
+    "combined_server_working_set_mean_mib": 409.45223721590907,
+    "combined_server_working_set_peak_mib": 422.19921875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 6.757097769316404,
+        "working_set_mean_mib": 106.54222470238095,
+        "working_set_peak_mib": 110.8984375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 2.938552426013858,
+        "working_set_mean_mib": 168.07262073863637,
+        "working_set_peak_mib": 168.3984375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.2982104081506085,
+        "working_set_mean_mib": 139.68022017045453,
+        "working_set_peak_mib": 146.82421875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.409081887829829,
+        "RSS_mean_mib": 223.12144886363637
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 58.86363636363637
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "lease1-inactive": {
+    "n": 9,
+    "host_CPU_mean_percent": 32.61342027882139,
+    "browser_CPU_one_core_mean_percent": 16.4442620180817,
+    "combined_server_working_set_mean_mib": 396.68012152777777,
+    "combined_server_working_set_peak_mib": 412.98046875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 22.78250528350849,
+        "working_set_mean_mib": 108.97178819444444,
+        "working_set_peak_mib": 121.296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 12.747006796623266,
+        "working_set_mean_mib": 154.828125,
+        "working_set_peak_mib": 157.13671875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 4.254820730915404,
+        "working_set_mean_mib": 132.88020833333334,
+        "working_set_peak_mib": 134.546875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 13.223044623736191,
+        "RSS_mean_mib": 244.61588541666666
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.33334804783704247,
+        "RSS_mean_mib": 64.85416666666667
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 1.5121527777777777
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 2.3346354166666665
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "smoke1-blank": {
+    "n": 42,
+    "host_CPU_mean_percent": 27.74692541857767,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 330.9576822916667,
+    "combined_server_working_set_peak_mib": 490.59765625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 17.53684839736766,
+        "working_set_mean_mib": 140.87282986111111,
+        "working_set_peak_mib": 181.84375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 18.316684092055493,
+        "working_set_mean_mib": 151.76924542682926,
+        "working_set_peak_mib": 229.80859375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 12.502642574156573,
+        "working_set_mean_mib": 96.8529296875,
+        "working_set_peak_mib": 132.50390625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 8.095089167477951,
+        "RSS_mean_mib": 179.55189732142858
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.14285871244994125,
+        "RSS_mean_mib": 41.712890625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.35713582352495926,
+        "RSS_mean_mib": 2.449404761904762
+      }
+    }
+  },
+  "jpeg2-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 32.48621801567671,
+    "browser_CPU_one_core_mean_percent": 6.209051048820061,
+    "combined_server_working_set_mean_mib": 274.77171148255815,
+    "combined_server_working_set_peak_mib": 441.47265625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 12.440380626104037,
+        "working_set_mean_mib": 93.73170230263158,
+        "working_set_peak_mib": 107.27734375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 35.16497993085196,
+        "working_set_mean_mib": 139.4697980182927,
+        "working_set_peak_mib": 242.39453125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 17.93356944031306,
+        "working_set_mean_mib": 105.26876905487805,
+        "working_set_peak_mib": 139.96875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.9297178905505157,
+        "RSS_mean_mib": 101.18204941860465
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.023250288638661392,
+        "RSS_mean_mib": 28.763263081395348
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg2-inactive": {
+    "n": 13,
+    "host_CPU_mean_percent": 45.025795741428844,
+    "browser_CPU_one_core_mean_percent": 9.156804697002748,
+    "combined_server_working_set_mean_mib": 402.6649639423077,
+    "combined_server_working_set_peak_mib": 453.6171875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 10.541065974919405,
+        "working_set_mean_mib": 108.47836538461539,
+        "working_set_peak_mib": 119.12109375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 22.15594806422753,
+        "working_set_mean_mib": 159.34254807692307,
+        "working_set_peak_mib": 198.109375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 6.230625049286941,
+        "working_set_mean_mib": 134.84405048076923,
+        "working_set_peak_mib": 137.96484375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.0000349243610462,
+        "RSS_mean_mib": 224.71394230769232
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.07692470326159676,
+        "RSS_mean_mib": 60.27043269230769
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0769240469346353,
+        "RSS_mean_mib": 2.1039663461538463
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 4.835637019230769
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "smoke2-blank": {
+    "n": 33,
+    "host_CPU_mean_percent": 27.427409977529464,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 316.8902698863636,
+    "combined_server_working_set_peak_mib": 457.4296875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.187957645369316,
+        "working_set_mean_mib": 94.0951286764706,
+        "working_set_peak_mib": 112.51171875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 23.5300851564383,
+        "working_set_mean_mib": 147.8345947265625,
+        "working_set_peak_mib": 214.0703125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 16.085767169126772,
+        "working_set_mean_mib": 128.970458984375,
+        "working_set_peak_mib": 150.47265625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.8182655785624253,
+        "RSS_mean_mib": 117.89038825757575
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.030302316260021542,
+        "RSS_mean_mib": 33.69614109848485
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.3868371212121212
+      }
+    }
+  },
+  "smoke2-inactive": {
+    "n": 7,
+    "host_CPU_mean_percent": 26.53811939723024,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 404.14285714285717,
+    "combined_server_working_set_peak_mib": 427.0,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.877411229350395,
+        "working_set_mean_mib": 114.9140625,
+        "working_set_peak_mib": 128.29296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 16.11602422635304,
+        "working_set_mean_mib": 155.66573660714286,
+        "working_set_peak_mib": 161.64453125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 3.220018115097557,
+        "working_set_mean_mib": 133.56305803571428,
+        "working_set_peak_mib": 137.0625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.8571062210682183,
+        "RSS_mean_mib": 244.1484375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.7143407358110593,
+        "RSS_mean_mib": 65.55301339285714
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 1.78125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 2.9720982142857144
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 2.0000111661875173,
+        "RSS_mean_mib": 12.783482142857142
+      }
+    }
+  },
+  "smoke2-view-only": {
+    "n": 6,
+    "host_CPU_mean_percent": 21.979134293311233,
+    "browser_CPU_one_core_mean_percent": 0.0,
+    "combined_server_working_set_mean_mib": 421.6796875,
+    "combined_server_working_set_peak_mib": 423.609375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 13.151178035960418,
+        "working_set_mean_mib": 122.88736979166667,
+        "working_set_peak_mib": 125.16015625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 8.073251742041647,
+        "working_set_mean_mib": 162.11263020833334,
+        "working_set_peak_mib": 164.28125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.851259471615398,
+        "working_set_mean_mib": 136.6796875,
+        "working_set_peak_mib": 136.8984375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.8333307293327876,
+        "RSS_mean_mib": 244.1484375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.0000007733120546,
+        "RSS_mean_mib": 66.263671875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.5000048892090537,
+        "RSS_mean_mib": 11.07421875
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.33331640962653475,
+        "RSS_mean_mib": 17.44140625
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 2.0000186322062254,
+        "RSS_mean_mib": 12.890625
+      }
+    }
+  },
+  "memory1-blank": {
+    "n": 42,
+    "host_CPU_mean_percent": 31.93468594582392,
+    "browser_CPU_one_core_mean_percent": 6.013655697738405,
+    "combined_server_working_set_mean_mib": 277.6988467261905,
+    "combined_server_working_set_peak_mib": 442.82421875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.700452043894433,
+        "working_set_mean_mib": 94.99500868055556,
+        "working_set_peak_mib": 116.78515625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 34.95157569283883,
+        "working_set_mean_mib": 140.2428544207317,
+        "working_set_peak_mib": 243.4140625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.972442260336248,
+        "working_set_mean_mib": 105.087109375,
+        "working_set_peak_mib": 140.27734375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.9762361488642255,
+        "RSS_mean_mib": 98.3359375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 28.576636904761905
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.3071986607142857
+      }
+    }
+  },
+  "memory1-cycle-0-off": {
+    "n": 4,
+    "host_CPU_mean_percent": 43.309990730085666,
+    "browser_CPU_one_core_mean_percent": 5.500005514471195,
+    "combined_server_working_set_mean_mib": 491.896484375,
+    "combined_server_working_set_peak_mib": 497.78125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 121.87825124307717,
+        "working_set_mean_mib": 192.5791015625,
+        "working_set_peak_mib": 199.6484375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 5.097072449514749,
+        "working_set_mean_mib": 160.525390625,
+        "working_set_peak_mib": 160.74609375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 11.873629092789054,
+        "working_set_mean_mib": 138.7919921875,
+        "working_set_peak_mib": 144.4453125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.75001220985828,
+        "RSS_mean_mib": 322.5390625
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.000020376945292,
+        "RSS_mean_mib": 66.94921875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 3.2353515625
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 5.1923828125
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.7499769009885202,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-0-on": {
+    "n": 2,
+    "host_CPU_mean_percent": 41.59858074415037,
+    "browser_CPU_one_core_mean_percent": 4.500040047630543,
+    "combined_server_working_set_mean_mib": 499.70703125,
+    "combined_server_working_set_peak_mib": 499.78125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 120.3668653941992,
+        "working_set_mean_mib": 201.947265625,
+        "working_set_peak_mib": 201.984375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.824215014632416,
+        "working_set_mean_mib": 160.81640625,
+        "working_set_peak_mib": 160.9296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 2.933998964816924,
+        "working_set_mean_mib": 136.943359375,
+        "working_set_peak_mib": 136.9453125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 108.00109092625418,
+        "RSS_mean_mib": 322.57421875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.5000198452925035,
+        "RSS_mean_mib": 67.609375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.4999996429544629,
+        "RSS_mean_mib": 13.51953125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 20.79296875
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9999992859089258,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-1-off": {
+    "n": 3,
+    "host_CPU_mean_percent": 59.217430713301646,
+    "browser_CPU_one_core_mean_percent": 1.3333444066224074,
+    "combined_server_working_set_mean_mib": 487.0403645833333,
+    "combined_server_working_set_peak_mib": 487.19140625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 120.98699743375153,
+        "working_set_mean_mib": 189.68229166666666,
+        "working_set_peak_mib": 189.84375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 5.377161429666349,
+        "working_set_mean_mib": 160.69010416666666,
+        "working_set_peak_mib": 160.7734375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.625751306902561,
+        "working_set_mean_mib": 136.66796875,
+        "working_set_peak_mib": 136.66796875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 106.00035921714402,
+        "RSS_mean_mib": 322.6328125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.666655165875451,
+        "RSS_mean_mib": 66.734375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0000037816539955,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-1-on": {
+    "n": 2,
+    "host_CPU_mean_percent": 44.57387949850261,
+    "browser_CPU_one_core_mean_percent": 4.999980219052956,
+    "combined_server_working_set_mean_mib": 499.44921875,
+    "combined_server_working_set_peak_mib": 499.703125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 116.00235160550243,
+        "working_set_mean_mib": 202.05859375,
+        "working_set_peak_mib": 202.1640625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.113684609371168,
+        "working_set_mean_mib": 160.423828125,
+        "working_set_peak_mib": 160.546875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 1.5347446900348065,
+        "working_set_mean_mib": 136.966796875,
+        "working_set_peak_mib": 137.203125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.4996300650937,
+        "RSS_mean_mib": 321.65234375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.9999957779848585,
+        "RSS_mean_mib": 67.60546875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.4999961744951302,
+        "RSS_mean_mib": 13.328125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.4999996034897283,
+        "RSS_mean_mib": 20.76953125
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.999996571005402,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-2-off": {
+    "n": 3,
+    "host_CPU_mean_percent": 38.10704633425834,
+    "browser_CPU_one_core_mean_percent": 1.6666774117725869,
+    "combined_server_working_set_mean_mib": 487.4049479166667,
+    "combined_server_working_set_peak_mib": 487.65625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 116.58468995996901,
+        "working_set_mean_mib": 189.98046875,
+        "working_set_peak_mib": 190.171875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.122268726503584,
+        "working_set_mean_mib": 160.65625,
+        "working_set_peak_mib": 160.7890625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.36826792404906694,
+        "working_set_mean_mib": 136.76822916666666,
+        "working_set_peak_mib": 136.9140625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.6671906701119,
+        "RSS_mean_mib": 322.63671875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.000008713395513,
+        "RSS_mean_mib": 66.73046875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.6666686126758937,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-2-on": {
+    "n": 3,
+    "host_CPU_mean_percent": 47.27558861519805,
+    "browser_CPU_one_core_mean_percent": 8.666565701834708,
+    "combined_server_working_set_mean_mib": 499.7005208333333,
+    "combined_server_working_set_peak_mib": 500.2734375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 125.07570248390398,
+        "working_set_mean_mib": 200.37239583333334,
+        "working_set_peak_mib": 202.28125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 5.246944676632166,
+        "working_set_mean_mib": 162.20703125,
+        "working_set_peak_mib": 164.55859375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 16.121068192169304,
+        "working_set_mean_mib": 137.12109375,
+        "working_set_peak_mib": 137.2265625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 108.33301445649563,
+        "RSS_mean_mib": 322.6471354166667
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.9999936193257646,
+        "RSS_mean_mib": 67.31640625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.6666582981398915,
+        "RSS_mean_mib": 9.1171875
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.33332914906994576,
+        "RSS_mean_mib": 13.833333333333334
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.3333353211858732,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-3-off": {
+    "n": 3,
+    "host_CPU_mean_percent": 36.933554578487445,
+    "browser_CPU_one_core_mean_percent": 0.33333698070408074,
+    "combined_server_working_set_mean_mib": 488.6197916666667,
+    "combined_server_working_set_peak_mib": 491.33984375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 114.45273906813863,
+        "working_set_mean_mib": 191.02083333333334,
+        "working_set_peak_mib": 193.57421875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 2.0578651062575943,
+        "working_set_mean_mib": 160.87630208333334,
+        "working_set_peak_mib": 161.04296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.36710040000626093,
+        "working_set_mean_mib": 136.72265625,
+        "working_set_peak_mib": 136.72265625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 106.66692381449506,
+        "RSS_mean_mib": 322.5494791666667
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.0000003537166924,
+        "RSS_mean_mib": 66.73046875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0000024063859463,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-3-on": {
+    "n": 3,
+    "host_CPU_mean_percent": 62.55932484122414,
+    "browser_CPU_one_core_mean_percent": 6.999878266620954,
+    "combined_server_working_set_mean_mib": 500.6979166666667,
+    "combined_server_working_set_peak_mib": 502.6796875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 123.0282450104321,
+        "working_set_mean_mib": 200.671875,
+        "working_set_peak_mib": 202.1640625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 8.916793681576872,
+        "working_set_mean_mib": 163.08203125,
+        "working_set_peak_mib": 167.6875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 3.0560333813061753,
+        "working_set_mean_mib": 136.94401041666666,
+        "working_set_peak_mib": 137.26171875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 105.66603339536698,
+        "RSS_mean_mib": 322.6953125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.9999877495426535,
+        "RSS_mean_mib": 67.31380208333333
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.3333419699053586,
+        "RSS_mean_mib": 9.0703125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 13.841145833333334
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9999938747713267,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-4-off": {
+    "n": 4,
+    "host_CPU_mean_percent": 42.41715803370747,
+    "browser_CPU_one_core_mean_percent": 1.5008157554289552,
+    "combined_server_working_set_mean_mib": 487.51953125,
+    "combined_server_working_set_peak_mib": 487.7421875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 121.07314558396575,
+        "working_set_mean_mib": 189.904296875,
+        "working_set_peak_mib": 189.95703125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.38097392134581,
+        "working_set_mean_mib": 160.8671875,
+        "working_set_peak_mib": 161.05078125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.7467669071591673,
+        "working_set_mean_mib": 136.748046875,
+        "working_set_peak_mib": 136.77734375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 108.52214884557657,
+        "RSS_mean_mib": 322.5361328125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.7504094385210152,
+        "RSS_mean_mib": 66.73046875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.7502024588415361,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-cycle-4-on": {
+    "n": 2,
+    "host_CPU_mean_percent": 47.61941018222426,
+    "browser_CPU_one_core_mean_percent": 5.998768147780896,
+    "combined_server_working_set_mean_mib": 506.283203125,
+    "combined_server_working_set_peak_mib": 513.35546875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 121.02377662802947,
+        "working_set_mean_mib": 201.75,
+        "working_set_peak_mib": 201.86328125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.9764291863273815,
+        "working_set_mean_mib": 160.794921875,
+        "working_set_peak_mib": 160.796875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 23.492079160168817,
+        "working_set_mean_mib": 143.73828125,
+        "working_set_peak_mib": 150.6953125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 108.95558366365756,
+        "RSS_mean_mib": 322.607421875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.9987655438012815,
+        "RSS_mean_mib": 67.60546875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.4995884061012766,
+        "RSS_mean_mib": 13.3125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 21.01171875
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9995887315987284,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-document-closed": {
+    "n": 30,
+    "host_CPU_mean_percent": 14.114418476249803,
+    "browser_CPU_one_core_mean_percent": 0.8667431235489164,
+    "combined_server_working_set_mean_mib": 302.26002604166666,
+    "combined_server_working_set_peak_mib": 309.9921875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": null,
+        "working_set_mean_mib": null,
+        "working_set_peak_mib": 0
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 0.8367787202104302,
+        "working_set_mean_mib": 161.38333333333333,
+        "working_set_peak_mib": 161.68359375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 4.037503264645583,
+        "working_set_mean_mib": 140.87669270833334,
+        "working_set_peak_mib": 148.55859375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "memory1-fps-after": {
+    "n": 11,
+    "host_CPU_mean_percent": 47.201521718570255,
+    "browser_CPU_one_core_mean_percent": 4.727268825016128,
+    "combined_server_working_set_mean_mib": 502.8359375,
+    "combined_server_working_set_peak_mib": 504.8359375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 118.23744677802163,
+        "working_set_mean_mib": 205.16086647727272,
+        "working_set_peak_mib": 207.140625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 5.1602129844128495,
+        "working_set_mean_mib": 160.68501420454547,
+        "working_set_peak_mib": 160.94921875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.18500212170051,
+        "working_set_mean_mib": 136.9900568181818,
+        "working_set_peak_mib": 137.33203125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.63643207164282,
+        "RSS_mean_mib": 321.74467329545456
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.0000078503408227,
+        "RSS_mean_mib": 67.53338068181819
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.1818177128809244,
+        "RSS_mean_mib": 12.755681818181818
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.3636383699356145,
+        "RSS_mean_mib": 23.051136363636363
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0909118836661587,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-fps-before": {
+    "n": 10,
+    "host_CPU_mean_percent": 46.57222481486742,
+    "browser_CPU_one_core_mean_percent": 5.2000172636865365,
+    "combined_server_working_set_mean_mib": 486.10546875,
+    "combined_server_working_set_peak_mib": 489.94140625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 115.6588095832398,
+        "working_set_mean_mib": 194.66171875,
+        "working_set_peak_mib": 198.4921875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.0414920735148465,
+        "working_set_mean_mib": 154.94140625,
+        "working_set_peak_mib": 155.3515625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.413626210962539,
+        "working_set_mean_mib": 136.50234375,
+        "working_set_peak_mib": 136.83984375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.79978004735071,
+        "RSS_mean_mib": 314.289453125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.100002352128482,
+        "RSS_mean_mib": 67.61328125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.100020235646101,
+        "RSS_mean_mib": 13.48125
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.4000028926596316,
+        "RSS_mean_mib": 20.88125
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9999710095268093,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-inactive": {
+    "n": 11,
+    "host_CPU_mean_percent": 35.00143086270253,
+    "browser_CPU_one_core_mean_percent": 12.999362688483599,
+    "combined_server_working_set_mean_mib": 442.21732954545456,
+    "combined_server_working_set_peak_mib": 500.05859375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 60.603722935829985,
+        "working_set_mean_mib": 152.84801136363637,
+        "working_set_peak_mib": 201.66015625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 6.799505965047779,
+        "working_set_mean_mib": 154.8018465909091,
+        "working_set_peak_mib": 155.38671875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 7.131491944599685,
+        "working_set_mean_mib": 134.5674715909091,
+        "working_set_peak_mib": 149.71875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 50.91075053522207,
+        "RSS_mean_mib": 282.15625
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.2727398609112772,
+        "RSS_mean_mib": 66.89417613636364
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 2.409446022727273
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 5.647017045454546
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.454543480040944,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "memory1-native-stopped-disconnected": {
+    "n": 21,
+    "host_CPU_mean_percent": 14.986343016338001,
+    "browser_CPU_one_core_mean_percent": 2.285711888534807,
+    "combined_server_working_set_mean_mib": 301.97284226190476,
+    "combined_server_working_set_peak_mib": 302.47265625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": null,
+        "working_set_mean_mib": null,
+        "working_set_peak_mib": 0
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 1.1170790664579235,
+        "working_set_mean_mib": 161.35472470238096,
+        "working_set_peak_mib": 161.92578125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 4.173161706312377,
+        "working_set_mean_mib": 140.6181175595238,
+        "working_set_peak_mib": 140.984375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "memory1-ordinary-motion-no-pixel-readback": {
+    "n": 100,
+    "host_CPU_mean_percent": 46.054699901248796,
+    "browser_CPU_one_core_mean_percent": 4.229990387851569,
+    "combined_server_working_set_mean_mib": 497.0449609375,
+    "combined_server_working_set_peak_mib": 517.6640625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 115.7421165858402,
+        "working_set_mean_mib": 199.68671875,
+        "working_set_peak_mib": 206.98046875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.120661105424748,
+        "working_set_mean_mib": 160.10546875,
+        "working_set_peak_mib": 161.1328125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.122278544896695,
+        "working_set_mean_mib": 137.2527734375,
+        "working_set_peak_mib": 151.5390625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.59998344763478,
+        "RSS_mean_mib": 316.6667578125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.029978013754052,
+        "RSS_mean_mib": 67.61328125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.220009247620438,
+        "RSS_mean_mib": 13.96375
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.3799932775918684,
+        "RSS_mean_mib": 23.4
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9899983086141265,
+        "RSS_mean_mib": 12.90234375
+      }
+    }
+  },
+  "identity1-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 32.53121615033613,
+    "browser_CPU_one_core_mean_percent": 5.883048048673138,
+    "combined_server_working_set_mean_mib": 273.20857558139534,
+    "combined_server_working_set_peak_mib": 442.625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 13.173490659060619,
+        "working_set_mean_mib": 90.3900390625,
+        "working_set_peak_mib": 106.89453125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 36.50765733767748,
+        "working_set_mean_mib": 138.984375,
+        "working_set_peak_mib": 243.2890625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.84951203673261,
+        "working_set_mean_mib": 106.04521484375,
+        "working_set_peak_mib": 151.41796875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.069884586412638,
+        "RSS_mean_mib": 101.81749636627907
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.04651169609625942,
+        "RSS_mean_mib": 28.85047238372093
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "identity1-inactive": {
+    "n": 26,
+    "host_CPU_mean_percent": 32.011851254403574,
+    "browser_CPU_one_core_mean_percent": 6.961522441036147,
+    "combined_server_working_set_mean_mib": 391.42142427884613,
+    "combined_server_working_set_peak_mib": 432.47265625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 32.08232482638571,
+        "working_set_mean_mib": 97.75016276041667,
+        "working_set_peak_mib": 124.953125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 13.256404598137348,
+        "working_set_mean_mib": 161.380859375,
+        "working_set_peak_mib": 170.46484375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 9.648249814165654,
+        "working_set_mean_mib": 139.80964543269232,
+        "working_set_peak_mib": 144.3046875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 19.11480889412253,
+        "RSS_mean_mib": 208.55588942307693
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.34615207662413094,
+        "RSS_mean_mib": 60.95012019230769
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.2307614369687435,
+        "RSS_mean_mib": 2.5794771634615383
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.03845941769280844,
+        "RSS_mean_mib": 3.9978966346153846
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing2-blank": {
+    "n": 42,
+    "host_CPU_mean_percent": 32.15401148331329,
+    "browser_CPU_one_core_mean_percent": 5.923874296006791,
+    "combined_server_working_set_mean_mib": 279.7445126488095,
+    "combined_server_working_set_peak_mib": 436.328125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 13.266514575965957,
+        "working_set_mean_mib": 89.9068667763158,
+        "working_set_peak_mib": 110.734375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 35.04762545708188,
+        "working_set_mean_mib": 140.6701600609756,
+        "working_set_peak_mib": 237.29296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 19.321773596285198,
+        "working_set_mean_mib": 106.8390625,
+        "working_set_peak_mib": 157.39453125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.071808841249147,
+        "RSS_mean_mib": 98.6332775297619
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 28.189918154761905
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "typing2-inactive": {
+    "n": 12,
+    "host_CPU_mean_percent": 36.719738103477546,
+    "browser_CPU_one_core_mean_percent": 15.249494084740618,
+    "combined_server_working_set_mean_mib": 406.3209635416667,
+    "combined_server_working_set_peak_mib": 429.4375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 42.823949440104684,
+        "working_set_mean_mib": 112.46321614583333,
+        "working_set_peak_mib": 125.46484375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 14.327828156476597,
+        "working_set_mean_mib": 158.32552083333334,
+        "working_set_peak_mib": 165.4296875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 11.78378519249838,
+        "working_set_mean_mib": 135.5322265625,
+        "working_set_peak_mib": 142.58984375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 33.16753540433077,
+        "RSS_mean_mib": 246.86002604166666
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.49990392498763053,
+        "RSS_mean_mib": 66.04947916666667
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0832420542565759,
+        "RSS_mean_mib": 3.3603515625
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.25009663300665824,
+        "RSS_mean_mib": 7.669270833333333
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "faults2-blank": {
+    "n": 45,
+    "host_CPU_mean_percent": 33.81422864681947,
+    "browser_CPU_one_core_mean_percent": 4.947646387249026,
+    "combined_server_working_set_mean_mib": 275.59140625,
+    "combined_server_working_set_peak_mib": 429.859375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.38570765407581,
+        "working_set_mean_mib": 92.23671875,
+        "working_set_peak_mib": 110.86328125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 35.75272017717921,
+        "working_set_mean_mib": 141.21620639534885,
+        "working_set_peak_mib": 226.34375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.917969483658165,
+        "working_set_mean_mib": 106.77576264880952,
+        "working_set_peak_mib": 143.828125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.089028080321469,
+        "RSS_mean_mib": 100.72265625
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.022226870038451828,
+        "RSS_mean_mib": 29.530208333333334
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "faults2-inactive": {
+    "n": 47,
+    "host_CPU_mean_percent": 39.28728587047572,
+    "browser_CPU_one_core_mean_percent": 11.538050410978164,
+    "combined_server_working_set_mean_mib": 393.80659906914894,
+    "combined_server_working_set_peak_mib": 434.76171875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 19.8094434231524,
+        "working_set_mean_mib": 111.37433510638297,
+        "working_set_peak_mib": 123.80859375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 20.93324799961826,
+        "working_set_mean_mib": 164.67952127659575,
+        "working_set_peak_mib": 170.45703125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 17.067876882802334,
+        "working_set_mean_mib": 131.77092633928572,
+        "working_set_peak_mib": 150.1171875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 5.212892234457483,
+        "RSS_mean_mib": 245.671875
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.2127589811896015,
+        "RSS_mean_mib": 66.72623005319149
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.10637648563397216,
+        "RSS_mean_mib": 2.8282081117021276
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 4.7920545212765955
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "perf1-blank": {
+    "n": 44,
+    "host_CPU_mean_percent": 32.21394271066816,
+    "browser_CPU_one_core_mean_percent": 7.543362337346918,
+    "combined_server_working_set_mean_mib": 277.12349076704544,
+    "combined_server_working_set_peak_mib": 442.7578125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.556205428233659,
+        "working_set_mean_mib": 95.64206414473684,
+        "working_set_peak_mib": 116.33984375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 35.165232604495216,
+        "working_set_mean_mib": 143.63020833333334,
+        "working_set_peak_mib": 243.48046875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.28157010114392,
+        "working_set_mean_mib": 105.9455030487805,
+        "working_set_peak_mib": 139.8828125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.909026169691551,
+        "RSS_mean_mib": 99.40207741477273
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.022726519002748195,
+        "RSS_mean_mib": 28.81551846590909
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.022723149769492197,
+        "RSS_mean_mib": 0.5923295454545454
+      }
+    }
+  },
+  "perf1-inactive": {
+    "n": 7,
+    "host_CPU_mean_percent": 24.13342296346109,
+    "browser_CPU_one_core_mean_percent": 2.2858856489674544,
+    "combined_server_working_set_mean_mib": 420.88113839285717,
+    "combined_server_working_set_peak_mib": 475.16015625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 37.713315109345885,
+        "working_set_mean_mib": 133.97098214285714,
+        "working_set_peak_mib": 188.0078125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 0.6707860126616907,
+        "working_set_mean_mib": 154.421875,
+        "working_set_peak_mib": 154.6640625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.489213635085002,
+        "working_set_mean_mib": 132.48828125,
+        "working_set_peak_mib": 132.48828125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 32.14599755165465,
+        "RSS_mean_mib": 266.54575892857144
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.9999982018841712,
+        "RSS_mean_mib": 66.8359375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.8571940059920078,
+        "RSS_mean_mib": 13.03125
+      }
+    }
+  },
+  "perf1-motion-fps-before": {
+    "n": 11,
+    "host_CPU_mean_percent": 48.21587315017755,
+    "browser_CPU_one_core_mean_percent": 4.636912772711482,
+    "combined_server_working_set_mean_mib": 490.0568181818182,
+    "combined_server_working_set_peak_mib": 492.140625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 116.15192648214283,
+        "working_set_mean_mib": 195.3916903409091,
+        "working_set_peak_mib": 197.296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 3.8715295798806904,
+        "working_set_mean_mib": 160.54438920454547,
+        "working_set_peak_mib": 160.8359375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.326203626895081,
+        "working_set_mean_mib": 134.12073863636363,
+        "working_set_peak_mib": 134.45703125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 106.53980810238927,
+        "RSS_mean_mib": 319.3050426136364
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.0001337486542234,
+        "RSS_mean_mib": 67.63103693181819
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.9998547468764397,
+        "RSS_mean_mib": 12.436789772727273
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.3635441407421464,
+        "RSS_mean_mib": 19.068181818181817
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0909053435358194,
+        "RSS_mean_mib": 13.03125
+      }
+    }
+  },
+  "perf1-motion-off-agents": {
+    "n": 23,
+    "host_CPU_mean_percent": 45.58111480302298,
+    "browser_CPU_one_core_mean_percent": 1.869562819365135,
+    "combined_server_working_set_mean_mib": 538.1652513586956,
+    "combined_server_working_set_peak_mib": 548.4921875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 114.51570500884604,
+        "working_set_mean_mib": 184.90625,
+        "working_set_peak_mib": 191.37109375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 12.317206843999111,
+        "working_set_mean_mib": 219.9811480978261,
+        "working_set_peak_mib": 230.1015625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.393814087726279,
+        "working_set_mean_mib": 133.27785326086956,
+        "working_set_peak_mib": 141.6484375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.8260526578759,
+        "RSS_mean_mib": 320.01528532608694
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.8695396336698367,
+        "RSS_mean_mib": 66.8359375
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.8994565217391305
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9130421878090679,
+        "RSS_mean_mib": 13.03125
+      }
+    }
+  },
+  "jpeg4-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 31.768316713799,
+    "browser_CPU_one_core_mean_percent": 5.604395614684403,
+    "combined_server_working_set_mean_mib": 280.33875363372096,
+    "combined_server_working_set_peak_mib": 442.5546875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 12.872032396793745,
+        "working_set_mean_mib": 90.3900390625,
+        "working_set_peak_mib": 107.00390625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 34.96362603793029,
+        "working_set_mean_mib": 147.15537109375,
+        "working_set_peak_mib": 243.31640625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 16.717663672995343,
+        "working_set_mean_mib": 109.01376953125,
+        "working_set_peak_mib": 155.0078125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.9304199274054383,
+        "RSS_mean_mib": 101.64180595930233
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.02325626542899294,
+        "RSS_mean_mib": 29.161155523255815
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "jpeg4-inactive": {
+    "n": 19,
+    "host_CPU_mean_percent": 28.19994484222547,
+    "browser_CPU_one_core_mean_percent": 8.790079737294775,
+    "combined_server_working_set_mean_mib": 407.1264391447368,
+    "combined_server_working_set_peak_mib": 419.02734375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.146575266659289,
+        "working_set_mean_mib": 106.91550164473684,
+        "working_set_peak_mib": 110.0390625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 18.882985067526693,
+        "working_set_mean_mib": 165.6003289473684,
+        "working_set_peak_mib": 176.28125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 8.39867102493647,
+        "working_set_mean_mib": 134.6106085526316,
+        "working_set_peak_mib": 136.1796875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.5789230392008395,
+        "RSS_mean_mib": 243.72018914473685
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.05263135542477268,
+        "RSS_mean_mib": 66.1015625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "faults1-blank": {
+    "n": 44,
+    "host_CPU_mean_percent": 34.28010583176182,
+    "browser_CPU_one_core_mean_percent": 5.878857447714319,
+    "combined_server_working_set_mean_mib": 276.77885298295456,
+    "combined_server_working_set_peak_mib": 434.11328125,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 11.654847096592835,
+        "working_set_mean_mib": 92.238671875,
+        "working_set_peak_mib": 110.61328125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 37.1323177954765,
+        "working_set_mean_mib": 139.62248883928572,
+        "working_set_peak_mib": 215.1953125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 18.820529904400242,
+        "working_set_mean_mib": 106.41313244047619,
+        "working_set_peak_mib": 154.01171875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 3.2723753316986244,
+        "RSS_mean_mib": 101.76873224431819
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.02272632599264907,
+        "RSS_mean_mib": 29.69921875
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "faults1-inactive": {
+    "n": 11,
+    "host_CPU_mean_percent": 34.082220908548976,
+    "browser_CPU_one_core_mean_percent": 10.187162734672846,
+    "combined_server_working_set_mean_mib": 402.77024147727275,
+    "combined_server_working_set_peak_mib": 418.2421875,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 25.227741518747795,
+        "working_set_mean_mib": 110.4580965909091,
+        "working_set_peak_mib": 121.4296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 18.842973064966607,
+        "working_set_mean_mib": 156.85617897727272,
+        "working_set_peak_mib": 164.765625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 9.656296949531615,
+        "working_set_mean_mib": 135.4559659090909,
+        "working_set_peak_mib": 144.57421875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 14.00050841837953,
+        "RSS_mean_mib": 245.35901988636363
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.3636358385560187,
+        "RSS_mean_mib": 65.65447443181819
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 1.2176846590909092
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 1.8881392045454546
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "functional2-blank": {
+    "n": 34,
+    "host_CPU_mean_percent": 34.79332884512136,
+    "browser_CPU_one_core_mean_percent": 6.823198717407371,
+    "combined_server_working_set_mean_mib": 338.1956571691176,
+    "combined_server_working_set_peak_mib": 500.9765625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 12.31947621414842,
+        "working_set_mean_mib": 90.33696546052632,
+        "working_set_peak_mib": 112.1953125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 25.77926991118569,
+        "working_set_mean_mib": 158.78929227941177,
+        "working_set_peak_mib": 252.00390625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 17.382390102421017,
+        "working_set_mean_mib": 132.83072916666666,
+        "working_set_peak_mib": 158.2265625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 4.44058876084698,
+        "RSS_mean_mib": 123.04170496323529
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.029405770370972018,
+        "RSS_mean_mib": 36.388556985294116
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.37879136029411764
+      }
+    }
+  },
+  "functional2-disconnected": {
+    "n": 6,
+    "host_CPU_mean_percent": 18.98517880940661,
+    "browser_CPU_one_core_mean_percent": 4.33332454768765,
+    "combined_server_working_set_mean_mib": 406.8717447916667,
+    "combined_server_working_set_peak_mib": 425.30859375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 8.245414806119946,
+        "working_set_mean_mib": 113.03359375,
+        "working_set_peak_mib": 113.23828125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 1.2311358910685295,
+        "working_set_mean_mib": 173.02213541666666,
+        "working_set_peak_mib": 173.1875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 7.611189531028995,
+        "working_set_mean_mib": 139.65494791666666,
+        "working_set_peak_mib": 143.09375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.666497134618383,
+        "RSS_mean_mib": 209.27734375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 54.534505208333336
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      }
+    }
+  },
+  "functional2-inactive": {
+    "n": 8,
+    "host_CPU_mean_percent": 27.00410859056659,
+    "browser_CPU_one_core_mean_percent": 6.377226529371424,
+    "combined_server_working_set_mean_mib": 400.193359375,
+    "combined_server_working_set_peak_mib": 404.4375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 34.257244128244636,
+        "working_set_mean_mib": 113.271484375,
+        "working_set_peak_mib": 117.57421875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 2.542930100310716,
+        "working_set_mean_mib": 154.41796875,
+        "working_set_peak_mib": 154.60546875
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.46976883660389124,
+        "working_set_mean_mib": 132.50390625,
+        "working_set_peak_mib": 132.50390625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 28.751929527408862,
+        "RSS_mean_mib": 245.20849609375
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.0000001959380183,
+        "RSS_mean_mib": 65.1953125
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.5001395363071248,
+        "RSS_mean_mib": 12.87890625
+      }
+    }
+  },
+  "functional2-view-only-static": {
+    "n": 29,
+    "host_CPU_mean_percent": 35.57959671720098,
+    "browser_CPU_one_core_mean_percent": 5.620718892594558,
+    "combined_server_working_set_mean_mib": 430.4466594827586,
+    "combined_server_working_set_peak_mib": 452.2265625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 40.680950342592396,
+        "working_set_mean_mib": 124.43211206896552,
+        "working_set_peak_mib": 128.015625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 17.087631170986732,
+        "working_set_mean_mib": 167.4498922413793,
+        "working_set_peak_mib": 173.40234375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 13.28450209102326,
+        "working_set_mean_mib": 138.56465517241378,
+        "working_set_peak_mib": 152.9375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 27.79345531759955,
+        "RSS_mean_mib": 247.95002693965517
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.8965536440776701,
+        "RSS_mean_mib": 66.21646012931035
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.5861996658341182,
+        "RSS_mean_mib": 12.621901939655173
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.3103497280701636,
+        "RSS_mean_mib": 19.385102370689655
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.7241254179458687,
+        "RSS_mean_mib": 5.773302801724138
+      }
+    }
+  },
+  "perf2-blank": {
+    "n": 43,
+    "host_CPU_mean_percent": 31.83168321451482,
+    "browser_CPU_one_core_mean_percent": 5.558227896541141,
+    "combined_server_working_set_mean_mib": 274.2483648255814,
+    "combined_server_working_set_peak_mib": 414.77734375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 13.488445332707775,
+        "working_set_mean_mib": 90.7470703125,
+        "working_set_peak_mib": 112.98046875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 35.968719132546006,
+        "working_set_mean_mib": 137.8724275914634,
+        "working_set_peak_mib": 215.74609375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 19.37429709906373,
+        "working_set_mean_mib": 105.48704268292683,
+        "working_set_peak_mib": 137.75390625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 2.999924439255676,
+        "RSS_mean_mib": 101.75163517441861
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.046511920270592394,
+        "RSS_mean_mib": 28.910882994186046
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.2964207848837209
+      }
+    }
+  },
+  "perf2-inactive": {
+    "n": 7,
+    "host_CPU_mean_percent": 26.886691542328187,
+    "browser_CPU_one_core_mean_percent": 5.856999360522879,
+    "combined_server_working_set_mean_mib": 420.8443080357143,
+    "combined_server_working_set_peak_mib": 473.31640625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 34.06505235319174,
+        "working_set_mean_mib": 133.91517857142858,
+        "working_set_peak_mib": 186.17578125
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 2.6030773872365347,
+        "working_set_mean_mib": 154.43303571428572,
+        "working_set_peak_mib": 154.64453125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 0.36508641493659433,
+        "working_set_mean_mib": 132.49609375,
+        "working_set_peak_mib": 132.49609375
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 28.42892394977381,
+        "RSS_mean_mib": 265.27232142857144
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 0.8571551645426269,
+        "RSS_mean_mib": 65.53515625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.0
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.5714367571218566,
+        "RSS_mean_mib": 12.74609375
+      }
+    }
+  },
+  "perf2-motion-fps-before": {
+    "n": 10,
+    "host_CPU_mean_percent": 46.08146049055223,
+    "browser_CPU_one_core_mean_percent": 5.0999815734284635,
+    "combined_server_working_set_mean_mib": 489.820703125,
+    "combined_server_working_set_peak_mib": 490.41015625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 117.40072771460343,
+        "working_set_mean_mib": 194.995703125,
+        "working_set_peak_mib": 195.29296875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 4.234903901731126,
+        "working_set_mean_mib": 160.565234375,
+        "working_set_peak_mib": 160.8359375
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.449651878332475,
+        "working_set_mean_mib": 134.259765625,
+        "working_set_peak_mib": 134.76171875
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 108.20008333443995,
+        "RSS_mean_mib": 315.180078125
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.100001475205121,
+        "RSS_mean_mib": 66.41015625
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.4000026959809755,
+        "RSS_mean_mib": 13.390625
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.39999435243890086,
+        "RSS_mean_mib": 20.86328125
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0000005332397175,
+        "RSS_mean_mib": 12.74609375
+      }
+    }
+  },
+  "perf2-motion-interactive-agents": {
+    "n": 23,
+    "host_CPU_mean_percent": 50.729772148252906,
+    "browser_CPU_one_core_mean_percent": 6.216686628782192,
+    "combined_server_working_set_mean_mib": 557.6987092391304,
+    "combined_server_working_set_peak_mib": 573.16015625,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 116.21949246778264,
+        "working_set_mean_mib": 195.97537364130434,
+        "working_set_peak_mib": 199.7890625
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 16.287938091431098,
+        "working_set_mean_mib": 225.8547894021739,
+        "working_set_peak_mib": 232.1953125
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 9.348917420976722,
+        "working_set_mean_mib": 135.8685461956522,
+        "working_set_peak_mib": 144.51953125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.17054978168503,
+        "RSS_mean_mib": 316.18427309782606
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.0434067937768896,
+        "RSS_mean_mib": 66.36837635869566
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.0869430364678425,
+        "RSS_mean_mib": 13.20991847826087
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.30434589193501355,
+        "RSS_mean_mib": 20.816576086956523
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0434329616553868,
+        "RSS_mean_mib": 12.74609375
+      }
+    }
+  },
+  "perf2-motion-off-agents": {
+    "n": 24,
+    "host_CPU_mean_percent": 45.84881153868259,
+    "browser_CPU_one_core_mean_percent": 2.1249988164134908,
+    "combined_server_working_set_mean_mib": 534.4921875,
+    "combined_server_working_set_peak_mib": 546.8984375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 114.26857253289482,
+        "working_set_mean_mib": 183.74137369791666,
+        "working_set_peak_mib": 194.8046875
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 12.058197254925462,
+        "working_set_mean_mib": 216.97786458333334,
+        "working_set_peak_mib": 229.97265625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 6.421692069529512,
+        "working_set_mean_mib": 133.77294921875,
+        "working_set_peak_mib": 147.7265625
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.45826409130323,
+        "RSS_mean_mib": 315.9358723958333
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 1.874998968286935,
+        "RSS_mean_mib": 65.57161458333333
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 0.0,
+        "RSS_mean_mib": 0.5501302083333334
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.1666679506793508,
+        "RSS_mean_mib": 1.3302408854166667
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 0.9999958190747762,
+        "RSS_mean_mib": 12.74609375
+      }
+    }
+  },
+  "perf2-motion-view-only-agents": {
+    "n": 23,
+    "host_CPU_mean_percent": 48.06325823866555,
+    "browser_CPU_one_core_mean_percent": 4.173898406346432,
+    "combined_server_working_set_mean_mib": 556.6503057065217,
+    "combined_server_working_set_peak_mib": 565.234375,
+    "server": {
+      "native": {
+        "CPU_one_core_mean_percent": 116.29576807084969,
+        "working_set_mean_mib": 196.88298233695653,
+        "working_set_peak_mib": 200.0234375
+      },
+      "web": {
+        "CPU_one_core_mean_percent": 15.929987506626414,
+        "working_set_mean_mib": 225.17527173913044,
+        "working_set_peak_mib": 231.44140625
+      },
+      "broker": {
+        "CPU_one_core_mean_percent": 5.458095522159467,
+        "working_set_mean_mib": 134.59205163043478,
+        "working_set_peak_mib": 135.78125
+      }
+    },
+    "native_processes": {
+      "kodi.bin": {
+        "CPU_one_core_mean_percent": 107.5651439073631,
+        "RSS_mean_mib": 316.03175951086956
+      },
+      "Xvfb": {
+        "CPU_one_core_mean_percent": 2.043475574505065,
+        "RSS_mean_mib": 66.37194293478261
+      },
+      "X0tigervnc": {
+        "CPU_one_core_mean_percent": 1.260873589524288,
+        "RSS_mean_mib": 13.04211956521739
+      },
+      "vnc-helper": {
+        "CPU_one_core_mean_percent": 0.4347827254466275,
+        "RSS_mean_mib": 20.738790760869566
+      },
+      "source-observer": {
+        "CPU_one_core_mean_percent": 1.0434722368704838,
+        "RSS_mean_mib": 12.74609375
+      }
+    }
+  }
+}

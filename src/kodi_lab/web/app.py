@@ -620,6 +620,8 @@ from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
 )
+from kodi_lab.web.novnc import PrototypeViewer
+from kodi_lab.web.novnc import install_routes as install_novnc_routes
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
     STATE_LABELS,
@@ -1416,6 +1418,7 @@ def create_app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     broker: Any,
+    novnc_viewer: PrototypeViewer | None = None,
     readiness: ReadinessTaskRegistry | None = None,
     reset_activity: ResetActivityRegistry | None = None,
     auth: WebAuthenticationService | None = None,
@@ -1471,6 +1474,10 @@ def create_app(
     managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
+    if novnc_viewer is None and settings.experimental_novnc_instances:
+        from kodi_lab.web.novnc_optin import build_viewer
+
+        novnc_viewer = build_viewer(settings, session_factory)
     repository_data_root = Path(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
@@ -2316,9 +2323,28 @@ def create_app(
         context.managed_idle_worker.start()
         context.mcp_workspace_retention.sweep(force=True)
         async with context.mcp_transport.server.session_manager.run():
+
+            async def expire_novnc_tickets() -> None:
+                while True:
+                    if novnc_viewer is not None:
+                        with suppress(Exception):
+                            await novnc_viewer.mutate(novnc_viewer.sweep)
+                    await asyncio.sleep(0.25)
+
+            novnc_sweeper = (
+                asyncio.create_task(expire_novnc_tickets())
+                if novnc_viewer is not None
+                else None
+            )
             try:
                 yield
             finally:
+                if novnc_viewer is not None:
+                    await asyncio.to_thread(novnc_viewer.close)
+                if novnc_sweeper is not None:
+                    novnc_sweeper.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await novnc_sweeper
                 context.managed_idle_worker.close()
                 context.reset_executor.close()
                 context.reconstruction_executor.close()
@@ -2368,6 +2394,14 @@ def create_app(
     # Older host processes can share the templates without these new routes.
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
+    templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
+    templates.env.globals["novnc_instance_enabled"] = lambda instance: (
+        novnc_viewer is not None
+        and (
+            novnc_viewer.enabled_instances is None
+            or UUID(str(instance)) in novnc_viewer.enabled_instances
+        )
+    )
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
@@ -2397,6 +2431,13 @@ def create_app(
             "img-src 'self' blob:; connect-src 'self'; object-src 'none'; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
+        if (
+            novnc_viewer is not None
+            and getattr(request.scope.get("route"), "name", None) == "novnc_phase1_page"
+        ):
+            response.headers["Content-Security-Policy"] = response.headers[
+                "Content-Security-Policy"
+            ].replace("img-src 'self' blob:", "img-src 'self' blob: data:")
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -3226,7 +3267,8 @@ def create_app(
             created.token,
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             samesite="strict",
             path="/",
         )
@@ -3256,7 +3298,8 @@ def create_app(
             str(mode),
             max_age=31536000,
             httponly=True,
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             samesite="strict",
             path="/",
         )
@@ -3273,12 +3316,17 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         context.live_display.retire_owner(preview_owner(authenticated.csrf_token))
         context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
+        if novnc_viewer is not None:
+            await asyncio.to_thread(
+                novnc_viewer.retire_owner, preview_owner(authenticated.csrf_token)
+            )
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(
             settings.web_session_cookie_name,
             path="/",
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             httponly=True,
             samesite="strict",
         )
@@ -7107,6 +7155,17 @@ def create_app(
     ) -> ManagedScreenshotStatus:
         return context.screenshots.get_status(instance_id)
 
+    if novnc_viewer is not None:
+        install_novnc_routes(
+            app,
+            novnc_viewer,
+            context.auth,
+            settings.web_session_cookie_name,
+            current_session,
+            mutation_session,
+            _websocket_same_origin,
+        )
+
     @app.post("/api/instances/{instance_id}/display-policy")
     async def set_managed_display_policy(
         instance_id: UUID,
@@ -8236,6 +8295,11 @@ def create_app(
         _body: EmptyActionRequest = Body(),
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
+        if novnc_viewer is not None:
+            try:
+                novnc_viewer.revoke_instance(instance_id)
+            except ValueError:
+                raise HTTPException(409, "input_release_unproven") from None
         return context.lifecycle.stop(instance_id)
 
     @app.post(

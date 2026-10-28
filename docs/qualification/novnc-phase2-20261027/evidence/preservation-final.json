@@ -1,0 +1,36 @@
+{
+  "at": 1793148008.59367,
+  "original_containers": 271,
+  "original_container_drift": [],
+  "production_services": {
+    "web": {
+      "id": "600bb5c1479a79f218fcfa72d7a1d33c0501aaeb7dc09cd34cb72927d682b915",
+      "image": "sha256:723a60488c0e9101eb4b06f8d3a5eebad1935aaff3c35b4108fc769fb0b8ba86",
+      "healthy": true,
+      "restarts": 0
+    },
+    "broker": {
+      "id": "17658173edb689907d26267c245221b1f9945a9158db6f2a34dafb760e9449cb",
+      "image": "sha256:a6f9634561dfe92af93452b2b2618c83f485bdd5a24dea87cb1e43460eaadf44",
+      "healthy": true,
+      "restarts": 0
+    },
+    "repository": {
+      "id": "e767d20da0a759c127793d1ca8871273920807fa36e3743fb57ef1e930a08cd9",
+      "image": "sha256:723a60488c0e9101eb4b06f8d3a5eebad1935aaff3c35b4108fc769fb0b8ba86",
+      "healthy": true,
+      "restarts": 0
+    }
+  },
+  "schema": "0086_addon_settings",
+  "workspace_generation": 18,
+  "diagnostics": 16,
+  "idle_tables": 42,
+  "prior_evidence_hashes_unchanged": 887,
+  "main_and_prototype_clean_unchanged": true,
+  "production_ingress_unchanged": true,
+  "global_configuration_and_browser_registry_unchanged": {
+    "opencode-global-before.json": 2,
+    "firefox-registry-before.json": 1
+  }
+}

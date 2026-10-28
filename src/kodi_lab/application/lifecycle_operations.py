@@ -120,6 +120,7 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 session.execute(text("BEGIN IMMEDIATE"))
                 if precondition is not None:
                     precondition(session)
+                ManagedInstanceLifecycleOperationRepository(session).create(operation)
                 leases = ManagedInstanceMutationLeaseRepository(session)
                 leases.reserve(
                     instance_id,
@@ -146,7 +147,6 @@ class ManagedInstanceLifecycleOperationCoordinator:
                     raise LifecycleOperationConflictError(
                         "Lifecycle mutation authority could not be acquired."
                     )
-                ManagedInstanceLifecycleOperationRepository(session).create(operation)
                 if on_claim is not None:
                     on_claim(session, handle)
         except ManagedRuntimeReconciliationBlockedError as error:

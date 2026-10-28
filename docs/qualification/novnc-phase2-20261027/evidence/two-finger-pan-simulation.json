@@ -1,0 +1,80 @@
+{
+  "gestures": [
+    {
+      "at": 1793145849043,
+      "phase": "gesturestart",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849043,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849059,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849059,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849075,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849075,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849092,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849092,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849109,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849109,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849125,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849125,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849142,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849142,
+      "phase": "gesturemove",
+      "type": "twodrag"
+    },
+    {
+      "at": 1793145849142,
+      "phase": "gestureend",
+      "type": "twodrag"
+    }
+  ],
+  "physical_device_acceptance": false
+}

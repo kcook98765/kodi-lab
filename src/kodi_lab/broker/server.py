@@ -26,6 +26,7 @@ from kodi_lab.broker.errors import (
     TrailingFrameDataError,
     TruncatedFrameError,
 )
+from kodi_lab.broker.novnc import DisplayLane
 from kodi_lab.broker.operations import OperationRegistry, build_foundation_registry
 from kodi_lab.broker.protocol import (
     Response,
@@ -107,6 +108,7 @@ class BrokerServer:
         audit_logger: logging.Logger | None = None,
         read_timeout: float = READ_TIMEOUT_SECONDS,
         write_timeout: float = WRITE_TIMEOUT_SECONDS,
+        display_lane: DisplayLane | None = None,
     ) -> None:
         self._socket_config = socket_config
         self._authorization = authorization
@@ -116,15 +118,36 @@ class BrokerServer:
         self._read_timeout = read_timeout
         self._write_timeout = write_timeout
         self._prepared: PreparedUnixListener | None = None
+        self._display_lane = display_lane
 
     @classmethod
     def production(cls) -> BrokerServer:
         """Resolve the approved root/kodi-lab production policy."""
 
         configuration = ProductionBrokerConfiguration.resolve()
+        from kodi_lab.config import Settings
+
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        lane = None
+        if settings.experimental_novnc_instances:
+            from kodi_lab.broker.novnc_service import HumanDisplayService
+            from kodi_lab.storage.engine import (
+                create_database_engine,
+                create_session_factory,
+            )
+
+            sessions = create_session_factory(
+                create_database_engine(
+                    "sqlite:///file:"
+                    + str(settings.data_root / "database/kodi-lab.db")
+                    + "?mode=ro&uri=true"
+                )
+            )
+            lane = HumanDisplayService(settings, sessions).lane(configuration)
         return cls(
             socket_config=configuration.socket,
             authorization=configuration.authorization,
+            display_lane=lane,
         )
 
     @property
@@ -147,6 +170,8 @@ class BrokerServer:
     def close(self) -> None:
         """Close the listener and safely remove only its socket inode."""
 
+        if self._display_lane is not None:
+            self._display_lane.close()
         prepared = self._prepared
         self._prepared = None
         if prepared is not None:
@@ -161,6 +186,8 @@ class BrokerServer:
         listener = self._prepared.socket
         listener.settimeout(0.2)
         try:
+            if self._display_lane is not None:
+                self._display_lane.start(stop_event)
             while stop_event is None or not stop_event.is_set():
                 try:
                     connection, _address = listener.accept()

@@ -20,6 +20,7 @@ from kodi_lab.application.browser_remote_coordination import (
     BrowserRemoteCoordinationConflict,
     BrowserRemoteCoordinationLost,
     acquire_browser_remote,
+    mark_remote_dispatch,
     release_browser_remote,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
@@ -49,6 +50,7 @@ from kodi_lab.kodi.remote import (
     BrowserRemoteAction,
     KodiBrowserRemoteAdapter,
     RemoteActionAmbiguousError,
+    RemoteActionUndispatchedError,
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
@@ -258,6 +260,7 @@ class BrowserRemoteService:
 
         dispatched = False
         attempted = False
+        unresolved = False
         refresh = ScreenshotRefreshResult(result="not_requested")
         try:
             container_id = self._eligible_container(instance_id)
@@ -305,12 +308,16 @@ class BrowserRemoteService:
                 raise BrowserRemoteError(
                     "remote_action_conflict", "Managed activity could not be retained."
                 ) from error
+            mark_remote_dispatch(lease, container_id)
             attempted = True
+            unresolved = True
             adapter.dispatch(action, invocation_id)
             dispatched = True
+            unresolved = False
             if action in NAVIGATION_ACTIONS:
                 refresh = self._refresh_screenshot(instance_id)
         except RemoteNoActivePlayerError as error:
+            unresolved = False
             raise BrowserRemoteError(
                 "remote_no_active_player", "No active Kodi player is available."
             ) from error
@@ -320,6 +327,8 @@ class BrowserRemoteService:
                 "Kodi may have received the action; it was not retried.",
             ) from error
         except RemoteKodiRejectedError as error:
+            if isinstance(error, RemoteActionUndispatchedError):
+                unresolved = False
             raise BrowserRemoteError(
                 "remote_kodi_rejected", "Kodi rejected the fixed remote action."
             ) from error
@@ -346,7 +355,7 @@ class BrowserRemoteService:
                 except Exception:
                     LOGGER.warning("Managed remote activity completion unavailable")
             try:
-                release_browser_remote(lease)
+                release_browser_remote(lease, unresolved=unresolved)
             except BrowserRemoteCoordinationLost as error:
                 if dispatched:
                     raise BrowserRemoteError(

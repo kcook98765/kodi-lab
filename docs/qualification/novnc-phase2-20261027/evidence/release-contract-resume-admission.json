@@ -1,0 +1,21 @@
+{
+  "head": "ead3b71d8269ecbb36ece4e29eee4a5bd0c347fd",
+  "tree": "3a7ef5615061e21928e91a6f0245304647c72169",
+  "native_source_commit": "c5e5a616d36785e69c213fb774762f76a8f63c28",
+  "differences_from_native_source_manifest": [
+    "pyproject.toml",
+    "tests/test_foundation.py"
+  ],
+  "executable_source_and_assets_unchanged": true,
+  "previous_full_mypy_pass_files": 787,
+  "changed_schema_contract_file_focused_pass": 18,
+  "original_check_sha256": "3ebcb91a9212f5e0b41faa42ad995dd5f2708b58771d3cba432ee90ea8b1d0f4",
+  "resume_script_sha256": "1b6a89d8163e96a210c3c377deeffef010f5bca4e2813d1c019dfe006eab20cc",
+  "removed_only_previously_passed_stages": [
+    "run_check \"Ruff format\" uv run --locked ruff format --check .\n",
+    "run_check \"Ruff lint\" uv run --locked ruff check .\n",
+    "run_check \"mypy\" uv run --locked mypy src tests migrations\n"
+  ],
+  "remaining_contracts_full_pytest_build_migration_import_unchanged": true,
+  "at": 1793148450.3853552
+}

@@ -1,0 +1,127 @@
+[
+  {
+    "key": "ArrowDown",
+    "before": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "after": {
+      "currentcontrol": {
+        "label": "TV shows"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "sent": 1793144711103,
+    "returned": 1793144711106,
+    "value": "ArrowDown",
+    "held": false
+  },
+  {
+    "key": "ArrowUp",
+    "before": {
+      "currentcontrol": {
+        "label": "TV shows"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "after": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "sent": 1793144711813,
+    "returned": 1793144711818,
+    "value": "ArrowUp",
+    "held": false
+  },
+  {
+    "key": "Enter",
+    "before": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "after": {
+      "currentcontrol": {
+        "label": "[..]"
+      },
+      "currentwindow": {
+        "id": 10025,
+        "label": "Videos"
+      }
+    },
+    "sent": 1793144712541,
+    "returned": 1793144712545,
+    "value": "Enter",
+    "held": false
+  },
+  {
+    "key": "Escape",
+    "before": {
+      "currentcontrol": {
+        "label": "[..]"
+      },
+      "currentwindow": {
+        "id": 10025,
+        "label": "Videos"
+      }
+    },
+    "after": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "sent": 1793144713262,
+    "returned": 1793144713267,
+    "value": "Escape",
+    "held": false
+  },
+  {
+    "key": "Backspace",
+    "before": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "after": {
+      "currentcontrol": {
+        "label": "Movies"
+      },
+      "currentwindow": {
+        "id": 10000,
+        "label": "Home"
+      }
+    },
+    "sent": 1793144713971,
+    "returned": 1793144713975,
+    "value": "Backspace",
+    "held": false
+  }
+]

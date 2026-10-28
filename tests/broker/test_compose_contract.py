@@ -58,7 +58,14 @@ def test_lab_compose_confines_docker_mount_to_broker() -> None:
     assert broker["build"]["target"] == "broker"
     assert broker["read_only"] is True
     assert broker["cap_drop"] == ["ALL"]
-    assert set(broker["cap_add"]) == {"CHOWN", "DAC_OVERRIDE", "FOWNER"}
+    # The broker establishes a state-owner child for SQLite ownership writes.
+    assert set(broker["cap_add"]) == {
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "FOWNER",
+        "SETUID",
+        "SETGID",
+    }
     assert "no-new-privileges:true" in broker["security_opt"]
     assert not broker.get("privileged", False)
     assert not broker.get("ports")
