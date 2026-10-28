@@ -161,8 +161,8 @@
       "bytes": 16132
     },
     "evidence/browser-trend.csv": {
-      "sha256": "b2b38b9e67b11b79961c6a3c0c4a905d264ed2fb5bbf0654ddac079009febecd",
-      "bytes": 224773
+      "sha256": "ad3ad1744878e3636714a789c4659d9f97ac574ba2cb597d690cdf81a1128668",
+      "bytes": 222755
     },
     "evidence/native-auth-negatives.json": {
       "sha256": "11f5a3b1cad1cfc5769f0d50a808f00d09a6e45ba6f01563512079b273845891",
