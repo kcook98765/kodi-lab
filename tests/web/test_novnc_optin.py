@@ -183,7 +183,12 @@ def test_unconfirmed_admission_is_reaped_only_after_native_proof(
     )
     lane = DisplayLane(
         SocketPathConfig(
-            runtime_directory=tmp_path, socket_path=tmp_path / "unused.sock"
+            runtime_directory=tmp_path,
+            socket_path=tmp_path / "unused.sock",
+            directory_owner_uid=os.getuid(),
+            directory_group_gid=os.getgid(),
+            socket_owner_uid=os.getuid(),
+            socket_group_gid=os.getgid(),
         ),
         os.getuid(),
         lambda _: pytest.fail("no admission"),
