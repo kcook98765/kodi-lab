@@ -41,6 +41,7 @@ def test_remote_only_compose_has_no_docker_authority() -> None:
     web = services["web"]
     assert web["read_only"] is True
     assert web["cap_drop"] == ["ALL"]
+    assert not web.get("cap_add")
     assert web["build"]["target"] == "web"
     assert not web.get("privileged", False)
     assert not any(item["target"] == "/var/run/docker.sock" for item in web["volumes"])
@@ -65,6 +66,7 @@ def test_lab_compose_confines_docker_mount_to_broker() -> None:
         "FOWNER",
         "SETUID",
         "SETGID",
+        "KILL",
     }
     assert "no-new-privileges:true" in broker["security_opt"]
     assert not broker.get("privileged", False)

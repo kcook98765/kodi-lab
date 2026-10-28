@@ -7217,3 +7217,22 @@ cookies are Secure. Root broker catalog connections are read-only. Ownership
 transactions use bounded one-shot state-owner subprocesses; SETUID/SETGID in the
 broker establish that identity, and no capabilities are added to Web. This avoids
 root-owned SQLite recovery journals without changing global journal policy.
+
+
+## D-0464: Enforce state-owner child timeout in the broker namespace
+
+Native packaged UID10001 qualification found that a root broker with cap_drop ALL
+and SETUID/SETGID could launch a nonroot state writer but could not kill it on the
+existing two-second subprocess timeout. Add KILL to broker alone so the supervisor
+can terminate/reap its own changed-UID children. Web retains no added capability,
+no Docker authority and no host PID namespace. Timeout, lease, memory, FPS and
+latency limits are unchanged. Qualify actual timeout cleanup and unprivileged
+SQLite recovery before deployment.
+
+Packaged cold startup also exceeded the two-second child budget when the writer
+loaded the full ORM/Docker module graph. A closed standard-library SQLite writer
+now performs only the same five conditional ownership transactions, with foreign
+keys enabled and a one-second SQLite busy timeout. No generic SQL or listener is
+introduced. Admission/child deadlines, authorizations and server guards remain
+unchanged. Actual cold writes, forced child suspension/timeout, and SIGKILL
+journal recovery require native qualification before the next release freeze.

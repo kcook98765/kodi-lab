@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.novnc_control import HumanViewerOwnership, timestamp
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.config import Settings
-from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import NovncSessionRow
 
 
@@ -40,7 +39,7 @@ class StateOwnerOwnership(HumanViewerOwnership):
         # subprocess changes identity before exec without a Python preexec hook
         # or a forked Python transaction in this multithreaded broker.
         result = subprocess.run(
-            [sys.executable, "-I", "-B", "-m", __name__],
+            [sys.executable, "-I", "-B", "-m", "kodi_lab.novnc_writer"],
             input=json.dumps({"method": method, "args": args}),
             text=True,
             stdout=subprocess.PIPE,
@@ -99,51 +98,9 @@ class StateOwnerOwnership(HumanViewerOwnership):
 
 
 def main() -> None:
-    settings = Settings(_env_file=None)  # type: ignore[call-arg]
-    owner = settings.data_root.lstat()
-    if os.geteuid() == 0 or (os.geteuid(), os.getegid()) != (
-        owner.st_uid,
-        owner.st_gid,
-    ):
-        raise ValueError("state-owner identity required")
-    raw = sys.stdin.read(16385)
-    if len(raw) > 16384:
-        raise ValueError("state transaction exceeds bounds")
-    value = json.loads(raw)
-    if set(value) != {"method", "args"} or not isinstance(value["args"], list):
-        raise ValueError("invalid state transaction")
-    engine = create_database_engine(settings.database_url)
-    authority = HumanViewerOwnership(create_session_factory(engine))
-    args = value["args"]
-    try:
-        if value["method"] == "claim" and len(args) == 6:
-            binding = args[3]
-            authority.claim(
-                UUID(args[0]),
-                UUID(args[1]),
-                args[2],
-                ViewBinding(
-                    binding["container"],
-                    binding["image"],
-                    binding["started"],
-                    tuple(binding["identity"]),
-                ),
-                args[4],
-                args[5],
-            )
-        elif value["method"] == "started" and len(args) == 4:
-            authority.started(UUID(args[0]), UUID(args[1]), args[2], args[3])
-        elif value["method"] == "finish" and len(args) == 4 and type(args[3]) is bool:
-            authority.finish(UUID(args[0]), UUID(args[1]), args[2], args[3])
-        elif value["method"] == "revoke" and len(args) == 3:
-            authority.revoke(UUID(args[0]), UUID(args[1]) if args[1] else None, args[2])
-        elif value["method"] == "expire_pending" and not args:
-            authority.expire_pending()
-        else:
-            raise ValueError("state transaction denied")
-        print('{"ok":true}')
-    finally:
-        engine.dispose()
+    from kodi_lab.novnc_writer import main as write_once
+
+    write_once()
 
 
 if __name__ == "__main__":

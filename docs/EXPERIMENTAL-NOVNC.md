@@ -82,7 +82,11 @@ Audio requires a separately authorized phase.
 
 The root broker opens the catalog read-only. Ownership writes run in bounded,
 one-shot subprocesses as the existing state UID/GID, with no inherited groups.
-Broker containers retain SETUID/SETGID only to establish this child identity; Web
+The closed writer uses standard-library SQLite without loading ORM/Docker/Web
+modules, so startup fits the unchanged admission and two-second child budgets.
+Broker containers retain SETUID/SETGID to establish this child identity and KILL
+to terminate and reap their own timed-out children in the private broker PID
+namespace. Without KILL, root cannot signal a child that changed UID. Web
 receives no additional capability. An interrupted child leaves the authority
 unconfirmed and retains exclusion. There is no additional service or listener.
 The initial experimental Web process admits at most 256 attempt identifiers; a
