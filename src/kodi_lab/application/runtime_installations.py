@@ -5,13 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_eligibility import (
+    RuntimeEligibility,
+    RuntimeIneligibilityReason,
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
@@ -20,6 +22,7 @@ from kodi_lab.broker.operations import ReviewedInstallationLaunchResult
 from kodi_lab.config import Settings
 from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.runtime.recipes import (
+    NOVNC_PHASE1_DIGEST,
     load_installation_recipe,
     load_recorded_reviewed_recipe,
     recipe_target_id,
@@ -139,6 +142,7 @@ class RuntimeInstallationView:
     phase_started_at: str | None = None
     completed_at: str | None = None
     managed_instance_name: str | None = None
+    eligibility_reason: str | None = None
 
 
 class RuntimeInstallationService:
@@ -156,8 +160,16 @@ class RuntimeInstallationService:
         self._data_root = data_root or Settings().data_root
 
     def _eligible_ready(self, row: RuntimeRecipeInstallationRow) -> bool:
+        return self._runtime_eligibility(row).eligible
+
+    def _runtime_eligibility(
+        self, row: RuntimeRecipeInstallationRow
+    ) -> RuntimeEligibility:
+        missing = RuntimeEligibility(
+            False, RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+        )
         if row.runtime_revision_id is None:
-            return False
+            return missing
         try:
             reviewed = load_recorded_reviewed_recipe(
                 row.generation, row.recipe_id, row.recipe_revision, row.recipe_digest
@@ -169,27 +181,52 @@ class RuntimeInstallationService:
                 definition = RuntimeDefinitionRepository(session).get(
                     reviewed.recipe.definition_id
                 )
-                return (
-                    revision is not None
-                    and definition is not None
-                    and RuntimeRevisionEligibilityPolicy(data_root=self._data_root)
-                    .evaluate_for_release(
-                        session,
-                        required_release=definition.kodi_release,
-                        definition=definition,
-                        revision=revision,
-                        policy=RuntimeSelectionPolicy(
-                            include_legacy=True,
-                            include_prerelease=row.generation == "piers",
-                            preview_recipe_digest=reviewed.digest
-                            if row.generation == "piers"
-                            else None,
-                            validation_contract=reviewed.recipe.validation_contract,
-                        ),
-                    )
-                    .eligible
+                if revision is None or definition is None:
+                    return missing
+                return RuntimeRevisionEligibilityPolicy(
+                    data_root=self._data_root
+                ).evaluate_for_release(
+                    session,
+                    required_release=definition.kodi_release,
+                    definition=definition,
+                    revision=revision,
+                    policy=RuntimeSelectionPolicy(
+                        include_legacy=True,
+                        include_prerelease=row.generation == "piers",
+                        preview_recipe_digest=reviewed.digest
+                        if row.generation == "piers"
+                        else None,
+                        validation_contract=reviewed.recipe.validation_contract,
+                    ),
                 )
         except (ValueError, OSError):
+            return missing
+
+    def _eligible_development_record(self, row: RuntimeRecipeInstallationRow) -> bool:
+        """Describe an existing sealed pin; never admit a new installation."""
+        from kodi_lab.application.development_sessions import DevelopmentSessionService
+        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+        try:
+            reviewed = load_recorded_reviewed_recipe(
+                row.generation, row.recipe_id, row.recipe_revision, row.recipe_digest
+            )
+            if (
+                reviewed.digest != NOVNC_PHASE1_DIGEST
+                or row.runtime_revision_id is None
+            ):
+                return False
+            service = DevelopmentSessionService(
+                self._factory,
+                lambda: self._broker.managed_container_inventory(),
+                data_root=self._data_root,
+            )
+            with self._factory() as session:
+                service._runtime(
+                    session, recipe_target_id(reviewed), UUID(row.runtime_revision_id)
+                )
+            return True
+        except (ValueError, OSError, DevelopmentSessionConflict):
             return False
 
     def start_preview(
@@ -396,6 +433,10 @@ class RuntimeInstallationService:
                 "validation requirements. An administrator must review the runtime "
                 "record before installation can continue."
             ),
+            "recorded_recipe_unavailable": (
+                "This installation record no longer matches a reviewed recipe. "
+                "Review this exact record before preparing Kodi."
+            ),
         }
         return replace(
             view,
@@ -413,10 +454,16 @@ class RuntimeInstallationService:
             raise RuntimeInstallationUnavailable from error
 
     def _latest(self, generation: Generation) -> RuntimeRecipeInstallationRow | None:
+        reviewed = load_installation_recipe(generation)
         with self._factory() as session:
             return session.scalar(
                 select(RuntimeRecipeInstallationRow)
-                .where(RuntimeRecipeInstallationRow.generation == generation)
+                .where(
+                    RuntimeRecipeInstallationRow.generation == generation,
+                    RuntimeRecipeInstallationRow.recipe_id == reviewed.recipe.recipe_id,
+                    RuntimeRecipeInstallationRow.recipe_revision
+                    == reviewed.recipe.recipe_revision,
+                )
                 .order_by(
                     RuntimeRecipeInstallationRow.created_at.desc(),
                     RuntimeRecipeInstallationRow.id.desc(),
@@ -450,7 +497,8 @@ class RuntimeInstallationService:
                 RuntimeRecipeInstallationRepository(session).fail(
                     UUID(row.id), code="interrupted", now=datetime.now(UTC)
                 )
-        return self._latest(row.generation) or row  # type: ignore[arg-type]
+        with self._factory() as session:
+            return RuntimeRecipeInstallationRepository(session).get(UUID(row.id)) or row
 
     def _view(
         self,
@@ -460,9 +508,23 @@ class RuntimeInstallationService:
         capable: bool,
         worker_operation_id: str | None = None,
         unavailable_code: str = "broker_unreachable",
+        recorded: bool = False,
+        reconcile: bool = True,
     ) -> RuntimeInstallationView:
         reviewed = load_installation_recipe(generation)
+        recorded_recipe_unavailable = False
+        if recorded and row is not None:
+            try:
+                reviewed = load_recorded_reviewed_recipe(
+                    row.generation,
+                    row.recipe_id,
+                    row.recipe_revision,
+                    row.recipe_digest,
+                )
+            except (ValueError, OSError):
+                recorded_recipe_unavailable = True
         recipe = reviewed.recipe
+        development_variant = reviewed.digest == NOVNC_PHASE1_DIGEST
         major, stable_version = (
             ("22", "22.0 RC1") if generation == "piers" else STABLE_RELEASES[generation]
         )
@@ -476,6 +538,7 @@ class RuntimeInstallationService:
                 "Kodi 22 Piers RC1"
                 if generation == "piers"
                 else f"{recipe.display_generation} Lab"
+                + (" · experimental noVNC" if development_variant else "")
             ),
             status="not_installed",
             phase="Not installed",
@@ -484,6 +547,26 @@ class RuntimeInstallationService:
             if generation == "piers"
             else None,
         )
+        if recorded_recipe_unavailable and row is not None:
+            return self._unavailable(
+                replace(
+                    base,
+                    managed_instance_name=(
+                        f"{generation.capitalize()} installation record"
+                    ),
+                    operation_id=row.id,
+                    technical_details={
+                        "recipe": row.recipe_id,
+                        "recipe_revision": str(row.recipe_revision),
+                        "recipe_digest": row.recipe_digest,
+                        "recorded_state": row.state.value,
+                        "revision_id": row.runtime_revision_id or "",
+                        "image_id": row.image_id or "",
+                        "failure_code": row.failure_code or "",
+                    },
+                ),
+                "recorded_recipe_unavailable",
+            )
         if not capable:
             if row is not None:
                 target_id = recipe_target_id(reviewed)
@@ -517,12 +600,14 @@ class RuntimeInstallationService:
             )
         if row is None:
             return base
-        row = self._reconcile(row)
+        if reconcile:
+            row = self._reconcile(row)
         state = row.state.value
         operation_id = row.id
         details = {
             "provider": recipe.provider.type,
             "recipe": recipe.recipe_id,
+            "recipe_revision": str(recipe.recipe_revision),
             "package_version": recipe.critical_packages[0].version
             if recipe.critical_packages
             else recipe.kodi_version,
@@ -556,14 +641,27 @@ class RuntimeInstallationService:
                 message = "The assembled Kodi runtime did not pass validation."
             return replace(
                 current,
-                action="retry",
+                action="none" if development_variant else "retry",
                 failure_message=message,
                 technical_details={**details, "failure_code": code},
             )
         if state != "ready":
             return current
-        if not self._eligible_ready(row):
-            return self._unavailable(current, "runtime_ineligible")
+        eligible = (
+            self._eligible_development_record(row)
+            if development_variant
+            else self._eligible_ready(row)
+        )
+        if not eligible:
+            reason = (
+                "development_runtime_not_eligible"
+                if development_variant
+                else self._runtime_eligibility(row).reason
+            )
+            return replace(
+                self._unavailable(current, "runtime_ineligible"),
+                eligibility_reason=None if reason is None else str(reason),
+            )
         try:
             present = self._broker.reviewed_runtime_image_present(operation_id).present
         except Exception:
@@ -573,7 +671,7 @@ class RuntimeInstallationService:
                 current,
                 status="missing",
                 phase="Runtime files missing",
-                action="reacquire",
+                action="none" if development_variant else "reacquire",
             )
         target_id = recipe_target_id(reviewed)
         with self._factory() as session:
@@ -607,8 +705,43 @@ class RuntimeInstallationService:
             current,
             action="open",
             managed_instance_url=f"/instances/{target_id}",
-            note=note,
+            note=(
+                "Reviewed live-screen development runtime. Use Current Kodi for the "
+                "selected environment; standard installation uses a separate recipe."
+                if development_variant
+                else note
+            ),
         )
+
+    def records(
+        self, *, include_preview: bool = False
+    ) -> list[RuntimeInstallationView]:
+        """Advanced recorded variants/history, without reconciling past operations."""
+        generations = (*GENERATIONS, "piers") if include_preview else GENERATIONS
+        with self._factory() as session:
+            rows = session.scalars(
+                select(RuntimeRecipeInstallationRow)
+                .where(RuntimeRecipeInstallationRow.generation.in_(generations))
+                .order_by(
+                    RuntimeRecipeInstallationRow.created_at.desc(),
+                    RuntimeRecipeInstallationRow.id.desc(),
+                )
+                .limit(256)
+            ).all()
+        capable = self._capable()
+        return [
+            replace(
+                self._view(
+                    cast(Generation, row.generation),
+                    row,
+                    capable=capable,
+                    recorded=True,
+                    reconcile=False,
+                ),
+                action="none",
+            )
+            for row in rows
+        ]
 
     def list(self, *, include_preview: bool = False) -> list[RuntimeInstallationView]:
         generations: tuple[Generation, ...] = (
@@ -663,7 +796,7 @@ class RuntimeInstallationService:
         if row is not None:
             if row.generation not in (*GENERATIONS, "piers"):
                 return None
-            return self._view(row.generation, row, capable=True)
+            return self._view(row.generation, row, capable=True, recorded=True)
         active = self._active_worker()
         if active.operation_id == str(operation_id) and active.generation in (
             *GENERATIONS,
