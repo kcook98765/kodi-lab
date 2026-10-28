@@ -1,0 +1,33 @@
+{
+  "at": 1793150804.3222141,
+  "original_container_ID_set_restored": 271,
+  "all_managed_Kodi_stopped": true,
+  "all_owned_Docker_resources_absent": true,
+  "owned_proxy_watchers_PID_start_gone": 10,
+  "loopback_test_ports_closed": [
+    18108,
+    18109
+  ],
+  "public_HTTPS_SPKI_pinned_statuses": {
+    "/login": 200,
+    "/static/live-display.js": 200,
+    "/static/novnc-phase1.js": 404,
+    "/instances/77028ae9-f1a6-4a05-a19a-a765791d6a87/novnc-phase1": 404,
+    "/mcp": 404
+  },
+  "original_campaign_credential_still_revoked": [
+    {
+      "table": "mcp_credentials",
+      "id": "6b15c0de-2ca3-47cb-8eec-6a61cb8fb16a",
+      "revoked_at": "2026-10-27T04:43:59.975136Z"
+    }
+  ],
+  "prior_artifact_manifest_bytes_verified": {
+    "novnc-phase1g-v17-2fps-20261027": 732,
+    "novnc-phase1f-browsers-20261027": 1077,
+    "novnc-phase1e-resolution-20261027": 4045,
+    "novnc-phase1-20261026": 273
+  },
+  "retired_MCP_token_emptied": true,
+  "retired_test_password_emptied": true
+}

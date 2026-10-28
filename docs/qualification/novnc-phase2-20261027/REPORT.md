@@ -1,6 +1,6 @@
 # Kodi Lab noVNC Phase 2: interactive human viewer
 
-**Overall verdict: PARTIAL. Interactive control is implemented; native agent-latency qualification FAILS.** Source release validation is pending. Keep the viewer experimental and disabled by default. No merge, default production deployment or audio implementation is authorized.
+**Overall verdict: PARTIAL. Interactive control is implemented; native agent-latency qualification FAILS.** Achieved check level: **FOCUSED PASS with completed release-stage follow-ups**. A clean single-invocation RELEASE PASS is not claimed; the full-run expectation failure and its correction are retained. Keep the viewer experimental and disabled by default. No merge, default production deployment or audio implementation is authorized.
 
 ## Architecture and source
 
@@ -57,7 +57,7 @@ Compound SIGKILL of TigerVNC plus its helper left a held X11 key/button and an i
 
 Reference Phase 1G: approximately 1.996 displayed FPS, maximum frame gap 508 ms, menu p95 398 ms, peak incremental Firefox RSS 231.01 MiB and PSS 122.95 MiB. CPU and agent-latency gates passed then; a stable active-memory ceiling did not.
 
-Phase 2 uses the same fixed 2 FPS target, no renderer/rate tuning, provisional 256 MiB peak incremental browser RSS, diagnostic 128 MiB incremental PSS, continuous whole-process-tree accounting fenced by PID/start time, and independent host/native safety monitoring. Browser memory is retained and measured through disconnect and document closure without forcing GC. The native active budget is 1,800 seconds across all trials. Host aborts are CPU >80% for ten consecutive seconds, available RAM below 2 GiB, OOM, browser RSS allowance breach, or budget exhaustion.
+Phase 2 uses the same fixed 2 FPS target, no renderer/rate tuning, provisional 256 MiB peak incremental browser RSS, diagnostic 128 MiB incremental PSS, continuous whole-process-tree accounting fenced by PID/start time, and independent host/native safety monitoring. Browser memory is retained and measured through disconnect and document closure without forcing GC. RSS/PSS monitoring and threshold-triggered native Stop belong to the isolated qualification harness. Ordinary Web pages cannot measure Firefox PSS; shipped protection consists of bounded buffers/workers and the authoritative session deadline. These tests do not establish a production-enforced client RSS cap. The native active budget is 1,800 seconds across all trials. Host aborts are CPU >80% for ten consecutive seconds, available RAM below 2 GiB, OOM, browser RSS allowance breach, or budget exhaustion.
 
 The 707-sample ten-minute/static lease trial peaked at +179.87 MiB RSS and +66.24 MiB PSS using its prespecified 15-second blank medians. Its final 30-second closed-document stage still measured about 939.54 MiB RSS versus a 915.20 MiB blank baseline. These bounded observations do not establish immediate memory release or a stable ceiling. The completed motion/reconnect follow-up peaked at **+239.23 MiB RSS** against the 256 MiB allowance and **+121.74 MiB PSS** against the diagnostic 128 MiB target. Both numerical comparisons pass; neither demonstrates a stable ceiling. The matched agent/broker pair uses the unchanged compound failure rule: both >20% and >100 ms p95 growth. View-only agent p95 increased from 195.76 to 282.84 ms (+87.09 ms), passing the compound rule. Interactive agent p95 reached 323.06 ms (+127.31 ms, +65.03%), **FAIL**. Broker ping passed in both modes. This result is retained; there is no latency retest to chase a pass. A separate bounded follow-up covers only the memory/reconnect checks left unreached by that early stop.
 
@@ -77,7 +77,7 @@ The human-only decision and explicit test-harness exception are part of the revi
 
 The exact source candidate is `c5e5a616d36785e69c213fb774762f76a8f63c28`. Final app images were built from that frozen source manifest (build8); earlier native functional receipts use preceding candidate snapshots with the same pinned r4 helper and vendor. The final change only distinguishes proven pre-dispatch remote failures; it did not alter rendering/input transport or runtime assets. Native image validation acquired and validated the r4 runtime through the supported sealed recipe path, including two validation cycles.
 
-Final release validation is pending below. New/materially changed test files were run separately during focused development, with directly affected interaction coverage. Focused evidence is not a substitute for the full release gate. No physical mobile/laptop device, IME, Safari, Chromium, WSL2 or native desktop fullscreen acceptance is claimed. Browser memory remains a bounded evaluation. Audio requires a separately authorized phase.
+Final source qualification is recorded in the release ledger below. New/materially changed test files were run separately during focused development, with directly affected interaction coverage. Focused evidence is not a substitute for the full release gate. No physical mobile/laptop device, IME, Safari, Chromium, WSL2 or native desktop fullscreen acceptance is claimed. Browser memory remains a bounded evaluation. Audio requires a separately authorized phase.
 
 ## Measured native results
 
@@ -127,3 +127,30 @@ OpenCode baseline reconciliation found one last P2; its focused closure found no
 ## Recommendation
 
 Keep the draft unmerged and the viewer disabled by default. The human-control implementation and bounded safety behavior are reviewable, and the owner-approved RSS/PSS comparisons pass this finite evaluation. **Native performance qualification remains FAIL because of interactive agent latency.** Resolve or explicitly review that failure, then obtain physical-device/native desktop acceptance before recommending broader production use. Stable browser-memory behavior remains unresolved. Do not start audio development until owner review and separate authorization. Issues #18 and #96 remain open.
+
+## Release qualification ledger
+
+The complete release qualification was attempted once and resumed from blocked stages; the unfiltered suite ran **once**. Original failures remain in the evidence. A clean single-invocation **RELEASE PASS is not claimed**. Achieved check level is **FOCUSED PASS**, supplemented by the completed release stages and full-suite evidence below.
+
+| Check | Result |
+|---|---|
+| Full-tree Ruff format/lint | PASS, repeated after discovery correction |
+| Whole-tree strict mypy | PASS, 787 files |
+| Standalone historical r3 and current r4 mirrored helpers | PASS, two files each, separate strict-mypy invocations |
+| Exact broker/schema contract guards | PASS, six cases after expected-table correction |
+| Unfiltered full suite on `ead3b71` | **6,022 passed, 38 skipped, one failed** in 2,115.55 s; no rerun |
+| Full migration module after correcting stale table expectation | **112 passed**, plus focused Ruff/mypy; 55.4 s lane |
+| Foundation module after metadata contract update | **18 passed**, plus focused Ruff/mypy |
+| Package build | PASS |
+| Alembic history | PASS; head `0087_novnc_control` |
+| Package/config import | PASS |
+
+The initial invocation on `af80ac9` stopped before tests because recursive mypy discovery treated preserved r3/r4 standalone scripts as duplicate importable modules. The narrow discovery correction excludes only those immutable asset directories; canonical helpers remain checked, and each mirrored helper/guard pair separately passed strict mypy. OpenCode found no substantive issue in that correction.
+
+The next exact schema guard and the full-run empty-database upgrade assertion each omitted the two newly added table names. Both expectations now explicitly include `novnc_sessions` and `managed_remote_guards`; the foundation and full migration modules passed individually afterward. No application, helper, recipe, vendor or migration bytes changed after native source `c5e5a61`. Post-test stage source is `8e7a482`; differences from the native manifest are only mypy discovery configuration and those two test expectations, plus documentation/evidence.
+
+The 38 skips are preserved with individual reasons in [release-summary.json](evidence/release-summary.json); they include opt-in host/image/repository/LAN acceptance. They are not silently counted as passes or replaced by claims of clean-host, DinD, other-browser or physical-device qualification. The explicit native r4 acceptance campaign is separate evidence.
+
+Every resumed command after its admission was identical to the corresponding original release-script command. No pytest test selection, marker, runtime threshold or timeout was loosened. The full run’s failure remains visible even though its stale assertion was corrected and the entire affected migration module passed. [Release stage/case summary](evidence/release-summary.json), [resume provenance](evidence/release-post-admission.json).
+
+Qualification-only browser/measurement sources, including retained failed-attempt variants, are archived in [qualification-harness-sources.tar.gz](evidence/qualification-harness-sources.tar.gz). They depend on a retired disposable fixture and contain no credentials, grants, private catalog/profile state or production agent integration. Normal agents must continue using existing MCP screenshot, Bridge inspection and remote-control tools; this archive is not a normal-use viewer facility.

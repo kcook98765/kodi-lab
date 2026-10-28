@@ -1,8 +1,8 @@
 {
   "files": {
     "REPORT.md": {
-      "sha256": "cfe2e85baa84542624f2d5d1f5a5e6214ff70790eb8211acf9f62b97926cda36",
-      "bytes": 21526
+      "sha256": "2753d04e64fabe64218c26f4bf6da8610ac003bee2ce86e876abb9376cf25f40",
+      "bytes": 25450
     },
     "review/REVIEW-FINAL-SOURCE.md": {
       "sha256": "563f029e072d8ad6b11c9c42fae92c82623a7331c93d319ceeba662641e69389",
@@ -20,9 +20,17 @@
       "sha256": "6a65136db6f5386be4b8526b4bb46baae42bf04a18192637efc43adb4bfc152e",
       "bytes": 1918
     },
+    "review/REVIEW-QUALIFICATION.md": {
+      "sha256": "4bf2189c12fa65eca1ce883ab11b8abad51a4b7d39f7bf5f68c595b181ed126e",
+      "bytes": 4234
+    },
     "review/REVIEW-UNDISPATCHED-CLOSURE.md": {
       "sha256": "357e8c90c422c7b71d67c4af8a20ef4e5e240e985d4782c24a5b9db2be39f7d6",
       "bytes": 1126
+    },
+    "review/REVIEW-MYPY-DISCOVERY.md": {
+      "sha256": "0c529f15ceb10109f9bd76cb97b81fd76131f56d3c3004e5b0c7dff6caad85b0",
+      "bytes": 1679
     },
     "review/REVIEW-HARDENING.md": {
       "sha256": "ff5102603067059242d64985f7ec409831dadc99f4eb3248271e7c536d37fdd4",
@@ -52,6 +60,10 @@
       "sha256": "c2c141b1f490f5a2082aa88d96f75fe63fb905611c5855878188251f91d62b9e",
       "bytes": 1059
     },
+    "evidence/release-post-admission.json": {
+      "sha256": "f7264c7ecc17836a4b7a038000ff76703bf42cccf6009276fcf29ad9b783f91c",
+      "bytes": 824
+    },
     "evidence/native-audit.json": {
       "sha256": "8387f48bb90be4be05839654230f654120c9fe5e7c7394f1942b6387cdcb07d2",
       "bytes": 53379
@@ -76,9 +88,17 @@
       "sha256": "7ee787087d01ab837e5ca0293469d6dd2cf40528c0dbb42a4bee376eac1a7e48",
       "bytes": 1242
     },
+    "evidence/restoration-after-release.json": {
+      "sha256": "f669c74fec0dde1495ab9e3fae36f723c335296cb79cf6be82c1c8975cced451",
+      "bytes": 989
+    },
     "evidence/preservation-final.json": {
       "sha256": "305fa8ac97c9a138da40fcb193cc68f63d9b7934077e969f67fc6ea451389fd0",
       "bytes": 1208
+    },
+    "evidence/qualification-harness-sources.tar.gz": {
+      "sha256": "6b3f1ef46680b99fcfa2aa0993b22f16bfc793b7c7de63f935882234f28bf05b",
+      "bytes": 61747
     },
     "evidence/functional2-pointer-wheel-drag.json": {
       "sha256": "e803b799a6a8655fca756dbd9803083bf16bb6be2eab657aaed3465b76508719",
@@ -91,6 +111,10 @@
     "evidence/cleanup-build-intermediates.json": {
       "sha256": "afd014d8cb78f659f1601dfda4150acc1b815160e48cf3078e43ac731c59cc52",
       "bytes": 4169
+    },
+    "evidence/release-admission.json": {
+      "sha256": "7b69d0d70bd13c3f818b240861beb16fba31c687f4dac86cba1f9d2e8aece3a0",
+      "bytes": 288
     },
     "evidence/keyboard-focus-exclusion.json": {
       "sha256": "1848363124bbfaaa4c396c8ee9204cb3648737401011fa2e56950faedd21bf98",
@@ -132,6 +156,10 @@
       "sha256": "4183007740dc347e7bfc8f7b3e6541282c1581be78b00981f6dd713f50ed2cb9",
       "bytes": 490
     },
+    "evidence/release-post-tests-exit.json": {
+      "sha256": "3f1880a196e832faf7bc3a77e234e399b12efbccbbcbf98f8c4bb6d33bc9f281",
+      "bytes": 42
+    },
     "evidence/reduced-memory-resources.json": {
       "sha256": "e4ea55ddf2b139c4d3826c293860c4ddf3d72f056b3c9ca4eca84eedccebbc1d",
       "bytes": 60964
@@ -140,6 +168,10 @@
       "sha256": "ba1d50ba0043d3db107605b84ae024c111571cedf49fc46d1f3776045c09de3f",
       "bytes": 380
     },
+    "evidence/release-exit.json": {
+      "sha256": "a4abc2e3d7b50330c80834781d16eeca5bae4e2d1898a014ae2ce2049875262d",
+      "bytes": 43
+    },
     "evidence/source-qualification.json": {
       "sha256": "02933f9e9afa769b67b8f2c7cbef2b654af09b53d95c173af30561a11645031f",
       "bytes": 972
@@ -147,6 +179,10 @@
     "evidence/functional2-verified-release.json": {
       "sha256": "9fafa0c0aa88e466283cee3ff35c3a969f5db98695d3c4f8e162152da17ec9cf",
       "bytes": 342
+    },
+    "evidence/release-contract-resume-exit.json": {
+      "sha256": "ec75f7573b230279b3ce7477e5200b5239a1fb7aab12d4d69d16e3476dc00bcc",
+      "bytes": 42
     },
     "evidence/perf2-motion-fps-before.json": {
       "sha256": "1eb812d04469b37440301c72f11c109e1e3cde5a65708a541953a73ee3e4ac0f",
@@ -176,13 +212,25 @@
       "sha256": "08b62ecdcd279ef474b2c1c3e67cf871afb014636d64abdbc39ec55f7b311776",
       "bytes": 1170
     },
+    "evidence/release-resume-admission.json": {
+      "sha256": "8c913f023a55ce3c0c8af90c9dcb1d6a8befd3385eb5edccda887d735237cd42",
+      "bytes": 872
+    },
     "evidence/independent-still-typing3-web-field.png": {
       "sha256": "79ba646802316cd4cd8f3632fc1e67ae84d87af2f3e7009f6d53188b8d370238",
       "bytes": 32865
     },
+    "evidence/preservation-after-release.json": {
+      "sha256": "f301e9cee2a8b50cc6a5f9c00afa42fb216cdba9e8a0c86ba94a37e7b66819b3",
+      "bytes": 1210
+    },
     "evidence/independent-default-capture-identity1.json": {
       "sha256": "7e26dfa86276f1bea6637129b6684d775fb7b29270bacf6442716b56b52385e0",
       "bytes": 71
+    },
+    "evidence/qualification-harness-sources.json": {
+      "sha256": "973820ab099750fb3cf29b0237144a5c733685e4119b0cb002d2043f9e4e554e",
+      "bytes": 5694
     },
     "evidence/compound-crash-fixture-socket-retired.json": {
       "sha256": "86271026b7c7130acd4eef9613ef87a2aa63b210a2de4f1bfabe8c5f037d897d",
@@ -216,6 +264,10 @@
       "sha256": "a2665745bb7c7a8df264d8a3f2194b7be58e094cef539d649cf118a0b8604cb9",
       "bytes": 383
     },
+    "evidence/review-authority-retirement.json": {
+      "sha256": "e4cf30bd0d141fd5e238fc9412bf0c98a95346da2118b0a9dd850b379544764a",
+      "bytes": 187
+    },
     "evidence/memory1-fps-after.json": {
       "sha256": "46f3cc173ae7a0b4324da18a4190f558433c7b227007e2b3f60a647cfaddb657",
       "bytes": 3502
@@ -224,6 +276,10 @@
       "sha256": "96f77ba2867446a7d8297bb33366c47e95fee123960a0222b963715279bbe5dd",
       "bytes": 693
     },
+    "evidence/release-contract-resume-admission.json": {
+      "sha256": "6dc04a74e34598615cbf097118ad4731bc91b9fcf41c0a66d81c4c155c2c0ca3",
+      "bytes": 974
+    },
     "evidence/memory1-fps-before.json": {
       "sha256": "15653702139827458af6f7c4fa350ce3213232325a1a13c2a64c75b8f79a4b74",
       "bytes": 3504
@@ -231,6 +287,10 @@
     "evidence/perf1-motion-fps-before.json": {
       "sha256": "d91f80ddfbf1aa34c5d11eb97a7ef8ca47d8c28e195cfc6e8ca1ac885d34750a",
       "bytes": 3427
+    },
+    "evidence/release-summary.json": {
+      "sha256": "e59865982ccdd015f517bd7b67aa8624d3df2a11375997f6d348c1a1287f3a16",
+      "bytes": 11678
     },
     "evidence/functional2-kodi-key-mappings.json": {
       "sha256": "c0616dfd83ce5ebb2525b4c400495e848be6406d03e6afa6d7416ad8c224fbf8",

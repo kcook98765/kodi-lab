@@ -1,0 +1,8 @@
+**None found in the scoped mypy discovery correction.**
+
+- `pyproject.toml:116–119` excludes exactly the two named r3/r4 asset directories. The anchored paths, escaped version dots and trailing slashes avoid excluding similarly named directories or the canonical helpers. `strict = true` and whole-tree `src`, `tests`, `migrations` coverage remain configured.
+- These directories contain standalone runtime payloads, not ordinary application packages. `recipes.py:475–487` reads their bytes as resources and verifies recipe-pinned asset hashes; assembly copies the helpers into the runtime. Excluding their duplicate script-module names from recursive mypy discovery fits that boundary.
+- The canonical helpers remain outside the exclusions, and tests import the canonical helper explicitly (`tests/runtime/test_novnc_helper.py:6`). Separately checking each mirrored helper/guard pair is appropriate: canonical coverage alone does not establish that archived versions type-check.
+- This discovery-only setting does not alter runtime hash verification, packaging configuration, pytest selection or markers. It neither replaces native runtime qualification nor, given unchanged runtime bytes, itself invalidates prior qualification.
+
+**Limits:** Static review only; no commands or tests executed. I did not independently verify the comparison with `c5e5a61`, the reported separate strict-mypy/Ruff results, or retained/resumed pipeline evidence. The exclusions cover all future Python files placed inside those two directories, so continued immutable/pinned-asset treatment matters. No validation PASS level or RELEASE PASS is claimed; actual stage completion remains required.

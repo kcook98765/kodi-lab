@@ -1,0 +1,19 @@
+{
+  "head": "6fbfb9efe21c307e27218b22a6b08ff92cf4459d",
+  "tree": "b4490ca51235cee14310961f72b279dfadd3229d",
+  "native_functional_source_commit": "c5e5a616d36785e69c213fb774762f76a8f63c28",
+  "only_preexisting_source_difference": [
+    "pyproject.toml"
+  ],
+  "change": "mypy discovery of separately checked hash-pinned standalone data mirrors; no executable byte change",
+  "original_check_sha256": "3ebcb91a9212f5e0b41faa42ad995dd5f2708b58771d3cba432ee90ea8b1d0f4",
+  "resume_script_sha256": "56d32ff53c2c3250e6a8e4af1780847130775f9a7f0a24914018fa4d0aecc9ce",
+  "omitted_only": [
+    "run_check \"Ruff format\" uv run --locked ruff format --check .\n",
+    "run_check \"Ruff lint\" uv run --locked ruff check .\n"
+  ],
+  "Ruff_followup_passed": true,
+  "standalone_r3_and_r4_mypy_passed": true,
+  "remaining_stages_exact_unfiltered": true,
+  "at": 1793148334.6453276
+}

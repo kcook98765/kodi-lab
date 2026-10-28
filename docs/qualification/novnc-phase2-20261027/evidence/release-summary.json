@@ -1,0 +1,341 @@
+{
+  "full_suite_candidate": "ead3b71d8269ecbb36ece4e29eee4a5bd0c347fd",
+  "full_suite_runs": 1,
+  "full_suite_collected": 6061,
+  "full_suite_passed": 6022,
+  "full_suite_failed_or_errors": [
+    {
+      "class": "tests.storage.test_migrations",
+      "name": "test_empty_database_upgrades_to_runtime_catalog_head",
+      "reason": "AssertionError: assert {'addon_repos...sources', ...} == {'addon_repos...sources', ...}\n  \n  Extra items in the left set:\n  'managed_remote_guards'\n  'novnc_sessions'\n  Use -v to get more diff",
+      "kind": "failure"
+    }
+  ],
+  "full_suite_skipped": [
+    {
+      "class": "tests.packaging.test_broker_health_image",
+      "name": "test_installed_broker_is_healthy_and_preserves_exact_uid_boundary",
+      "reason": "requires the built broker image",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.packaging.test_broker_health_image",
+      "name": "test_installed_watchdog_rejects_unresponsive_listener",
+      "reason": "requires the built broker image",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.packaging.test_remote_web_image",
+      "name": "test_built_image_executes_default_lf_launcher_and_serves_login",
+      "reason": "requires a built remote-Web image",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_preserves_web_owned_repository_for_upgrade",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_retry_preserves_web_owner[stable]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_retry_preserves_web_owner[development]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_retry_preserves_web_owner[database]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_retry_preserves_web_owner[receipt]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_rejects_unsafe_development_pointer[owner]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_rejects_unsafe_development_pointer[mode]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_packaged_transition_rejects_unsafe_development_pointer[symlink]",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_candidate_transition",
+      "name": "test_same_head_root_transition_keeps_web_owned_development_state",
+      "reason": "requires packaged root transition identity",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_root_pointer_repair_allows_ordinary_backup",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[symlink_pointer]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[wrong_mode]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[invalid_content]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[missing_generation]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[tampered_generation]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[wrong_provenance]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[unexpected_owner]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[unsafe_ack]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[unsafe_parent]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_fails_closed_on_other_state[unexpected_file]",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_already_canonical_is_read_only",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_retries_after_owner_switch",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_rejects_other_bundle_and_stable_pointer",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.repository.test_legacy_pointer_repair",
+      "name": "test_legacy_repair_rejects_wrong_admin_bundle",
+      "reason": "requires root-owned legacy inode",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_checks_retained_upstream_signature[app]",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_checks_retained_upstream_signature[platform]",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_checks_retained_upstream_signature[gl]",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_fsck_rejects_object_corruption[commit]",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_fsck_rejects_object_corruption[content]",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_real_ostree_missing_tree_cannot_claim_verified_closure",
+      "reason": "real OSTree integration requires OSTree tooling",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_ostree_integration",
+      "name": "test_live_exact_rc1_acquisition",
+      "reason": "explicit upstream acquisition gate only",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.runtime.test_piers_live",
+      "name": "test_real_assembled_rc1_runtime_acceptance",
+      "reason": "explicit isolated Phase 3 assembly/acceptance directory required",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.web.test_http_proxy_readiness",
+      "name": "test_networkless_web_container_checks_same_proxy_and_recovers_after_restart",
+      "reason": "explicit isolated LAN interface and container image required",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.web.test_mcp_lan",
+      "name": "test_real_sdk_through_private_tls_proxy_has_auth_and_home_scope_parity",
+      "reason": "set KODI_LAB_TEST_LAN_IPV4 to this test host's private LAN address",
+      "kind": "skipped"
+    },
+    {
+      "class": "tests.web.test_mcp_lan_http",
+      "name": "test_real_http_and_https_sdk_with_direct_ryzen_and_disposable_credentials",
+      "reason": "set KODI_LAB_TEST_LAN_IPV4 to the actual private test interface",
+      "kind": "skipped"
+    }
+  ],
+  "attempts": [
+    {
+      "log": "release.log",
+      "evidence_directory": "kodi-lab-check-results.0FYOTADY",
+      "stages": [
+        {
+          "stage": "Ruff format",
+          "seconds": 0,
+          "exit_status": 0
+        },
+        {
+          "stage": "Ruff lint",
+          "seconds": 0,
+          "exit_status": 0
+        },
+        {
+          "stage": "mypy",
+          "seconds": 2,
+          "exit_status": 2
+        }
+      ]
+    },
+    {
+      "log": "release-resume.log",
+      "evidence_directory": "kodi-lab-check-results.XyO2NL7m",
+      "stages": [
+        {
+          "stage": "mypy",
+          "seconds": 26,
+          "exit_status": 0
+        },
+        {
+          "stage": "contract guards",
+          "seconds": 10,
+          "exit_status": 1
+        }
+      ]
+    },
+    {
+      "log": "release-contract-resume.log",
+      "evidence_directory": "kodi-lab-check-results.2pQFGpZb",
+      "stages": [
+        {
+          "stage": "contract guards",
+          "seconds": 9,
+          "exit_status": 0
+        },
+        {
+          "stage": "pytest",
+          "seconds": 2160,
+          "exit_status": 1
+        }
+      ]
+    },
+    {
+      "log": "release-post-tests.log",
+      "evidence_directory": "kodi-lab-check-results.LwvfKZZl",
+      "stages": [
+        {
+          "stage": "package build",
+          "seconds": 6,
+          "exit_status": 0
+        },
+        {
+          "stage": "Alembic history",
+          "seconds": 1,
+          "exit_status": 0
+        },
+        {
+          "stage": "package/config import",
+          "seconds": 0,
+          "exit_status": 0
+        }
+      ]
+    }
+  ],
+  "original_failures_preserved": true,
+  "whole_tree_mypy_pass_files": 787,
+  "standalone_mirror_mypy_pass_files": 4,
+  "full_suite_NOT_rerun": true,
+  "focused-schema-contract-followup.log": {
+    "focused_pass": true,
+    "passed_counts": [
+      18
+    ]
+  },
+  "focused-migration-tables-followup.log": {
+    "focused_pass": true,
+    "passed_counts": [
+      112
+    ]
+  },
+  "achieved_level": "FOCUSED PASS",
+  "clean_single_invocation_RELEASE_PASS_claimed": false,
+  "post_test_stages_passed": true,
+  "native_agent_latency_gate": "FAIL",
+  "overall": "PARTIAL"
+}
