@@ -98,10 +98,28 @@ def test_status_and_watchdog_resolve_while_display_workers_are_active(
         assert both_lookups.wait(1), (
             "status and watchdog authority reads competed with established displays"
         )
+        # Two worker watchdogs may overlap a page's status poll. The third read
+        # waits in the bounded socket backlog rather than losing authority.
+        queued = socket.socket(socket.AF_UNIX)
+        queued.settimeout(0.1)
+        peers.append(queued)
+        queued.connect(str(socket_config.socket_path))
+        with pytest.raises(TimeoutError):
+            queued.recv(64)
         release_lookups.set()
+        queued.settimeout(1)
+        challenge = queued.recv(64).decode()
+        queued.sendall(
+            json.dumps({"resolve": str(uuid4()), "challenge": challenge}).encode()
+            + b"\n"
+        )
+        with queued.makefile("rb") as response:
+            value = json.loads(response.readline())
+        value["identity"] = tuple(value["identity"])
+        replies.append(ViewBinding(**value))
         for thread in threads:
             thread.join(2)
-        assert not errors and replies == [binding, binding]
+        assert not errors and replies == [binding, binding, binding]
         assert len(admitted) == displays
         if displays == 2:
             # More read capacity must never admit a third native display worker.
@@ -154,10 +172,12 @@ def test_stalled_handshakes_remain_bounded_and_release_capacity(
             peer.connect(str(socket_config.socket_path))
             assert len(peer.recv(64)) == 64
         extra = socket.socket(socket.AF_UNIX)
-        extra.settimeout(1)
+        extra.settimeout(0.1)
         peers.append(extra)
         extra.connect(str(socket_config.socket_path))
-        assert extra.recv(64) == b"", "Unbounded pending handshake admitted"
+        with pytest.raises(TimeoutError):
+            extra.recv(64)
+        extra.close()
         for peer in peers[:2]:
             if failure == "invalid":
                 peer.sendall(b"{}\n")

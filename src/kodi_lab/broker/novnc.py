@@ -381,20 +381,24 @@ class DisplayLane:
             if self.control_stopped is not None and self.control_stopped.is_set():
                 self.stopped.set()
                 break
+            # Leave short bursts in the existing bounded listener backlog until
+            # a negotiation slot is free. Closing them immediately can revoke
+            # a healthy viewer whose watchdog overlaps another status read.
+            if not self.handshakes.acquire(timeout=0.1):
+                continue
             try:
                 peer, _ = self.listener.socket.accept()
             except TimeoutError:
+                self.handshakes.release()
                 continue
             except OSError:
+                self.handshakes.release()
                 break
             # Negotiation has its own bounded capacity. Established displays
             # must leave room for status and watchdog authority lookups.
             # Native workers remain limited separately by self.active below.
             with self.lock:
                 self.threads = [t for t in self.threads if t.is_alive()]
-                if not self.handshakes.acquire(blocking=False):
-                    peer.close()
-                    continue
                 thread = Thread(
                     target=self._worker,
                     args=(peer,),

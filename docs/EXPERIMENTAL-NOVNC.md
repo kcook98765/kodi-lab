@@ -92,8 +92,9 @@ interactive workers, fixed XTest cleanup also verifies neutral keys/buttons.
 The display lane allows at most two pending handshakes separately from its
 existing two native display workers. Established streams release their handshake
 slot so concurrent status and watchdog identity lookups can complete. Lookup
-requests never reserve input or create a native worker. Saturated handshakes
-still fail closed; the one-per-instance display limit, global display limit,
+requests never reserve input or create a native worker. Short lookup bursts wait
+in the existing bounded socket backlog, subject to unchanged lookup deadlines.
+Sustained saturation still fails closed; the per-instance and global display limits,
 identity checks and revocation rules remain unchanged.
 
 The embedded client scales the framebuffer, captures keyboard only while
