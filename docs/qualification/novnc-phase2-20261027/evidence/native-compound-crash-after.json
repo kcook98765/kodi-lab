@@ -1,0 +1,42 @@
+{
+  "held_after": true,
+  "native": {
+    "keys": [
+      38
+    ],
+    "root_xy": [
+      440,
+      285
+    ],
+    "mask": 256
+  },
+  "workers": {
+    "processes": [],
+    "sockets": [
+      {
+        "path": "/run/kodi/view-21c8xxdo/rfb.sock",
+        "mode": "0o600",
+        "uid": 1000,
+        "directory_mode": "0o700"
+      }
+    ],
+    "tcp_listeners": [
+      "0B00007F:9F43",
+      "00000000:1F90"
+    ]
+  },
+  "ownership": [
+    {
+      "instance_id": "77028ae9-f1a6-4a05-a19a-a765791d6a87",
+      "attempt": "e9facca8-3a84-4174-8406-173ca165df59",
+      "mode": "interactive",
+      "state": "revoking",
+      "expires_at": "2026-10-28T00:20:30.596918Z",
+      "absolute_expires_at": "2026-10-28T00:30:27.039463Z",
+      "broker_id": "611ed4fc-685d-468e-97bb-236d8edcb632",
+      "exec_id": "041a48f1a0164088f13a7d426e98f771e8105785f64c6576feb1d235f50c2f82"
+    }
+  ],
+  "agent_rejected": true,
+  "agent_response_ms": 443.7880859375
+}

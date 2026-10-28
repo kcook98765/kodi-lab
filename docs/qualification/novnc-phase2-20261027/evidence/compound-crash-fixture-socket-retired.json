@@ -1,0 +1,14 @@
+{
+  "scope": "Only exact inert artifact from deliberately killed native helper/X0, after verified Stop and fresh native incarnation. No ordinary worker or input authority changed.",
+  "neutral_input": {
+    "keys": [],
+    "root_xy": [
+      320,
+      180
+    ],
+    "mask": 0
+  },
+  "result": {
+    "removed_exact_inert_socket": "/run/kodi/view-21c8xxdo/rfb.sock"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "held": {
+    "keys": [
+      38
+    ],
+    "root_xy": [
+      440,
+      285
+    ],
+    "mask": 256
+  },
+  "workers": {
+    "processes": [
+      {
+        "pid": 233,
+        "start": "95405794",
+        "args": [
+          "/usr/bin/python3",
+          "-I",
+          "-B",
+          "/usr/local/lib/kodi-lab-novnc-view.py"
+        ]
+      },
+      {
+        "pid": 239,
+        "start": "95405802",
+        "args": [
+          "/usr/bin/X0tigervnc",
+          "-display=:99",
+          "-rfbport=-1",
+          "-rfbunixpath=/run/kodi/view-21c8xxdo/rfb.sock",
+          "-rfbunixmode=0600",
+          "-SecurityTypes=None",
+          "-AcceptKeyEvents=1",
+          "-AcceptPointerEvents=1",
+          "-AcceptCutText=0",
+          "-SendCutText=0",
+          "-AcceptSetDesktopSize=0",
+          "-SetPrimary=0",
+          "-SendPrimary=0",
+          "-NeverShared=1",
+          "-DisconnectClients=0",
+          "-MaxDisconnectionTime=5",
+          "-MaxConnectionTime=600",
+          "-MaxProcessorUsage=35",
+          "-FrameRate=2",
+          "-Log=*:stderr:0"
+        ]
+      }
+    ],
+    "sockets": [
+      {
+        "path": "/run/kodi/view-21c8xxdo/rfb.sock",
+        "mode": "0o600",
+        "uid": 1000,
+        "directory_mode": "0o700"
+      }
+    ],
+    "tcp_listeners": [
+      "0B00007F:9F43",
+      "00000000:1F90"
+    ]
+  },
+  "ownership": [
+    {
+      "instance_id": "77028ae9-f1a6-4a05-a19a-a765791d6a87",
+      "attempt": "e9facca8-3a84-4174-8406-173ca165df59",
+      "mode": "interactive",
+      "state": "active",
+      "expires_at": "2026-10-28T00:20:30.317376Z",
+      "absolute_expires_at": "2026-10-28T00:30:27.039463Z",
+      "broker_id": "611ed4fc-685d-468e-97bb-236d8edcb632",
+      "exec_id": "041a48f1a0164088f13a7d426e98f771e8105785f64c6576feb1d235f50c2f82"
+    }
+  ]
+}

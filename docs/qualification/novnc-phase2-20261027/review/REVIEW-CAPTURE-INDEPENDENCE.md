@@ -1,0 +1,10 @@
+**No concrete P1/P2 findings in the reviewed source.**
+
+- **Normal capture is independent of noVNC availability.** Geometry selection resides in `SqliteScreenshotCaptureResolver`, keyed to the exact experimental recipe digest, an existing disposable instance, and reviewed screenshot eligibility. The image ID comes from the validated artifact—not viewer state or caller input (`broker/screenshots.py:295–334`). Default broker wiring uses this resolver/provider; Web installs noVNC routes only when explicitly supplied a viewer.
+- **Identity checks remain fail-closed.** The provider checks exact container ID, managed-instance/revision labels, running/healthy state, and—on the experimental path—the resolved image ID and unchanged before/after `StartedAt`. Identity drift removes the artifact (`screenshots.py:387–407, 470–485, 508–560`).
+- **The primitive remains closed.** The default 1280×720 program remains separate and unchanged in behavior. Only the experimental program accepts 640×360 and doubles pixels into canonical 1280×720 output. It drains at most sixteen 32-byte MappingNotify headers; other event types and excess notifications fail before pixel output. Existing format, frame-size and socket checks remain.
+- `novnc_qualification.py` no longer injects screenshot geometry/provider behavior. `validation.py` uses the same experimental primitive for r4 validation. No viewer connection, grant, credential, or new agent-facing VNC capture surface is introduced by this path.
+
+**Source-evidence limitations:** The inspected provider tests cover experimental selection, image mismatch, and one versus seventeen MappingNotify events. They do not directly cover the exact sixteen-event boundary, unknown-event rejection, or experimental `StartedAt` drift. The candidate installation test proves resolver selection without viewer objects; it is not an end-to-end default broker+Web capture test.
+
+**Scope:** Read-only source review only; no execution, edits, shell, network, or delegation. No **FOCUSED PASS**, **INTEGRATION PASS**, or **RELEASE PASS** is claimed. Physical/native behavior and release acceptance remain separate.

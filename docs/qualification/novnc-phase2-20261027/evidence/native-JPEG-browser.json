@@ -1,0 +1,20 @@
+{
+  "first": {
+    "src": "blob:https://localhost:18109/ae63b216-7d95-4ec3-a028-598b7bb6b563",
+    "width": 640,
+    "height": 360,
+    "hidden": false,
+    "status": "Live \u00b7 limited by capture or browser speed."
+  },
+  "second": {
+    "src": "blob:https://localhost:18109/a58b6937-ee85-412e-85c9-aad1be3491a2",
+    "width": 640,
+    "height": 360,
+    "status": "Live \u00b7 limited by capture or browser speed."
+  },
+  "stop": {
+    "hidden": true,
+    "status": "Live preview stopped."
+  },
+  "noVNC_active": false
+}

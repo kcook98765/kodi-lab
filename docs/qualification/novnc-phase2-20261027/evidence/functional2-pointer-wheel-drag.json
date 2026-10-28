@@ -1,0 +1,49 @@
+{
+  "moved": {
+    "keys": [],
+    "root_xy": [
+      410,
+      285
+    ],
+    "mask": 0
+  },
+  "pressed": {
+    "keys": [],
+    "root_xy": [
+      410,
+      285
+    ],
+    "mask": 256
+  },
+  "released": {
+    "keys": [],
+    "root_xy": [
+      410,
+      285
+    ],
+    "mask": 0
+  },
+  "drag": {
+    "sent": 1793144715515,
+    "returned": 1793144715923,
+    "target": [
+      416,
+      543
+    ],
+    "simulation": null
+  },
+  "after_drag": {
+    "keys": [],
+    "root_xy": [
+      470,
+      310
+    ],
+    "mask": 0
+  },
+  "wheel": {
+    "sent": 1793144716220,
+    "returned": 1793144716326,
+    "simulation": "wheel/touchpad-scroll emulation"
+  },
+  "physical_touchpad_acceptance": false
+}

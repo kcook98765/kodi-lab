@@ -1,0 +1,10 @@
+{
+  "first": {
+    "code": 1005,
+    "binary": true
+  },
+  "replay": {
+    "code": 1006
+  },
+  "wait_seconds": 0
+}

@@ -1,0 +1,67 @@
+{
+  "matches": [
+    {
+      "key": "ArrowRight",
+      "sent": 1793144704172,
+      "expected": 1,
+      "native_ms": null,
+      "display_ms": 371
+    },
+    {
+      "key": "ArrowLeft",
+      "sent": 1793144705007,
+      "expected": 3,
+      "native_ms": null,
+      "display_ms": 540
+    },
+    {
+      "key": "ArrowRight",
+      "sent": 1793144705846,
+      "expected": 1,
+      "native_ms": null,
+      "display_ms": 203
+    },
+    {
+      "key": "ArrowLeft",
+      "sent": 1793144706684,
+      "expected": 3,
+      "native_ms": null,
+      "display_ms": 369
+    },
+    {
+      "key": "ArrowRight",
+      "sent": 1793144707522,
+      "expected": 1,
+      "native_ms": null,
+      "display_ms": 535
+    },
+    {
+      "key": "ArrowLeft",
+      "sent": 1793144708366,
+      "expected": 3,
+      "native_ms": null,
+      "display_ms": 194
+    },
+    {
+      "key": "ArrowRight",
+      "sent": 1793144709206,
+      "expected": 1,
+      "native_ms": null,
+      "display_ms": 357
+    },
+    {
+      "key": "ArrowLeft",
+      "sent": 1793144710044,
+      "expected": 3,
+      "native_ms": null,
+      "display_ms": 525
+    }
+  ],
+  "display_latency": {
+    "n": 8,
+    "p50": 369,
+    "p95": 540,
+    "max": 540
+  },
+  "all_displayed": true
+}

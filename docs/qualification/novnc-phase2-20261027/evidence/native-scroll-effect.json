@@ -1,0 +1,28 @@
+{
+  "before": {
+    "currentcontrol": {
+      "label": "TV"
+    },
+    "currentwindow": {
+      "id": 10000,
+      "label": "Home"
+    }
+  },
+  "after": {
+    "currentcontrol": {
+      "label": "Weather"
+    },
+    "currentwindow": {
+      "id": 10000,
+      "label": "Home"
+    }
+  },
+  "Kodi_control_changed": true,
+  "Firefox_wheel_command": {
+    "sent": 1793147871802,
+    "returned": 1793147871905,
+    "simulation": "wheel/touchpad-scroll emulation"
+  },
+  "physical_touchpad_acceptance": false,
+  "scope": "One Kodi Home sidebar wheel sequence; no generic widget or physical touchpad compatibility claim."
+}

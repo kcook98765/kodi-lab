@@ -1,0 +1,18 @@
+{
+  "source_commit": "c5e5a616d36785e69c213fb774762f76a8f63c28",
+  "base_main": "775904bd73d0ddd0ad19482db4d59e90c0c55b8e",
+  "app_build": {
+    "wheel_sha256": "c9572eb94365dc3af3014765a72997a1fa205fd67d1d8660fa42d91d5c02440d",
+    "images": {
+      "web": "sha256:a807fcf12179d136f261f058da0d210ce0d76e2a8397c2024cf6c4747043eb6e",
+      "broker": "sha256:b635cd9bd1d5608af74e4bbb9d487320f746db49ebfd461a0f09703af67c00b9"
+    },
+    "source_manifest_sha256": "d952d4aee6a245f2b08bffb8cd06e12b6d8c3a82991880fc3dffecabbbf9999d"
+  },
+  "native_image": "sha256:fcb10a3de7d645373197a1ad71abb3849bba8eae034c44a6e76b0cf7e4d196a7",
+  "source_manifest_sha256": "68d307b7b402f0906d38a0e540f57170394728eb6174379513a1be513896abf8",
+  "native_recipe": "omega-21.3-novnc-phase2-r4",
+  "novnc_upstream_commit": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
+  "raw_evidence_local": "/home/kyle/kodi-lab-deployment/novnc-phase2-interactive-20261027",
+  "private_authority_excluded": true
+}

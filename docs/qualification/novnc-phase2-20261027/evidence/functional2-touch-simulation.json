@@ -1,0 +1,21 @@
+{
+  "simulated": true,
+  "command": {
+    "sent": 1793144716509,
+    "returned": 1793144716618,
+    "target": [
+      416,
+      523
+    ],
+    "simulation": "touch emulation"
+  },
+  "native": {
+    "keys": [],
+    "root_xy": [
+      400,
+      250
+    ],
+    "mask": 0
+  },
+  "physical_touchscreen_acceptance": false
+}

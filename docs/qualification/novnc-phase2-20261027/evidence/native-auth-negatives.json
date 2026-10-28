@@ -1,0 +1,9 @@
+{
+  "duplicate": 409,
+  "foreign-release": 409,
+  "bad-rate": 422,
+  "wrong-instance": 409,
+  "bad-csrf": 403,
+  "bad-origin": 403,
+  "anonymous": 401
+}

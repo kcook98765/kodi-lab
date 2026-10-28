@@ -1,0 +1,24 @@
+{
+  "exec_running": false,
+  "cleanup": {
+    "cleanup_ms": 3280.6344649288803,
+    "workers": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:83D1",
+        "00000000:1F90"
+      ]
+    },
+    "ownership": [],
+    "xstate": {
+      "keys": [],
+      "root_xy": [
+        450,
+        290
+      ],
+      "mask": 0
+    }
+  },
+  "agent_ms": 1075.853271484375
+}

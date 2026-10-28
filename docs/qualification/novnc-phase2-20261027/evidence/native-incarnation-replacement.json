@@ -1,0 +1,12 @@
+{
+  "same_exact_container": "6bfd088fc75ceec65c6def6d240073fbeb57655d5c54d140ce3c8af029be929f",
+  "old_started": "2026-10-28T00:37:22.221601652Z",
+  "new_started": "2026-10-28T00:37:54.962255582Z",
+  "old_controller_exec_stopped": true,
+  "old_pin_rejected": {
+    "status": "Viewer unavailable. JPEG and still screenshots remain available."
+  },
+  "ownership": [],
+  "existing_Web_input_resumed_ms": 884.8781585693359,
+  "scope": "Supported Stop/Start replaces the exact runtime incarnation; physical container replacement separately untested."
+}

@@ -1,0 +1,41 @@
+{
+  "fixture": "Reduced absolute_expires_at for exactly the logged-in disposable Firefox Web session; no production session or authorization bypass.",
+  "ownership_before": [
+    {
+      "instance_id": "77028ae9-f1a6-4a05-a19a-a765791d6a87",
+      "attempt": "e6080372-ebfb-487f-854d-2cd1a463bc34",
+      "mode": "interactive",
+      "state": "active",
+      "expires_at": "2026-10-28T00:25:53.673164Z",
+      "absolute_expires_at": "2026-10-28T00:35:50.619539Z",
+      "broker_id": "32fb47b5-72be-41c5-a3ae-96937f728ca5",
+      "exec_id": "39e46c2dfd511e74b65ab44ba444265ae3b5a9c9620b35b694a815e318e8d413"
+    }
+  ],
+  "cleanup": {
+    "cleanup_ms": 229.2102500796318,
+    "workers": {
+      "processes": [],
+      "sockets": [],
+      "tcp_listeners": [
+        "0B00007F:B1DD",
+        "00000000:1F90"
+      ]
+    },
+    "ownership": [],
+    "xstate": {
+      "keys": [],
+      "root_xy": [
+        320,
+        180
+      ],
+      "mask": 0
+    }
+  },
+  "status": {
+    "status": "Stopping. Input stays reserved until the server verifies release."
+  },
+  "cookie_reuse_HTTP": 401,
+  "agent_resumed_ms": 1288.804931640625,
+  "observation_seconds": 6.316317319869995
+}

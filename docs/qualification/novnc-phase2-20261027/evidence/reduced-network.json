@@ -1,0 +1,434 @@
+{
+  "smoke1-blank": {
+    "sampled_seconds": 13.978677978515625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke2-blank": {
+    "sampled_seconds": 13.9944931640625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke2-inactive": {
+    "sampled_seconds": 3.978587890625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke2-view-only": {
+    "sampled_seconds": 4.01120849609375,
+    "payload_in_KiB_per_s": 56.84802899102917,
+    "payload_out_KiB_per_s": 0.009738336972022367,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke3-blank": {
+    "sampled_seconds": 13.9400234375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke3-inactive": {
+    "sampled_seconds": 3.98825,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke3-view-only": {
+    "sampled_seconds": 4.0341884765625,
+    "payload_in_KiB_per_s": 57.08339052275122,
+    "payload_out_KiB_per_s": 0.019365728808627625,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke3-interactive": {
+    "sampled_seconds": 2.015995849609375,
+    "payload_in_KiB_per_s": 114.06864458925253,
+    "payload_out_KiB_per_s": 0.029064419954710367,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "smoke3-disconnected": {
+    "sampled_seconds": 3.98298291015625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional1-blank": {
+    "sampled_seconds": 13.923976806640624,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional1-inactive": {
+    "sampled_seconds": 3.94211181640625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional1-view-only-static": {
+    "sampled_seconds": 4.009685546875,
+    "payload_in_KiB_per_s": 56.862314347242204,
+    "payload_out_KiB_per_s": 0.009742035763987494,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional2-blank": {
+    "sampled_seconds": 14.006767333984374,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional2-inactive": {
+    "sampled_seconds": 3.9954326171875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional2-view-only-static": {
+    "sampled_seconds": 4.006321533203125,
+    "payload_in_KiB_per_s": 56.906891470895026,
+    "payload_out_KiB_per_s": 0.009750215921578527,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "functional2-disconnected": {
+    "sampled_seconds": 3.997882080078125,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing1-blank": {
+    "sampled_seconds": 13.98168115234375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing1-inactive": {
+    "sampled_seconds": 3.9904609375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing2-blank": {
+    "sampled_seconds": 13.897003662109375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing2-inactive": {
+    "sampled_seconds": 4.00076708984375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing3-blank": {
+    "sampled_seconds": 13.945836181640624,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing3-inactive": {
+    "sampled_seconds": 3.984187744140625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "typing3-disconnected": {
+    "sampled_seconds": 4.005248046875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-blank": {
+    "sampled_seconds": 13.950877197265624,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-inactive": {
+    "sampled_seconds": 4.02583642578125,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-controller-read-only": {
+    "sampled_seconds": 18.99597900390625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-controller-until-expiry": {
+    "sampled_seconds": 579.0114077148437,
+    "payload_in_KiB_per_s": 0.018292898436668342,
+    "payload_out_KiB_per_s": 0.0003710527066261327,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-expired-disconnected": {
+    "sampled_seconds": 18.99351171875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "lease1-document-closed": {
+    "sampled_seconds": 28.99673974609375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "faults1-blank": {
+    "sampled_seconds": 13.928418212890625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "faults1-inactive": {
+    "sampled_seconds": 4.01808544921875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "faults2-blank": {
+    "sampled_seconds": 13.951660400390624,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "faults2-inactive": {
+    "sampled_seconds": 3.9649599609375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "helper1-blank": {
+    "sampled_seconds": 13.92947021484375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "helper1-inactive": {
+    "sampled_seconds": 4.021102294921875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg1-blank": {
+    "sampled_seconds": 13.90180029296875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg1-inactive": {
+    "sampled_seconds": 3.998470947265625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg2-blank": {
+    "sampled_seconds": 13.9227529296875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg2-inactive": {
+    "sampled_seconds": 3.989484619140625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg3-blank": {
+    "sampled_seconds": 13.984529296875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg3-inactive": {
+    "sampled_seconds": 4.015029296875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg4-blank": {
+    "sampled_seconds": 13.9439443359375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "jpeg4-inactive": {
+    "sampled_seconds": 3.9989345703125,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf1-blank": {
+    "sampled_seconds": 13.914463134765626,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf1-inactive": {
+    "sampled_seconds": 3.99906005859375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf1-motion-off-agents": {
+    "sampled_seconds": 19.0008974609375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf1-motion-fps-before": {
+    "sampled_seconds": 8.973339111328125,
+    "payload_in_KiB_per_s": 82.58872984661024,
+    "payload_out_KiB_per_s": 0.04135514610514649,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-blank": {
+    "sampled_seconds": 13.9428369140625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-inactive": {
+    "sampled_seconds": 4.013900634765625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-motion-off-agents": {
+    "sampled_seconds": 18.98691357421875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-motion-fps-before": {
+    "sampled_seconds": 8.997555419921875,
+    "payload_in_KiB_per_s": 82.10161901885948,
+    "payload_out_KiB_per_s": 0.06295112656332136,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-motion-view-only-agents": {
+    "sampled_seconds": 18.984933349609374,
+    "payload_in_KiB_per_s": 81.62270227469004,
+    "payload_out_KiB_per_s": 0.06275535594780025,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "perf2-motion-interactive-agents": {
+    "sampled_seconds": 18.973630859375,
+    "payload_in_KiB_per_s": 76.0493155642921,
+    "payload_out_KiB_per_s": 0.03911678821522345,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-blank": {
+    "sampled_seconds": 13.952855712890624,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-inactive": {
+    "sampled_seconds": 3.987834716796875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-fps-before": {
+    "sampled_seconds": 9.0210478515625,
+    "payload_in_KiB_per_s": 75.24297830821648,
+    "payload_out_KiB_per_s": 0.03897135962305169,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-ordinary-motion-no-pixel-readback": {
+    "sampled_seconds": 98.99603857421874,
+    "payload_in_KiB_per_s": 76.44489917469127,
+    "payload_out_KiB_per_s": 0.039064063125119036,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-fps-after": {
+    "sampled_seconds": 9.009987548828125,
+    "payload_in_KiB_per_s": 75.36580025166842,
+    "payload_out_KiB_per_s": 0.039019199315733305,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-0-on": {
+    "sampled_seconds": 0.983849609375,
+    "payload_in_KiB_per_s": 70.61109997200887,
+    "payload_out_KiB_per_s": 0.039703730761060964,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-0-off": {
+    "sampled_seconds": 2.007159423828125,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-1-on": {
+    "sampled_seconds": 0.988719482421875,
+    "payload_in_KiB_per_s": 88.7472081920196,
+    "payload_out_KiB_per_s": 0.05926225895384828,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-1-off": {
+    "sampled_seconds": 1.97858056640625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-2-on": {
+    "sampled_seconds": 0.985058837890625,
+    "payload_in_KiB_per_s": 76.78396034897384,
+    "payload_out_KiB_per_s": 0.039654991658820346,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-2-off": {
+    "sampled_seconds": 2.00672900390625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-3-on": {
+    "sampled_seconds": 0.987048583984375,
+    "payload_in_KiB_per_s": 71.2212440863122,
+    "payload_out_KiB_per_s": 0.03957505297491857,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-3-off": {
+    "sampled_seconds": 2.004986083984375,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-4-on": {
+    "sampled_seconds": 0.98420068359375,
+    "payload_in_KiB_per_s": 74.33062303195555,
+    "payload_out_KiB_per_s": 0.039689568043547396,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-cycle-4-off": {
+    "sampled_seconds": 1.99292626953125,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-native-stopped-disconnected": {
+    "sampled_seconds": 19.010322998046874,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "memory1-document-closed": {
+    "sampled_seconds": 28.936875732421875,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "identity1-blank": {
+    "sampled_seconds": 13.968942626953124,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  },
+  "identity1-inactive": {
+    "sampled_seconds": 3.978703369140625,
+    "payload_in_KiB_per_s": 0.0,
+    "payload_out_KiB_per_s": 0.0,
+    "scope": "Browser WebSocket payload counters; excludes TLS/IP overhead."
+  }
+}
