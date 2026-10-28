@@ -1474,6 +1474,10 @@ def create_app(
     managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
+    if novnc_viewer is None and settings.experimental_novnc_instances:
+        from kodi_lab.web.novnc_optin import build_viewer
+
+        novnc_viewer = build_viewer(settings, session_factory)
     repository_data_root = Path(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
@@ -2391,6 +2395,13 @@ def create_app(
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
     templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
+    templates.env.globals["novnc_instance_enabled"] = lambda instance: (
+        novnc_viewer is not None
+        and (
+            novnc_viewer.enabled_instances is None
+            or UUID(str(instance)) in novnc_viewer.enabled_instances
+        )
+    )
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
@@ -3256,7 +3267,8 @@ def create_app(
             created.token,
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             samesite="strict",
             path="/",
         )
@@ -3286,7 +3298,8 @@ def create_app(
             str(mode),
             max_age=31536000,
             httponly=True,
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             samesite="strict",
             path="/",
         )
@@ -3312,7 +3325,8 @@ def create_app(
         response.delete_cookie(
             settings.web_session_cookie_name,
             path="/",
-            secure=settings.web_cookie_secure,
+            secure=settings.web_cookie_secure
+            or bool(settings.experimental_novnc_instances),
             httponly=True,
             samesite="strict",
         )

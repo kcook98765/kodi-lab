@@ -42,3 +42,28 @@ def test_catalog_identity_is_fenced_to_revision_epoch_image_and_profile(
         row.runtime_uid = 0
     with pytest.raises(ValueError):
         resolver.resolve(INSTANCE_ID)
+
+
+def test_another_targets_bound_workspace_is_preserved_without_blocking_viewer(
+    database: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    with database.begin() as db:
+        db.add(
+            RuntimeContainerArtifactRow(
+                runtime_revision_id=str(REVISION_ID), image_id=IMAGE_ID
+            )
+        )
+    other = SimpleNamespace(target_id=str(uuid4()))
+    monkeypatch.setattr("kodi_lab.application.novnc.active_session", lambda _: other)
+    pin = ViewBinding("a" * 64, IMAGE_ID, "current-incarnation", ())
+    assert CatalogViewAuthority(database, {INSTANCE_ID: pin}).resolve(
+        INSTANCE_ID
+    ).identity == (
+        str(REVISION_ID),
+        0,
+        None,
+    )

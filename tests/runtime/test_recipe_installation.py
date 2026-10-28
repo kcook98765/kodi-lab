@@ -753,3 +753,37 @@ def test_matrix_and_nexus_ready_records_are_separate(
         assert matrix_revision is not None and nexus_revision is not None
         assert matrix_revision.runtime_definition_id == matrix.recipe.definition_id
         assert nexus_revision.runtime_definition_id == nexus.recipe.definition_id
+
+
+def test_experimental_bootstrap_never_reuses_normal_omega_target_identity() -> None:
+    normal = load_reviewed_recipe("omega")
+    experimental = load_novnc_phase1_recipe()
+    assert recipe_target_id(normal) != recipe_target_id(experimental)
+    assert normal.recipe.definition_id == experimental.recipe.definition_id
+
+
+def test_normal_and_experimental_omega_registrations_coexist_without_repinning(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    normal = load_reviewed_recipe("omega")
+    operation = _ready(factory, generation="omega")
+    with factory() as db:
+        installation = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert installation is not None and installation.runtime_revision_id is not None
+        normal_revision = UUID(installation.runtime_revision_id)
+    bootstrap_recipe_instance(factory, normal, normal_revision)
+    experimental = load_novnc_phase1_recipe()
+    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: experimental)
+    operation = _ready(factory, image_id="sha256:" + "b" * 64, generation="omega")
+    with factory() as db:
+        installation = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert installation is not None and installation.runtime_revision_id is not None
+        experimental_revision = UUID(installation.runtime_revision_id)
+    bootstrap_recipe_instance(factory, experimental, experimental_revision)
+    with factory() as db:
+        ordinary = ManagedInstanceRepository(db).get(recipe_target_id(normal))
+        viewer = ManagedInstanceRepository(db).get(recipe_target_id(experimental))
+        assert ordinary is not None and viewer is not None
+        assert ordinary.runtime_revision_id == normal_revision
+        assert viewer.runtime_revision_id == experimental_revision
+        assert len(ManagedInstanceRepository(db).list()) == 2

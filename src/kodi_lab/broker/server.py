@@ -125,9 +125,29 @@ class BrokerServer:
         """Resolve the approved root/kodi-lab production policy."""
 
         configuration = ProductionBrokerConfiguration.resolve()
+        from kodi_lab.config import Settings
+
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        lane = None
+        if settings.experimental_novnc_instances:
+            from kodi_lab.broker.novnc_service import HumanDisplayService
+            from kodi_lab.storage.engine import (
+                create_database_engine,
+                create_session_factory,
+            )
+
+            sessions = create_session_factory(
+                create_database_engine(
+                    "sqlite:///file:"
+                    + str(settings.data_root / "database/kodi-lab.db")
+                    + "?mode=ro&uri=true"
+                )
+            )
+            lane = HumanDisplayService(settings, sessions).lane(configuration)
         return cls(
             socket_config=configuration.socket,
             authorization=configuration.authorization,
+            display_lane=lane,
         )
 
     @property

@@ -111,7 +111,7 @@
           <p data-live-age class="secondary">No live frame.</p>
           <img data-live-image width="640" height="360" style="max-width:100%;height:auto" alt="Live Kodi preview" draggable="false" hidden>
         </div>
-        {% if novnc_phase1_enabled %}
+        {% if novnc_instance_enabled(detail.runtime.managed_instance_id) %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/novnc-phase1">Open experimental noVNC viewer</a></p>
         {% endif %}
         <h3>Screen preview · Screenshot</h3>

@@ -322,11 +322,14 @@ class DisplayLane:
         web_uid: int,
         admit: Callable[[ViewRequest], DockerViewTunnel],
         reconcile: Callable[[], None] | None = None,
+        *,
+        resolve: Callable[[UUID], ViewBinding] | None = None,
     ) -> None:
         self.config = config
         self.web_uid = web_uid
         self.admit = admit
         self.reconcile = reconcile
+        self.resolve = resolve
         self.retained: dict[UUID, DockerViewTunnel] = {}
         self.reaper: Thread | None = None
         self.stopped = Event()
@@ -418,6 +421,26 @@ class DisplayLane:
                     if not value or len(raw) >= 1024:
                         return
                     raw.extend(value)
+                query = json.loads(raw)
+                if isinstance(query, dict) and set(query) == {"resolve", "challenge"}:
+                    if self.resolve is None or query["challenge"] != challenge:
+                        return
+                    target = UUID(query["resolve"])
+                    if str(target) != query["resolve"]:
+                        return
+                    binding = self.resolve(target)
+                    value = json.dumps(
+                        {
+                            "container": binding.container,
+                            "image": binding.image,
+                            "started": binding.started,
+                            "identity": binding.identity,
+                        }
+                    ).encode()
+                    if len(value) > 4096:
+                        return
+                    peer.sendall(value + b"\n")
+                    return
                 request = ViewRequest.decode(bytes(raw), challenge)
                 with self.lock:
                     if request.instance in self.active or len(self.active) >= 2:

@@ -145,6 +145,8 @@ class PrototypeViewer:
         *,
         registry: LiveDisplaySessionRegistry = LIVE_DISPLAY_REGISTRY,
         ownership: HumanViewerOwnership | None = None,
+        enabled_instances: frozenset[UUID] | None = None,
+        require_https: bool = False,
     ) -> None:
         self.socket_path = socket_path
         self.authority = authority
@@ -156,6 +158,8 @@ class PrototypeViewer:
         self.admissions = BoundedSemaphore(2)
         self.checks = BoundedSemaphore(2)
         self.ownership = ownership
+        self.enabled_instances = enabled_instances
+        self.require_https = require_https
         self.handoffs = BoundedSemaphore(1)
         self.mutations = BoundedSemaphore(4)
 
@@ -518,12 +522,38 @@ def install_routes(
     mutation_dependency = Depends(mutation_session)
     app.add_middleware(AdmissionBodyLimit)
 
+    @app.middleware("http")
+    async def secure_human_viewer(request: Request, call_next: Any) -> Any:
+        path = request.url.path
+        viewer_path = path.endswith("/novnc-phase1") or (
+            path.startswith("/api/instances/") and "/novnc-" in path
+        )
+        auth_write = request.method == "POST" and path in {
+            "/login",
+            "/logout",
+            "/admin-view",
+        }
+        if (
+            viewer.require_https
+            and (viewer_path or auth_write)
+            and request.url.scheme != "https"
+        ):
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"detail": "viewer_requires_https"}, status_code=403)
+        return await call_next(request)
+
     @app.get(
         "/instances/{instance}/novnc-phase1",
         response_class=HTMLResponse,
         name="novnc_phase1_page",
     )
     def page(instance: UUID, authenticated: Any = login_dependency) -> HTMLResponse:
+        if (
+            viewer.enabled_instances is not None
+            and instance not in viewer.enabled_instances
+        ):
+            raise HTTPException(404)
         csrf = escape(authenticated.csrf_token, quote=True)
         return HTMLResponse(
             "<!doctype html><html><head>"
@@ -663,6 +693,7 @@ def install_routes(
         protocols = websocket.scope.get("subprotocols", [])
         if (
             authenticated is None
+            or (viewer.require_https and websocket.url.scheme != "wss")
             or websocket.scope.get("query_string")
             or not same_origin(websocket)
             or len(protocols) != 2

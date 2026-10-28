@@ -1,7 +1,7 @@
-"""Catalog fence for explicitly pinned disposable Phase 1 runtime candidates.
+"""Catalog fence for explicitly admitted human Web viewer runtime identities.
 
-Pins are injected by the qualification launcher, never selected by a browser.
-They do not register a default production capability or promote a recipe.
+The private broker resolves production pins; isolated qualification may inject
+them. Browser requests cannot select a container, image or runtime incarnation.
 """
 
 from __future__ import annotations
@@ -61,11 +61,10 @@ class CatalogViewAuthority:
                 raise ValueError("view runtime not admitted")
             current = active_session(db)
             selected: tuple[object, ...] = (None,)
-            if current is not None:
+            if current is not None and current.target_id == str(instance_id):
                 workspace = db.get(AgentWorkspaceRow, current.workspace_id)
                 if (
                     current.phase != "bound"
-                    or current.target_id != str(instance_id)
                     or current.runtime_revision_id != str(revision)
                     or current.container_id != pin.container
                     or workspace is None

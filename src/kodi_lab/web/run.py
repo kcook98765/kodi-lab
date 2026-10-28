@@ -103,11 +103,16 @@ def main() -> None:
         session_factory=create_session_factory(engine),
         broker=BrokerClient(settings.runtime_root / "broker.sock"),
     )
+    from kodi_lab.web.novnc_protocol import BoundedWebSocketProtocol
+
     uvicorn.run(
         app,
         host=settings.effective_web_bind_host,
         port=settings.web_port,
         access_log=True,
+        ws=BoundedWebSocketProtocol
+        if settings.experimental_novnc_instances
+        else "auto",
         ws_max_size=256,
         ws_max_queue=1,
         log_config=application_logging_config(),

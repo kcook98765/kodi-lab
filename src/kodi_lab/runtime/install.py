@@ -497,7 +497,8 @@ def bootstrap_recipe_instance(
     target_id = recipe_target_id(reviewed)
     expected = Target(
         id=target_id,
-        name=f"{reviewed.recipe.display_generation} Lab",
+        name=f"{reviewed.recipe.display_generation} Lab"
+        + (" · experimental noVNC" if reviewed.digest == NOVNC_PHASE1_DIGEST else ""),
         target_type=TargetType.MANAGED,
         kodi_version=reviewed.recipe.kodi_version,
         availability=TargetAvailability.UNAVAILABLE,

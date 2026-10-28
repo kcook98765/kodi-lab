@@ -16,6 +16,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
       KODI_LAB_MCP_LAN_URL: ${KODI_LAB_MCP_LAN_URL:-}
       KODI_LAB_MCP_LAN_CA_FILE: ${KODI_LAB_MCP_LAN_CA_FILE:-}
@@ -54,10 +55,14 @@ services:
       - /tmp:rw,noexec,nosuid,size=64m
     cap_drop:
       - ALL
+    environment:
+      KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     healthcheck:

@@ -14,6 +14,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
       KODI_LAB_MCP_LAN_URL: ${KODI_LAB_MCP_LAN_URL:-}
       KODI_LAB_MCP_LAN_CA_FILE: ${KODI_LAB_MCP_LAN_CA_FILE:-}
@@ -128,6 +129,7 @@ services:
       - lab
     image: ${KODI_LAB_BROKER_IMAGE:?run linux-v1-bundle configure first}
     environment:
+      KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
       KODI_LAB_TEMPORARY_NETWORK_POOL: ${KODI_LAB_TEMPORARY_NETWORK_POOL:-}
       KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX: ${KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX:-24}
     init: true
@@ -140,6 +142,8 @@ services:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     healthcheck:

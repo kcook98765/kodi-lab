@@ -6,14 +6,37 @@ inspection and MCP/JSON-RPC operations. There is no agent viewer tool, credentia
 grant, VNC capture path or input channel. Agent workflows do not require an active
 viewer. JPEG preview and still screenshots remain supported.
 
-The ordinary application does not install the experimental routes. An explicit
-qualification launcher admits one immutable disposable Ubuntu Omega runtime pin;
-it does not promote a recipe or alter production geometry. The experimental r4
-recipe uses Xvfb 640×360 and LP_NUM_THREADS=1. Its X11 screenshot primitive expands
-pixels to the established 1280×720 screenshot format only for the exact pinned
-instance/revision/container/start incarnation. The normal broker resolves that
-geometry from the validated catalog even when the viewer service is disabled.
-Capture never uses RFB. Normal screenshot capture is unchanged.
+The feature is disabled by default in both normal application launchers. A host
+administrator may opt in one qualified disposable Ubuntu Omega instance:
+
+1. With the normal broker installed, run the supported sealed installer
+   `kodi-lab-runtime install omega --experimental-novnc` in the broker deployment
+   environment. Preserve the printed experimental target UUID. This creates a
+   distinct registration and never repins the ordinary Omega target.
+2. Set `KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES='["<experimental-target-uuid>"]'`
+   in the deployment environment for both Web and broker, and recreate those
+   services through the normal deployment workflow. Compose accepts this
+   setting; an empty array disables the feature. Initially only one UUID is
+   supported. The broker independently requires the exact sealed, validated r4
+   recipe, image and provisioned-container policy on every admission.
+3. Use the normal authenticated administrator Web UI over HTTPS. Provision and
+   start the experimental instance, open its experimental viewer link, then
+   explicitly Start viewing. Take Control is a separate action.
+
+The private display socket has no public resolver endpoint, MCP capability or
+VNC credentials. It is usable only by the existing trusted Web UID. Authenticated
+Web sessions, current catalog identity, exclusive controller admission and native
+handoff proof remain required. Administrator cookies are Secure whenever the normal viewer is enabled. HTTP
+authentication writes and HTTP/WS viewer use are rejected; proxy trust must
+remain restricted to the existing HTTPS proxy addresses.
+
+The experimental r4 recipe uses Xvfb 640×360 and LP_NUM_THREADS=1. Its independent
+X11 screenshot primitive expands pixels to the established 1280×720 screenshot
+format only for the validated experimental runtime. JPEG preview remains 640×360.
+The normal broker resolves this geometry even when the viewer is disabled.
+Capture never uses RFB. Production display geometry is unchanged. An existing
+agent development session bound to another instance is preserved; matching
+sessions still fence workspace, source, generation and container identity.
 
 Start viewing explicitly to connect in view-only mode. TigerVNC rejects keyboard
 and pointer input on the server. Take Control terminates that worker, verifies
@@ -50,5 +73,17 @@ allows a provisional 256 MiB peak incremental browser RSS during evaluation;
 128 MiB incremental PSS remains diagnostic. Browser memory may remain after
 Stop. Qualification uses a fresh isolated Firefox process with PID-fenced RSS/PSS
 monitoring and bounded sessions. No stable active-memory ceiling is claimed.
-Keep the feature disabled by default pending native qualification and owner
-review. Audio requires a separately authorized phase.
+The owner accepts the measured feature-specific agent p95 increase from 195.76
+to 323.06 ms (+127.30 ms, 65.03%) and peak incremental Firefox RSS/PSS of
+239.23/121.74 MiB. This does not relax any global latency or safety gate. Keep
+sessions bounded to ten minutes and the feature disabled until explicitly
+configured. Physical touchpad/touchscreen acceptance remains pending user tests.
+Audio requires a separately authorized phase.
+
+The root broker opens the catalog read-only. Ownership writes run in bounded,
+one-shot subprocesses as the existing state UID/GID, with no inherited groups.
+Broker containers retain SETUID/SETGID only to establish this child identity; Web
+receives no additional capability. An interrupted child leaves the authority
+unconfirmed and retains exclusion. There is no additional service or listener.
+The initial experimental Web process admits at most 256 attempt identifiers; a
+normal service restart is required after that bounded lifetime budget.

@@ -7,13 +7,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import uvicorn
 
 from kodi_lab.web import run
 
 
+@pytest.mark.parametrize("enabled", (False, True))
 def test_packaged_web_entrypoint_installs_mcp_audit_logging(
     monkeypatch: Any,
+    enabled: bool,
 ) -> None:
     observed: dict[str, object] = {}
     settings = SimpleNamespace(
@@ -22,6 +25,7 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
         web_host="10.251.0.10",
         effective_web_bind_host="10.251.0.10",
         web_port=8180,
+        experimental_novnc_instances=("fixture-instance",) if enabled else (),
     )
 
     monkeypatch.setattr(run, "Settings", lambda **kwargs: settings)
@@ -46,6 +50,10 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
     }
     assert observed["host"] == "10.251.0.10"
     assert observed["port"] == 8180
+    from kodi_lab.web.novnc_protocol import BoundedWebSocketProtocol
+
+    assert observed["ws"] == (BoundedWebSocketProtocol if enabled else "auto")
+    assert observed["ws_max_size"] == 256 and observed["ws_max_queue"] == 1
 
 
 def test_packaged_web_log_config_emits_mcp_audit_to_process_stderr() -> None:

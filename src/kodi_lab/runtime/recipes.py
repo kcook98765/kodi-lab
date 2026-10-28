@@ -381,8 +381,9 @@ def recipe_target_id(reviewed: ReviewedRecipe) -> UUID:
     """A new exact Kodi release gets a new target; old instance pins survive."""
 
     recipe = reviewed.recipe
+    suffix = "-experimental-novnc" if reviewed.digest == NOVNC_PHASE1_DIGEST else ""
     return uuid5(
-        _TARGET_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}"
+        _TARGET_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}{suffix}"
     )
 
 

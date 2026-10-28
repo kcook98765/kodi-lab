@@ -7194,3 +7194,26 @@ retained-memory reports protect evaluation; a stable active-memory ceiling is
 not established by that allowance. Keep noVNC disabled by default pending native
 qualification and owner review. Audio remains a separately authorized future
 phase. Issues18 and96 remain independent.
+
+
+## D-0463: Optional human viewer in normal launchers
+
+Owner authorization permits deployment after release, migration and native smoke
+checks. An empty administrator-owned instance allowlist disables the feature by
+default. Normal Web and broker launchers share that allowlist; only the sealed,
+validated Ubuntu Omega r4 recipe is admitted. The supported explicit installer
+uses a separate target UUID and preserves ordinary Omega registrations. A bounded
+private UID-fenced binding lookup grants no input authority and adds no MCP tool
+or public VNC endpoint. Exclusive ownership and native worker revocation remain
+mandatory. HTTPS/WSS is required. Existing unrelated agent sessions are preserved.
+
+The accepted 127.30 ms interactive agent p95 increase is specific to this optional
+viewer, with no change to general gates. Peak incremental Firefox RSS/PSS was
+239.23/121.74 MiB; ten-minute sessions remain mandatory because long-term memory
+bounds are unproven. Physical touch devices remain pending. Audio is excluded.
+
+For production opt-in, authentication writes require HTTPS and administrator
+cookies are Secure. Root broker catalog connections are read-only. Ownership
+transactions use bounded one-shot state-owner subprocesses; SETUID/SETGID in the
+broker establish that identity, and no capabilities are added to Web. This avoids
+root-owned SQLite recovery journals without changing global journal policy.

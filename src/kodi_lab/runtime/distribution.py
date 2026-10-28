@@ -442,6 +442,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     install_command.add_argument("generation", choices=installation_generations())
     install_command.add_argument("--operation-id", type=UUID, default=None)
+    install_command.add_argument(
+        "--experimental-novnc",
+        action="store_true",
+        help="explicit Ubuntu Omega human viewer runtime; never the default recipe",
+    )
     commands.add_parser("verify", help="verify all exact local Docker images")
     load_command = commands.add_parser("load", help="verify and load one archive")
     load_command.add_argument("name", choices=RUNTIME_NAMES)
@@ -475,6 +480,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             return 0
         if arguments.command == "install":
+            if arguments.experimental_novnc and arguments.generation != "omega":
+                parser.error("experimental noVNC is restricted to Ubuntu Omega")
             from kodi_lab.runtime.install import (
                 RecipeInstallationError,
                 install_reviewed_runtime,
@@ -495,6 +502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     arguments.generation,
                     settings=settings,
                     operation_id=arguments.operation_id,
+                    **({"novnc_phase1": True} if arguments.experimental_novnc else {}),
                     report=lambda state: print(
                         f"{arguments.generation}: {state}", flush=True
                     ),
@@ -508,6 +516,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{arguments.generation}: revision={installed.runtime_revision_id} "
                 f"image={installed.image_id} reused={installed.reused}"
             )
+            if arguments.experimental_novnc:
+                from kodi_lab.runtime.recipes import (
+                    load_novnc_phase1_recipe,
+                    recipe_target_id,
+                )
+
+                target_id = recipe_target_id(load_novnc_phase1_recipe())
+                print(f"experimental viewer target={target_id}")
             return 0
         if arguments.command == "network-ensure":
             import docker
