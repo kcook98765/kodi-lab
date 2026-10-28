@@ -7236,3 +7236,36 @@ keys enabled and a one-second SQLite busy timeout. No generic SQL or listener is
 introduced. Admission/child deadlines, authorizations and server guards remain
 unchanged. Actual cold writes, forced child suspension/timeout, and SIGKILL
 journal recovery require native qualification before the next release freeze.
+
+## D-0465: Select the sealed Omega r4 development runtime and observe it in place
+
+Issue #51 uses the existing singleton development-session reservation, Prepare,
+Resume/Stop and reviewed Fresh Test/Switch. The closed candidate set retains
+canonical targets and admits only the packaged experimental Omega target at the
+reviewed installed revision `9ee490cd-8eee-424b-b3b2-06c2757ccaa8` and image
+`sha256:8df4cbf1988514ac9713fab7702b0d5f04483f2a167ea95507d9ade66032403b`.
+Normal approval, cached profile, signed installation and validation provenance
+remain required. This finite installation admission is independent of the human
+viewer allowlist; a different installation revision needs deliberate review.
+No canonical pin, session phase, schema or agent permission changes.
+
+The selected-session Web action opens the existing viewer explicitly. It never
+starts Kodi or follows another target automatically. Existing framebuffer,
+container StartedAt, image, runtime revision/epoch and selected workspace/source/
+generation checks remain authoritative. Only exact selected-workspace GUI launch
+and smoke operations may coexist with view-only observation. The synchronous
+mutation boundary checks the operation receipt and selected registration;
+normal smoke reservation and ownership claim publish atomically. Renewal requires
+coherent, unexpired ownership. Before smoke dispatch, the exclusive mutation
+lease plus the selected binding and deployed original container fence identity;
+the irreversible dispatch record adds its own exact runtime epoch/container.
+Missing dispatch identity never permits an already-dispatched smoke operation.
+
+Uncertain completion latches display cancellation even when it releases its
+mutation lease. Existing reconciliation and recovery/containment evidence fences
+new viewing and human control; missing ownership of active work also refuses
+viewing. JPEG keeps its existing mutation cancellation. Interactive ownership
+continues to use the existing reciprocal database triggers and native termination
+proof. Busy Take Control refuses immediately while retaining a healthy view-only
+connection. Requests are never queued or replayed. No general lease override,
+profile parking, second viewing instance or audio is introduced.

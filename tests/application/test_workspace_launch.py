@@ -9,7 +9,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from kodi_lab.application.browser_remote_coordination import (
+    acquire_browser_remote,
+    release_browser_remote,
+)
+from kodi_lab.application.novnc_control import HumanViewerOwnership
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
     ReconciliationAction,
@@ -20,6 +26,7 @@ from kodi_lab.application.workspace_launch import (
     WorkspaceLaunchService,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.development import parse_captured_addon_xml
 from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.kodi.launch import (
@@ -30,8 +37,10 @@ from kodi_lab.kodi.launch import (
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     ManagedInstanceMutationLeaseRow,
+    ManagedRemoteGuardRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceLaunchRow,
+    NovncSessionRow,
 )
 from kodi_lab.workspace import capture_workspace_deployment_tree
 from tests.application import test_mcp_workspace_development as fixtures
@@ -331,3 +340,88 @@ def test_fresh_launch_after_same_generation_redeploy_uses_latest_exact_deploymen
     assert second.state == "accepted" and second.launch_id != first.launch_id
     assert launch(env, service, request_id=first_request).launch_id == first.launch_id
     assert bridge.calls == [False, False]
+
+
+@pytest.mark.parametrize(
+    "owner_state",
+    ["pending", "active", "revoking", "blocked", "remote", "durable_remote"],
+)
+def test_input_owner_refuses_launch_without_sql_error_receipt_or_dispatch(
+    tmp_path: Path, owner_state: str
+) -> None:
+    env, bridge, service = environment(tmp_path)
+    ownership = HumanViewerOwnership(env.sessions)
+    attempt, broker = uuid4(), str(uuid4())
+    handle = None
+    if owner_state == "remote":
+        handle = acquire_browser_remote(env.sessions, fixtures.TARGET_ID)
+    elif owner_state == "durable_remote":
+        with env.sessions.begin() as session:
+            session.add(
+                ManagedRemoteGuardRow(
+                    instance_id=str(fixtures.TARGET_ID),
+                    invocation_id=str(uuid4()),
+                    process_id=str(uuid4()),
+                )
+            )
+    else:
+        ownership.create(
+            fixtures.TARGET_ID,
+            attempt,
+            "c" * 64,
+            ViewBinding(fixtures.CONTAINER_ID, fixtures.IMAGE_ID, "start", ()),
+            "interactive",
+        )
+        with env.sessions.begin() as session:
+            row = session.get(NovncSessionRow, str(fixtures.TARGET_ID))
+            assert row is not None
+            row.state, row.broker_id = owner_state, broker
+            if owner_state == "blocked":
+                row.expires_at = fixtures.NOW_TEXT
+    owner_model = ManagedRemoteGuardRow if "remote" in owner_state else NovncSessionRow
+    with env.sessions() as session:
+        owner = session.get(owner_model, str(fixtures.TARGET_ID))
+        assert owner is not None
+        before = {col.name: getattr(owner, col.name) for col in owner.__table__.columns}
+    try:
+        with pytest.raises(WorkspaceLaunchError) as refused:
+            launch(env, service)
+        assert refused.value.code == "launch_conflict"
+        cause = refused.value.__cause__
+        assert isinstance(cause, IntegrityError)
+        if owner_state == "remote":
+            assert cause.statement == "browser remote coordination conflict"
+            assert str(cause.orig) == "conflict"
+        else:
+            assert str(cause.orig) == "managed input conflict"
+        if "remote" not in owner_state:
+            status = ownership.status(fixtures.TARGET_ID)
+            assert status is not None and status.attempt == attempt
+            assert status.state == owner_state and status.mode == "interactive"
+        assert bridge.calls == []
+        with env.sessions() as session:
+            owner = session.get(owner_model, str(fixtures.TARGET_ID))
+            assert owner is not None
+            assert {
+                col.name: getattr(owner, col.name) for col in owner.__table__.columns
+            } == before
+            assert session.scalar(select(McpWorkspaceLaunchRow)) is None
+            assert (
+                session.get(ManagedInstanceMutationLeaseRow, str(fixtures.TARGET_ID))
+                is None
+            )
+    finally:
+        if handle is not None:
+            release_browser_remote(handle)
+        elif owner_state == "durable_remote":
+            with env.sessions.begin() as session:
+                owner = session.get(ManagedRemoteGuardRow, str(fixtures.TARGET_ID))
+                assert owner is not None
+                session.delete(owner)
+        else:
+            ownership.finish(fixtures.TARGET_ID, attempt, broker, True)
+    # Authoritative release does not replay the refused input. A fresh explicit
+    # launch succeeds through the same coordinator with no retained queue.
+    assert bridge.calls == []
+    assert launch(env, service).state == "accepted"
+    assert bridge.calls == [False]

@@ -44,6 +44,23 @@ from kodi_lab.storage.repositories import (
     TargetRepository,
 )
 
+# Issue #51 admits this already sealed installation, independently of the
+# optional human-viewer setting. New images/revisions require separate review.
+APPROVED_OMEGA_VIEW_REVISION = UUID("9ee490cd-8eee-424b-b3b2-06c2757ccaa8")
+APPROVED_OMEGA_VIEW_IMAGE = (
+    "sha256:8df4cbf1988514ac9713fab7702b0d5f04483f2a167ea95507d9ade66032403b"
+)
+
+
+def development_target_ids() -> frozenset[UUID]:
+    from kodi_lab.runtime.lab import KNOWN_SELECTORS, canonical_id
+    from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
+
+    return frozenset(
+        {canonical_id(selector) for selector in KNOWN_SELECTORS}
+        | {recipe_target_id(load_novnc_phase1_recipe())}
+    )
+
 
 class DevelopmentSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -106,9 +123,13 @@ class DevelopmentSessionService:
             raise DevelopmentSessionConflict("development_session_busy")
 
     def _runtime(self, session: Session, target_id: UUID, revision_id: UUID) -> None:
-        from kodi_lab.runtime.lab import KNOWN_SELECTORS, canonical_id
+        from kodi_lab.domain import TargetType
+        from kodi_lab.runtime.recipes import (
+            load_novnc_phase1_recipe,
+            recipe_target_id,
+        )
 
-        if target_id not in {canonical_id(selector) for selector in KNOWN_SELECTORS}:
+        if target_id not in development_target_ids():
             raise DevelopmentSessionConflict("development_session_noncanonical_target")
         target = TargetRepository(session).get(target_id)
         revision = RuntimeRevisionRepository(session).get(revision_id)
@@ -121,6 +142,27 @@ class DevelopmentSessionService:
         )
         if target is None or revision is None or definition is None:
             raise DevelopmentSessionConflict("development_session_runtime_unavailable")
+        reviewed = load_novnc_phase1_recipe()
+        qualified_omega = target_id == recipe_target_id(reviewed)
+        if qualified_omega:
+            instance = ManagedInstanceRepository(session).get(target_id)
+            if (
+                instance is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+                or instance.runtime_revision_id != revision_id
+                or revision_id != APPROVED_OMEGA_VIEW_REVISION
+                or target.target_type is not TargetType.MANAGED
+                or target.name
+                != f"{reviewed.recipe.display_generation} Lab · experimental noVNC"
+                or target.kodi_version != reviewed.recipe.kodi_version
+                or definition.id != reviewed.recipe.definition_id
+                or revision.manifest_reference != reviewed.reference
+                or revision.manifest_digest != reviewed.digest
+                or revision.content_digest != APPROVED_OMEGA_VIEW_IMAGE
+            ):
+                raise DevelopmentSessionConflict(
+                    "development_session_runtime_ineligible"
+                )
         eligibility = RuntimeRevisionEligibilityPolicy(
             data_root=self._data_root
         ).evaluate(
@@ -128,7 +170,9 @@ class DevelopmentSessionService:
             target=target,
             definition=definition,
             revision=revision,
-            policy=RuntimeSelectionPolicy(include_legacy=True),
+            policy=RuntimeSelectionPolicy(
+                include_legacy=True, novnc_phase1=qualified_omega
+            ),
         )
         if not eligibility.eligible:
             raise DevelopmentSessionConflict("development_session_runtime_ineligible")

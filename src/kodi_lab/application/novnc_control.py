@@ -13,13 +13,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.novnc import ViewBinding
-from kodi_lab.storage.models import NovncSessionRow
+from kodi_lab.storage.models import (
+    ManagedInstanceMutationLeaseRow,
+    ManagedRemoteGuardRow,
+    NovncSessionRow,
+)
 
 MAX_SESSION_SECONDS = 600
+
+
+class HumanControlBusyError(ValueError):
+    """Early refusal leaves the existing view-only attachment untouched."""
 
 
 def timestamp(value: datetime | None = None) -> str:
@@ -45,6 +53,19 @@ class HumanViewerOwnership:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self.sessions = sessions
 
+    def require_control_available(self, instance: UUID) -> None:
+        # Advisory early refusal preserves view-only on a busy target. Existing
+        # database triggers remain the atomic arbiter against a concurrent claim.
+        with self.sessions() as db:
+            from kodi_lab.application.novnc import require_resolved_view_work
+
+            require_resolved_view_work(db, instance, self.sessions)
+            if (
+                db.get(ManagedInstanceMutationLeaseRow, str(instance)) is not None
+                or db.get(ManagedRemoteGuardRow, str(instance)) is not None
+            ):
+                raise HumanControlBusyError("agent operation active")
+
     def create(
         self,
         instance: UUID,
@@ -59,6 +80,10 @@ class HumanViewerOwnership:
         if absolute <= timestamp(now) or mode not in ("view-only", "interactive"):
             raise ValueError("viewer lifetime expired")
         with self.sessions.begin() as db:
+            from kodi_lab.application.novnc import require_resolved_view_work
+
+            db.execute(text("BEGIN IMMEDIATE"))
+            require_resolved_view_work(db, instance, self.sessions)
             db.add(
                 NovncSessionRow(
                     instance_id=str(instance),

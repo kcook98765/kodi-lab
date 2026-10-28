@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
@@ -33,7 +33,10 @@ from kodi_lab.application.live_display import (
     LiveDisplaySession,
     LiveDisplaySessionRegistry,
 )
-from kodi_lab.application.novnc_control import HumanViewerOwnership
+from kodi_lab.application.novnc_control import (
+    HumanControlBusyError,
+    HumanViewerOwnership,
+)
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
 
@@ -236,7 +239,7 @@ class PrototypeViewer:
         mode: str,
         deadline: str | None,
     ) -> Attachment:
-        binding = self.authority(instance)
+        binding = self.binding(instance, mode)
         with self.lock:
             self._expire()
             key = (owner, body.attempt)
@@ -251,6 +254,8 @@ class PrototypeViewer:
                 started_at=datetime.now(UTC),
                 started_monotonic=time.monotonic(),
                 owner=owner,
+                authority=binding.identity,
+                novnc_mode=cast(Literal["view-only", "interactive"], mode),
             )
             self.registry.acquire(session)
             try:
@@ -349,6 +354,8 @@ class PrototypeViewer:
         if self.ownership is None or not self.handoffs.acquire(blocking=False):
             raise ValueError("mode change unavailable")
         try:
+            if mode == "interactive":
+                self.ownership.require_control_available(instance)
             with self.lock:
                 item = self.attachments.get(body.attempt)
                 if (
@@ -363,15 +370,27 @@ class PrototypeViewer:
             self.stop(owner, body.attempt)
             self.ownership.wait_released(instance)
             self.end(item)
-            return self.start(
-                instance,
-                owner,
-                StartView(attempt=body.next_attempt),
-                mode=mode,
-                deadline=deadline,
-            )
+            try:
+                return self.start(
+                    instance,
+                    owner,
+                    StartView(attempt=body.next_attempt),
+                    mode=mode,
+                    deadline=deadline,
+                )
+            except HumanControlBusyError as error:
+                # The old attachment is already retired. Only the early check
+                # may promise an untouched view-only connection to the browser.
+                raise ValueError("view successor unavailable") from error
         finally:
             self.handoffs.release()
+
+    def binding(self, instance: UUID, mode: str) -> ViewBinding:
+        if mode == "interactive":
+            if self.ownership is None:
+                raise ValueError("interactive ownership unavailable")
+            self.ownership.require_control_available(instance)
+        return self.authority(instance)
 
     def revoke_instance(self, instance: UUID) -> None:
         self.registry.cancel(instance)
@@ -405,7 +424,7 @@ async def relay(
         # Single-use browser ticket was consumed before any worker admission.
         if (
             await viewer.checked(
-                lambda: viewer.authority(item.session.instance_id),
+                lambda: viewer.binding(item.session.instance_id, item.mode),
                 cancelled=item.session.cancelled,
             )
             != item.binding
@@ -470,7 +489,8 @@ async def relay(
             def authorized() -> bool:
                 return (
                     auth_current()
-                    and viewer.authority(item.session.instance_id) == item.binding
+                    and viewer.binding(item.session.instance_id, item.mode)
+                    == item.binding
                     and (
                         viewer.ownership is None
                         or viewer.ownership.renew(
@@ -661,6 +681,8 @@ def install_routes(
             raise
         except HTTPException:
             raise
+        except HumanControlBusyError:
+            raise HTTPException(409, "agent_operation_active") from None
         except Exception:
             await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
             raise HTTPException(409, "view_handoff_unavailable") from None

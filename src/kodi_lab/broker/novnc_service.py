@@ -174,7 +174,7 @@ class HumanDisplayService:
                     not self.ownership.valid(request.instance, attempt, self.broker_id)
                     or CatalogViewAuthority(
                         self.sessions, {request.instance: selected}
-                    ).resolve(request.instance)
+                    ).resolve(request.instance, mode=request.mode)
                     != selected
                 ):
                     return False

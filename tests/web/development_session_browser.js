@@ -8,15 +8,16 @@ const target = '10000000-0000-4000-8000-000000000001';
 const workspace = '20000000-0000-4000-8000-000000000001';
 const current = phase => ({generation: 1, target_id: target, workspace_id: workspace, phase});
 function boot(phase = null) {
-  function element(dataset = {}) {return {dataset, disabled: true, hidden: true, textContent: '', addEventListener(_event, fn) {this.click = fn;}};}
+  function element(dataset = {}) {return {dataset, disabled: true, hidden: true, textContent: '', removeAttribute(name) {delete this[name];}, addEventListener(_event, fn) {this.click = fn;}};}
   const reserve = element(), refresh = element(), status = element(), targetLink = element(), workspaceLink = element();
+  const watchLink = element(), viewerStatus = element();
   const actions = ['prepare', 'resume', 'stop', 'close-absent'].map(sessionAction => element({sessionAction}));
   const selectedWorkspace = {value: workspace}, selectedTarget = {value: target};
   const form = {...element(), elements: {namedItem(name) {return name === 'workspace_id' ? selectedWorkspace : selectedTarget;}}};
   const scenario = {view: {latest_generation: phase ? 1 : 0, current: phase ? current(phase) : null}, failure: false, error: null};
   const requests = [], timers = new Map(), listeners = {};
   let next = 0;
-  const root = {querySelector(selector) {return {'[data-session-selection]': form, '[data-session-reserve]': reserve, '[data-session-refresh]': refresh, '[data-session-status]': status, '[data-session-target]': targetLink, '[data-session-workspace]': workspaceLink}[selector];}, querySelectorAll() {return actions;}};
+  const root = {querySelector(selector) {return {'[data-session-selection]': form, '[data-session-reserve]': reserve, '[data-session-refresh]': refresh, '[data-session-status]': status, '[data-session-target]': targetLink, '[data-session-workspace]': workspaceLink, '[data-session-watch]': watchLink, '[data-session-viewer-status]': viewerStatus}[selector];}, querySelectorAll() {return actions;}};
   const document = {hidden: false, querySelector(selector) {return selector.startsWith('meta') ? {content: 'csrf'} : root;}};
   vm.runInNewContext(code, {document, window: {addEventListener(name, fn) {listeners[name] = fn;}}, crypto: {randomUUID: () => '30000000-0000-4000-8000-000000000001'}, AbortController, Set, Error, console,
     setTimeout(fn, delay) {timers.set(++next, {fn, delay});return next;}, clearTimeout(id) {timers.delete(id);},
@@ -32,7 +33,7 @@ function boot(phase = null) {
       return {ok: true, json: async () => scenario.view};
     },
   });
-  return {scenario, requests, form, reserve, refresh, status, actions, targetLink, workspaceLink, document, listeners, timers, selectedTarget, selectedWorkspace};
+  return {scenario, requests, form, reserve, refresh, status, actions, targetLink, workspaceLink, watchLink, viewerStatus, document, listeners, timers, selectedTarget, selectedWorkspace};
 }
 (async () => {
   const empty = boot();await flush();
@@ -51,6 +52,16 @@ function boot(phase = null) {
   assert.equal(empty.actions[1].disabled, false);
   assert.equal(empty.targetLink.href, `/instances/${target}`);
   assert.equal(empty.workspaceLink.href, `/agent-workspaces/${workspace}`);
+  empty.scenario.view.viewer_state = 'ready';
+  await empty.refresh.click();
+  assert.equal(empty.watchLink.hidden, false);
+  assert.equal(empty.watchLink.href, `/instances/${target}/novnc-phase1`);
+  for (const state of ['stopped', 'unavailable', 'unsupported', 'disabled', 'untrusted']) {
+    empty.scenario.view.viewer_state = state;
+    await empty.refresh.click();
+    assert.equal(empty.watchLink.hidden, true);
+    assert.equal(empty.watchLink.href, undefined);
+  }
   const prepare = empty.requests.find(request => request.url.endsWith('/prepare'));
   assert.deepEqual(JSON.parse(prepare.options.body), {expected_generation: 1});
   assert.match(empty.status.textContent, /Check Kodi setup for native and Bridge readiness/);

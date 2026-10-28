@@ -16,6 +16,7 @@ let attempt = null;
 let rfb = null;
 let mode = 'view-only';
 let switching = false;
+let rfbConnected = false;
 
 function buttons(connected = false) {
     start.disabled = attempt !== null;
@@ -30,7 +31,11 @@ async function post(action, body) {
         method: 'POST', headers: {'Content-Type': 'application/json', 'X-Kodi-Lab-CSRF': csrf},
         body: JSON.stringify(body), cache: 'no-store', credentials: 'same-origin'
     });
-    if (!response.ok) throw new Error('Viewer unavailable');
+    if (!response.ok) {
+        const error = new Error('Viewer unavailable');
+        if (response.status === 409 && (await response.json()).detail === 'agent_operation_active') error.code = 'agent_operation_active';
+        throw error;
+    }
     return response.json();
 }
 async function end(expected = attempt) {
@@ -39,6 +44,7 @@ async function end(expected = attempt) {
     attempt = null;
     const previousRfb = rfb;
     rfb = null;
+    rfbConnected = false;
     mode = 'view-only';
     switching = false;
     if (previousRfb) previousRfb.disconnect();
@@ -65,12 +71,13 @@ function connect(current, result) {
     client.compressionLevel = 2;
     client.addEventListener('connect', () => {
         if (attempt !== current) return;
+        rfbConnected = true;
         switching = false;
-        status.textContent = mode === 'interactive' ? 'You control Kodi. Agent input is paused.' : 'Viewing only';
+        status.textContent = mode === 'interactive' ? 'You control Kodi. Conflicting agent input is refused.' : 'Viewing only';
         buttons(true);
         if (mode === 'interactive') client.focus({preventScroll: true});
     });
-    client.addEventListener('disconnect', () => { end(current); });
+    client.addEventListener('disconnect', () => { if (rfb === client) rfbConnected = false; end(current); });
 }
 start.onclick = async () => {
     const current = crypto.randomUUID();
@@ -103,7 +110,14 @@ async function change(action) {
         const result = await post(action, {attempt: old, next_attempt: current});
         if (previousRfb) previousRfb.disconnect();
         connect(current, result);
-    } catch (_) {
+    } catch (error) {
+        if (action === 'take-control' && error.code === 'agent_operation_active' && attempt === current && rfb === previousRfb && rfbConnected && mode === 'view-only') {
+            attempt = old;
+            switching = false;
+            status.textContent = 'Agent operation active. Still viewing only; Take Control was refused.';
+            buttons(true);
+            return;
+        }
         if (previousRfb) previousRfb.disconnect();
         await end(current);
         if (attempt === null) status.textContent = 'Control change unavailable. Start viewing to recover after verified release.';

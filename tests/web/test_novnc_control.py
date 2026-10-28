@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Thread
@@ -18,16 +19,50 @@ from kodi_lab.application.browser_remote_coordination import (
     release_browser_remote,
 )
 from kodi_lab.application.live_display import LiveDisplaySessionRegistry
-from kodi_lab.application.novnc_control import HumanViewerOwnership, timestamp
+from kodi_lab.application.novnc_control import (
+    HumanControlBusyError,
+    HumanViewerOwnership,
+    timestamp,
+)
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.domain import ManagedInstanceMutationKind
 from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow, NovncSessionRow
+from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
 from kodi_lab.web.novnc import ChangeMode, PrototypeViewer, StartView
 
 from .conftest import INSTANCE_ID, REVISION_ID
 
 OWNER = "c" * 64
 BINDING = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", (str(REVISION_ID), 1))
+
+
+def test_late_busy_control_refusal_cannot_promise_an_untouched_attachment(
+    database: sessionmaker[Session], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ownership = HumanViewerOwnership(database)
+    viewer = PrototypeViewer(
+        tmp_path / "unused.sock",
+        lambda _: BINDING,
+        ownership=ownership,
+        registry=LiveDisplaySessionRegistry(),
+    )
+    item = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=uuid4()))
+
+    def released_then_busy(_instance: object) -> None:
+        assert ownership.status(INSTANCE_ID) is None
+        mutation(database)
+
+    monkeypatch.setattr(ownership, "wait_released", released_then_busy)
+    with pytest.raises(ValueError) as error:
+        viewer.handoff(
+            INSTANCE_ID,
+            OWNER,
+            ChangeMode(attempt=item.attempt, next_attempt=uuid4()),
+            "interactive",
+        )
+    assert not isinstance(error.value, HumanControlBusyError)
+    assert item.session.cancelled.is_set()
+    assert ownership.status(INSTANCE_ID) is None
 
 
 def create(ownership: HumanViewerOwnership, mode: str = "interactive") -> object:
@@ -135,36 +170,43 @@ def test_expiry_and_wrong_owner_never_renew_or_free_claimed_fence(
         mutation(database)
 
 
-def test_controller_and_remote_concurrent_admission_have_one_winner(
+@pytest.mark.parametrize("agent_operation", ["remote", "mutation"])
+def test_controller_and_agent_concurrent_admission_have_one_winner(
     database: sessionmaker[Session],
+    agent_operation: str,
 ) -> None:
     ownership = HumanViewerOwnership(database)
     barrier = Barrier(2)
-    results = []
     handles = []
 
-    def control() -> None:
+    def control() -> str:
         barrier.wait(timeout=2)
         try:
             create(ownership)
-            results.append("control")
+            return "control"
         except IntegrityError:
-            pass
+            return "control_excluded"
 
-    def remote() -> None:
+    def remote() -> str:
         barrier.wait(timeout=2)
         try:
-            handles.append(acquire_browser_remote(database, INSTANCE_ID))
-            results.append("remote")
-        except BrowserRemoteCoordinationConflict:
-            pass
+            if agent_operation == "mutation":
+                with database.begin() as db:
+                    ManagedInstanceMutationLeaseRepository(db).reserve(
+                        INSTANCE_ID,
+                        kind=ManagedInstanceMutationKind.MCP_ADDON_SETTINGS,
+                        operation_id=uuid4(),
+                    )
+            else:
+                handles.append(acquire_browser_remote(database, INSTANCE_ID))
+            return "agent"
+        except (BrowserRemoteCoordinationConflict, IntegrityError):
+            return "agent_excluded"
 
-    threads = [Thread(target=control), Thread(target=remote)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(3)
-    assert len(results) == 1 and not any(t.is_alive() for t in threads)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(control), pool.submit(remote)]
+        outcomes = {future.result(timeout=4) for future in futures}
+    assert outcomes in ({"control", "agent_excluded"}, {"agent", "control_excluded"})
     for handle in handles:
         release_browser_remote(handle)
 
