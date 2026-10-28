@@ -19,9 +19,38 @@ administrator may opt in one qualified disposable Ubuntu Omega instance:
    setting; an empty array disables the feature. Initially only one UUID is
    supported. The broker independently requires the exact sealed, validated r4
    recipe, image and provisioned-container policy on every admission.
-3. Use the normal authenticated administrator Web UI over HTTPS. Provision and
-   start the experimental instance, open its experimental viewer link, then
-   explicitly Start viewing. Take Control is a separate action.
+3. Use the normal authenticated administrator Web UI over HTTPS. In
+   **Development → Development session**, select the approved Omega r4 target
+   with your persistent workspace, then use **Prepare Kodi** and **Resume**.
+   Complete the usual source baseline, deployment and reviewed Bridge setup.
+   Click **Watch this Kodi**, then **Start viewing**. This displays the same
+   selected Kodi while agents continue using their existing tools. Viewing never
+   provisions or starts Kodi. Take Control is a separate action.
+
+The development chooser admits the existing reviewed installation only: target
+`d968c23e-67e7-5cb2-99be-472b13ba3536`, runtime revision
+`9ee490cd-8eee-424b-b3b2-06c2757ccaa8`, and sealed image
+`sha256:8df4cbf1988514ac9713fab7702b0d5f04483f2a167ea95507d9ade66032403b`.
+Installing an arbitrary new experimental revision does not qualify it for the
+chooser. Approval, installation/validation provenance and cached execution profile
+must still match. Turning viewing off leaves normal agent eligibility intact.
+
+For ordinary navigation, GUI launch and smoke testing on the unchanged selected
+workspace/runtime, view-only observation remains connected. Other mutations,
+including deployment, or any workspace generation/runtime identity change cancel
+viewing. Uncertain operations require existing recovery before reconnecting.
+Busy **Take Control** is refused without queuing input; a healthy view-only
+connection stays open. **Release Control** must verify native worker termination
+and neutral input before agent input resumes.
+
+For a sequential version switch, Stop, preserve diagnostics, then use the existing
+reviewed **Fresh Test or Switch** workflow. Workspace/source and retained evidence
+stay outside the retired disposable profile. Refresh the development-session page
+and explicitly open the successor's viewer when supported; old tabs and tickets
+never transfer control. Nexus, Matrix and Kodi 22 have no automatic noVNC
+qualification. Use the supported Managed resources setting `max_running=1` for
+one active development Kodi after checking unrelated managed workload ownership;
+keep the selected-session and broker capacity admission checks intact.
 
 The private display socket has no public resolver endpoint, MCP capability or
 VNC credentials. It is usable only by the existing trusted Web UID. Authenticated

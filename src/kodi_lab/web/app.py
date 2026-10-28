@@ -4422,7 +4422,35 @@ def create_app(
     def development_session_status(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> SessionView:
-        return session_workflow.view()
+        view = session_workflow.view()
+        if view.current is None:
+            return view
+        from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
+
+        current = view.current
+        if current.target_id != recipe_target_id(load_novnc_phase1_recipe()):
+            view.viewer_state = "unsupported"
+        elif novnc_viewer is None or (
+            novnc_viewer.enabled_instances is not None
+            and current.target_id not in novnc_viewer.enabled_instances
+        ):
+            view.viewer_state = "disabled"
+        else:
+            view.viewer_state = "unavailable"
+            try:
+                with session_factory() as db:
+                    session_service._runtime(
+                        db, current.target_id, current.runtime_revision_id
+                    )
+                runtime = status_service.get(current.target_id)
+                if runtime.container_state is ContainerRuntimeState.STOPPED:
+                    view.viewer_state = "stopped"
+                elif current.phase == "bound":
+                    novnc_viewer.authority(current.target_id)
+                    view.viewer_state = "ready"
+            except (DevelopmentSessionConflict, ValueError, ClientError):
+                pass
+        return view
 
     @app.post(
         "/api/development-session/reserve", response_model=DevelopmentSessionStatus

@@ -8,8 +8,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event, Lock
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
+
+from sqlalchemy.orm import Session
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
@@ -31,10 +33,10 @@ from kodi_lab.broker.docker_inventory import (
 )
 from kodi_lab.broker.errors import ClientError
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
-from kodi_lab.domain import InstanceType
+from kodi_lab.domain import InstanceType, ManagedInstanceMutationKind
 from kodi_lab.kodi.screenshots import ScreenshotArtifactError
 from kodi_lab.storage.development_sessions import active_session
-from kodi_lab.storage.models import ManagedInstanceRow
+from kodi_lab.storage.models import AgentWorkspaceRow, ManagedInstanceRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedRuntimeProjectionRepository,
@@ -86,6 +88,7 @@ class LiveDisplaySession:
     decode_ms: float = 0.0
     recent_worker_seconds: float = 0.0
     previous_delivery: dict[str, float] | None = None
+    novnc_mode: Literal["view-only", "interactive"] | None = None
 
 
 class LiveDisplaySessionRegistry:
@@ -148,6 +151,58 @@ class LiveDisplaySessionRegistry:
                 )
             commit()
 
+    def cancel_for_mutation(
+        self,
+        instance_id: UUID,
+        kind: ManagedInstanceMutationKind,
+        db: Session,
+        operation_id: UUID,
+    ) -> bool:
+        with self._lock:
+            session = self._active.get(instance_id)
+            if session is None:
+                return False
+            if session.novnc_mode == "view-only" and kind in {
+                ManagedInstanceMutationKind.MCP_WORKSPACE_LAUNCH,
+                ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION,
+            }:
+                from kodi_lab.application.novnc import CatalogViewAuthority
+                from kodi_lab.broker.novnc import ViewBinding
+
+                current = active_session(db)
+                instance = db.get(ManagedInstanceRow, str(instance_id))
+                lease = ManagedInstanceMutationLeaseRepository(db).current(instance_id)
+                if (
+                    current is not None
+                    and instance is not None
+                    and lease is not None
+                    and lease.operation_id == str(operation_id)
+                    and current.target_id == str(instance_id)
+                    and current.phase == "bound"
+                    and current.container_id == session.container_id
+                    and CatalogViewAuthority._operation_context(
+                        db,
+                        lease,
+                        current,
+                        instance,
+                        ViewBinding(session.container_id, "", "", session.authority),
+                    )
+                ):
+                    workspace = db.get(AgentWorkspaceRow, current.workspace_id)
+                    if workspace is not None and session.authority == (
+                        instance.runtime_revision_id,
+                        instance.runtime_state_revision,
+                        current.generation,
+                        current.workspace_id,
+                        current.source_id,
+                        workspace.generation,
+                    ):
+                        # Reserve and claim publish atomically. Renewal requires
+                        # the claimed owner; this transaction checks exact scope.
+                        return False
+            session.cancelled.set()
+            return True
+
     def cancel_owner(self, owner: str) -> None:
         with self._lock:
             for session in self._active.values():
@@ -173,6 +228,17 @@ def cancel_active_live_display(instance_id: UUID) -> bool:
     """Signal cancellation without waiting; lifecycle authority always proceeds."""
 
     return LIVE_DISPLAY_REGISTRY.cancel(instance_id)
+
+
+def cancel_live_display_for_mutation(
+    instance_id: UUID,
+    kind: ManagedInstanceMutationKind,
+    db: Session,
+    operation_id: UUID,
+) -> bool:
+    return LIVE_DISPLAY_REGISTRY.cancel_for_mutation(
+        instance_id, kind, db, operation_id
+    )
 
 
 @dataclass(slots=True)

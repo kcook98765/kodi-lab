@@ -1961,6 +1961,8 @@ class McpWorkspaceDevelopmentService:
     ) -> WorkspaceExecutionResult:
         if not isinstance(execution_kind, WorkspaceExecutionKind):
             raise McpWorkspaceDevelopmentError("execution_unsupported")
+        token = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode()).hexdigest()
         row, created = self._claim_execution(
             client_id,
             request_id,
@@ -1968,6 +1970,7 @@ class McpWorkspaceDevelopmentService:
             expected_generation,
             target_id,
             execution_kind,
+            digest=digest,
         )
         if not created:
             return self._replay_execution(
@@ -1976,8 +1979,6 @@ class McpWorkspaceDevelopmentService:
         if not self._execution_rate.allow(str(client_id)):
             self._finish_execution(row.id, "failed", "rate_limited")
             raise McpWorkspaceDevelopmentError("rate_limited")
-        token = secrets.token_urlsafe(32)
-        digest = hashlib.sha256(token.encode()).hexdigest()
         try:
             self._acquire_execution(row, digest)
             with workspace_coordination_lock(
@@ -2462,6 +2463,8 @@ class McpWorkspaceDevelopmentService:
         generation: int,
         target_id: UUID,
         execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE,
+        *,
+        digest: str | None = None,
     ) -> tuple[McpWorkspaceExecutionOperationRow, bool]:
         fingerprint = _fingerprint(
             EXECUTE_OPERATION_KIND,
@@ -2572,11 +2575,29 @@ class McpWorkspaceDevelopmentService:
                     )
                 )
                 if target.target_type is TargetType.MANAGED:
-                    ManagedInstanceMutationLeaseRepository(session).reserve(
+                    leases = ManagedInstanceMutationLeaseRepository(session)
+                    leases.reserve(
                         target_id,
                         kind=ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION,
                         operation_id=operation_id,
                     )
+                    # Normal execution publishes the reservation and its exact
+                    # owner atomically. A direct unclaimed recovery fixture is
+                    # still conservative and cannot authorize observation.
+                    if digest is not None and not leases.claim(
+                        target_id,
+                        operation_id=operation_id,
+                        token_digest=digest,
+                        now=now,
+                        expires_at=now + OPERATION_LEASE,
+                    ):
+                        raise McpWorkspaceDevelopmentError("deployment_conflict")
+                    if digest is None:
+                        from kodi_lab.application.live_display import (
+                            cancel_active_live_display,
+                        )
+
+                        cancel_active_live_display(target_id)
                 session.flush()
                 session.expunge(row)
                 session.commit()
@@ -2798,7 +2819,17 @@ class McpWorkspaceDevelopmentService:
             if deployment is None:
                 raise McpWorkspaceDevelopmentError("execution_not_deployed")
             if deployment.target_class == "internal_lab":
-                mutation = ManagedInstanceMutationLeaseRepository(session).claim(
+                leases = ManagedInstanceMutationLeaseRepository(session)
+                owned = leases.current(UUID(row.target_id))
+                mutation = bool(
+                    owned is not None
+                    and owned.operation_kind
+                    is ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION
+                    and owned.operation_id == row.id
+                    and owned.lease_token_digest == digest
+                    and owned.lease_expires_at is not None
+                    and owned.lease_expires_at > _to_text(now)
+                ) or leases.claim(
                     UUID(row.target_id),
                     operation_id=UUID(row.id),
                     token_digest=digest,
@@ -4272,6 +4303,10 @@ class McpWorkspaceDevelopmentService:
             if row is None or row.state not in {"pending", "running"}:
                 return
             row.state = state
+            if state in {"ambiguous", "reconciliation_required"}:
+                from kodi_lab.application.live_display import cancel_active_live_display
+
+                cancel_active_live_display(UUID(row.target_id))
             row.phase = "finalize"
             row.failure_code = failure_code
             row.completed_at = _to_text(now)

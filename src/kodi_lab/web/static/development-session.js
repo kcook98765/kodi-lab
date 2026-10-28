@@ -9,6 +9,8 @@
   const status = root.querySelector('[data-session-status]');
   const targetLink = root.querySelector('[data-session-target]');
   const workspaceLink = root.querySelector('[data-session-workspace]');
+  const watchLink = root.querySelector('[data-session-watch]');
+  const viewerStatus = root.querySelector('[data-session-viewer-status]');
   const buttons = [...root.querySelectorAll('[data-session-action]')];
   const workspace = form.elements.namedItem('workspace_id');
   const target = form.elements.namedItem('target_id');
@@ -27,6 +29,11 @@
   let busy = false;
   let uncertain = false;
   let closed = false;
+  function hideViewer() {
+    watchLink.hidden = true;
+    watchLink.removeAttribute('href');
+    viewerStatus.textContent = '';
+  }
   function controls() {
     const current = view?.current;
     reserve.disabled = closed || busy || uncertain || !view || !!current || !workspace.value || !target.value;
@@ -48,6 +55,7 @@
   async function refresh() {
     if (busy || closed || document.hidden) return;
     busy = true;
+    hideViewer();
     controls();
     try {
       const {response, data} = await request('');
@@ -55,6 +63,20 @@
       if (!response.ok || !Number.isSafeInteger(data.latest_generation) || data.latest_generation < 0 || (data.current !== null && (!data.current || !phases.has(data.current.phase) || !Number.isSafeInteger(data.current.generation) || data.current.generation < 1 || !uuid.test(data.current.target_id) || !uuid.test(data.current.workspace_id)))) throw new Error();
       view = data;
       const current = view.current;
+      const viewerMessages = {
+        ready: 'Opens this selected Kodi in view-only mode. Viewing never starts Kodi.',
+        stopped: 'This Kodi supports viewing and is stopped. Resume Kodi, then refresh.',
+        unavailable: 'Viewing is unavailable. Review this Kodi\'s runtime and session status, then refresh.',
+        unsupported: 'This Kodi version has no qualified noVNC runtime. Screenshots remain available.',
+        disabled: 'Human viewing is disabled. Agent tools remain independent.',
+      };
+      if (current && Object.hasOwn(viewerMessages, data.viewer_state)) {
+        viewerStatus.textContent = viewerMessages[data.viewer_state];
+        if (data.viewer_state === 'ready' && !uncertain && current.phase === 'bound') {
+          watchLink.href = `/instances/${current.target_id}/novnc-phase1`;
+          watchLink.hidden = false;
+        }
+      }
       status.textContent = !current ? 'No development session is reserved.' : current.phase === 'reserved' ? 'Reservation ready. Prepare Kodi to create the selected stopped profile.' : current.phase === 'bound' ? 'Kodi profile prepared. Resume and Stop reuse this profile. Check Kodi setup for native and Bridge readiness.' : 'Preparation needs review. Preserve the environment and inspect Kodi status and history.';
       if (uncertain) status.textContent += ' The last action outcome is uncertain. Do not resubmit; review Kodi history before further action.';
       targetLink.hidden = workspaceLink.hidden = !current;
@@ -74,6 +96,7 @@
   async function mutate(path, body) {
     if (busy || uncertain || closed || !view) return;
     busy = true;
+    hideViewer();
     controls();
     status.textContent = 'Applying the selected session action…';
     try {
@@ -102,7 +125,7 @@
     return mutate(`/${button.dataset.sessionAction}`, {expected_generation: view.current.generation});
   });
   refreshButton.addEventListener('click', refresh);
-  window.addEventListener('pagehide', () => {closed = true;controls();});
+  window.addEventListener('pagehide', () => {closed = true;hideViewer();controls();});
   controls();
   refresh();
 })();

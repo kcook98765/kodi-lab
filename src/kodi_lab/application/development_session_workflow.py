@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from kodi_lab.application.development_sessions import (
     DevelopmentSessionService,
     DevelopmentSessionStatus,
+    development_target_ids,
 )
 from kodi_lab.application.runtime_lifecycle import ManagedRuntimeLifecycleService
 from kodi_lab.application.runtime_status import ManagedRuntimeStatus
@@ -30,6 +31,9 @@ class SessionView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     latest_generation: int
     current: DevelopmentSessionStatus | None
+    viewer_state: (
+        Literal["ready", "stopped", "unavailable", "unsupported", "disabled"] | None
+    ) = None
 
 
 class SessionTargetChoice(BaseModel):
@@ -61,13 +65,9 @@ class DevelopmentSessionWorkflow:
             )
 
     def choices(self) -> tuple[SessionTargetChoice, ...]:
-        from kodi_lab.runtime.lab import KNOWN_SELECTORS, canonical_id
-
         result = []
         with self._sessions._sessions() as session:
-            for target_id in sorted(
-                {canonical_id(selector) for selector in KNOWN_SELECTORS}, key=str
-            ):
+            for target_id in sorted(development_target_ids(), key=str):
                 instance = ManagedInstanceRepository(session).get(target_id)
                 target = TargetRepository(session).get(target_id)
                 if instance is None or target is None or target.kodi_version is None:

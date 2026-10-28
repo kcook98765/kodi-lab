@@ -18,7 +18,11 @@ from kodi_lab.application.browser_remote_coordination import (
     release_browser_remote,
 )
 from kodi_lab.application.live_display import LiveDisplaySessionRegistry
-from kodi_lab.application.novnc_control import HumanViewerOwnership, timestamp
+from kodi_lab.application.novnc_control import (
+    HumanControlBusyError,
+    HumanViewerOwnership,
+    timestamp,
+)
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.domain import ManagedInstanceMutationKind
 from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow, NovncSessionRow
@@ -28,6 +32,35 @@ from .conftest import INSTANCE_ID, REVISION_ID
 
 OWNER = "c" * 64
 BINDING = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", (str(REVISION_ID), 1))
+
+
+def test_late_busy_control_refusal_cannot_promise_an_untouched_attachment(
+    database: sessionmaker[Session], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ownership = HumanViewerOwnership(database)
+    viewer = PrototypeViewer(
+        tmp_path / "unused.sock",
+        lambda _: BINDING,
+        ownership=ownership,
+        registry=LiveDisplaySessionRegistry(),
+    )
+    item = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=uuid4()))
+
+    def released_then_busy(_instance: object) -> None:
+        assert ownership.status(INSTANCE_ID) is None
+        mutation(database)
+
+    monkeypatch.setattr(ownership, "wait_released", released_then_busy)
+    with pytest.raises(ValueError) as error:
+        viewer.handoff(
+            INSTANCE_ID,
+            OWNER,
+            ChangeMode(attempt=item.attempt, next_attempt=uuid4()),
+            "interactive",
+        )
+    assert not isinstance(error.value, HumanControlBusyError)
+    assert item.session.cancelled.is_set()
+    assert ownership.status(INSTANCE_ID) is None
 
 
 def create(ownership: HumanViewerOwnership, mode: str = "interactive") -> object:

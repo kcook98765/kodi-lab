@@ -356,6 +356,10 @@ class WorkspaceLaunchService:
                 session.expunge(row)
                 return row
             row.state, row.phase, row.failure_code = state, "finalize", code
+            if state == "ambiguous":
+                from kodi_lab.application.live_display import cancel_active_live_display
+
+                cancel_active_live_display(UUID(row.target_id))
             row.completed_at = timestamp(self._clock())
             ManagedInstanceMutationLeaseRepository(session).release_for_operation(
                 UUID(row.target_id), UUID(row.id)
