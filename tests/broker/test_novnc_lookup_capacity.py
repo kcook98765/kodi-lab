@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
-from threading import Event, Lock, Thread
+from threading import Barrier, Event, Lock, Thread
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -156,11 +156,17 @@ def test_stalled_handshakes_remain_bounded_and_release_capacity(
     socket_config: SocketPathConfig, failure: str
 ) -> None:
     binding = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", ("revision", 1, 2))
+    recovery = Barrier(2, timeout=1)
+
+    def resolve(_instance: UUID) -> ViewBinding:
+        recovery.wait()
+        return binding
+
     lane = DisplayLane(
         socket_config,
         os.getuid(),
         lambda _: pytest.fail("No display requested"),
-        resolve=lambda _: binding,
+        resolve=resolve,
     )
     lane.start()
     peers: list[socket.socket] = []
@@ -192,10 +198,24 @@ def test_stalled_handshakes_remain_bounded_and_release_capacity(
                 peer.settimeout(2)
                 assert peer.recv(1) == b""
             peer.close()
-        # Wait for the exact finished handshakes, then require normal recovery.
-        for thread in list(lane.threads):
-            thread.join(2)
-        assert resolve_binding(socket_config.socket_path, uuid4()) == binding
+        # Require both lookup slots to recover through the actual protocol.
+        # Reading lane.threads here could race its append-before-start window.
+        replies: list[ViewBinding] = []
+        errors: list[Exception] = []
+
+        def read_authority() -> None:
+            try:
+                replies.append(resolve_binding(socket_config.socket_path, uuid4()))
+            except Exception as error:
+                errors.append(error)
+
+        readers = [Thread(target=read_authority) for _ in range(2)]
+        for reader in readers:
+            reader.start()
+        for reader in readers:
+            reader.join(2)
+        assert not errors and replies == [binding, binding]
+        assert all(not reader.is_alive() for reader in readers)
     finally:
         for peer in peers:
             peer.close()
