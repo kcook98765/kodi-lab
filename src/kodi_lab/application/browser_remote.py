@@ -50,6 +50,7 @@ from kodi_lab.kodi.remote import (
     BrowserRemoteAction,
     KodiBrowserRemoteAdapter,
     RemoteActionAmbiguousError,
+    RemoteActionUndispatchedError,
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
@@ -326,6 +327,8 @@ class BrowserRemoteService:
                 "Kodi may have received the action; it was not retried.",
             ) from error
         except RemoteKodiRejectedError as error:
+            if isinstance(error, RemoteActionUndispatchedError):
+                unresolved = False
             raise BrowserRemoteError(
                 "remote_kodi_rejected", "Kodi rejected the fixed remote action."
             ) from error
