@@ -206,3 +206,62 @@ def test_browser_data_cannot_renew_a_stalled_web_lease(
         web.close()
         broker.close()
         thread.join(1)
+
+
+def test_proven_native_teardown_retries_unconfirmed_durable_completion(
+    socket_config: SocketPathConfig,
+) -> None:
+    from typing import cast
+
+    instance = uuid4()
+    finalized = Event()
+    attempted = Event()
+    result = transport.ViewResult(exec_id="already-dead", terminated=True)
+    count = 0
+
+    class Tunnel:
+        def __init__(self) -> None:
+            self.result = result
+            self.proof = lambda _: True
+
+        def run(self, peer: socket.socket, stopped: Event) -> None:
+            pass
+
+        def finished(self, proven: bool) -> None:
+            nonlocal count
+            assert proven
+            count += 1
+            if count == 1:
+                attempted.set()
+                raise TimeoutError("state child completion unconfirmed")
+            finalized.set()
+
+    lane = DisplayLane(
+        socket_config, os.getuid(), lambda _: cast(DockerViewTunnel, Tunnel())
+    )
+    lane.start()
+    peer = socket.socket(socket.AF_UNIX)
+    try:
+        peer.connect(str(socket_config.socket_path))
+        challenge = peer.recv(64).decode()
+        peer.sendall(
+            json.dumps(
+                {
+                    "instance": str(instance),
+                    "owner": "c" * 64,
+                    "rate": 2,
+                    "challenge": challenge,
+                }
+            ).encode()
+            + b"\n"
+        )
+        assert peer.recv(3) == b"OK\n"
+        assert attempted.wait(1)
+        assert finalized.wait(3)
+        deadline = time.monotonic() + 1
+        while instance in lane.active and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert count == 2 and instance not in lane.active and not lane.retained
+    finally:
+        peer.close()
+        lane.close()

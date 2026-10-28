@@ -163,3 +163,38 @@ def test_broker_rejects_unlisted_or_unqualified_catalog_before_docker(
         service.resolve(uuid4())
     with pytest.raises(ValueError, match="not qualified"):
         service.resolve(INSTANCE_ID)
+
+
+def test_unconfirmed_admission_is_reaped_only_after_native_proof(
+    database: sessionmaker[Session], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.broker.novnc_service import HumanDisplayService
+
+    from .conftest import REVISION_ID
+
+    service = HumanDisplayService(Settings(runtime_root=tmp_path), database)
+    binding = ViewBinding(
+        "a" * 64, "sha256:" + "b" * 64, "start", (str(REVISION_ID), 0, None)
+    )
+    attempt = uuid4()
+    service.ownership.create(INSTANCE_ID, attempt, "c" * 64, binding, "interactive")
+    service.ownership.claim(
+        INSTANCE_ID, attempt, "c" * 64, binding, "interactive", service.broker_id
+    )
+    lane = DisplayLane(
+        SocketPathConfig(
+            runtime_directory=tmp_path, socket_path=tmp_path / "unused.sock"
+        ),
+        os.getuid(),
+        lambda _: pytest.fail("no admission"),
+    )
+    monkeypatch.setattr(service, "proof", lambda *a: False)
+    service.reconcile(lane)
+    assert service.ownership.status(INSTANCE_ID) is not None
+    monkeypatch.setattr(service, "proof", lambda *a: True)
+    lane.active.add(INSTANCE_ID)
+    service.reconcile(lane)
+    assert service.ownership.status(INSTANCE_ID) is not None
+    lane.active.clear()
+    service.reconcile(lane)
+    assert service.ownership.status(INSTANCE_ID) is None

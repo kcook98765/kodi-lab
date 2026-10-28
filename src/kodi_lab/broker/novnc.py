@@ -463,19 +463,20 @@ class DisplayLane:
                 with suppress(Exception):
                     tunnel.client.close()
                 tunnel.result.done.set()
-            if instance is not None and (tunnel is None or tunnel.result.terminated):
+            if instance is not None:
+                finalized = tunnel is None
+                if tunnel is not None:
+                    try:
+                        if tunnel.finished is not None:
+                            tunnel.finished(tunnel.result.terminated)
+                        finalized = tunnel.result.terminated
+                    except Exception:
+                        pass  # Retain responsibility after an unconfirmed DB write.
                 with self.lock:
-                    self.active.discard(instance)
-            if (
-                instance is not None
-                and tunnel is not None
-                and not tunnel.result.terminated
-            ):
-                with self.lock:
-                    self.retained[instance] = tunnel
-            if tunnel is not None and tunnel.finished is not None:
-                with suppress(Exception):
-                    tunnel.finished(tunnel.result.terminated)
+                    if finalized:
+                        self.active.discard(instance)
+                    elif tunnel is not None:
+                        self.retained[instance] = tunnel
 
     def close(self) -> None:
         self.stopped.set()

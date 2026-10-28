@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from uuid import UUID, uuid4
 
 import docker  # type: ignore[import-untyped]
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.novnc import CatalogViewAuthority
@@ -23,6 +25,7 @@ from kodi_lab.broker.server import ProductionBrokerConfiguration
 from kodi_lab.config import Settings
 from kodi_lab.runtime.recipes import NOVNC_PHASE1_DIGEST
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
+from kodi_lab.storage.models import NovncSessionRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeRevisionRepository,
@@ -208,15 +211,39 @@ class HumanDisplayService:
             ),
         )
 
+    def reconcile(self, lane: DisplayLane) -> None:
+        self.ownership.expire_pending()
+        with self.sessions() as db:
+            rows = list(
+                db.scalars(
+                    select(NovncSessionRow).where(
+                        NovncSessionRow.broker_id == self.broker_id
+                    )
+                )
+            )
+        for row in rows:
+            instance = UUID(row.instance_id)
+            # Admission adds active before claiming. Keep that exclusion until
+            # proof and durable completion, including an unconfirmed admission.
+            with lane.lock:
+                if instance in lane.active:
+                    continue
+                container = json.loads(row.identity_json)[0]
+                if self.proof(container, row.exec_id, row.mode == "interactive"):
+                    self.ownership.finish(
+                        instance, UUID(row.attempt), self.broker_id, True
+                    )
+
     def lane(self, configuration: ProductionBrokerConfiguration) -> DisplayLane:
         self.ownership.recover(self.broker_id, self.proof)
-        return DisplayLane(
+        lane = DisplayLane(
             replace(
                 configuration.socket,
                 socket_path=self.settings.runtime_root / "display.sock",
             ),
             configuration.authorization.expected_uid,
             self.admit,
-            reconcile=self.ownership.expire_pending,
+            reconcile=lambda: self.reconcile(lane),
             resolve=self.resolve,
         )
+        return lane
