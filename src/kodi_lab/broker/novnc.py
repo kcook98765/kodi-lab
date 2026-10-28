@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from threading import Event, Lock, Thread
+from threading import BoundedSemaphore, Event, Lock, Thread
 from typing import Any
 from uuid import UUID
 
@@ -336,6 +336,7 @@ class DisplayLane:
         self.lock = Lock()
         self.active: set[UUID] = set()
         self.threads: list[Thread] = []
+        self.handshakes = BoundedSemaphore(2)
         self.results: list[ViewResult] = []
         self.listener: Any = None
         self.accept_thread: Thread | None = None
@@ -386,10 +387,12 @@ class DisplayLane:
                 continue
             except OSError:
                 break
-            # At most two concurrent handshakes OR established workers globally.
+            # Negotiation has its own bounded capacity. Established displays
+            # must leave room for status and watchdog authority lookups.
+            # Native workers remain limited separately by self.active below.
             with self.lock:
                 self.threads = [t for t in self.threads if t.is_alive()]
-                if len(self.threads) >= 2:
+                if not self.handshakes.acquire(blocking=False):
                     peer.close()
                     continue
                 thread = Thread(
@@ -399,11 +402,18 @@ class DisplayLane:
                     daemon=True,
                 )
                 self.threads.append(thread)
-                thread.start()
+                try:
+                    thread.start()
+                except BaseException:
+                    self.threads.remove(thread)
+                    self.handshakes.release()
+                    peer.close()
+                    raise
 
     def _worker(self, peer: socket.socket) -> None:
         instance: UUID | None = None
         tunnel: DockerViewTunnel | None = None
+        handshaking = True
         try:
             with peer:
                 if extract_peer_credentials(peer).uid != self.web_uid:
@@ -452,6 +462,8 @@ class DisplayLane:
                     self.results.append(tunnel.result)
                     self.results = self.results[-64:]
                 peer.sendall(b"OK\n")
+                self.handshakes.release()
+                handshaking = False
                 tunnel.run(peer, self.stopped)
         except Exception:
             pass  # Closed failure, no credentials/RFB/exception text in audit.
@@ -477,6 +489,8 @@ class DisplayLane:
                         self.active.discard(instance)
                     elif tunnel is not None:
                         self.retained[instance] = tunnel
+            if handshaking:
+                self.handshakes.release()
 
     def close(self) -> None:
         self.stopped.set()
