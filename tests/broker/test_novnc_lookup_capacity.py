@@ -133,7 +133,7 @@ def test_status_and_watchdog_resolve_while_display_workers_are_active(
     assert all(not thread.is_alive() for thread in threads)
 
 
-@pytest.mark.parametrize("failure", ["eof", "invalid"])
+@pytest.mark.parametrize("failure", ["eof", "invalid", "timeout", "challenge"])
 def test_stalled_handshakes_remain_bounded_and_release_capacity(
     socket_config: SocketPathConfig, failure: str
 ) -> None:
@@ -162,11 +162,46 @@ def test_stalled_handshakes_remain_bounded_and_release_capacity(
             if failure == "invalid":
                 peer.sendall(b"{}\n")
                 assert peer.recv(1) == b""
+            elif failure == "challenge":
+                peer.sendall(
+                    json.dumps({"resolve": str(uuid4()), "challenge": "wrong"}).encode()
+                    + b"\n"
+                )
+                assert peer.recv(1) == b""
+            elif failure == "timeout":
+                peer.settimeout(2)
+                assert peer.recv(1) == b""
             peer.close()
         # Wait for the exact finished handshakes, then require normal recovery.
         for thread in list(lane.threads):
             thread.join(2)
         assert resolve_binding(socket_config.socket_path, uuid4()) == binding
+    finally:
+        for peer in peers:
+            peer.close()
+        lane.close()
+
+
+def test_shutdown_reaps_pending_handshakes(socket_config: SocketPathConfig) -> None:
+    lane = DisplayLane(
+        socket_config, os.getuid(), lambda _: pytest.fail("No display requested")
+    )
+    lane.start()
+    peers: list[socket.socket] = []
+    try:
+        for _ in range(2):
+            peer = socket.socket(socket.AF_UNIX)
+            peer.settimeout(2)
+            peers.append(peer)
+            peer.connect(str(socket_config.socket_path))
+            assert len(peer.recv(64)) == 64
+        lane.close()
+        assert all(not thread.is_alive() for thread in lane.threads)
+        assert lane.accept_thread is not None and not lane.accept_thread.is_alive()
+        assert lane.reaper is not None and not lane.reaper.is_alive()
+        assert not lane.active and not lane.retained
+        assert not socket_config.socket_path.exists()
+        assert all(peer.recv(1) == b"" for peer in peers)
     finally:
         for peer in peers:
             peer.close()
