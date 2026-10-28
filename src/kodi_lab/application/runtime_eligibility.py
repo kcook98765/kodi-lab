@@ -238,7 +238,14 @@ class RuntimeRevisionEligibilityPolicy:
             return self._no(RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE)
         if required_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE)
-        if revision.manifest_digest == NOVNC_PHASE1_DIGEST and not policy.novnc_phase1:
+        if (
+            revision.manifest_digest
+            in {
+                NOVNC_PHASE1_DIGEST,
+                "sha256:a81b7786b6df3c4cf0fde57b117ee87b5911eb8df1f17c74e2cee45685337a46",
+            }
+            and not policy.novnc_phase1
+        ):
             return self._no(RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE)
         if not policy.permits(definition.support_tier):
             return self._no(RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED)

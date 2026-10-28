@@ -71,7 +71,13 @@ def test_fragmented_docker_headers_and_trusted_lease_separation() -> None:
     try:
         client.helper.settimeout(1)
         web.settimeout(1)
-        assert client.helper.recv(5) == struct.pack("!BI", 2, 0)
+        nonce = b"n" * 32
+        challenge = b"KLVNCARM" + nonce
+        client.helper.sendall(
+            struct.pack("!B3sI", 1, b"\0\0\0", len(challenge)) + challenge
+        )
+        assert client.helper.recv(37) == struct.pack("!BI", 4, 32) + nonce
+        assert tunnel.result.armed
         # Browser bytes that look like renewal are still enclosed as RFB data.
         forged = struct.pack("!BI", 2, 0)
         web.sendall(struct.pack("!BI", 1, len(forged)) + forged)

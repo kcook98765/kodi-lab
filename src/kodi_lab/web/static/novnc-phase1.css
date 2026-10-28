@@ -1,3 +1,9 @@
 body { margin: 1rem; font-family: system-ui, sans-serif; background: #171923; color: #edf2f7; }
 #viewer { width: 100%; height: 72vh; }
 button, select { padding: .6rem; margin: .3rem; }
+a { color: #a3d7ff; }
+#viewer { touch-action: none; min-height: 220px; }
+main.expanded, main:fullscreen { background: #171923; padding: .5rem; }
+main.expanded #viewer, main:fullscreen #viewer { height: calc(100vh - 12rem); }
+button:disabled { opacity: .5; }
+.typing input { font-size: 16px; max-width: 90%; }

@@ -14,12 +14,13 @@ import time
 from dataclasses import replace
 from pathlib import Path
 from threading import Event
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import docker  # type: ignore[import-untyped]
 import uvicorn
 
 from kodi_lab.application.novnc import CatalogViewAuthority
+from kodi_lab.application.novnc_control import HumanViewerOwnership
 from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
 from kodi_lab.broker.novnc import (
@@ -63,6 +64,8 @@ def main() -> None:
     engine = create_database_engine(settings.database_url)
     sessions = create_session_factory(engine)
     catalog = CatalogViewAuthority(sessions, {instance: binding})
+    ownership = HumanViewerOwnership(sessions)
+    broker_id = str(uuid4())
 
     def authority(target: UUID) -> ViewBinding:
         if time.time() >= expires:
@@ -73,15 +76,76 @@ def main() -> None:
         configuration = ProductionBrokerConfiguration.resolve()
         resolver = SqliteProvisioningResolver(sessions)
 
-        def admit(request: ViewRequest) -> DockerViewTunnel:
-            selected = authority(request.instance)
+        def native_proof(
+            container: str, exec_id: str | None = None, interactive: bool = False
+        ) -> bool:
             client = docker.APIClient(version="auto", timeout=1)
-            spec = resolver.resolve(str(request.instance))
-            image = client.inspect_image(selected.image)
+            try:
+                actual = client.inspect_container(container)
+                if actual["Id"] != container or actual["State"]["Paused"]:
+                    return False
+                if not actual["State"]["Running"]:
+                    return True
+                if exec_id is not None and client.exec_inspect(exec_id)["Running"]:
+                    return False
+                check = client.exec_create(
+                    container,
+                    cmd=[
+                        "/usr/bin/python3",
+                        "-I",
+                        "-B",
+                        "/usr/local/lib/kodi-lab-novnc-view.py",
+                        "--probe-control" if interactive else "--probe",
+                    ],
+                    user="1000:1000",
+                    stdout=True,
+                    stderr=False,
+                    tty=False,
+                    privileged=False,
+                )
+                client.exec_start(check["Id"], stream=False, tty=False)
+                state = client.exec_inspect(check["Id"])
+                return bool(not state["Running"] and state["ExitCode"] == 0)
+            except Exception:
+                return False
+            finally:
+                client.close()
+
+        ownership.recover(broker_id, native_proof)
+
+        def admit(request: ViewRequest) -> DockerViewTunnel:
+            if request.attempt is None or request.rate != 2:
+                raise ValueError("human Web viewer admission required")
+            selected = authority(request.instance)
+            attempt = request.attempt
+            client = docker.APIClient(version="auto", timeout=1)
+            try:
+                spec = resolver.resolve(str(request.instance))
+                image = client.inspect_image(selected.image)
+                ownership.claim(
+                    request.instance,
+                    attempt,
+                    request.owner,
+                    selected,
+                    request.mode,
+                    broker_id,
+                )
+            except BaseException:
+                client.close()
+                ownership.finish(
+                    request.instance,
+                    attempt,
+                    broker_id,
+                    native_proof(selected.container),
+                )
+                raise
 
             def valid() -> bool:
                 try:
-                    if authority(request.instance) != selected:
+                    if (
+                        not ownership.valid(request.instance, attempt, broker_id)
+                        or authority(request.instance) != selected
+                    ):
                         return False
                     actual = client.inspect_container(selected.container)
                     DockerManagedContainerAdapter._validate_provisioned_container(
@@ -99,7 +163,23 @@ def main() -> None:
                 except Exception:
                     return False
 
-            return DockerViewTunnel(selected, request, valid, client=client)
+            return DockerViewTunnel(
+                selected,
+                request,
+                valid,
+                client=client,
+                started=lambda exec_id: ownership.started(
+                    request.instance, attempt, broker_id, exec_id
+                ),
+                proof=lambda exec_id: native_proof(
+                    selected.container,
+                    exec_id,
+                    interactive=request.mode == "interactive",
+                ),
+                finished=lambda proven: ownership.finish(
+                    request.instance, attempt, broker_id, proven
+                ),
+            )
 
         lane = DisplayLane(
             replace(
@@ -107,6 +187,7 @@ def main() -> None:
             ),
             configuration.authorization.expected_uid,
             admit,
+            reconcile=ownership.expire_pending,
         )
         server = BrokerServer(
             socket_config=configuration.socket,
@@ -137,7 +218,9 @@ def main() -> None:
                 flush=True,
             )
     else:
-        viewer = PrototypeViewer(settings.runtime_root / "display.sock", authority)
+        viewer = PrototypeViewer(
+            settings.runtime_root / "display.sock", authority, ownership=ownership
+        )
         app = create_app(
             settings=settings,
             session_factory=sessions,

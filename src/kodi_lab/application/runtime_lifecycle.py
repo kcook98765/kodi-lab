@@ -277,27 +277,57 @@ class ManagedRuntimeLifecycleService:
         before_dispatch: Callable[[], None] | None = None,
     ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        return self._run(
-            instance_id,
-            ManagedInstanceLifecycleKind.STOP,
-            self._stop,
-            operation_id=operation_id,
-            precondition=precondition,
-            on_claim=on_claim,
-            before_dispatch=before_dispatch,
+        from kodi_lab.application.browser_remote_coordination import (
+            BrowserRemoteCoordinationConflict,
+            stop_dispatch_fence,
         )
+
+        try:
+            with stop_dispatch_fence(self._session_factory, instance_id):
+                return self._run(
+                    instance_id,
+                    ManagedInstanceLifecycleKind.STOP,
+                    self._stop,
+                    operation_id=operation_id,
+                    precondition=precondition,
+                    on_claim=on_claim,
+                    before_dispatch=before_dispatch,
+                )
+        except BrowserRemoteCoordinationConflict as error:
+            raise LifecycleConflictError(
+                "An input dispatcher is still active."
+            ) from error
 
     def _stop(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
         self._readiness.cancel(instance_id)
         try:
-            self._broker.stop_managed_container(
+            result = self._broker.stop_managed_container(
                 managed_instance_id=str(instance_id),
                 expected_container_id=container.container_id,
                 expected_runtime_state=container.runtime_state,
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+
+        if (
+            result.container_id != container.container_id
+            or result.managed_instance_id != str(instance_id)
+            or result.runtime_state is not ContainerRuntimeState.STOPPED
+        ):
+            raise LifecycleDispatchUnconfirmedError
+        from kodi_lab.application.browser_remote_coordination import (
+            retire_stopped_remote,
+        )
+
+        retire_stopped_remote(
+            self._session_factory, instance_id, container.container_id
+        )
+        from kodi_lab.application.novnc_control import HumanViewerOwnership
+
+        HumanViewerOwnership(self._session_factory).retire_stopped(
+            instance_id, container.container_id
+        )
 
     def deprovision(
         self,

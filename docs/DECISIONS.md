@@ -7155,3 +7155,42 @@ Phase 1 selection policy is enabled.
 This is an experimental view-only transport, not interactive or audio authority.
 Native security, cleanup and measured performance determine its disposition.
 A controller lease requires separate implementation and owner approval.
+
+
+## D-0458: Human-only experimental noVNC control
+
+Phase 2 is explicitly authorized as an optional human Web workflow. Agents retain
+existing independent X11 screenshots, Bridge inspection and MCP/remote tools;
+no viewer tool, grant, credential, VNC capture or agent input channel exists.
+An isolated deterministic Firefox harness is authorized only for qualification.
+Physical devices require their own evidence.
+
+The provisional configuration pins unmodified upstream noVNC1.7.0, Firefox,
+experimental r4 native640×360 Xvfb, LP_NUM_THREADS=1 and2FPS. Startup is explicit,
+view-only is default, and a viewer has an absolute ten-minute lifetime across
+handoffs. Production recipes/geometry and JPEG/still functionality are retained.
+Independent X11 capture selects the sealed r4 geometry without viewer wiring,
+then expands only that native capture to the existing1280×720 screenshot format.
+
+Take Control reserves durable administrator/tab/runtime ownership before any
+interactive worker can arm. Mode handoff proves old helper/X0 termination before
+establishing the next worker. Reciprocal SQLite guards exclude existing remote
+input and managed mutations; rejected writers do not cancel human control.
+Existing HTTP remote dispatch and native Stop share a cross-process flock.
+Ambiguous dispatch retains its fence until exact native Stop; no input replay or
+lease-expiry-only clearance is permitted. Typed Stop recovery remains available
+in the normal application without the viewer service.
+
+Native helpers require a fresh broker challenge response before launching X0,
+retain inherited flock ownership and independent renewal/lifetime watchdogs, and
+clean held keys/buttons while the original armed helper still owns exclusion.
+Separate cleanup probes are read-only; uncertain termination retains ownership
+and is independently reaped or recovered by exact native Stop. Clipboard, primary
+selection, desktop resizing, VNC TCP and audio remain disabled.
+
+The owner accepts a provisional256MiB peak incremental browserRSS allowance;
+128MiB incrementalPSS remains diagnostic. Monitoring, finite sessions and truthful
+retained-memory reports protect evaluation; a stable active-memory ceiling is
+not established by that allowance. Keep noVNC disabled by default pending native
+qualification and owner review. Audio remains a separately authorized future
+phase. Issues18 and96 remain independent.

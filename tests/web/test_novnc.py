@@ -116,7 +116,7 @@ def test_enabled_routes_require_admin_csrf_origin_and_closed_schema(
 ) -> None:
     client = enabled_client
     path = f"/api/instances/{INSTANCE_ID}/novnc-start"
-    body = {"attempt": str(uuid4()), "rate": 10}
+    body = {"attempt": str(uuid4()), "rate": 2}
     assert client.post(path, json=body, headers=ORIGIN).status_code in (401, 403)
     csrf = login(client)
     assert client.post(path, json=body, headers=ORIGIN).status_code == 403
@@ -136,7 +136,7 @@ def test_enabled_routes_require_admin_csrf_origin_and_closed_schema(
     assert "ticket" in reply.json()
     assert client.post(path, json=body, headers=headers).status_code == 409
     page = client.get(f"/instances/{INSTANCE_ID}/novnc-phase1")
-    assert page.status_code == 200 and "No input or audio" in page.text
+    assert page.status_code == 200 and "No audio" in page.text
     assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
     assert "data:" not in client.get("/").headers["content-security-policy"]
 

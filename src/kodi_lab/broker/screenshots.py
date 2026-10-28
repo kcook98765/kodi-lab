@@ -24,6 +24,7 @@ from kodi_lab.broker.docker_inventory import (
 )
 from kodi_lab.broker.provisioning import RUNTIME_REVISION_LABEL_KEY
 from kodi_lab.config import Settings
+from kodi_lab.domain import InstanceType
 from kodi_lab.kodi.screenshots import (
     MAX_RAW_CAPTURE_BYTES,
     is_supported_screenshot_runtime,
@@ -32,6 +33,7 @@ from kodi_lab.kodi.screenshots import (
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
+    RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
@@ -135,6 +137,32 @@ FIXED_SCREENSHOT_COMMAND = (
 )
 
 
+_EXPERIMENTAL_X11_CAPTURE_PROGRAM = (
+    _FIXED_X11_CAPTURE_PROGRAM.replace(
+        "(width, height) != (1280, 720)", "(width, height) != (640, 360)"
+    )
+    .replace(
+        "reply = exact(s, 32)\nkind, depth",
+        "reply = exact(s, 32)\nmapping_events = 0\n"
+        "while reply[0] == 34:\n"
+        "    mapping_events += 1\n"
+        "    if mapping_events > 16:\n"
+        "        raise SystemExit(25)\n"
+        "    reply = exact(s, 32)\n"
+        "kind, depth",
+    )
+    .replace(
+        "sys.stdout.buffer.write(struct.pack(",
+        "rows=[]\nfor y in range(height):\n"
+        "    row=pixels[y*bytes_per_line:(y+1)*bytes_per_line]\n"
+        "    scaled=b''.join(row[x:x+4]*2 for x in range(0,len(row),4))\n"
+        "    rows.extend((scaled,scaled))\n"
+        "pixels=b''.join(rows)\nwidth,height=1280,720\nbytes_per_line=width*4\n"
+        "sys.stdout.buffer.write(struct.pack(",
+    )
+)
+
+
 class ScreenshotCaptureStateError(RuntimeError):
     pass
 
@@ -159,6 +187,7 @@ class ManagedScreenshotCaptureSpec:
     artifact_path: Path
     artifact_owner_uid: int
     artifact_owner_gid: int
+    experimental_image_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +292,26 @@ class SqliteScreenshotCaptureResolver:
                     raise ScreenshotCaptureUnsupportedError(
                         "This runtime revision does not support screenshots."
                     )
+                # Geometry follows the sealed experimental runtime identity,
+                # never viewer availability, browser preference, or caller input.
+                from kodi_lab.runtime.recipes import NOVNC_PHASE1_DIGEST
+
+                experimental_image_id = None
+                if revision.manifest_digest == NOVNC_PHASE1_DIGEST:
+                    artifact = RuntimeContainerArtifactRepository(session).get(
+                        revision_id
+                    )
+                    if (
+                        instance.instance_type is not InstanceType.DISPOSABLE
+                        or artifact is None
+                        or not supports_reviewed_recipe_capability(
+                            session, revision_id, "screenshot"
+                        )
+                    ):
+                        raise ScreenshotCaptureUnsupportedError(
+                            "Experimental capture runtime is not qualified."
+                        )
+                    experimental_image_id = artifact.image_id
             stage = raw_capture_path(self._data_root, capture_uuid).parent
             stage_metadata = stage.lstat()
             data_metadata = self._data_root.lstat()
@@ -281,6 +330,7 @@ class SqliteScreenshotCaptureResolver:
                 artifact_path=raw_capture_path(self._data_root, capture_uuid),
                 artifact_owner_uid=data_metadata.st_uid,
                 artifact_owner_gid=data_metadata.st_gid,
+                experimental_image_id=experimental_image_id,
             )
         except ScreenshotCaptureStateError:
             raise
@@ -315,7 +365,8 @@ class _ScreenshotDockerClient(Protocol):
 
 class DockerManagedScreenshotCaptureProvider:
     def __init__(
-        self, client_factory: Callable[[], _ScreenshotDockerClient] | None = None
+        self,
+        client_factory: Callable[[], _ScreenshotDockerClient] | None = None,
     ) -> None:
         self._client_factory = client_factory or self._production_client
 
@@ -334,9 +385,29 @@ class DockerManagedScreenshotCaptureProvider:
         try:
             client = self._client_factory()
             selected_id = self._select_exact(client, spec, expected_container_id)
+            command = list(FIXED_SCREENSHOT_COMMAND)
+            experimental_started: str | None = None
+            if spec.experimental_image_id is not None:
+                actual = client.inspect_container(selected_id)
+                if (
+                    not isinstance(actual, Mapping)
+                    or actual.get("Image") != spec.experimental_image_id
+                    or not isinstance(actual.get("State"), Mapping)
+                    or not isinstance(actual["State"].get("StartedAt"), str)
+                ):
+                    raise ScreenshotCaptureIdentityError(
+                        "Experimental capture image changed."
+                    )
+                experimental_started = actual["State"]["StartedAt"]
+                command = [
+                    "/usr/bin/python3",
+                    "-I",
+                    "-c",
+                    _EXPERIMENTAL_X11_CAPTURE_PROGRAM,
+                ]
             created = client.exec_create(
                 selected_id,
-                list(FIXED_SCREENSHOT_COMMAND),
+                command,
                 stdout=True,
                 stderr=False,
             )
@@ -397,6 +468,17 @@ class DockerManagedScreenshotCaptureProvider:
                 artifact_created = False
                 raise
             final_id = self._select_exact(client, spec, expected_container_id)
+            if experimental_started is not None:
+                actual = client.inspect_container(final_id)
+                if (
+                    not isinstance(actual, Mapping)
+                    or actual.get("Image") != spec.experimental_image_id
+                    or not isinstance(actual.get("State"), Mapping)
+                    or actual["State"].get("StartedAt") != experimental_started
+                ):
+                    raise ScreenshotCaptureIdentityError(
+                        "Experimental capture incarnation changed."
+                    )
             if final_id != selected_id:
                 raise ScreenshotCaptureIdentityError(
                     "Managed runtime identity changed during screenshot capture."

@@ -12,7 +12,10 @@ from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
 
-from kodi_lab.broker.screenshots import FIXED_SCREENSHOT_COMMAND
+from kodi_lab.broker.screenshots import (
+    _EXPERIMENTAL_X11_CAPTURE_PROGRAM,
+    FIXED_SCREENSHOT_COMMAND,
+)
 from kodi_lab.config import Settings
 from kodi_lab.kodi.screenshots import png_pixel_statistics, x11_frame_to_png
 from kodi_lab.runtime.recipes import ReviewedRecipe
@@ -131,8 +134,13 @@ def _identity(container: Any, reviewed: ReviewedRecipe) -> None:
         raise RecipeValidationError("reviewed Kodi binary version differs")
 
 
-def _capture(container: Any) -> dict[str, object]:
-    raw = _exec(container, FIXED_SCREENSHOT_COMMAND, limit=8 * 1024 * 1024)
+def _capture(container: Any, *, experimental: bool = False) -> dict[str, object]:
+    command = (
+        ("/usr/bin/python3", "-I", "-c", _EXPERIMENTAL_X11_CAPTURE_PROGRAM)
+        if experimental
+        else FIXED_SCREENSHOT_COMMAND
+    )
+    raw = _exec(container, command, limit=8 * 1024 * 1024)
     png = x11_frame_to_png(raw)
     stats = png_pixel_statistics(png)
     if not stats.has_pixel_variation:
@@ -240,7 +248,12 @@ def validate_reviewed_image(
             if not isinstance(library, dict):
                 raise RecipeValidationError("reviewed Kodi library query failed")
             if cycle == 0:
-                screenshot = _capture(container)
+                screenshot = _capture(
+                    container,
+                    experimental=reviewed.recipe.recipe_id
+                    == "ubuntu-resolute-omega-21.3"
+                    and reviewed.recipe.recipe_revision == 4,
+                )
             container.stop(timeout=10)
             container.reload()
             state = container.attrs.get("State")

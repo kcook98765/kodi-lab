@@ -26,7 +26,7 @@ from kodi_lab.broker.socket_path import SocketPathConfig, prepare_unix_listener
 
 CHUNK = 65536
 BACKLOG = 1024 * 1024
-MAX_SESSION = 900.0
+MAX_SESSION = 600.0
 WEB_LEASE_SECONDS = 2.0
 
 
@@ -35,22 +35,39 @@ class ViewRequest:
     instance: UUID
     owner: str
     rate: int
+    attempt: UUID | None = None
+    mode: str = "view-only"
 
     @classmethod
     def decode(cls, raw: bytes, challenge: str) -> ViewRequest:
         value = json.loads(raw)
         if (
             not isinstance(value, dict)
-            or set(value) != {"instance", "owner", "rate", "challenge"}
+            or set(value)
+            not in (
+                {"instance", "owner", "rate", "challenge"},
+                {"instance", "owner", "rate", "challenge", "attempt", "mode"},
+            )
             or value["challenge"] != challenge
             or type(value["rate"]) is not int
-            or value["rate"] not in (10, 15)
+            or value["rate"] not in (2, 10, 15)
             or not isinstance(value["owner"], str)
             or len(value["owner"]) != 64
             or any(c not in "0123456789abcdef" for c in value["owner"])
         ):
             raise ValueError("view admission denied")
-        return cls(UUID(value["instance"]), value["owner"], value["rate"])
+        mode = value.get("mode", "view-only")
+        if mode not in ("view-only", "interactive") or (
+            mode == "interactive" and "attempt" not in value
+        ):
+            raise ValueError("input mode denied")
+        return cls(
+            UUID(value["instance"]),
+            value["owner"],
+            value["rate"],
+            UUID(value["attempt"]) if "attempt" in value else None,
+            mode,
+        )
 
 
 @dataclass(frozen=True)
@@ -71,6 +88,7 @@ class ViewResult:
     startup_ms: float = 0
     teardown_ms: float = 0
     terminated: bool = False
+    armed: bool = False
     reason: str = "failed"
     done: Event = field(default_factory=Event)
 
@@ -85,12 +103,24 @@ class DockerViewTunnel:
         valid: Callable[[], bool],
         *,
         client: Any = None,
+        started: Callable[[str], None] | None = None,
+        proof: Callable[[str | None], bool] | None = None,
+        finished: Callable[[bool], None] | None = None,
     ) -> None:
         self.binding = binding
         self.request = request
         self.valid = valid
         self.client = client or docker.APIClient(version="auto", timeout=1)
         self.result = ViewResult()
+        self.started = started
+        self.proof = proof
+        self.finished = finished
+
+    def proven(self) -> bool:
+        try:
+            return self.proof(self.result.exec_id) if self.proof is not None else True
+        except Exception:
+            return False
 
     def run(self, web: socket.socket, stopped: Event) -> None:
         attached: Any = None
@@ -103,6 +133,7 @@ class DockerViewTunnel:
         from_web = bytearray()
         renewed = 0.0
         web_renewed = start
+        arm_challenge = bytearray()
         try:
             if not self.valid():
                 raise ValueError("view identity denied")
@@ -120,9 +151,14 @@ class DockerViewTunnel:
                 stderr=True,
                 tty=False,
                 privileged=False,
-                environment={"KODI_LAB_VIEW_RATE": str(self.request.rate)},
+                environment={
+                    "KODI_LAB_VIEW_RATE": str(self.request.rate),
+                    "KODI_LAB_VIEW_MODE": self.request.mode,
+                },
             )
             self.result.exec_id = created["Id"]
+            if self.started is not None:
+                self.started(created["Id"])
             attached = self.client.exec_start(created["Id"], socket=True, tty=False)
             wire = attached._sock
             assert wire is not None
@@ -142,7 +178,8 @@ class DockerViewTunnel:
                     if not self.valid():
                         self.result.reason = "revoked"
                         break
-                    to_exec.extend(struct.pack("!BI", 2, 0))
+                    if self.result.armed:
+                        to_exec.extend(struct.pack("!BI", 2, 0))
                     renewed = time.monotonic()
                 selector.modify(
                     web, selectors.EVENT_READ | (selectors.EVENT_WRITE if output else 0)
@@ -172,6 +209,12 @@ class DockerViewTunnel:
                                 if kind == 2:
                                     web_renewed = time.monotonic()
                                 else:
+                                    if (
+                                        self.request.mode == "interactive"
+                                        and not self.valid()
+                                    ):
+                                        self.result.reason = "input_revoked"
+                                        return
                                     self.result.bytes_up += size
                                     to_exec.extend(struct.pack("!BI", 1, size))
                                     to_exec.extend(from_web[5 : 5 + size])
@@ -205,7 +248,24 @@ class DockerViewTunnel:
                                     raise ValueError("display helper failed")
                                 if not output:
                                     last_write = time.monotonic()
-                                output.extend(from_exec[8 : 8 + size])
+                                payload = bytes(from_exec[8 : 8 + size])
+                                if not self.result.armed:
+                                    arm_challenge.extend(payload)
+                                    if len(arm_challenge) >= 40:
+                                        if (
+                                            arm_challenge[:8] != b"KLVNCARM"
+                                            or not self.valid()
+                                        ):
+                                            raise ValueError("native arming denied")
+                                        to_exec.extend(
+                                            struct.pack("!BI", 4, 32)
+                                            + arm_challenge[8:40]
+                                        )
+                                        self.result.armed = True
+                                        output.extend(arm_challenge[40:])
+                                        arm_challenge.clear()
+                                else:
+                                    output.extend(payload)
                                 del from_exec[: 8 + size]
                         if mask & selectors.EVENT_WRITE and to_exec:
                             size = wire.send(to_exec[:CHUNK])
@@ -221,7 +281,8 @@ class DockerViewTunnel:
                 self.result.reason = "cancelled"
         finally:
             ending = time.monotonic()
-            selector.close()
+            with suppress(Exception):
+                selector.close()
             if wire is not None:
                 # Best effort close; independent helper timer is mandatory fallback.
                 with suppress(OSError):
@@ -229,20 +290,22 @@ class DockerViewTunnel:
                 with suppress(OSError):
                     wire.shutdown(socket.SHUT_RDWR)
             if attached is not None:
-                attached.close()
+                with suppress(Exception):
+                    attached.close()
             while self.result.exec_id and time.monotonic() - ending < 4.5:
                 try:
                     state = self.client.exec_inspect(self.result.exec_id)
                 except Exception:
                     break
                 if not state["Running"]:
-                    self.result.terminated = True
+                    self.result.terminated = self.proven()
                     break
                 time.sleep(0.05)
             if self.result.exec_id is None:
-                self.result.terminated = True
+                self.result.terminated = self.proven()
             self.result.teardown_ms = (time.monotonic() - ending) * 1000
-            self.client.close()
+            with suppress(Exception):
+                self.client.close()
             self.result.done.set()
 
 
@@ -258,10 +321,14 @@ class DisplayLane:
         config: SocketPathConfig,
         web_uid: int,
         admit: Callable[[ViewRequest], DockerViewTunnel],
+        reconcile: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.web_uid = web_uid
         self.admit = admit
+        self.reconcile = reconcile
+        self.retained: dict[UUID, DockerViewTunnel] = {}
+        self.reaper: Thread | None = None
         self.stopped = Event()
         self.lock = Lock()
         self.active: set[UUID] = set()
@@ -279,6 +346,31 @@ class DisplayLane:
             target=self._accept, name="display-admission", daemon=True
         )
         self.accept_thread.start()
+        self.reaper = Thread(
+            target=self._reap, name="display-reconciliation", daemon=True
+        )
+        self.reaper.start()
+
+    def _reap(self) -> None:
+        while not self.stopped.wait(0.5):
+            if self.reconcile is not None:
+                with suppress(Exception):
+                    self.reconcile()
+            with self.lock:
+                retained = list(self.retained.items())
+            for instance, tunnel in retained:
+                try:
+                    if tunnel.proof is None or not tunnel.proof(tunnel.result.exec_id):
+                        continue
+                    if tunnel.finished is not None:
+                        tunnel.finished(True)
+                    with self.lock:
+                        if self.retained.get(instance) is tunnel:
+                            self.retained.pop(instance)
+                            self.active.discard(instance)
+                    tunnel.result.terminated = True
+                except Exception:
+                    pass
 
     def _accept(self) -> None:
         while not self.stopped.is_set():
@@ -343,11 +435,24 @@ class DisplayLane:
         finally:
             peer.close()
             if tunnel is not None and tunnel.result.exec_id is None:
-                tunnel.client.close()
-                tunnel.result.terminated = True
+                with suppress(Exception):
+                    tunnel.result.terminated = tunnel.proven()
+                with suppress(Exception):
+                    tunnel.client.close()
+                tunnel.result.done.set()
             if instance is not None and (tunnel is None or tunnel.result.terminated):
                 with self.lock:
                     self.active.discard(instance)
+            if (
+                instance is not None
+                and tunnel is not None
+                and not tunnel.result.terminated
+            ):
+                with self.lock:
+                    self.retained[instance] = tunnel
+            if tunnel is not None and tunnel.finished is not None:
+                with suppress(Exception):
+                    tunnel.finished(tunnel.result.terminated)
 
     def close(self) -> None:
         self.stopped.set()
@@ -355,6 +460,8 @@ class DisplayLane:
             self.listener.close()
         if self.accept_thread is not None:
             self.accept_thread.join(timeout=1)
+        if self.reaper is not None:
+            self.reaper.join(timeout=3)
         deadline = time.monotonic() + 5
         for thread in self.threads:
             thread.join(timeout=max(0, deadline - time.monotonic()))

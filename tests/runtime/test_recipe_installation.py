@@ -191,7 +191,7 @@ def test_ready_novnc_candidate_requires_explicit_selection_policy(
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)
         assert row is not None and row.runtime_revision_id is not None
-        assert row.recipe_revision == 3
+        assert row.recipe_revision == 4
         revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
         definition = RuntimeDefinitionRepository(session).get(
             reviewed.recipe.definition_id
@@ -220,6 +220,19 @@ def test_ready_novnc_candidate_requires_explicit_selection_policy(
         if x.runtime_definition_id == reviewed.recipe.definition_id
     )
     assert not candidate.selectable and candidate.selected_revision_number is None
+
+    # Existing agent capture resolves the sealed runtime geometry without any
+    # viewer, private display lane, or viewer authority object.
+    from kodi_lab.broker.screenshots import SqliteScreenshotCaptureResolver
+    from kodi_lab.kodi.screenshots import prepare_capture_stage
+
+    bootstrap_recipe_instance(factory, reviewed, revision.id)
+    capture = uuid4()
+    prepare_capture_stage(Settings().data_root, capture)
+    resolved = SqliteScreenshotCaptureResolver(
+        factory, data_root=Settings().data_root
+    ).resolve(str(recipe_target_id(reviewed)), str(revision.id), str(capture))
+    assert resolved.experimental_image_id == IMAGE
 
 
 def test_ready_install_is_eligible_and_creates_one_exact_managed_pin(

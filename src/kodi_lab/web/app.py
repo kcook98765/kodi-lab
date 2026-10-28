@@ -2323,8 +2323,8 @@ def create_app(
             async def expire_novnc_tickets() -> None:
                 while True:
                     if novnc_viewer is not None:
-                        with novnc_viewer.lock:
-                            novnc_viewer._expire()
+                        with suppress(Exception):
+                            await novnc_viewer.mutate(novnc_viewer.sweep)
                     await asyncio.sleep(0.25)
 
             novnc_sweeper = (
@@ -2336,7 +2336,7 @@ def create_app(
                 yield
             finally:
                 if novnc_viewer is not None:
-                    novnc_viewer.close()
+                    await asyncio.to_thread(novnc_viewer.close)
                 if novnc_sweeper is not None:
                     novnc_sweeper.cancel()
                     with suppress(asyncio.CancelledError):
@@ -3303,6 +3303,10 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         context.live_display.retire_owner(preview_owner(authenticated.csrf_token))
         context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
+        if novnc_viewer is not None:
+            await asyncio.to_thread(
+                novnc_viewer.retire_owner, preview_owner(authenticated.csrf_token)
+            )
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(
@@ -8277,6 +8281,11 @@ def create_app(
         _body: EmptyActionRequest = Body(),
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
+        if novnc_viewer is not None:
+            try:
+                novnc_viewer.revoke_instance(instance_id)
+            except ValueError:
+                raise HTTPException(409, "input_release_unproven") from None
         return context.lifecycle.stop(instance_id)
 
     @app.post(

@@ -6572,7 +6572,6 @@ class ManagedInstanceMutationLeaseRepository:
             raise ManagedRuntimeReconciliationBlockedError(
                 "Runtime reconciliation is unresolved for this managed instance."
             )
-        cancel_active_live_display(instance_id)
         require_no_active_browser_remote(instance_id)
         self._session.add(
             ManagedInstanceMutationLeaseRow(
@@ -6582,6 +6581,9 @@ class ManagedInstanceMutationLeaseRepository:
             )
         )
         self._session.flush()
+        # Exclusion must succeed before an attempted mutation can revoke a
+        # human viewer. A refused Start/settings action cannot cancel control.
+        cancel_active_live_display(instance_id)
         if kind in _RUNTIME_INVALIDATING_MUTATIONS:
             ManagedRuntimeProjectionRepository(self._session).reserve_mutation(
                 instance_id

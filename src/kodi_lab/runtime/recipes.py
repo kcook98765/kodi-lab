@@ -72,7 +72,7 @@ _DISPLAY_GUARD_ASSET = "xvfb_guard.py"
 REVIEWED_SIGNED_DISTRO_SOURCE_KIND = "reviewed-signed-distro-package"
 REVIEWED_OSTREE_SOURCE_KIND = "reviewed-flathub-ostree"
 NOVNC_PHASE1_DIGEST: Final = (
-    "sha256:a81b7786b6df3c4cf0fde57b117ee87b5911eb8df1f17c74e2cee45685337a46"
+    "sha256:44ff250db8587265c74ecf7114a74f51646f7f25ab4199c29c3181c02d9f2d15"
 )
 PREVIEW_INSTALLATION_DIGEST: Final = (
     "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793"
@@ -331,7 +331,10 @@ class RuntimeRecipe(_ClosedModel):
         expected_assets = set(_ASSETS)
         if self.recipe_revision >= 2:
             expected_assets.add(_DISPLAY_GUARD_ASSET)
-        if self.recipe_id == "ubuntu-resolute-omega-21.3" and self.recipe_revision == 3:
+        if self.recipe_id == "ubuntu-resolute-omega-21.3" and self.recipe_revision in (
+            3,
+            4,
+        ):
             expected_assets.add("novnc_view_helper.py")
         if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
@@ -403,7 +406,7 @@ def load_recorded_reviewed_recipe(
         if generation == "piers"
         else _reviewed_for_generation(generation)
     )
-    if generation == "omega" and recipe_revision == 3 and digest == NOVNC_PHASE1_DIGEST:
+    if generation == "omega" and recipe_revision == 4 and digest == NOVNC_PHASE1_DIGEST:
         entries = (*entries, load_novnc_phase1_recipe())
     for reviewed in entries:
         if (
@@ -418,7 +421,7 @@ def load_recorded_reviewed_recipe(
 def load_novnc_phase1_recipe() -> ReviewedAptRecipe:
     """Explicit candidate only; ordinary Omega installation remains revision 2."""
     reviewed = _load_recipe_file(
-        "omega", "omega-21.3-novnc-phase1-r3.json", NOVNC_PHASE1_DIGEST
+        "omega", "omega-21.3-novnc-phase2-r4.json", NOVNC_PHASE1_DIGEST
     )
     if not isinstance(reviewed, ReviewedAptRecipe):
         raise ValueError("Phase 1 requires the APT provider")

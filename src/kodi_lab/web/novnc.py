@@ -1,7 +1,8 @@
-"""Explicitly injected Phase 1 prototype. Default application has no VNC route.
+"""Explicitly injected human viewer. Default application has no VNC route.
 
 Authentication uses existing admin sessions/CSRF. An in-memory, one-use tab
-ticket attaches one exact catalog/runtime identity. No reconnect or input mode.
+ticket attaches one exact catalog/runtime identity. Mode changes require a
+verified server handoff and exclusive human input ownership.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from kodi_lab.application.live_display import (
     LiveDisplaySession,
     LiveDisplaySessionRegistry,
 )
+from kodi_lab.application.novnc_control import HumanViewerOwnership
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
 
@@ -39,12 +41,18 @@ from kodi_lab.broker.novnc import ViewBinding
 class StartView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     attempt: UUID
-    rate: Literal[10, 15] = 10
+    rate: Literal[2] = 2
 
 
 class StopView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     attempt: UUID
+
+
+class ChangeMode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attempt: UUID
+    next_attempt: UUID
 
 
 class AdmissionBodyLimit:
@@ -57,7 +65,14 @@ class AdmissionBodyLimit:
         path = scope.get("path", "")
         if scope["type"] != "http" or not (
             path.startswith("/api/instances/")
-            and path.endswith(("/novnc-start", "/novnc-stop"))
+            and path.endswith(
+                (
+                    "/novnc-start",
+                    "/novnc-stop",
+                    "/novnc-take-control",
+                    "/novnc-release-control",
+                )
+            )
         ):
             await self.app(scope, receive, send)
             return
@@ -118,6 +133,8 @@ class Attachment:
     session: LiveDisplaySession
     expires: float
     connected: bool = False
+    mode: str = "view-only"
+    deadline: str | None = None
 
 
 class PrototypeViewer:
@@ -127,6 +144,7 @@ class PrototypeViewer:
         authority: Callable[[UUID], ViewBinding],
         *,
         registry: LiveDisplaySessionRegistry = LIVE_DISPLAY_REGISTRY,
+        ownership: HumanViewerOwnership | None = None,
     ) -> None:
         self.socket_path = socket_path
         self.authority = authority
@@ -137,6 +155,9 @@ class PrototypeViewer:
         self.closed = False
         self.admissions = BoundedSemaphore(2)
         self.checks = BoundedSemaphore(2)
+        self.ownership = ownership
+        self.handoffs = BoundedSemaphore(1)
+        self.mutations = BoundedSemaphore(4)
 
     async def checked[T](
         self,
@@ -144,16 +165,18 @@ class PrototypeViewer:
         *,
         cancelled: Any = None,
         timeout: float = 1.0,
+        capacity: BoundedSemaphore | None = None,
     ) -> T:
         """Bound DB waits; retain each read slot until its real thread finishes."""
-        if not self.checks.acquire(blocking=False):
+        semaphore = capacity or self.checks
+        if not semaphore.acquire(blocking=False):
             raise ValueError("view check capacity reached")
 
         def execute() -> T:
             try:
                 return callback()
             finally:
-                self.checks.release()
+                semaphore.release()
 
         work = asyncio.create_task(asyncio.to_thread(execute))
         deadline = time.monotonic() + timeout
@@ -177,15 +200,38 @@ class PrototypeViewer:
             work.add_done_callback(consume)
             raise
 
-    def start(self, instance: UUID, owner: str, body: StartView) -> Attachment:
+    async def mutate[T](self, callback: Callable[[], T]) -> T:
+        return await self.checked(callback, timeout=8, capacity=self.mutations)
+
+    def sweep(self) -> None:
+        with self.lock:
+            self._expire()
+
+    def start(
+        self,
+        instance: UUID,
+        owner: str,
+        body: StartView,
+        *,
+        mode: str = "view-only",
+        deadline: str | None = None,
+    ) -> Attachment:
         if not self.admissions.acquire(blocking=False):
             raise ValueError("view admission capacity reached")
         try:
-            return self._start(instance, owner, body)
+            return self._start(instance, owner, body, mode=mode, deadline=deadline)
         finally:
             self.admissions.release()
 
-    def _start(self, instance: UUID, owner: str, body: StartView) -> Attachment:
+    def _start(
+        self,
+        instance: UUID,
+        owner: str,
+        body: StartView,
+        *,
+        mode: str,
+        deadline: str | None,
+    ) -> Attachment:
         binding = self.authority(instance)
         with self.lock:
             self._expire()
@@ -203,6 +249,16 @@ class PrototypeViewer:
                 owner=owner,
             )
             self.registry.acquire(session)
+            try:
+                if self.ownership is not None:
+                    deadline = self.ownership.create(
+                        instance, body.attempt, owner, binding, mode, deadline
+                    )
+                elif mode != "view-only":
+                    raise ValueError("interactive ownership unavailable")
+            except BaseException:
+                self.registry.release(session)
+                raise
             attachment = Attachment(
                 secrets.token_urlsafe(32),
                 body.attempt,
@@ -212,6 +268,8 @@ class PrototypeViewer:
                 session,
                 time.monotonic() + 10,
             )
+            attachment.mode = mode
+            attachment.deadline = deadline
             self.attachments[body.attempt] = attachment
             return attachment
 
@@ -219,6 +277,10 @@ class PrototypeViewer:
         for item in list(self.attachments.values()):
             if not item.connected and time.monotonic() >= item.expires:
                 item.session.cancelled.set()
+                if self.ownership is not None:
+                    self.ownership.revoke(
+                        item.session.instance_id, item.attempt, item.owner
+                    )
                 self.registry.release(item.session)
                 del self.attachments[item.attempt]
 
@@ -245,6 +307,10 @@ class PrototypeViewer:
             item = self.attachments.get(attempt)
             if item is not None and item.owner == owner:
                 item.session.cancelled.set()
+                if self.ownership is not None:
+                    self.ownership.revoke(
+                        item.session.instance_id, item.attempt, item.owner
+                    )
                 if not item.connected:
                     self.registry.release(item.session)
                     del self.attachments[attempt]
@@ -252,6 +318,10 @@ class PrototypeViewer:
     def end(self, item: Attachment) -> None:
         with self.lock:
             item.session.cancelled.set()
+            if self.ownership is not None:
+                self.ownership.revoke(
+                    item.session.instance_id, item.attempt, item.owner
+                )
             self.registry.release(item.session)
             if self.attachments.get(item.attempt) is item:
                 del self.attachments[item.attempt]
@@ -261,9 +331,56 @@ class PrototypeViewer:
             self.closed = True
             for item in list(self.attachments.values()):
                 item.session.cancelled.set()
+                if self.ownership is not None:
+                    self.ownership.revoke(
+                        item.session.instance_id, item.attempt, item.owner
+                    )
                 if not item.connected:
                     self.registry.release(item.session)
                     del self.attachments[item.attempt]
+
+    def handoff(
+        self, instance: UUID, owner: str, body: ChangeMode, mode: str
+    ) -> Attachment:
+        if self.ownership is None or not self.handoffs.acquire(blocking=False):
+            raise ValueError("mode change unavailable")
+        try:
+            with self.lock:
+                item = self.attachments.get(body.attempt)
+                if (
+                    item is None
+                    or item.owner != owner
+                    or item.session.instance_id != instance
+                    or item.session.cancelled.is_set()
+                    or item.mode == mode
+                ):
+                    raise ValueError("mode change denied")
+                deadline = item.deadline
+            self.stop(owner, body.attempt)
+            self.ownership.wait_released(instance)
+            self.end(item)
+            return self.start(
+                instance,
+                owner,
+                StartView(attempt=body.next_attempt),
+                mode=mode,
+                deadline=deadline,
+            )
+        finally:
+            self.handoffs.release()
+
+    def revoke_instance(self, instance: UUID) -> None:
+        self.registry.cancel(instance)
+        if self.ownership is not None:
+            self.ownership.revoke(instance)
+
+    def retire_owner(self, owner: str) -> None:
+        with self.lock:
+            attempts = [
+                a.attempt for a in self.attachments.values() if a.owner == owner
+            ]
+        for attempt in attempts:
+            self.stop(owner, attempt)
 
 
 def owner_of(session: AuthenticatedWebSession) -> str:
@@ -302,6 +419,8 @@ async def relay(
             "owner": item.owner,
             "rate": item.rate,
             "challenge": challenge,
+            "attempt": str(item.attempt),
+            "mode": item.mode,
         }
         writer.write(json.dumps(request).encode() + b"\n")
         await asyncio.wait_for(writer.drain(), 1)
@@ -348,6 +467,12 @@ async def relay(
                 return (
                     auth_current()
                     and viewer.authority(item.session.instance_id) == item.binding
+                    and (
+                        viewer.ownership is None
+                        or viewer.ownership.renew(
+                            item.session.instance_id, item.attempt, item.owner
+                        )
+                    )
                 )
 
             while current():
@@ -377,7 +502,7 @@ async def relay(
                 await asyncio.wait_for(writer.wait_closed(), 1)
         with suppress(Exception):
             await asyncio.wait_for(websocket.close(code=1000), 1)
-        viewer.end(item)
+        await viewer.mutate(lambda: viewer.end(item))
 
 
 def install_routes(
@@ -405,14 +530,23 @@ def install_routes(
             '<meta name="viewport" content="width=device-width">'
             f'<meta name="kodi-lab-csrf" content="{csrf}">'
             '<link rel="stylesheet" href="/static/novnc-phase1.css">'
-            "<title>Kodi Lab view-only prototype</title>"
-            "</head><body><h1>Kodi Lab view-only prototype</h1>"
-            "<p>No input or audio.</p>"
+            "<title>Kodi Lab experimental viewer</title>"
+            "</head><body><h1>Kodi Lab experimental viewer</h1>"
+            "<p>Starts view-only. Take Control pauses conflicting agent and "
+            "Web input. No audio. Sessions end after 10 minutes.</p>"
             f'<p><a href="/instances/{instance}">JPEG and still preview</a></p>'
             f'<main data-instance="{instance}"><select id="rate">'
-            "<option>10</option><option>15</option></select>"
+            "<option>2</option></select>"
             '<button id="start">Start viewing</button>'
             '<button id="stop" disabled>Stop</button>'
+            '<button id="take-control" disabled>Take Control</button>'
+            '<button id="release-control" disabled>Release Control</button>'
+            '<button id="expand">Expand viewer</button>'
+            '<button id="keyboard" disabled>Keyboard</button>'
+            '<button id="back" disabled>Back</button>'
+            '<label class="typing" hidden>Type in Kodi <input '
+            'id="text-input" autocomplete="off" autocapitalize="off" '
+            'spellcheck="false"></label>'
             '<p id="status">Off</p><div id="viewer"></div></main>'
             '<script type="module" src="/static/novnc-phase1.js"></script>'
             "</body></html>",
@@ -435,7 +569,7 @@ def install_routes(
         try:
             item = await asyncio.shield(task)
         except asyncio.CancelledError:
-            viewer.stop(owner, body.attempt)
+            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
             raise
         except Exception:
             raise HTTPException(409, "view_unavailable") from None
@@ -444,21 +578,80 @@ def install_routes(
                 lambda: auth.resolve(request.cookies.get(cookie_name))
             )
         except asyncio.CancelledError:
-            viewer.stop(owner, body.attempt)
+            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
             raise
         except Exception:
             current_auth = None
         if current_auth is None:
-            viewer.stop(owner, body.attempt)
+            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
             raise HTTPException(401, "view_session_expired")
-        return {"ticket": item.ticket, "mode": "view-only"}
+        return {"ticket": item.ticket, "mode": item.mode}
 
     @app.post("/api/instances/{instance}/novnc-stop")
     def stop(
         instance: UUID, body: StopView, authenticated: Any = mutation_dependency
     ) -> dict[str, bool]:
-        viewer.stop(owner_of(authenticated), body.attempt)
+        owner = owner_of(authenticated)
+        with viewer.lock:
+            item = viewer.attachments.get(body.attempt)
+            if item is not None and item.session.instance_id != instance:
+                raise HTTPException(409, "view_identity_changed")
+        viewer.stop(owner, body.attempt)
+        if viewer.ownership is not None and item is not None and item.owner == owner:
+            try:
+                viewer.ownership.wait_released(instance)
+            except ValueError:
+                raise HTTPException(409, "input_release_unproven") from None
         return {"stopped": True}
+
+    async def change(
+        instance: UUID,
+        body: ChangeMode,
+        request: Request,
+        authenticated: Any,
+        mode: str,
+    ) -> dict[str, str]:
+        owner = owner_of(authenticated)
+        task = asyncio.create_task(
+            asyncio.to_thread(viewer.handoff, instance, owner, body, mode)
+        )
+        try:
+            item = await asyncio.shield(task)
+            if (
+                await viewer.checked(
+                    lambda: auth.resolve(request.cookies.get(cookie_name))
+                )
+                is None
+            ):
+                await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+                raise HTTPException(401, "view_session_expired")
+            return {"ticket": item.ticket, "mode": item.mode}
+        except asyncio.CancelledError:
+            await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+            raise
+        except HTTPException:
+            raise
+        except Exception:
+            await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+            raise HTTPException(409, "view_handoff_unavailable") from None
+
+    @app.post("/api/instances/{instance}/novnc-take-control")
+    async def take_control(
+        instance: UUID,
+        body: ChangeMode,
+        request: Request,
+        authenticated: Any = mutation_dependency,
+    ) -> dict[str, str]:
+        return await change(instance, body, request, authenticated, "interactive")
+
+    @app.post("/api/instances/{instance}/novnc-release-control")
+    async def release_control(
+        instance: UUID,
+        body: ChangeMode,
+        request: Request,
+        authenticated: Any = mutation_dependency,
+    ) -> dict[str, str]:
+        return await change(instance, body, request, authenticated, "view-only")
 
     @app.websocket("/api/instances/{instance}/novnc")
     async def stream(websocket: WebSocket, instance: UUID) -> None:
@@ -479,7 +672,11 @@ def install_routes(
             await websocket.close(code=4403)
             return
         try:
-            item = viewer.consume(instance, owner_of(authenticated), protocols[1][5:])
+            item = await viewer.mutate(
+                lambda: viewer.consume(
+                    instance, owner_of(authenticated), protocols[1][5:]
+                )
+            )
         except ValueError:
             await websocket.close(code=4403)
             return
@@ -487,7 +684,7 @@ def install_routes(
         def current() -> bool:
             return (
                 not item.session.cancelled.is_set()
-                and time.monotonic() - item.session.started_monotonic < 900
+                and time.monotonic() - item.session.started_monotonic < 600
             )
 
         try:

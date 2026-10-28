@@ -2,7 +2,8 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert/strict');
 const source = fs.readFileSync(process.argv[2], 'utf8').replace(/^import RFB[^\n]+\n/, '');
-const nodes = Object.fromEntries(['main', '#start', '#stop', '#status', '#rate', '#viewer', 'meta[name="kodi-lab-csrf"]'].map(x => [x, {}]));
+const nodes = Object.fromEntries(['main', '#start', '#stop', '#status', '#rate', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand', 'meta[name="kodi-lab-csrf"]'].map(x => [x, {}]));
+for (const node of Object.values(nodes)) node.addEventListener = () => {};
 nodes.main.dataset = {instance: 'fixture'};
 nodes['#rate'].value = '10';
 nodes['meta[name="kodi-lab-csrf"]'].content = 'csrf';
@@ -11,6 +12,7 @@ let sequence = 0;
 class RFB {
     constructor() { this.listeners = {}; this.closed = false; clients.push(this); }
     addEventListener(type, callback) { this.listeners[type] = callback; }
+    blur() {}
     disconnect() { this.closed = true; }
     emit(type) { this.listeners[type](); }
 }
@@ -25,7 +27,7 @@ const context = {
     }
 };
 vm.runInNewContext(source, context);
-const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket'})});
+const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket', mode: 'view-only'})});
 (async () => {
     let first = nodes['#start'].onclick(); grant(); await first;
     const old = clients[0];
