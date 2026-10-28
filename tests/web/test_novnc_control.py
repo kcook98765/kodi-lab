@@ -168,8 +168,10 @@ def test_expiry_and_wrong_owner_never_renew_or_free_claimed_fence(
         mutation(database)
 
 
-def test_controller_and_remote_concurrent_admission_have_one_winner(
+@pytest.mark.parametrize("agent_operation", ["remote", "mutation"])
+def test_controller_and_agent_concurrent_admission_have_one_winner(
     database: sessionmaker[Session],
+    agent_operation: str,
 ) -> None:
     ownership = HumanViewerOwnership(database)
     barrier = Barrier(2)
@@ -187,9 +189,12 @@ def test_controller_and_remote_concurrent_admission_have_one_winner(
     def remote() -> None:
         barrier.wait(timeout=2)
         try:
-            handles.append(acquire_browser_remote(database, INSTANCE_ID))
+            if agent_operation == "mutation":
+                mutation(database)
+            else:
+                handles.append(acquire_browser_remote(database, INSTANCE_ID))
             results.append("remote")
-        except BrowserRemoteCoordinationConflict:
+        except (BrowserRemoteCoordinationConflict, IntegrityError):
             pass
 
     threads = [Thread(target=control), Thread(target=remote)]

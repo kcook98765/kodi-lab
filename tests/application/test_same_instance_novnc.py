@@ -25,6 +25,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
     McpWorkspaceLaunchRow,
     RuntimeContainerArtifactRow,
 )
@@ -269,6 +270,99 @@ def test_negative_diagnostic_completed_between_checks_still_cancels(
         assert db.get(ManagedInstanceMutationLeaseRow, str(fixture.TARGET_ID)) is None
     assert authority.resolve(fixture.TARGET_ID) == item.binding
     assert item.session.cancelled.is_set()
+    viewer.end(item)
+
+
+def test_recognized_launch_recovery_allows_fresh_view_with_old_ticket_retired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env, bridge, service, authority, viewer, item = selected(tmp_path, monkeypatch)
+    request = uuid4()
+    bridge.lost = True
+    assert launch(env, service, request_id=request).state == "ambiguous"
+    assert item.session.cancelled.is_set()
+    with pytest.raises(ValueError, match="reconciliation"):
+        authority.resolve(fixture.TARGET_ID)
+    assert launch(env, service, request_id=request).state == "accepted"
+    assert bridge.calls == [False, True]
+    assert authority.resolve(fixture.TARGET_ID) == item.binding
+    viewer.end(item)
+    fresh = viewer.start(fixture.TARGET_ID, item.owner, StartView(attempt=uuid4()))
+    assert fresh.mode == "view-only" and not fresh.session.cancelled.is_set()
+    with pytest.raises(ValueError):
+        viewer.consume(fixture.TARGET_ID, item.owner, item.ticket)
+    viewer.end(fresh)
+
+
+@pytest.mark.parametrize(
+    "drift", ["source", "generation", "revision", "container", "missing"]
+)
+def test_reservation_boundary_latches_identity_mismatch_without_polling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
+
+    env, _, service, _, viewer, item = selected(tmp_path, monkeypatch)
+    reserve = ManagedInstanceMutationLeaseRepository.reserve
+
+    def changed(repo: Any, target: Any, *, kind: Any, operation_id: Any) -> None:
+        db = repo._session
+        db.flush()
+        operation = db.get(McpWorkspaceLaunchRow, str(operation_id))
+        assert operation is not None
+        if drift == "source":
+            operation.development_source_id = str(uuid4())
+        elif drift == "generation":
+            operation.generation += 1
+        elif drift == "revision":
+            operation.runtime_revision_id = str(uuid4())
+        elif drift == "container":
+            operation.container_id = "e" * 64
+        else:
+            db.delete(operation)
+        reserve(repo, target, kind=kind, operation_id=operation_id)
+        assert item.session.cancelled.is_set()
+
+    monkeypatch.setattr(ManagedInstanceMutationLeaseRepository, "reserve", changed)
+
+    def stop(_phase: str) -> None:
+        raise RuntimeError("stop after reservation boundary")
+
+    service._failure = stop
+    with pytest.raises(RuntimeError, match="stop after reservation"):
+        launch(env, service)
+    viewer.end(item)
+
+
+@pytest.mark.parametrize("defect", ["missing_container", "wrong_epoch"])
+def test_dispatched_smoke_requires_its_own_exact_incarnation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str
+) -> None:
+    from kodi_lab.application.mcp_workspace_development import (
+        McpWorkspaceDevelopmentError,
+    )
+
+    env, _, _, authority, viewer, item = selected(tmp_path, monkeypatch)
+
+    def corrupt(phase: str) -> None:
+        assert phase == "execution_dispatch_marker"
+        with env.sessions.begin() as db:
+            operation = db.scalar(select(McpWorkspaceExecutionOperationRow))
+            assert operation is not None and operation.invocation_dispatched
+            if defect == "missing_container":
+                operation.original_container_id = None
+                operation.original_runtime_state_revision = None
+            else:
+                assert operation.original_runtime_state_revision is not None
+                operation.original_runtime_state_revision += 1
+        with pytest.raises(ValueError, match="operation conflict"):
+            authority.resolve(fixture.TARGET_ID)
+        raise RuntimeError("stop corrupt fixture before dispatch")
+
+    env.development._failure = corrupt
+    with pytest.raises(McpWorkspaceDevelopmentError):
+        fixture._execute_workspace(env)
+    assert env.smoke.count == 0 and item.session.cancelled.is_set()
     viewer.end(item)
 
 

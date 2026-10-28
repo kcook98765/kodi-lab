@@ -692,8 +692,8 @@ def test_execution_rechecks_provenance_after_claim_before_dispatch(
     adopted = _adopt(env, publication, identity)
     claim = env.development._claim_execution
 
-    def claim_then_add_success(*args: Any) -> Any:
-        result = claim(*args)
+    def claim_then_add_success(*args: Any, **kwargs: Any) -> Any:
+        result = claim(*args, **kwargs)
         assert result[1] is True
         with env.sessions.begin() as session:
             first = session.get(
