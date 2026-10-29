@@ -32,13 +32,14 @@ logs at closed lifecycle boundaries and configures newly provisioned marked
 containers. This feature neither modifies/publishes that branch nor duplicates
 its recipe/helper/logging policy. Existing unmarked containers remain untouched.
 
-This slice collects **no log bodies**, arbitrary artifacts, native crash reports
-or stack traces. It does not yet retain evidence after restart/reset/deletion or
-bind exit observations to a historical deployment operation. Those features need
-bounded fixed-artifact reads, exact operation lineage, private retention and a
-reviewed agent-access/redaction policy. Original native crash causality remains
-unknown. Do not use this metadata read alone to justify profile disposal or claim
-that #50, Fresh Test, version switching or native/platform acceptance is complete.
+The metadata-only endpoint collects **no log bodies**, arbitrary artifacts,
+native crash reports or stack traces, and does not create a retained capture.
+The explicit capture workflow below adds bounded retention and optional exact
+deployment association. Those captures are Web-administrator-only; ordinary
+target inspection grants do not confer agent access to retained bodies.
+Original native crash causality remains unknown. Do not use the metadata read
+alone to justify profile disposal or claim that #50, Fresh Test, version switching
+or native/platform acceptance is complete.
 
 ## Select and retain stopped log excerpts
 
@@ -182,3 +183,61 @@ readers must not be used to interpret new payloads. The payload byte/count/histo
 limits and reviewed discard/evidence holds remain unchanged. No MCP authority,
 agent body access, rotation policy, runtime recipe or existing Kodi resource is
 changed. Source/HTTP/socket fixtures remain distinct from native acceptance.
+
+## Native crash triage and missing stack evidence
+
+Start with the exact runtime revision, immutable image/container identity and
+an explicitly retained capture. Preserve its payload digest, observation time,
+artifact availability/truncation states and any selected deployment association.
+Use the retained terminal deployment and lifecycle receipts to establish which
+operations were requested and which outcomes were actually observed. Do not
+assign crash ownership from a nearby warning, the add-on's version, or timing
+alone. A same-container association is not an operation-specific log window.
+
+Keep these conclusions separate:
+
+| Evidence | Supported conclusion | Unestablished conclusion |
+| --- | --- | --- |
+| Exact Docker `oom_killed` observation | Docker reported that OOM flag for this container observation | Native stack or faulty component |
+| Exit 139 | Observed numeric exit status | Authenticated native crash report, stack, or root cause |
+| Exit 143 | Observed numeric exit status | A normal Lab-requested stop without matching operation evidence |
+| Referenced report metadata is available | An approved log reference resolved to a safely inspected file | Report body, origin, usable stack, or available debug symbols |
+| Report body is `not_collected` | This capture contains no report body | The report is empty or the runtime lacks a debugger |
+| Missing/oversized/unavailable artifact | The stated capture limit or availability condition | Absence of an earlier crash or complete historical coverage |
+
+The existing capture interface does not export report bodies, cores or arbitrary
+files. For a separately authorized investigation, first scope and preserve the
+specific debug artifact through an approved evidence export. Do not turn the
+metadata endpoint into a caller-selected file reader. Raw reports/cores can
+contain private paths, process memory and secrets; their authority, redaction,
+byte limits, retention and sharing require separate review.
+
+Prefer an isolated analysis environment for symbolication. Record artifact
+hashes, architecture, exact Kodi/package build and matching executable/shared
+library identities before selecting debugger/symbol packages. Review the
+provider's symbol availability, package trust and redistribution/licensing terms
+for that exact build. If matching artifacts or symbols are unavailable, record
+the missing prerequisite; a symbolized trace from another build is not evidence
+about this runtime. This is a proposed investigation strategy, not an implemented
+debug-artifact acquisition or symbolication service.
+
+Do not install a permanent debugger into ordinary runtimes, repin an active
+image, manufacture a crash, restart a failed instance or discard its profile to
+obtain a stronger diagnosis. Any debugger execution, raw export, disposable
+debug runtime or native reproduction needs its own justified scope. Existing
+fixed capture and retention remain available without those actions.
+
+## Remaining agent and platform acceptance
+
+The current retained-body policy deliberately admits authenticated Web
+administrators. A target's MCP inspection grant and live `log_read` capability
+do not authorize stopped-runtime retained-body access. Adding agent access needs
+an explicit decision about metadata versus body permissions, retained-record
+ownership after target retirement, current/revoked grants, privacy and output
+bounds. No new MCP tool, inherited grant or automatic body export follows from
+the capture feature or this runbook.
+
+Native crash-report availability, a usable original stack, Windows/WSL2 behavior
+and agent-facing stopped diagnostics remain separate acceptance/design gaps.
+The preserved log-rotation/closed-retention branch is also separate work; this
+runbook neither merges it nor changes existing runtime recipes or logging policy.
