@@ -279,3 +279,53 @@ compatible with later worker isolation because every test gets a distinct file.
 Another performance pass is justified only when comparable profiling shows a
 new stable bottleneck or suite growth pushes the authoritative gate materially
 above this pass's result.
+
+## Incremental timing evidence (#119)
+
+A `--harness-report` run also writes an exclusive, mode-0600
+`*.timing.jsonl` sidecar. Each newline-flushed record carries a session UUID and
+monotonic session-relative timestamp. Collection, case start/completion, slow
+successful fixture setups (at least 50 ms), and session finish are retained.
+Completed cases include separate setup/call/teardown durations, outcome, cleanup
+classification and bounded Linux RSS/thread/FD/I/O and scratch-free-space
+samples. Sampling does not walk scratch or inspect environment values. Journal
+records omit parameter values, exception text and scratch paths; redacted case
+IDs remain distinct by ordinal. Existing JSON, JUnit and stage reports retain
+their meanings and contents. The journal is limited to 64 MiB with 16 KiB records;
+exceeding a bound fails visibly. Flushing protects against process termination,
+not host power loss. No fsync occurs per case.
+
+Use the same read-only reporting command with `pytest.timing.jsonl`. It ranks
+aggregate files and fixture setups and reports cumulative elapsed time at
+25/50/75/90/95/100% of the **original collected count**. Repeated boundaries in
+small selections can have zero-length segments. The first segment includes
+collection/startup. Fixture setup sums can overlap when fixtures dynamically
+request dependencies; they are attribution clues, not additive phase totals.
+
+A partial journal reports its last completed and active case, missing count,
+and last-record elapsed lower bound. Unreached boundaries remain unknown. Time
+not accounted for by **completed-case** phases includes active/unrecorded phases
+when interrupted; it is not all framework overhead or termination wall time.
+Only a torn final append is ignored; malformed complete records, repeated
+collection, mixed runs or nonmonotonic timestamps are rejected. For the full
+suite's standard filename, the CLI also reads its companion `stages.tsv` to
+identify status 124 as a watchdog timeout; status 137 is a forced kill of unknown
+cause. Absence of stage/session completion is never a release pass.
+
+The source receipt records Git commit/tree and a tracked-diff digest. It marks
+identity incomplete when Git is unavailable, tracked changes exist, or untracked
+files exist. Freeze and commit measured source for an exact source claim; the
+digest alone does not identify arbitrary new or binary files.
+
+The release gate retains `environment.json` with source identity, effective
+scratch filesystem type/capacity, explicit-override presence, and numeric resource
+measurements. A disk-backed selection emits an advisory warning when writable
+`/dev/shm` appears to satisfy the existing 3 GiB heuristic. Explicit overrides,
+capacity/reserve admission and owned cleanup are unchanged. A suitable tmpfs at
+preflight does not guarantee a particular run fits; watch the free-space samples.
+
+Initial matched overhead check: four sequential 84-case Web/storage runs on
+unchanged source, alternating disabled/enabled/enabled/disabled reports, all
+passed. Wall times were 72.02/69.85/67.17/67.51s. Enabled reporting showed no
+measurable overhead within that spread; this is a bounded local measurement,
+not a universal overhead guarantee or complete-release speedup.
