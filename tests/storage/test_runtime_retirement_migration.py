@@ -61,13 +61,16 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
 ) -> None:
     # Use a populated predecessor, not ORM metadata, for the receipt and lease path.
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, "head")
     case = build(
         tmp_path / "case",
         monkeypatch,
         database_path=Path(url.removeprefix("sqlite:///")),
     )
     try:
-        review = save_historical_review(case.env)
+        request = case.env.request()
+        command.downgrade(config, PREDECESSOR)
+        review = save_historical_review(case.env, request=request)
         capture = case.env.retained.read(case.env.capture.capture_id)
         old_operation = ManagedInstanceLifecycleOperation(
             id=uuid4(),
@@ -95,6 +98,9 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
             )
         with pytest.raises(RuntimeRetirementReceiptError, match="receipt_not_found"):
             read_retirement_receipt(case.sessions, old_operation.id)
+        # The populated 0082->0083 proof above remains historical. Current
+        # lifecycle code runs only after the complete schema upgrade.
+        command.upgrade(config, "head")
         operation_id = uuid4()
         if confirmed:
             case.lifecycle.deprovision(

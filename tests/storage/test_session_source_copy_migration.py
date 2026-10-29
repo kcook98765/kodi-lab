@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 from alembic import command
-from sqlalchemy import Table, inspect, select, text
+from sqlalchemy import MetaData, Table, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -88,9 +88,22 @@ def test_populated_predecessor_produces_atomic_admission_and_retains_history(
     with factory() as source, migrated.begin() as destination:
         for model in models:
             table = cast(Table, model.__table__)
+            historical = Table(
+                table.name, MetaData(), autoload_with=destination.connection()
+            )
             for values in source.execute(select(table)).mappings():
-                destination.execute(table.insert().values(**dict(values)))
+                # Insert only columns that really exist on the predecessor.
+                # Retained-policy fields must still be their unused defaults.
+                if model is DevelopmentSessionPolicyRow:
+                    assert values["retain_profiles"] is False
+                    assert values["retained_omega_target_id"] is None
+                destination.execute(
+                    historical.insert().values(
+                        **{k: v for k, v in values.items() if k in historical.c}
+                    )
+                )
     command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     broker = fixtures.FakeBroker()
     coordinator = fixtures._coordinator(migrated, tmp_path, broker, fixtures.Clock())
     service = SessionSourceCopyService(migrated, coordinator)
@@ -116,6 +129,7 @@ def test_populated_predecessor_produces_atomic_admission_and_retains_history(
         )
         assert session.scalar(text("PRAGMA integrity_check")) == "ok"
         assert session.execute(text("PRAGMA foreign_key_check")).all() == []
+    command.upgrade(config, "head")
     assert (
         service.admit(request_id=receipt.request_id, expected_generation=1) == receipt
     )
