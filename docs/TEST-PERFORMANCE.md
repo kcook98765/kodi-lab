@@ -330,7 +330,7 @@ passed. Wall times were 72.02/69.85/67.17/67.51s. Enabled reporting showed no
 measurable overhead within that spread; this is a bounded local measurement,
 not a universal overhead guarantee or complete-release speedup.
 
-## One migration-template store per pytest session (#119)
+## Shared migration templates for imported fixtures (#119)
 
 Importing the same session fixture into multiple modules creates separate pytest
 fixture definitions. Those definitions previously rebuilt the entire verified
@@ -339,6 +339,14 @@ held on that pytest Config. Every revision is still built and verified, and each
 case still copies and verifies its own private database. No test body, transition,
 seed, assertion, parameter selection or production file changed. Verification
 connections now close explicitly; failed construction cannot publish a cache.
+
+The canonical imported fixture family shares one store per pytest Config. With
+pytest's current prepend imports, the self-collected `test_migrations` module
+and `tests.storage.test_migrations` are separate Python module identities
+(`tests/storage` is not a package). The complete suite therefore retains two
+verified stores. The 195-case selection below excludes that self-collected file
+and records one. The additional full-run build cost 7.54s in the first #119
+qualification attempt; further alias sharing was deferred as a marginal gain.
 
 Two matched 195-case runs per frozen source (`a7d8cff` before, `b9111c3` after)
 all passed with identical case IDs. Wall times were 237.96/234.43s before and
@@ -388,3 +396,22 @@ from 0.910–0.924s to 0.236–0.244s. Reclamation itself took 0.108–0.112s in
 These are local group measurements, not a complete-release result or proof of
 the earlier TLS timeout's cause. The change is retained for its material memory
 and pause-length improvement; final gate qualification remains separate.
+
+## Isolated TLS route failure evidence (#119)
+
+The real administrator TLS proxy test retains bounded method/path/status/timing
+records, nginx status/upstream timings, generation-two GC durations and a
+three-second stack observation. Queries, request bodies and headers are omitted.
+On failure, bounded diagnostics are included in captured test output, so JUnit
+retains them after normal wrapper-owned scratch cleanup. An explicit pytest
+faulthandler watchdog takes precedence over the private stack observation.
+The observer does not terminate workers, retry requests, force collection or
+change HTTPX/nginx/application/watchdog timeouts. All authentication, cookie,
+Origin/CSRF, Host and denied-route assertions remain.
+
+The first #119 full attempt at6b811e8 failed one ReadTimeout after6356passes
+and38skips. Eleven isolated passes, a183-case predecessor lane and larger heap
+lanes did not reproduce that exact event. Heap/compilation-cache findings are
+separate evidence; they do not prove the original timeout's cause. The request
+observer corrects the missing-path/proxy-evidence gap without labeling an
+unproved cause or treating the failed attempt as a release pass.

@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from tests.web.conftest import PASSWORD
 from tests.web.test_mcp_stdio import _live_loopback_server
+from tests.web.tls_diagnostics import request_diagnostics
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
@@ -58,8 +59,11 @@ def _admin_proxy(root: Path, upstream: str) -> Iterator[tuple[str, Path]]:
     guards = REPOSITORY / "deployment/admin-lan-route-guards.nginx.conf"
     config = root / "nginx.conf"
     config.write_text(
-        f"pid {root}/nginx.pid;\nerror_log /dev/null crit;\n"
-        "events { worker_connections 64; }\nhttp {\naccess_log off;\n"
+        f"pid {root}/nginx.pid;\nerror_log {root}/nginx-error.log error;\n"
+        "events { worker_connections 64; }\nhttp {\n"
+        "log_format timing '$request_method $uri $status $request_time ' "
+        "'$upstream_response_time $upstream_status';\n"
+        f"access_log {root}/nginx-access.log timing;\n"
         f"client_body_temp_path {root}/body;\nproxy_temp_path {root}/proxy;\n"
         "server {\n"
         f"listen 127.0.0.1:{port} ssl;\nserver_name 127.0.0.1;\n"
@@ -96,9 +100,13 @@ def _admin_proxy(root: Path, upstream: str) -> Iterator[tuple[str, Path]]:
 
 
 def test_agents_navigation_and_authentication_through_tls_proxy(
-    client: TestClient, tmp_path: Path
+    client: TestClient, tmp_path: Path, request: pytest.FixtureRequest
 ) -> None:
     with (
+        request_diagnostics(
+            tmp_path,
+            existing_watchdog=float(request.config.getini("faulthandler_timeout")) > 0,
+        ) as trace,
         _live_loopback_server(client.app) as (mcp_url, _),
         _admin_proxy(tmp_path, mcp_url.removesuffix("/mcp")) as (base, ca),
         httpx.Client(
@@ -109,9 +117,13 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
         ) as browser,
     ):
         for path in ("/mcp-clients", "/mcp-clients/", "/api/mcp/clients"):
-            assert browser.get(path).status_code == 401
-        response = browser.post(
-            "/login", data={"password": PASSWORD}, headers={"Origin": base}
+            assert trace.request(browser, "GET", path).status_code == 401
+        response = trace.request(
+            browser,
+            "POST",
+            "/login",
+            data={"password": PASSWORD},
+            headers={"Origin": base},
         )
         assert response.status_code == 200
         cookie = response.history[0].headers["set-cookie"].lower()
@@ -120,7 +132,7 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
         assert destination is not None
         assert destination.group(1) == "/mcp-clients"
         for suffix in ("", "/", "?view=all"):
-            page = browser.get(destination.group(1) + suffix)
+            page = trace.request(browser, "GET", destination.group(1) + suffix)
             assert page.status_code == 200
             assert "<h1>Agents</h1>" in page.text
             assert page.headers["cache-control"] == "no-store"
@@ -133,7 +145,7 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
             "/api/mcp/presets",
             "/api/mcp/target-policies",
         ):
-            assert browser.get(path).status_code == 200, path
+            assert trace.request(browser, "GET", path).status_code == 200, path
         for path in (
             "/mcp",
             "/mcp?query=1",
@@ -142,15 +154,17 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
             "/native-zip-packages/test",
         ):
             for method in ("GET", "POST", "DELETE"):
-                assert browser.request(method, path).status_code == 404
+                assert trace.request(browser, method, path).status_code == 404
         assert (
-            browser.post(
-                "/api/mcp/clients", json={}, headers={"Origin": base}
+            trace.request(
+                browser, "POST", "/api/mcp/clients", json={}, headers={"Origin": base}
             ).status_code
             == 403
         )
         assert (
-            browser.post(
+            trace.request(
+                browser,
+                "POST",
                 "/admin-view",
                 data={},
                 headers={"Origin": "https://untrusted.invalid"},
@@ -158,6 +172,8 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
             == 403
         )
         assert (
-            browser.get("/login", headers={"Host": "untrusted.invalid"}).status_code
+            trace.request(
+                browser, "GET", "/login", headers={"Host": "untrusted.invalid"}
+            ).status_code
             == 421
         )
