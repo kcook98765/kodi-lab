@@ -652,12 +652,16 @@ def _skip(path: Path) -> bool:
     )
 
 
-def _onboarding_locks(path: Path) -> None:
+def _application_locks(path: Path) -> None:
     """Validate only known ephemeral locks; never replace their live inodes."""
 
     _private(path, directory=True)
     for scope in path.iterdir():
-        if scope.name != "household-onboarding":
+        if scope.name not in {
+            "household-onboarding",
+            "managed-agent-lifecycle",
+            "external-reconnect",
+        }:
             raise HostBootstrapError("unclassified application lock scope")
         _private(scope, directory=True)
         for lock in scope.iterdir():
@@ -674,7 +678,7 @@ def _onboarding_locks(path: Path) -> None:
 def _top_level(root: Path) -> None:
     for child in root.iterdir():
         if child.name == "locks":
-            _onboarding_locks(child)
+            _application_locks(child)
         if child.name in ROLLBACK_ROOTS | EXCLUDED:
             continue
         if child.name.startswith("external-deployment-"):
