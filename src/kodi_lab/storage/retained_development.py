@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kodi_lab.storage.models import (
     DevelopmentSessionPolicyRow,
     ManagedInstanceRow,
+    ManagedProvisionReservationRow,
+    ManagedStartReservationRow,
     RuntimeContainerArtifactRow,
 )
 
@@ -126,6 +129,22 @@ def require_retained_selection(session: Session, target_id: str) -> None:
         raise DevelopmentSessionConflict("retained_selection_required")
 
 
+def require_runtime_reservations_idle(session: Session, target_id: str) -> None:
+    """Never stage/restart over pending runtime dispatch; containment is separate."""
+    from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+    retained = bool(retained_targets(session))
+    for model, code in (
+        (ManagedStartReservationRow, "development_session_start_pending"),
+        (ManagedProvisionReservationRow, "development_session_provision_pending"),
+    ):
+        query = select(model).limit(1)
+        if not retained:
+            query = query.where(model.managed_instance_id == target_id)
+        if session.scalar(query) is not None:
+            raise DevelopmentSessionConflict(code)
+
+
 def require_retained_container(
     session: Session,
     records: Sequence[RetainedContainer],
@@ -142,6 +161,7 @@ def require_retained_container(
 
     if not retained_targets(session):
         return
+    require_runtime_reservations_idle(session, target_id)
     require_retained_selection(session, target_id)
     retained_inventory(session, records)
     current = active_session(session)

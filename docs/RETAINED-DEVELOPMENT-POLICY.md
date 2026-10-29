@@ -86,3 +86,12 @@ their original lifecycle record using the same blocking classification. Cleanup
 failure cannot erase that uncertainty. Automatic preparation creates no synthetic
 Web use activity: the original start/use actor remains authoritative. Ordinary
 release still protects in-flight preparation and unrelated real use holds.
+
+Owned START admission also refuses pending/uncertain start or provision reservations
+before Bridge effects. In retained mode the check covers the whole cohort; legacy
+admission preserves its target-specific exclusion. Explicit Stop does not pass
+through START staging and retains its separately checked containment route. Native
+broker start/stop failures after possible dispatch remain unconfirmed despite a
+later running/stopped observation; provision failures retain their durable create
+reservation and original lifecycle uncertainty. Proven pre-dispatch refusals stay
+ordinary failures.
