@@ -213,6 +213,7 @@ _MCP_AUDIT_SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MCP_AUDIT_AUTHORIZATION_CODES = frozenset(
     {
         "permission_denied",
+        "retained_workspace_requires_administrator",
         "source_not_found_or_not_authorized",
         "target_not_found_or_not_authorized",
         "workspace_not_found_or_not_authorized",

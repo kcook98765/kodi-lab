@@ -4574,6 +4574,8 @@ def create_app(
         ):
             raise HTTPException(403, "Forbidden")
         try:
+            # HTML form inputs are strings; JSON policy/selection stays strict.
+            values["expected_generation"] = int(str(values.get("expected_generation")))
             if action == "policy":
                 if values.get("enabled") not in {"true", "false"}:
                     raise ValueError("invalid retained policy")
@@ -4581,10 +4583,6 @@ def create_app(
                 body = RetainedPolicyRequest.model_validate(values)
                 session_service.configure_retained(body)
             else:
-                # HTML inputs are strings; the JSON/MCP request remains strict.
-                values["expected_generation"] = int(
-                    str(values.get("expected_generation"))
-                )
                 selection = RetainedSelectionRequest.model_validate(values)
                 session_service.select_retained(selection)
         except (ValueError, ValidationError):

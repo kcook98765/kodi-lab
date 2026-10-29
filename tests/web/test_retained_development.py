@@ -1,16 +1,28 @@
 """Actual admin HTTP/HTML routes share the retained session authority."""
 
+import json
+import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from threading import Event
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.development_sessions import DevelopmentSessionService
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
+from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
+from tests.application.test_managed_bridge_trust import Client
+from tests.application.test_managed_resources import ImmediateReadiness
 from tests.application.test_mcp_retained_selection import authorize
+from tests.application.test_mcp_workspace_development import SOURCE_ID
+from tests.application.test_retained_bridge_lifecycle import Broker
 from tests.application.test_retained_development import environment
 from tests.web.conftest import ORIGIN, FakeBroker, login
 from tests.web.test_mcp import _post
@@ -219,3 +231,178 @@ def test_authenticated_mcp_wire_selection_is_strict_and_does_not_start_kodi(
     assert "container_id" not in selected["structuredContent"]
     assert all(r.runtime_state == "stopped" for r in s.records)
     assert not broker.calls
+
+
+@pytest.mark.parametrize("generation", ["0", 0.0, False])
+def test_policy_json_generation_is_a_strict_integer(
+    client: TestClient, generation: Any
+) -> None:
+    csrf = login(client)
+    result = client.post(
+        "/api/development-session/policy",
+        json={
+            "enabled": True,
+            "expected_generation": generation,
+            "omega_target_id": str(recipe_target_id(load_installation_recipe("omega"))),
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert result.status_code == 422
+    assert not client.get("/api/development-session/policy").json()["enabled"]
+
+
+def test_html_confirmation_identifies_previewed_workspace_and_target(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    queued = s.env.workspaces.queue_creation(SOURCE_ID)
+    lease = s.env.workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    s.env.workspaces.run(lease)
+    login(client)
+    page = client.get(
+        "/development-session/retained",
+        params={
+            "target_id": str(s.ids["nexus"]),
+            "workspace_id": str(queued.workspace_id),
+        },
+    )
+    assert page.status_code == 200
+    assert re.search(
+        r'<option value="' + str(queued.workspace_id) + r'"[^>]* selected', page.text
+    )
+    assert re.search(
+        r'<option value="' + str(s.ids["nexus"]) + r'"[^>]* selected', page.text
+    )
+    assert (
+        "Workspace: Slice 4 source · plugin.video.slice4 · " + str(queued.workspace_id)
+        in page.text
+    )
+    assert not re.search(
+        r'<option value="' + str(s.env.workspace_id) + r'"[^>]* selected', page.text
+    )
+
+
+@pytest.mark.parametrize("name", ["managed_selection_preview", "managed_select"])
+def test_mcp_workspace_admin_refusal_is_audited_as_authorization_denied(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    authorize(s)
+    queued = s.env.workspaces.queue_creation(SOURCE_ID)
+    lease = s.env.workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    s.env.workspaces.run(lease)
+    s.admin.bind_workspace(s.env.client_id, queued.workspace_id)
+    arguments: dict[str, Any] = {
+        "target_id": str(s.ids["nexus"]),
+        "workspace_id": str(queued.workspace_id),
+    }
+    if name == "managed_select":
+        arguments.update(
+            request_id=str(uuid4()), expected_generation=1, identity="a" * 64
+        )
+    caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
+    result = _post(
+        client, s.token, "tools/call", params={"name": name, "arguments": arguments}
+    ).json()["result"]
+    assert result["isError"]
+    records = [
+        json.loads(r.getMessage().removeprefix("mcp_request "))
+        for r in caplog.records
+        if r.getMessage().startswith("mcp_request ")
+    ]
+    record = next(r for r in records if r["tool"] == name)
+    assert record["outcome"] == "authorization_denied"
+    assert record["result_code"] == "retained_workspace_requires_administrator"
+
+
+@pytest.mark.parametrize("web_target", ["omega", "nexus"])
+def test_concurrent_authenticated_web_and_mcp_start_requests_share_admission(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    web_target: str,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    authorize(s)
+    csrf = login(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    delegate = Broker(s, Client())
+    # Keep HTTP authentication, services, SQLite ownership and broker capacity
+    # real. Native/Bridge execution is a separate service-level regression.
+    context.lifecycle._broker = delegate
+    context.status._broker = delegate
+    context.managed_resources._broker = delegate
+    context.managed_resources._playback_factory = lambda *_: SimpleNamespace(
+        playback_active=lambda: False
+    )
+    context.lifecycle._coordinator_factory = lambda *_: ImmediateReadiness()
+    context.lifecycle._bridge_trust = None
+    delegate.start_entered, delegate.start_finish = Event(), Event()
+    before = {t: p.read_bytes() for t, p in s.profiles.items()}
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future = pool.submit(
+                _post,
+                client,
+                s.token,
+                "tools/call",
+                params={
+                    "name": "managed_ensure_ready",
+                    "arguments": {
+                        "target_id": str(s.ids["omega"]),
+                        "request_id": str(uuid4()),
+                    },
+                },
+            )
+            try:
+                assert delegate.start_entered.wait(5)
+                web = client.post(
+                    f"/api/instances/{s.ids[web_target]}/start",
+                    json={},
+                    headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+                )
+                assert web.status_code == 409, web.text
+                assert delegate.starts == 1
+            finally:
+                delegate.start_finish.set()
+            result = future.result(timeout=10).json()["result"]
+            assert not result.get("isError"), result
+        assert sum(r.runtime_state == "running" for r in s.records) == 1
+        context.readiness.close()
+        released = _post(
+            client,
+            s.token,
+            "tools/call",
+            params={
+                "name": "managed_release",
+                "arguments": {
+                    "target_id": str(s.ids["omega"]),
+                    "request_id": str(uuid4()),
+                },
+            },
+        ).json()["result"]
+        assert not released.get("isError"), released
+        assert (
+            len(s.records) == 4
+            and {t: p.read_bytes() for t, p in s.profiles.items()} == before
+        )
+    finally:
+        delegate.start_finish.set()
+        context.readiness.close()
