@@ -355,3 +355,36 @@ Regressions exercise real imported fixtures across two modules, clone mutation
 isolation, nonpublication after construction failure, and deterministic clone
 verification-handle closure. Original global history, populated predecessor and
 recovery proofs remain unchanged.
+
+## Test-only ORM compilation reclamation (#119)
+
+SQLAlchemy keeps ORM flush compilation caches on long-lived mapper objects,
+separate from engine caches. In the locked 2.0.53 implementation their keys
+include the engine dialect, so disposable per-case engines can leave compilation
+graphs behind after disposal. See the [SQLAlchemy compilation-cache documentation](https://docs.sqlalchemy.org/en/20/core/connections.html#sql-caching).
+
+After all case fixture teardown, the test plugin clears only existing mapper
+compilation dictionaries when its existing conservative worker check reports no
+other Python threads or direct children. Worker presence or unknown state retains
+the caches. This is not a general isolation barrier. No mappings, engines,
+sessions, transactions, database rows or files are cleared. Default caching stays
+active throughout each case; the plugin does not force GC, share engines/dialects,
+change deadlines or alter application code. The private adapter is fenced by the
+lock, representation checks and real-SQL regressions. Dependency updates must
+retain those tests. Scratch retention remains independent; compilation memory
+can be reclaimed after failed/skipped cases or with scratch retention enabled.
+
+The journal/JSON records status, entries and duration. Reclamation happens outside
+pytest setup/call/teardown phases; its duration is reported as a measured subset
+of unaccounted elapsed time, without adding it to phase totals.
+
+Two matched 276-case runs per frozen source (6b811e8 before, ac787a8 after) all
+passed with unchanged case IDs. Reported pytest elapsed was 85.54/86.67s before
+and 89.20/84.34s after: medians 86.105→86.77s, within the observed spread and
+**not an established wall-time speedup**. Peak process RSS fell from
+595,964–596,404 to 289,980–291,600 KiB; retained tracked objects fell from about
+1.78 million to 470,476. The longest recorded generation-two GC collection fell
+from 0.910–0.924s to 0.236–0.244s. Reclamation itself took 0.108–0.112s in total.
+These are local group measurements, not a complete-release result or proof of
+the earlier TLS timeout's cause. The change is retained for its material memory
+and pause-length improvement; final gate qualification remains separate.
