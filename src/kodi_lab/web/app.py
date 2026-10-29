@@ -164,6 +164,8 @@ from kodi_lab.application.development_sessions import (
     DevelopmentSessionRequest,
     DevelopmentSessionService,
     DevelopmentSessionStatus,
+    RetainedPolicyRequest,
+    RetainedSelectionRequest,
 )
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
@@ -2103,6 +2105,11 @@ def create_app(
             else (endpoint.netloc,)
         )
     ]
+    session_service = DevelopmentSessionService(
+        session_factory,
+        broker.managed_container_inventory,
+        data_root=settings.data_root,
+    )
     mcp_transport = build_mcp_http_transport(
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
@@ -2124,6 +2131,7 @@ def create_app(
             production_transient_approvals=production_transient_approvals,
             workspace_source_captures=workspace_source_captures,
             managed_lifecycle=agent_lifecycle,
+            retained_sessions=session_service,
             workspace_launch=workspace_launch,
             addon_settings=addon_settings,
         ),
@@ -4014,11 +4022,6 @@ def create_app(
             },
         )
 
-    session_service = DevelopmentSessionService(
-        session_factory,
-        broker.managed_container_inventory,
-        data_root=settings.data_root,
-    )
     session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
     current_kodi = CurrentKodiPresentation(
         session_factory,
@@ -4337,6 +4340,7 @@ def create_app(
                 "current_kodi": current_kodi.identity(),
                 "workspaces": context.agent_workspaces.list_workspaces(),
                 "csrf_token": authenticated.csrf_token,
+                "retained_profiles": retained_policy_view()["enabled"],
             },
         )
 
@@ -4484,6 +4488,121 @@ def create_app(
             except (DevelopmentSessionConflict, ValueError, ClientError):
                 pass
         return view
+
+    def retained_policy_view() -> dict[str, object]:
+        from kodi_lab.storage.models import DevelopmentSessionPolicyRow
+
+        with session_factory() as db:
+            policy = db.get(DevelopmentSessionPolicyRow, 1)
+            return {
+                "enabled": policy is not None and policy.retain_profiles,
+                "omega_target_id": None
+                if policy is None
+                else policy.retained_omega_target_id,
+                "latest_generation": session_service._latest(db),
+            }
+
+    @app.get("/api/development-session/policy")
+    def get_retained_policy(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, object]:
+        return retained_policy_view()
+
+    @app.post("/api/development-session/policy")
+    def configure_retained_policy(
+        body: RetainedPolicyRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, object]:
+        return session_service.configure_retained(body)
+
+    @app.get("/api/development-session/selection-preview")
+    def retained_selection_preview(
+        target_id: UUID,
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> object:
+        return session_service.selection_preview(target_id, workspace_id)
+
+    @app.post(
+        "/api/development-session/select", response_model=DevelopmentSessionStatus
+    )
+    def select_retained_profile(
+        body: RetainedSelectionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSessionStatus:
+        return session_service.select_retained(body)
+
+    @app.get("/development-session/retained", response_class=HTMLResponse)
+    def retained_profiles_page(
+        request: Request,
+        target_id: UUID | None = None,
+        workspace_id: UUID | None = None,
+    ) -> Response:
+        from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
+        from kodi_lab.storage.retained_development import omega_targets
+
+        authenticated = current_session(request)
+        current = session_service.status()
+        choices = session_workflow.choices()
+        allowed_omega = omega_targets()
+        cohort = allowed_omega | {
+            str(recipe_target_id(load_installation_recipe(g)))
+            for g in ("matrix", "nexus", "piers")
+        }
+        preview = (
+            session_service.selection_preview(target_id, workspace_id)
+            if target_id is not None and workspace_id is not None
+            else None
+        )
+        return templates.TemplateResponse(
+            request,
+            "retained-development.html",
+            {
+                "policy": retained_policy_view(),
+                "current": current,
+                "choices": choices,
+                "omega_choices": [
+                    c for c in choices if str(c.target_id) in allowed_omega
+                ],
+                "unsupported_current": current is not None
+                and str(current.target_id) not in cohort,
+                "preview": preview,
+                "workspaces": context.agent_workspaces.list_workspaces(),
+                "request_id": str(uuid4()),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/development-session/retained/{action}")
+    async def retained_profiles_form(
+        request: Request, action: Literal["policy", "select"]
+    ) -> Response:
+        from pydantic import ValidationError
+
+        _require_same_origin(request)
+        authenticated = current_session(request)
+        values: dict[str, object] = dict(await request.form())
+        csrf = values.pop("csrf_token", None)
+        if not isinstance(csrf, str) or not context.auth.csrf_matches(
+            authenticated, csrf
+        ):
+            raise HTTPException(403, "Forbidden")
+        try:
+            # HTML form inputs are strings; JSON policy/selection stays strict.
+            values["expected_generation"] = int(str(values.get("expected_generation")))
+            if action == "policy":
+                if values.get("enabled") not in {"true", "false"}:
+                    raise ValueError("invalid retained policy")
+                values["enabled"] = values["enabled"] == "true"
+                body = RetainedPolicyRequest.model_validate(values)
+                await asyncio.to_thread(session_service.configure_retained, body)
+            else:
+                selection = RetainedSelectionRequest.model_validate(values)
+                await asyncio.to_thread(session_service.select_retained, selection)
+        except (ValueError, ValidationError):
+            raise HTTPException(422, "invalid_retained_request") from None
+        return RedirectResponse("/development-session", status_code=303)
 
     @app.post(
         "/api/development-session/reserve", response_model=DevelopmentSessionStatus

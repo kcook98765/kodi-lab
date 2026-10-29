@@ -50,6 +50,10 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
+from kodi_lab.application.development_sessions import (
+    RetainedSelectionPreview,
+    RetainedSelectionRequest,
+)
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleResult
 from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
@@ -113,6 +117,8 @@ from kodi_lab.mcp.tools import (
     DevelopmentSourceListResult,
     ManagedEnsureReadyInput,
     ManagedReleaseInput,
+    ManagedSelectionPreviewInput,
+    ManagedSelectionResult,
     McpTargetToolService,
     ScreenshotCaptureMetadata,
     ScreenshotRetrievalMetadata,
@@ -170,6 +176,8 @@ _principal_context: contextvars.ContextVar[McpPrincipal] = contextvars.ContextVa
 _MCP_AUDIT_SCHEMA_VERSION = 1
 _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
     {
+        "managed_selection_preview",
+        "managed_select",
         "log_read",
         "managed_ensure_ready",
         "managed_release",
@@ -205,6 +213,7 @@ _MCP_AUDIT_SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MCP_AUDIT_AUTHORIZATION_CODES = frozenset(
     {
         "permission_denied",
+        "retained_workspace_requires_administrator",
         "source_not_found_or_not_authorized",
         "target_not_found_or_not_authorized",
         "workspace_not_found_or_not_authorized",
@@ -1230,6 +1239,44 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "managed_selection_preview": Tool(
+            name="managed_selection_preview",
+            title="Review retained Kodi selection",
+            description=(
+                "Read the current session generation and an opaque "
+                "exact-runtime/profile "
+                "identity for one granted target and owned workspace. Requires "
+                "administrator "
+                "opt-in retained profiles. Does not select, start, provision or "
+                "reserve."
+            ),
+            input_schema=ManagedSelectionPreviewInput.model_json_schema(),
+            output_schema=RetainedSelectionPreview.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "managed_select": Tool(
+            name="managed_select",
+            title="Select retained development Kodi",
+            description=(
+                "Explicitly select the exact previewed managed target/profile for "
+                "the owned "
+                "workspace. All runtimes must be stopped, holds released and "
+                "operations idle. "
+                "Use the preview identity and latest_generation as "
+                "expected_generation. "
+                "Preserves profiles, trust and target-bound evidence. Never starts, "
+                "stops, "
+                "provisions, deletes or grants. Same request replay returns "
+                "historical selection, "
+                "without selecting it again. Requires managed.lifecycle and "
+                "workspace.inspect."
+            ),
+            input_schema=RetainedSelectionRequest.model_json_schema(),
+            output_schema=ManagedSelectionResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "managed_ensure_ready": Tool(
             name="managed_ensure_ready",
             title="Ensure managed Kodi is ready",
@@ -1351,6 +1398,8 @@ def build_mcp_http_transport(
                 | WorkspaceExecutionResult
                 | WorkspaceExecutionRecoveryResult
                 | PromotionRequestResult
+                | RetainedSelectionPreview
+                | ManagedSelectionResult
             )
             if params.name in {
                 "development_source_list",
@@ -1362,6 +1411,7 @@ def build_mcp_http_transport(
                 "workspace_import_preview",
                 "workspace_deploy_preflight",
                 "screenshot_retrieve",
+                "managed_selection_preview",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name in {
@@ -1399,6 +1449,26 @@ def build_mcp_http_transport(
                     cursor=parsed_addons.cursor,
                     limit=parsed_addons.limit,
                 )
+            elif params.name == "managed_selection_preview":
+                parsed_selection_preview = ManagedSelectionPreviewInput.model_validate(
+                    arguments
+                )
+                target_id = parsed_selection_preview.target_id
+                workspace_id = parsed_selection_preview.workspace_id
+                result = await asyncio.to_thread(
+                    tools.managed_selection_preview, principal, parsed_selection_preview
+                )
+            elif params.name == "managed_select":
+                parsed_selection = RetainedSelectionRequest.model_validate(arguments)
+                target_id, request_id, workspace_id = (
+                    parsed_selection.target_id,
+                    parsed_selection.request_id,
+                    parsed_selection.workspace_id,
+                )
+                result = await asyncio.to_thread(
+                    tools.managed_select, principal, parsed_selection
+                )
+                source_id = result.source_id
             elif params.name == "managed_ensure_ready":
                 parsed_ensure = ManagedEnsureReadyInput.model_validate(arguments)
                 target_id, request_id = (
