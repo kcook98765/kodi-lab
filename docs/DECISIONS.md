@@ -7349,3 +7349,20 @@ backfills false and refuses downgrade over retained true history. Known historic
 readers preserve unresolved fences with false authority; current/unknown missing
 safety storage fails closed. Existing terminal retention remains unchanged.
 See `FAST-LOOP-SERVICE-ENABLEMENT.md` for admission limits and native/test evidence.
+
+## D-0470: Bound Docker output at new managed-container creation
+
+The trusted broker sets fixed `json-file` logging options (`max-size=1m`,
+`max-file=2`) for new managed containers and verifies Engine readback before
+success. A versioned immutable label retains that requirement on idempotent
+provisioning retries, including retained objects after uncertain rollback.
+Unmarked existing containers keep their previous configuration; no lifecycle
+operation replaces or mutates them solely to apply a log policy. Failed new
+creation uses the existing exact-identity rollback and uncertainty rules.
+
+This extracts only the Docker output slice from preserved commit `3dddbc2`,
+without merging its preceding Nexus helper/runtime recipe. Broker inputs,
+permissions and grants remain unchanged. Capture/body access, internal Kodi log
+retention, crash symbolication and Windows acceptance remain separate. The fixed
+rotation policy prevents ordinary stdout/stderr growth from being unlimited,
+while accepting loss of old output and preserving explicit bounded captures.

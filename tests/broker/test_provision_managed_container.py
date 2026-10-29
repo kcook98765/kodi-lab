@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import copy
+import json
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
 import pytest
 from docker.errors import APIError, NotFound  # type: ignore[import-untyped]
+from docker.types import HostConfig, LogConfig  # type: ignore[import-untyped]
 
 from kodi_lab.broker.docker_inventory import (
     INSTANCE_ID_LABEL_KEY,
+    LOG_POLICY_LABEL_KEY,
+    LOG_POLICY_LABEL_VALUE,
     MANAGED_LABEL_KEY,
     MANAGED_LABEL_VALUE,
     NETWORK_ID_LABEL_KEY,
@@ -103,11 +107,16 @@ def container_data(
                 MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
                 INSTANCE_ID_LABEL_KEY: INSTANCE_ID,
                 RUNTIME_REVISION_LABEL_KEY: REVISION_ID,
+                LOG_POLICY_LABEL_KEY: LOG_POLICY_LABEL_VALUE,
             },
         },
         "State": {"Status": state},
         "Mounts": [],
         "HostConfig": {
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {"max-size": "1m", "max-file": "2"},
+            },
             "RestartPolicy": {"Name": "no", "MaximumRetryCount": 0},
             "Privileged": False,
             "NetworkMode": MANAGED_NETWORK_NAME,
@@ -145,6 +154,7 @@ class FakeProvisioningDockerClient:
         self.create_error = create_error
         self.remove_error = remove_error
         self.create_calls: list[dict[str, object]] = []
+        self.host_config_calls: list[dict[str, object]] = []
         self.remove_calls: list[tuple[str, bool, bool]] = []
         self.start_calls = self.stop_calls = 0
 
@@ -177,12 +187,16 @@ class FakeProvisioningDockerClient:
         privileged: bool,
         restart_policy: Mapping[str, str],
         network_mode: str,
+        log_config: Mapping[str, object],
     ) -> object:
-        return {
+        result: dict[str, object] = {
             "privileged": privileged,
             "restart_policy": dict(restart_policy),
             "network_mode": network_mode,
+            "log_config": log_config,
         }
+        self.host_config_calls.append(result)
+        return result
 
     def create_endpoint_config(self) -> object:
         return {"dynamic": True}
@@ -237,11 +251,16 @@ def test_create_configuration_is_fully_broker_derived_and_minimal() -> None:
                 MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
                 INSTANCE_ID_LABEL_KEY: INSTANCE_ID,
                 RUNTIME_REVISION_LABEL_KEY: REVISION_ID,
+                LOG_POLICY_LABEL_KEY: LOG_POLICY_LABEL_VALUE,
             },
             "host_config": {
                 "privileged": False,
                 "restart_policy": {"Name": "no"},
                 "network_mode": MANAGED_NETWORK_NAME,
+                "log_config": {
+                    "Type": "json-file",
+                    "Config": {"max-size": "1m", "max-file": "2"},
+                },
             },
             "networking_config": {
                 "endpoints": {MANAGED_NETWORK_NAME: {"dynamic": True}}
@@ -605,3 +624,167 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         "stop_managed_container",
         "verify_attached_development_source_destination",
     }
+
+
+@pytest.mark.parametrize("policy", list(PythonBytecodePolicy))
+def test_fresh_logging_policy_crosses_real_sdk_serialization(
+    policy: PythonBytecodePolicy,
+) -> None:
+    data = container_data()
+    if policy is PythonBytecodePolicy.SUPPRESS:
+        config = data["Config"]
+        assert isinstance(config, dict)
+        config["Env"] = ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=1"]
+    client = FakeProvisioningDockerClient(inspections=[data])
+    assert provision(client, policy).created
+    arguments = client.host_config_calls[0]
+    assert isinstance(arguments["log_config"], LogConfig)
+    serialized = json.loads(json.dumps(HostConfig(version="1.45", **arguments)))
+    assert serialized["LogConfig"] == {
+        "Type": "json-file",
+        "Config": {"max-size": "1m", "max-file": "2"},
+    }
+    assert client.start_calls == client.stop_calls == 0
+
+
+@pytest.mark.parametrize(
+    "logging",
+    [
+        "absent",
+        None,
+        "malformed",
+        {},
+        {"Type": "json-file"},
+        {"Type": "local", "Config": {"max-size": "1m", "max-file": "2"}},
+        {"Type": "none", "Config": {}},
+        {"Type": "json-file", "Config": None},
+        {"Type": "json-file", "Config": []},
+        {"Type": "json-file", "Config": {}},
+        {"Type": "json-file", "Config": {"max-size": "2m", "max-file": "2"}},
+        {"Type": "json-file", "Config": {"max-size": "1m", "max-file": "1"}},
+        {"Type": "json-file", "Config": {"max-size": "1m", "max-file": 2}},
+        {
+            "Type": "json-file",
+            "Config": {"max-size": "1m", "max-file": "2", "mode": "non-blocking"},
+        },
+    ],
+)
+def test_unverified_fresh_logging_uses_exact_created_object_rollback(
+    logging: object,
+) -> None:
+    data = container_data()
+    host = data["HostConfig"]
+    assert isinstance(host, dict)
+    if logging == "absent":
+        host.pop("LogConfig")
+    else:
+        host["LogConfig"] = logging
+    # Rollback independently revalidates identity, not the failed log setting.
+    client = FakeProvisioningDockerClient(inspections=[data, data])
+    with pytest.raises(PostCreateVerificationError):
+        provision(client)
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
+    assert client.start_calls == client.stop_calls == 0
+
+
+@pytest.mark.parametrize("state", ["created", "exited", "running"])
+@pytest.mark.parametrize(
+    "logging",
+    ["absent", None, {}, {"Type": "json-file", "Config": {}}, {"Type": "local"}],
+)
+def test_legacy_logging_never_forces_existing_container_mutation(
+    state: str, logging: object
+) -> None:
+    data = container_data(state=state)
+    config = data["Config"]
+    assert isinstance(config, dict) and isinstance(config["Labels"], dict)
+    config["Labels"].pop(LOG_POLICY_LABEL_KEY)
+    host = data["HostConfig"]
+    assert isinstance(host, dict)
+    if logging == "absent":
+        host.pop("LogConfig")
+    else:
+        host["LogConfig"] = logging
+    client = FakeProvisioningDockerClient(
+        owned=[{"Id": CONTAINER_ID}], inspections=[data]
+    )
+    assert not provision(client).created
+    assert client.host_config_calls == client.create_calls == []
+    assert client.remove_calls == []
+    assert client.start_calls == client.stop_calls == 0
+
+
+@pytest.mark.parametrize(
+    "inspection",
+    [
+        APIError("PRIVATE-INSPECT"),
+        container_data(container_id="2" * 64),
+        {**container_data(), "Config": {"Labels": {}}},
+    ],
+)
+def test_logging_failure_with_uncertain_identity_retains_object(
+    inspection: object,
+) -> None:
+    data = container_data()
+    host = data["HostConfig"]
+    assert isinstance(host, dict)
+    host.pop("LogConfig")
+    client = FakeProvisioningDockerClient(inspections=[data, inspection])
+    with pytest.raises(PartialProvisioningError):
+        provision(client)
+    assert client.remove_calls == []
+
+
+@pytest.mark.parametrize("marker", [None, "unknown-policy", LOG_POLICY_LABEL_VALUE])
+def test_retained_new_container_cannot_retry_as_unbounded_legacy(
+    marker: object,
+) -> None:
+    data = container_data()
+    config = data["Config"]
+    assert isinstance(config, dict) and isinstance(config["Labels"], dict)
+    config["Labels"][LOG_POLICY_LABEL_KEY] = marker
+    host = data["HostConfig"]
+    assert isinstance(host, dict)
+    host["LogConfig"] = {"Type": "json-file", "Config": {}}
+    client = FakeProvisioningDockerClient(
+        owned=[{"Id": CONTAINER_ID}], inspections=[data]
+    )
+    with pytest.raises(ProvisioningConflictError):
+        provision(client)
+    assert client.host_config_calls == client.create_calls == []
+    assert client.remove_calls == []
+
+
+@pytest.mark.parametrize("marker", ["absent", None, "unknown-policy"])
+def test_fresh_creation_requires_its_logging_policy_marker(marker: object) -> None:
+    data = container_data()
+    config = data["Config"]
+    assert isinstance(config, dict) and isinstance(config["Labels"], dict)
+    if marker == "absent":
+        config["Labels"].pop(LOG_POLICY_LABEL_KEY)
+    else:
+        config["Labels"][LOG_POLICY_LABEL_KEY] = marker
+    client = FakeProvisioningDockerClient(inspections=[data, data])
+    with pytest.raises(PostCreateVerificationError):
+        provision(client)
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
+
+
+def test_failed_logging_rollback_then_retry_preserves_reconciliation_block() -> None:
+    data = container_data()
+    host = data["HostConfig"]
+    assert isinstance(host, dict)
+    host["LogConfig"] = {"Type": "json-file", "Config": {}}
+    client = FakeProvisioningDockerClient(
+        inspections=[data, data], remove_error=APIError("PRIVATE-REMOVE")
+    )
+    with pytest.raises(PartialProvisioningError):
+        provision(client)
+    assert len(client.create_calls) == len(client.remove_calls) == 1
+    client.owned = [{"Id": CONTAINER_ID}]
+    client.inspections = [data]
+    client.remove_error = None
+    with pytest.raises(ProvisioningConflictError):
+        provision(client)
+    assert len(client.create_calls) == len(client.remove_calls) == 1
+    assert client.start_calls == client.stop_calls == 0
