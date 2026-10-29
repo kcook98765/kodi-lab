@@ -71,13 +71,23 @@ class MigrationTemplateStore:
 
 
 _active_migration_templates: MigrationTemplateStore | None = None
+_SESSION_TEMPLATES: pytest.StashKey[MigrationTemplateStore] = pytest.StashKey()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def migration_templates(
     tmp_path_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
 ) -> MigrationTemplateStore:
     """Build every exact revision once by advancing one pristine closed DB."""
+    # Imported fixture functions have distinct FixtureDefs in each importing
+    # module. Cache the closed store on this pytest session, rather than rebuild
+    # the entire migration graph for every such definition.
+    global _active_migration_templates
+    cached = request.config.stash.get(_SESSION_TEMPLATES, None)
+    if cached is not None:
+        _active_migration_templates = cached
+        return cached
     project_root = Path(__file__).parents[2]
     root = tmp_path_factory.mktemp("migration-templates")
     data_root = root / "data"
@@ -118,7 +128,7 @@ def migration_templates(
         if previous_runtime_root is not None:
             os.environ["KODI_LAB_RUNTIME_ROOT"] = previous_runtime_root
     store = MigrationTemplateStore(root, templates, head_revision=revisions[-1])
-    global _active_migration_templates
+    request.config.stash[_SESSION_TEMPLATES] = store
     _active_migration_templates = store
     return store
 
