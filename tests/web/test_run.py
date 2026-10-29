@@ -117,3 +117,30 @@ def test_live_audit_outputs_only_approved_fields() -> None:
     assert payload["decode_ms"] == 18.0 and payload["skipped_frames"] == 1
     assert not {"password", "pixels", "csrf_token"} & set(payload)
     assert "canary" not in completed.stderr
+
+
+def test_deployment_measurements_reach_packaged_web_stderr() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "\n".join(
+                (
+                    "import logging.config",
+                    "from kodi_lab.web.run import application_logging_config",
+                    "from kodi_lab.development.measurements import "
+                    "DeploymentMeasurement",
+                    "logging.config.dictConfig(application_logging_config())",
+                    "DeploymentMeasurement('operation', 'managed_workspace').emit()",
+                )
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.stdout == ""
+    payload = json.loads(completed.stderr.partition("deployment measurement ")[2])
+    assert payload["operation_id"] == "operation"
+    assert payload["layer"] == "managed_workspace"
+    assert payload["completed"] is False

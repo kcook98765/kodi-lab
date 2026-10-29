@@ -33,9 +33,11 @@ from kodi_lab.application.mcp_administration import (
 )
 from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_workspace_development import (
+    MANAGED_DEPLOYMENT_INTERVAL_SECONDS,
     BoundedIntervalRateLimiter,
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
+    WorkspaceDeploymentResult,
     WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
@@ -514,6 +516,7 @@ def _environment(
     tmp_path: Path,
     *,
     database_path: Path | None = None,
+    use_default_rates: bool = False,
     kodi_release: str = "21.3",
     dependency: tuple[str, str | None] | None = None,
     dependency_inventory: KodiAddonInventoryRecord | None = None,
@@ -716,7 +719,11 @@ def _environment(
                 usability_state=UsabilityState.USABLE
             )
         ),
-        deployment_rate=BoundedIntervalRateLimiter(300, clock=lambda: 1000.0),
+        deployment_rate=(
+            None
+            if use_default_rates
+            else BoundedIntervalRateLimiter(300, clock=lambda: 1000.0)
+        ),
         execution_rate=BoundedIntervalRateLimiter(60, clock=lambda: 1000.0),
         inventory_adapter_factory=lambda _observation, _profile: InventoryAdapter(
             kodi_release, dependency_inventory
@@ -3524,3 +3531,84 @@ def test_protected_request_consumes_capacity_until_safely_terminalized(
     )
     assert created is True
     capped._finish_deployment(replacement.id, "failed", "deployment_interrupted")
+
+
+def test_managed_fast_loop_consecutive_deployments_preserve_replay(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path, use_default_rates=True)
+    now = [1000.0]
+    env.development._deployment_rate._clock = lambda: now[0]
+    external_rate = env.development._external_deployment_rate
+    assert external_rate is not None
+    external_rate._clock = lambda: now[0]
+    assert external_rate.allow("external")
+    request_id = uuid4()
+    first = env.development.deploy(
+        client_id=env.client_id,
+        request_id=request_id,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    assert first.state == "succeeded"
+    assert (
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        ).deployment_id
+        == first.deployment_id
+    )
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        _deploy_workspace(env)
+    now[0] += MANAGED_DEPLOYMENT_INTERVAL_SECONDS
+    assert not external_rate.allow("external")
+    second = env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    assert second.state == "succeeded"
+    assert second.deployment_id != first.deployment_id
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        2,
+        2,
+        2,
+    )
+
+
+def test_default_external_cooldown_stays_300_seconds_and_replays_denial(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path, use_default_rates=True)
+    bridge, _targets = _configure_external_environment(env)
+    now = [1000.0]
+    rate = env.development._external_deployment_rate
+    assert rate is not None
+    rate._clock = lambda: now[0]
+
+    def deploy(request: UUID) -> WorkspaceDeploymentResult:
+        return env.development.deploy(
+            client_id=env.client_id,
+            request_id=request,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=EXTERNAL_TARGET_ID,
+        )
+
+    assert deploy(uuid4()).state == "succeeded"
+    now[0] += MANAGED_DEPLOYMENT_INTERVAL_SECONDS
+    denied = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        deploy(denied)
+    assert bridge.replacement_count == 1
+    now[0] = 1300.0
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        deploy(denied)
+    assert deploy(uuid4()).state == "succeeded"
+    assert bridge.replacement_count == 2

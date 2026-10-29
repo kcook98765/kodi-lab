@@ -86,6 +86,7 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     parse_captured_addon_xml,
 )
+from kodi_lab.development.measurements import DeploymentMeasurement
 from kodi_lab.development.sources import (
     COPIED_SMOKE_UNSUPPORTED_REASONS,
     copied_video_plugin_unsupported_reason,
@@ -185,6 +186,9 @@ from kodi_lab.workspace import (
     capture_workspace_deployment_tree,
     workspace_coordination_lock,
 )
+
+MANAGED_DEPLOYMENT_INTERVAL_SECONDS = 5.0
+EXTERNAL_DEPLOYMENT_INTERVAL_SECONDS = 300.0
 
 OPERATION_LEASE = timedelta(minutes=15)
 DEVELOPMENT_OPERATION_PRUNE_LIMIT = 256
@@ -661,7 +665,14 @@ class McpWorkspaceDevelopmentService:
         self._data_root = data_root
         self._clock = clock
         self._readiness_factory = readiness_factory
-        self._deployment_rate = deployment_rate or BoundedIntervalRateLimiter(300.0)
+        self._deployment_rate = deployment_rate or BoundedIntervalRateLimiter(
+            MANAGED_DEPLOYMENT_INTERVAL_SECONDS
+        )
+        self._external_deployment_rate = (
+            BoundedIntervalRateLimiter(EXTERNAL_DEPLOYMENT_INTERVAL_SECONDS)
+            if deployment_rate is None
+            else None
+        )
         self._execution_rate = execution_rate or BoundedIntervalRateLimiter(60.0)
         self._failure = failure_injector
         self._inventory_factory = inventory_adapter_factory
@@ -2423,7 +2434,12 @@ class McpWorkspaceDevelopmentService:
                 ) or GlobalHeavyOperationLeaseRepository(session).current() is not None:
                     raise McpWorkspaceDevelopmentError("deployment_conflict")
                 # A cooldown denial retains replay history without invalidating runtime.
-                if not self._deployment_rate.allow(f"{client_id}:{target_id}"):
+                rate = (
+                    self._deployment_rate
+                    if target.target_class == "internal_lab"
+                    else (self._external_deployment_rate or self._deployment_rate)
+                )
+                if not rate.allow(f"{client_id}:{target_id}"):
                     row.state = "failed"
                     row.phase = "finalize"
                     row.failure_code = "rate_limited"
@@ -2851,6 +2867,21 @@ class McpWorkspaceDevelopmentService:
         self._recheck_deployment(operation)
         if operation.target_class == "external_development":
             return self._run_external_deployment(operation, digest)
+        measurement = DeploymentMeasurement(operation.id, "managed_workspace")
+        try:
+            result = self._run_managed_deployment(operation, digest, measurement)
+            measurement.completed = True
+            return result
+        finally:
+            measurement.emit()
+
+    def _run_managed_deployment(
+        self,
+        operation: McpWorkspaceDeploymentOperationRow,
+        digest: str,
+        measurement: DeploymentMeasurement,
+    ) -> WorkspaceDeploymentResult:
+        operation_id = UUID(operation.id)
         container_id = self._exact_running_container(UUID(operation.target_id))
         with self._sessions() as session:
             original_instance = session.get(ManagedInstanceRow, operation.target_id)
@@ -2873,10 +2904,13 @@ class McpWorkspaceDevelopmentService:
             original_runtime_state_revision=original_revision,
         )
         try:
-            self._broker.stop_managed_container(
-                managed_instance_id=operation.target_id,
-                expected_container_id=container_id,
-                expected_runtime_state=ContainerRuntimeState.RUNNING,
+            measurement.run(
+                "stop",
+                lambda: self._broker.stop_managed_container(
+                    managed_instance_id=operation.target_id,
+                    expected_container_id=container_id,
+                    expected_runtime_state=ContainerRuntimeState.RUNNING,
+                ),
             )
         except BrokerUnavailableError as error:
             self._finish_deployment(
@@ -2896,16 +2930,20 @@ class McpWorkspaceDevelopmentService:
                 digest=digest,
             )
             raise McpWorkspaceDevelopmentError("deployment_ambiguous") from error
+        measurement.counts["kodi_stops"] = 1
         self._update_deployment(operation_id, target_stopped=True)
         self._failure("after_stop")
         self._update_deployment(operation_id, phase="sync", sync_started=True)
         try:
-            result = self._broker.copy_sync_mcp_workspace(
-                managed_instance_id=operation.target_id,
-                workspace_id=operation.workspace_id,
-                expected_generation=operation.generation,
-                expected_container_id=container_id,
-                deployment_operation_id=operation.id,
+            result = measurement.run(
+                "sync",
+                lambda: self._broker.copy_sync_mcp_workspace(
+                    managed_instance_id=operation.target_id,
+                    workspace_id=operation.workspace_id,
+                    expected_generation=operation.generation,
+                    expected_container_id=container_id,
+                    deployment_operation_id=operation.id,
+                ),
             )
         except ClientError as error:
             code = getattr(error, "code", "deployment_ambiguous")
@@ -2925,15 +2963,26 @@ class McpWorkspaceDevelopmentService:
             raise McpWorkspaceDevelopmentError(
                 "deployment_ambiguous" if uncertain else code
             ) from error
+        measurement.counts.update(
+            changed_files=result.changed_count,
+            new_entries=result.new_count,
+            unchanged_entries=result.unchanged_count,
+            destination_only_entries=result.destination_only_count,
+            transferred_payload_bytes=result.transferred_bytes,
+        )
         self._publish_sync(operation_id, result)
         self._failure("after_sync_before_readiness")
         self._update_deployment(operation_id, phase="start")
         try:
-            self._broker.start_managed_container(
-                managed_instance_id=operation.target_id,
-                expected_container_id=container_id,
-                expected_runtime_state=ContainerRuntimeState.STOPPED,
+            measurement.run(
+                "start",
+                lambda: self._broker.start_managed_container(
+                    managed_instance_id=operation.target_id,
+                    expected_container_id=container_id,
+                    expected_runtime_state=ContainerRuntimeState.STOPPED,
+                ),
             )
+            measurement.counts["kodi_starts"] = 1
             self._update_deployment(
                 operation_id, target_started=True, phase="readiness"
             )
@@ -2950,9 +2999,12 @@ class McpWorkspaceDevelopmentService:
                 )
             if profile is None:
                 raise RuntimeError("runtime profile unavailable")
-            readiness = self._readiness_factory(
-                self._broker, profile
-            ).wait_until_usable(operation.target_id)
+            readiness = measurement.run(
+                "readiness",
+                lambda: self._readiness_factory(
+                    self._broker, profile
+                ).wait_until_usable(operation.target_id),
+            )
             if getattr(readiness.usability_state, "value", "") != "usable":
                 raise RuntimeError("target readiness failed")
         except Exception as error:
@@ -2967,7 +3019,9 @@ class McpWorkspaceDevelopmentService:
             raise McpWorkspaceDevelopmentError("deployment_ambiguous") from error
         self._failure("after_readiness_before_evidence")
         self._update_deployment(operation_id, phase="inventory")
-        inventory = self._inventory.get(UUID(operation.target_id))
+        inventory = measurement.run(
+            "inventory", lambda: self._inventory.get(UUID(operation.target_id))
+        )
         item = next(
             (
                 entry

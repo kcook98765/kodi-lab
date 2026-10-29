@@ -588,3 +588,45 @@ def test_unexpected_post_apply_failure_is_typed_reconciliation_required(
     assert captured.value.code == "development_source_reconciliation_required"
     assert captured.value.reconciliation_required
     assert client.put_members
+
+
+def test_copy_sync_measurements_cover_real_work_without_more_readbacks(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import json
+    import logging
+
+    client = FakeDeploymentDockerClient()
+    with caplog.at_level(logging.INFO, logger="kodi_lab.deployment.measurement"):
+        first = _apply(client, _spec(tmp_path))
+        result = _apply(client, _spec(tmp_path, prior=_prior(first)))
+    measurements = [
+        json.loads(record.getMessage().removeprefix("deployment measurement "))
+        for record in caplog.records
+        if record.name == "kodi_lab.deployment.measurement"
+    ]
+    assert len(measurements) == 2
+    initial, noop = measurements
+    assert initial["completed"] and noop["completed"]
+    assert (
+        initial["counts"]["source_stage_bytes"]
+        == initial["counts"]["source_confirm_bytes"]
+    )
+    assert initial["counts"]["transferred_payload_bytes"] == first.transferred_bytes > 0
+    assert initial["counts"]["delta_archive_bytes"] > first.transferred_bytes
+    assert noop["counts"]["transferred_payload_bytes"] == result.transferred_bytes == 0
+    assert "delta_archive_bytes" not in noop["counts"]
+    assert (
+        noop["counts"]["destination_before_archive_bytes"]
+        == noop["counts"]["destination_after_archive_bytes"]
+    )
+    assert set(noop["phases_seconds"]) >= {
+        "source_scan_hash_stage",
+        "source_scan_hash_confirm",
+        "destination_before",
+        "destination_after",
+        "destination_verify",
+        "stage_cleanup",
+    }
+    assert len(client.put_members) == 1

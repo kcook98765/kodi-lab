@@ -76,6 +76,11 @@ def application_logging_config() -> dict[str, Any]:
         "level": "INFO",
         "propagate": False,
     }
+    loggers["kodi_lab.deployment.measurement"] = {
+        "handlers": ["default"],
+        "level": "INFO",
+        "propagate": False,
+    }
     loggers["kodi_lab.screenshot.diagnostic"] = {
         "handlers": ["default"],
         "level": "INFO",
