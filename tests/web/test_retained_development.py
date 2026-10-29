@@ -507,3 +507,78 @@ def test_slow_html_selection_does_not_block_other_http_requests(
         finally:
             finish.set()
         assert form.result(timeout=5).status_code == 303
+
+
+def test_opt_in_filters_eligible_legacy_omega_and_preserves_unsupported_selection(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from kodi_lab.application.development_sessions import RetainedPolicyRequest
+    from kodi_lab.runtime.lab import canonical_id
+    from kodi_lab.storage.models import (
+        DevelopmentSessionRow,
+        ManagedInstanceRow,
+        TargetRow,
+    )
+
+    s = seed(database, broker, tmp_path, monkeypatch)
+    template = s.records[2]
+    s.records.clear()
+    s.service.configure_retained(
+        RetainedPolicyRequest(enabled=False, expected_generation=0)
+    )
+    legacy = canonical_id("21")
+    with database.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(legacy),
+                name="Legacy Omega registration",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="unavailable",
+                health="warning",
+                connection_state="disconnected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(legacy),
+                instance_type="disposable",
+                runtime_revision_id=str(s.revisions[s.ids["omega"]]),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+            )
+        )
+    csrf = login(client)
+    reserved = client.post(
+        "/api/development-session/reserve",
+        json={
+            "request_id": str(uuid4()),
+            "expected_generation": 0,
+            "target_id": str(legacy),
+            "workspace_id": str(s.env.workspace_id),
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert reserved.status_code == 200, reserved.text
+    s.records.append(
+        replace(template, managed_instance_id=str(legacy), container_id="f" * 64)
+    )
+    with database.begin() as session:
+        row = session.get(DevelopmentSessionRow, 1)
+        assert row is not None
+        row.phase, row.container_id = "bound", "f" * 64
+    page = client.get("/development-session/retained")
+    assert page.status_code == 200
+    assert str(s.ids["omega"]) in page.text
+    assert not re.search(r'<option value="' + str(legacy) + r'"', page.text)
+    assert "current selection is outside the reviewed retained versions" in page.text
+    assert "disabled>Enable retained versions" in page.text
+    assert s.service.status().target_id == legacy
+    assert s.records[0].container_id == "f" * 64

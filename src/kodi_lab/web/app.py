@@ -4538,7 +4538,17 @@ def create_app(
         target_id: UUID | None = None,
         workspace_id: UUID | None = None,
     ) -> Response:
+        from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
+        from kodi_lab.storage.retained_development import omega_targets
+
         authenticated = current_session(request)
+        current = session_service.status()
+        choices = session_workflow.choices()
+        allowed_omega = omega_targets()
+        cohort = allowed_omega | {
+            str(recipe_target_id(load_installation_recipe(g)))
+            for g in ("matrix", "nexus", "piers")
+        }
         preview = (
             session_service.selection_preview(target_id, workspace_id)
             if target_id is not None and workspace_id is not None
@@ -4549,8 +4559,13 @@ def create_app(
             "retained-development.html",
             {
                 "policy": retained_policy_view(),
-                "current": session_service.status(),
-                "choices": session_workflow.choices(),
+                "current": current,
+                "choices": choices,
+                "omega_choices": [
+                    c for c in choices if str(c.target_id) in allowed_omega
+                ],
+                "unsupported_current": current is not None
+                and str(current.target_id) not in cohort,
                 "preview": preview,
                 "workspaces": context.agent_workspaces.list_workspaces(),
                 "request_id": str(uuid4()),
