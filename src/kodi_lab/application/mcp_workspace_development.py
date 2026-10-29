@@ -86,6 +86,7 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     parse_captured_addon_xml,
 )
+from kodi_lab.development.activation import ManagedIterationEvidence
 from kodi_lab.development.measurements import DeploymentMeasurement
 from kodi_lab.development.sources import (
     COPIED_SMOKE_UNSUPPORTED_REASONS,
@@ -452,6 +453,7 @@ class WorkspaceDeploymentResult(BaseModel):
     expected_manifest_digest: str | None = None
     next_action: str | None = Field(default=None, max_length=160)
     result_classification: str = Field(max_length=64)
+    iteration_evidence: ManagedIterationEvidence | None = None
     inventory_classification: str = Field(max_length=16)
     addon_enabled: bool | None = None
     started_at: datetime | None = None
@@ -4566,6 +4568,28 @@ class McpWorkspaceDevelopmentService:
             result_classification=row.result_classification or "verified",
             inventory_classification=row.inventory_classification,
             addon_enabled=row.addon_enabled,
+            iteration_evidence=(
+                ManagedIterationEvidence(
+                    file_application=(
+                        "verified_at_operation"
+                        if row.sync_completed
+                        and row.source_manifest_digest
+                        and row.verified_destination_digest
+                        else "not_verified"
+                    ),
+                    kodi_restart=(
+                        "observed_at_operation"
+                        if row.state == "succeeded"
+                        and row.target_stopped
+                        and row.target_started
+                        and row.inventory_classification == "matched"
+                        else "not_observed"
+                    ),
+                )
+                if row.target_class == "internal_lab"
+                and row.deployment_mode == "direct"
+                else None
+            ),
             started_at=started,
             completed_at=completed,
         )

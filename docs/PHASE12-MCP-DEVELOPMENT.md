@@ -614,3 +614,21 @@ became disproportionate to the remaining Kodi Lab V1 validation objective.**
 R2 was never a scored sample and is not an unfinished Kodi Lab V1 gate. Existing
 external evidence remains preserved outside this repository; no further
 preservation-contract expansion is required for the private repository baseline.
+
+## Fast-loop planning and deployment proof
+
+The existing deployment preflight includes an optional `activation_assessment`
+only when managed scope and the exact current validated generation/source match.
+It is stored descriptor guidance, never mutation admission or live observation.
+All live/removal routes remain unqualified; type-specific constraints distinguish
+services, dependent modules, skins, resources, repositories and native/unknown or
+mixed extensions. Native-library attributes and reusable-invoker metadata are
+not established by the stored extension list. A stopped-copy/restart candidate
+still requires every existing preflight and runtime proof.
+
+Managed direct deployment results include `iteration_evidence`: verified file
+application and an observed Kodi restart are historical operation evidence.
+Add-on launch is not dispatched by this operation, fresh code remains unobserved,
+and functional smoke is not run. The copy retains destination-only members, so
+the receipt does not establish exact mirroring. An idempotent replay does not
+probe current runtime state or turn those distinctions into current liveness.
