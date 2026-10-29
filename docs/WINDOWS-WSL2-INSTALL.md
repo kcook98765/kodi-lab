@@ -195,6 +195,12 @@ with sanitized versions/endpoints; do not relax trust checks or grants.
 
 ## First managed Kodi, agent and everyday use
 
+For everyday add-on work, use [Kodi → Current Kodi](DEVELOPMENT-SESSION.md)
+after installing an approved runtime. It keeps one selected development
+environment and persistent workspace; Advanced retains the individual lifecycle
+controls described below. Viewer support still requires the exact qualified
+runtime and explicit administrator enablement.
+
 Follow [first-run setup](HOST-INSTALLER.md#first-run-and-authorized-inspection):
 install one Omega 21.3 runtime, create/provision/start an instance, check its
 screen, then grant a Read-only Inspection agent that target and verify
@@ -255,3 +261,7 @@ authorized and denied MCP inspection, stop/start, backup/restore and optional
 startup if enabled. The previously reported workstation result does not replace
 this new-installer acceptance. Native Windows Kodi targets have their own
 [Bridge portability evidence](WINDOWS-DIRECT-INSTALL.md).
+
+Use the [fresh-install acceptance receipt](qualification/windows-wsl2/ACCEPTANCE-TEMPLATE.md)
+to record those results consistently. Its blank fields are NOT RUN and do not
+change the current qualification status.
