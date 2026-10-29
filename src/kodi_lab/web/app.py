@@ -4590,11 +4590,38 @@ def create_app(
                 .order_by(RepositoryWorkspaceDeploymentRow.created_at.desc())
                 .limit(20)
             )
+        # Catalog identities only: selecting a preflight target must not probe or
+        # converge runtime state, acquire a lease, or change the selected session.
+        from kodi_lab.domain import InstanceType
+
+        with session_factory() as session:
+            preflight_targets = list(
+                session.scalars(
+                    select(TargetRow)
+                    .join(
+                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
+                    )
+                    .where(
+                        TargetRow.target_type == TargetType.MANAGED,
+                        ManagedInstanceRow.instance_type == InstanceType.DISPOSABLE,
+                    )
+                    .order_by(TargetRow.name, TargetRow.id)
+                )
+            )
+        selected_session = session_service.status()
+        preflight_target_id = (
+            str(selected_session.target_id)
+            if selected_session is not None
+            and selected_session.workspace_id == workspace_id
+            else None
+        )
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
             {
                 "workspace": workspace,
+                "preflight_targets": preflight_targets,
+                "preflight_target_id": preflight_target_id,
                 "capture_status": capture_status,
                 "entries": entries,
                 "changes": changes,

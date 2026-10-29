@@ -63,3 +63,12 @@ start reservations. A mismatch returns `session: blocked` plus an administrator
 it does not observe the current container, native Kodi, Bridge or enabled add-on.
 Mutation-time admission and exact observed-container checks remain mandatory.
 External-development and inactive-session behavior retain their separate scope.
+
+Web administrators can open a ready workspace's **Deployment prerequisites**
+section, choose a managed disposable Kodi and explicitly request the same stored
+assessment. The matching Current Kodi selection is preselected when present;
+choosing another target does not change that session. The page explains blockers
+and unknowns and links to existing target history, setup or Current Kodi controls.
+It never reports a ready verdict or performs an agent permission check. Reads
+remain separate from stopped source copy, recovery and fresh deployment admission.
+After editing or capturing, reload the page to assess its new generation.
