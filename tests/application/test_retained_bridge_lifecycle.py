@@ -676,3 +676,243 @@ def test_synchronous_bridge_lost_write_retains_original_blocking_lifecycle(
         assert s.service.status().target_id == s.ids["omega"] and len(s.records) == 4
     finally:
         s.readiness.close()
+
+
+@pytest.mark.parametrize(
+    "code", ["docker_start_failed", "post_start_verification_failed", "internal_error"]
+)
+def test_remote_native_start_uncertainty_cannot_be_hidden_by_bridge_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    from kodi_lab.application.runtime_lifecycle import LifecycleDispatchUnconfirmedError
+    from kodi_lab.broker.errors import DockerStartError, RemoteBrokerError
+    from kodi_lab.storage.models import (
+        ManagedInstanceLifecycleOperationRow,
+        ManagedStartReservationRow,
+    )
+
+    s = setup(tmp_path, monkeypatch)
+    tid, r = s.ids["omega"], s.records[2]
+
+    def remote(**_: Any) -> Any:
+        def dispatched() -> Any:
+            s.broker.starts += 1
+            s.records[2] = replace(r, runtime_state=ContainerRuntimeState.RUNNING)
+            raise DockerStartError("lost verification after native start")
+
+        try:
+            s.admission.run_start(
+                instance_id=str(tid),
+                container_id=r.container_id,
+                revision_id=str(r.runtime_revision_id),
+                dispatch=dispatched,
+            )
+        except DockerStartError as error:
+            raise RemoteBrokerError(
+                code, "fixed production-shaped failure", request_id=str(uuid4())
+            ) from error
+
+    monkeypatch.setattr(s.broker, "start_managed_container", remote)
+    before = files(tmp_path / "secrets"), files(tmp_path / "profiles")
+    try:
+        with pytest.raises(LifecycleDispatchUnconfirmedError):
+            s.lifecycle.start(tid)
+        with s.env.sessions() as session:
+            reservation = session.get(ManagedStartReservationRow, str(tid))
+            assert reservation is not None and reservation.phase == "uncertain"
+            reservation_id = reservation.operation_id
+            op = session.scalar(select(ManagedInstanceLifecycleOperationRow))
+            assert op is not None and op.state == "reconciliation_required"
+            assert op.failure_reason == "broker_runtime_dispatch_unconfirmed"
+        with pytest.raises(ManagedInstanceReconciliationRequiredError):
+            s.lifecycle.install_reviewed_bridge(tid)
+        with pytest.raises(ManagedInstanceReconciliationRequiredError):
+            s.lifecycle.resume_reviewed_bridge(tid, expected_generation=1)
+        assert (files(tmp_path / "secrets"), files(tmp_path / "profiles")) == before
+        assert s.broker.starts == 1 and s.broker.stops == s.broker.stages == 0
+        assert not s.owner.transport.calls
+        with s.env.sessions() as session:
+            assert (
+                session.get(ManagedStartReservationRow, str(tid)).operation_id
+                == reservation_id
+            )
+            assert (
+                len(session.scalars(select(ManagedInstanceLifecycleOperationRow)).all())
+                == 1
+            )
+    finally:
+        s.readiness.close()
+
+
+@pytest.mark.parametrize("kind", ["start", "provision"])
+def test_old_runtime_reservation_refuses_bridge_effects_and_is_never_adopted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    from kodi_lab.storage.models import (
+        ManagedProvisionReservationRow,
+        ManagedStartReservationRow,
+    )
+    from tests.application.test_mcp_workspace_development import NOW_TEXT
+
+    s = setup(tmp_path, monkeypatch)
+    tid, r = s.ids["omega"], s.records[2]
+    s.records[2] = replace(r, runtime_state=ContainerRuntimeState.RUNNING)
+    model = (
+        ManagedStartReservationRow
+        if kind == "start"
+        else ManagedProvisionReservationRow
+    )
+    with s.env.sessions.begin() as session:
+        values = dict(
+            managed_instance_id=str(tid),
+            runtime_revision_id=str(r.runtime_revision_id),
+            operation_id=str(uuid4()),
+            phase="uncertain",
+            created_at=NOW_TEXT,
+        )
+        if kind == "start":
+            values["container_id"] = r.container_id
+        session.add(model(**values))
+    before = files(tmp_path / "secrets"), files(tmp_path / "profiles")
+    try:
+        for action in ("install", "resume"):
+            with pytest.raises(DevelopmentSessionConflict, match=kind + "_pending"):
+                if action == "install":
+                    s.lifecycle.install_reviewed_bridge(tid)
+                else:
+                    s.lifecycle.resume_reviewed_bridge(tid, expected_generation=1)
+        assert (files(tmp_path / "secrets"), files(tmp_path / "profiles")) == before
+        assert s.broker.starts == s.broker.stages == s.broker.stops == 0
+        s.lifecycle.stop(tid)  # Explicit exact containment retains its old route.
+        assert s.broker.stops == 1
+        with s.env.sessions() as session:
+            if kind == "start":
+                assert session.get(model, str(tid)) is None
+            else:
+                assert session.get(model, str(tid)).phase == "uncertain"
+        assert len(s.records) == 4
+    finally:
+        s.readiness.close()
+
+
+@pytest.mark.parametrize(
+    "code", ["docker_stop_failed", "post_stop_verification_failed"]
+)
+def test_remote_stop_uncertainty_is_not_cleared_by_stopped_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    from kodi_lab.application.runtime_lifecycle import LifecycleDispatchUnconfirmedError
+    from kodi_lab.broker.errors import RemoteBrokerError
+    from kodi_lab.storage.models import ManagedInstanceLifecycleOperationRow
+
+    s = setup(tmp_path, monkeypatch)
+    s.records[2] = replace(s.records[2], runtime_state=ContainerRuntimeState.RUNNING)
+
+    def remote(**_: Any) -> Any:
+        s.records[2] = replace(
+            s.records[2], runtime_state=ContainerRuntimeState.STOPPED
+        )
+        raise RemoteBrokerError(
+            code, "fixed lost stop confirmation", request_id=str(uuid4())
+        )
+
+    monkeypatch.setattr(s.broker, "stop_managed_container", remote)
+    try:
+        with pytest.raises(LifecycleDispatchUnconfirmedError):
+            s.lifecycle.stop(s.ids["omega"])
+        with s.env.sessions() as session:
+            op = session.scalar(select(ManagedInstanceLifecycleOperationRow))
+            assert op is not None and op.state == "reconciliation_required"
+            assert op.failure_reason == "broker_runtime_dispatch_unconfirmed"
+        with pytest.raises(DevelopmentSessionConflict, match="reconciliation_required"):
+            s.choose("nexus")
+    finally:
+        s.readiness.close()
+
+
+def test_remote_provision_error_keeps_create_reservation_and_original_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.runtime_lifecycle import LifecycleDispatchUnconfirmedError
+    from kodi_lab.broker.errors import RemoteBrokerError
+    from kodi_lab.storage.models import (
+        ManagedInstanceLifecycleOperationRow,
+        ManagedProvisionReservationRow,
+    )
+
+    s = setup(tmp_path, monkeypatch)
+    nexus = s.records.pop(1)
+
+    def remote(**_: Any) -> Any:
+        def create() -> Any:
+            s.records.append(nexus)
+            raise RuntimeError("lost create result")
+
+        try:
+            s.admission.run_provision(
+                instance_id=nexus.managed_instance_id,
+                revision_id=str(nexus.runtime_revision_id),
+                dispatch=create,
+            )
+        except RuntimeError as error:
+            raise RemoteBrokerError(
+                "internal_error", "fixed unconfirmed create", request_id=str(uuid4())
+            ) from error
+
+    monkeypatch.setattr(s.broker, "provision_managed_container", remote, raising=False)
+    try:
+        with pytest.raises(LifecycleDispatchUnconfirmedError):
+            s.lifecycle.provision(s.ids["nexus"])
+        with s.env.sessions() as session:
+            row = session.get(ManagedProvisionReservationRow, nexus.managed_instance_id)
+            assert row is not None and row.phase == "uncertain"
+            reservation_id = row.operation_id
+            op = session.scalar(select(ManagedInstanceLifecycleOperationRow))
+            assert op is not None and op.state == "reconciliation_required"
+        with pytest.raises(DevelopmentSessionConflict, match="provision_pending"):
+            s.lifecycle.provision(s.ids["matrix"])
+        with s.env.sessions() as session:
+            assert (
+                session.get(
+                    ManagedProvisionReservationRow, nexus.managed_instance_id
+                ).operation_id
+                == reservation_id
+            )
+        assert len(s.records) == 4
+    finally:
+        s.readiness.close()
+
+
+def test_proven_pre_dispatch_native_refusal_does_not_create_uncertainty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.broker.errors import RemoteBrokerError
+    from kodi_lab.storage.models import (
+        ManagedInstanceLifecycleOperationRow,
+        ManagedStartReservationRow,
+    )
+
+    s = setup(tmp_path, monkeypatch)
+
+    def refused(**_: Any) -> Any:
+        raise RemoteBrokerError(
+            "container_identity_precondition_failed",
+            "fixed refusal",
+            request_id=str(uuid4()),
+        )
+
+    monkeypatch.setattr(s.broker, "start_managed_container", refused)
+    try:
+        with pytest.raises(RemoteBrokerError):
+            s.lifecycle.start(s.ids["omega"])
+        with s.env.sessions() as session:
+            op = session.scalar(select(ManagedInstanceLifecycleOperationRow))
+            assert (
+                op is not None
+                and op.state == "failed"
+                and not op.reconciliation_required
+            )
+            assert session.scalar(select(ManagedStartReservationRow)) is None
+        assert s.broker.starts == s.broker.stages == s.broker.stops == 0
+    finally:
+        s.readiness.close()

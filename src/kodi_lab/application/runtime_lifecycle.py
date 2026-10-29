@@ -180,6 +180,21 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            from kodi_lab.storage.models import ManagedProvisionReservationRow
+
+            with self._session_factory() as session:
+                reservation = session.get(
+                    ManagedProvisionReservationRow, str(instance_id)
+                )
+                uncertain = (
+                    reservation is not None
+                    and reservation.runtime_revision_id
+                    == str(_profile.runtime_revision_id)
+                )
+            if uncertain or error.code == "internal_error":
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
         self._readiness.clear(instance_id)
 
     def start(
@@ -245,6 +260,16 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            if error.code in {
+                "docker_start_failed",
+                "post_start_verification_failed",
+                "managed_start_result_unverified",
+                "managed_start_requires_reconciliation",
+                "internal_error",
+            }:
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
 
     def _queue_readiness(
         self, instance_id: UUID, profile: RuntimeExecutionProfile
@@ -316,6 +341,14 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            if error.code in {
+                "docker_stop_failed",
+                "post_stop_verification_failed",
+                "internal_error",
+            }:
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
 
         if (
             result.container_id != container.container_id
@@ -454,6 +487,15 @@ class ManagedRuntimeLifecycleService:
         instance_name, profile = self._load_instance(instance_id)
 
         def admission(session: Session) -> None:
+            from kodi_lab.storage.retained_development import (
+                require_runtime_reservations_idle,
+            )
+
+            if kind in {
+                ManagedInstanceLifecycleKind.START,
+                ManagedInstanceLifecycleKind.PROVISION,
+            }:
+                require_runtime_reservations_idle(session, str(instance_id))
             if kind is ManagedInstanceLifecycleKind.START:
                 from kodi_lab.storage.retained_development import (
                     require_retained_container,
