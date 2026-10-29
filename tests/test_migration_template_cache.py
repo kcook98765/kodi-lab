@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import inspect
 import os
+import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -90,3 +92,31 @@ def test_failed_store_construction_is_not_cached(
     with pytest.raises(RuntimeError, match="injected migration"):
         inspect.unwrap(module.migration_templates)(factory, request)
     assert module._SESSION_TEMPLATES not in config.stash
+
+
+def test_migration_clone_closes_verification_handle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.storage.test_migrations import MigrationTemplateStore
+
+    source = tmp_path / "template.db"
+    with closing(sqlite3.connect(source)) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.execute("INSERT INTO alembic_version VALUES ('revision')")
+        connection.commit()
+    opened: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    def tracked(path: Path) -> sqlite3.Connection:
+        connection = connect(path)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracked)
+    store = MigrationTemplateStore(
+        tmp_path, {"revision": source}, head_revision="revision"
+    )
+    store.clone("head", tmp_path / "clone.db")
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")

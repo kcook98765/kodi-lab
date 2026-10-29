@@ -3,6 +3,7 @@ import re
 import shutil
 import sqlite3
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -63,7 +64,7 @@ class MigrationTemplateStore:
         assert not Path(f"{source}-wal").exists()
         assert not Path(f"{source}-shm").exists()
         shutil.copy2(source, destination)
-        with sqlite3.connect(destination) as connection:
+        with closing(sqlite3.connect(destination)) as connection:
             assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
@@ -109,7 +110,7 @@ def migration_templates(
         for revision in revisions:
             command.upgrade(config, revision)
             template = root / f"{revision}.db"
-            with sqlite3.connect(database_path) as connection:
+            with closing(sqlite3.connect(database_path)) as connection:
                 assert connection.execute("PRAGMA integrity_check").fetchone() == (
                     "ok",
                 )
