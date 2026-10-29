@@ -9,7 +9,7 @@ dependencies and clean-volume recovery.
 Stop managed runtimes when a quiescent lab is desired, and always stop Web and
 broker before a lifecycle operation. Select and retain the administrator that
 can validate the **old** state before stopping services. Set `OLD_ADMIN_IMAGE`
-to its verified immutable image ID, not a mutable tag. If household-onboarding
+to its verified immutable image ID, not a mutable tag. If application
 locks exist, this administrator must contain the lock patch described under
 [onboarding lock compatibility](#onboarding-lock-compatibility); an unmodified
 historical image is insufficient. Keep the old BUNDLE identity and existing
@@ -236,14 +236,14 @@ otherwise valid state with `unclassified state root: locks`. Explicit upgrade
 also needs a verified backup, so switching to an unpatched administrator cannot
 work around the failure.
 
-The patch validates the `locks` directory and its only accepted scope,
-`household-onboarding`, before excluding the tree from backup contents.
+The validator accepts exactly `household-onboarding`, `managed-agent-lifecycle`
+and `external-reconnect` beneath `locks`, matching the application lock creators,
+before excluding the tree from backup contents.
 Directories must be private `0700` and owned by the executing administrator's
 UID/GID (normally `10001:10001`). Files must have lowercase UUID-shaped `.lock`
 names, be empty regular files with link count one, have mode `0600`, and have the
 same private owner/group. Unknown scopes or names, symlinks, hardlinks, unexpected
-types, content or unsafe metadata remain errors. Other lock scopes are not
-implicitly accepted by this patch.
+types, content or unsafe metadata remain errors. Other lock scopes remain rejected.
 
 Restore leaves the validated live lock tree in place instead of archiving,
 quarantining or recreating its files. This preserves the live device/inode and
@@ -252,6 +252,26 @@ Never delete active lock files, replace their inodes, change their metadata or
 skip validation to get past an upgrade check. Existing backup integrity, private
 ownership, key/schema/repository binding and snapshot checks remain required.
 The lock patch adds no database migration.
+
+For schema `0088_service_enable_start` state created by source `56517d3`, retain
+a separately reviewed historical administrator based on that exact installed
+source/image with only this scope-validation correction. Use its own immutable
+image ID and record both its base and effective installed package hashes and
+code diff. It is a patched recovery artifact, not the unchanged original image.
+Keep the old BUNDLE identity for old-state backup/restore; do not relabel the
+patched administrator as the old release or replace Web, broker or repository
+images. The prior household-onboarding checks must remain intact. A newer-schema
+administrator is not a substitute for proving old repository provenance.
+
+Before deployment, rehearse supported backup, verification, old-state restore,
+candidate repository transition, explicit migration, reverse transition and
+original-backup restore on isolated copies. Compare database data, durable
+files/metadata and lock device/inode identities, including held and post-backup
+locks. Keep both administrators, exact bundles, backup dependency closure,
+repository bytes and protected profile/image exports. A copied SQLite observation
+is input to this rehearsal; only the supported verified backup is the recovery
+artifact. A new production backup and its rehearsal remain required under
+separate deployment authorization.
 
 ### Administrator roles and the qualified Claw combination
 
