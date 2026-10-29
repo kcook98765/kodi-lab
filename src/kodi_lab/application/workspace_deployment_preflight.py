@@ -523,6 +523,23 @@ class WorkspaceDeploymentPreflightService:
         )
         check("addon", "unknown", "addon_not_observed")
         action("inspect_native", "web_administrator")
+        # Keep missing-baseline evidence visible, but do not direct a source
+        # mutation through known ownership, lease or recovery blockers. Once
+        # those clear, a fresh assessment can offer the ordinary stopped copy.
+        if any(
+            item.state == "blocked"
+            and item.name
+            in {
+                "session",
+                "source",
+                "attachment",
+                "target_lease",
+                "global_lease",
+                "reconciliation",
+            }
+            for item in checks
+        ):
+            actions = [item for item in actions if item.action != "copy_source"]
         return DeploymentPreflightResult(
             workspace_id=operation.workspace_id,
             target_id=operation.target_id,
