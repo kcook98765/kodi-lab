@@ -10,7 +10,12 @@ from kodi_lab.development.measurements import DeploymentMeasurement
 
 def test_counts_actual_stream_bytes_and_failed_phase(
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Alembic may disable an existing logger before this test runs.
+    monkeypatch.setattr(
+        logging.getLogger("kodi_lab.deployment.measurement"), "disabled", False
+    )
     measurement = DeploymentMeasurement("operation", "copy_sync")
     assert list(measurement.chunks("readback", [b"abc", b"de"])) == [b"abc", b"de"]
 
