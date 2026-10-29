@@ -211,3 +211,16 @@ def test_support_failure_cannot_become_ready_or_inject_durable_error(
     assert _installation_failure_code(failure.value) == (
         SUPPORT_FAILURE_EXITS.get(status, "installation_failed")
     )
+
+
+def test_support_classification_requires_type_and_follows_explicit_cause() -> None:
+    from kodi_lab.runtime.install import _installation_failure_code
+
+    assert (
+        _installation_failure_code(ValueError("pinned_support_unavailable"))
+        == "installation_failed"
+    )
+    cause = OstreeAcquisitionError("pinned_support_unavailable")
+    wrapped = RuntimeError("private wrapper")
+    wrapped.__cause__ = cause
+    assert _installation_failure_code(wrapped) == "pinned_support_unavailable"

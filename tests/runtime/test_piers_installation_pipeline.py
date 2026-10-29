@@ -171,7 +171,17 @@ def test_validation_and_cleanup_failure_remains_failed(
         assert row.failure_code == "installation_cleanup_failed"
 
 
+@pytest.mark.parametrize(
+    "status,code",
+    [
+        (71, "pinned_support_unavailable"),
+        (72, "support_artifact_mismatch"),
+        (73, "support_download_bound"),
+    ],
+)
 def test_missing_reviewed_support_records_exact_category_without_approval(
+    status: int,
+    code: str,
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -182,7 +192,7 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
     _client, phases = dependencies(factory, monkeypatch, operation)
 
     def unavailable(*args: Any) -> Any:
-        require_support_success(CommandResult(71, b"untrusted diagnostic text"))
+        require_support_success(CommandResult(status, b"untrusted diagnostic text"))
 
     monkeypatch.setattr(
         "kodi_lab.runtime.ostree_worker.assemble_in_worker", unavailable
@@ -194,7 +204,7 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)
         assert row and row.state.value == "failed"
-        assert row.failure_code == "pinned_support_unavailable"
+        assert row.failure_code == code
         assert row.runtime_revision_id is None and row.image_id is None
         assert row.completed_at is not None
         assert ManagedInstanceRepository(session).list() == []
