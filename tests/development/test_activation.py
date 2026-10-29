@@ -12,7 +12,7 @@ from kodi_lab.development.activation import assess_declared_extensions
     [
         (["xbmc.python.pluginsource"], []),
         (["xbmc.python.script"], []),
-        (["xbmc.service"], ["service_enablement_unsupported"]),
+        (["xbmc.service"], ["service_start_requires_opt_in"]),
         (["xbmc.python.module"], ["dependent_interpreters_require_restart"]),
         (["xbmc.gui.skin"], ["skin_selection_and_recovery_unqualified"]),
         (["kodi.resource.images"], ["resource_consumer_refresh_unqualified"]),
@@ -22,7 +22,7 @@ from kodi_lab.development.activation import assess_declared_extensions
         (
             ["xbmc.python.script", "xbmc.service"],
             [
-                "service_enablement_unsupported",
+                "service_start_requires_opt_in",
                 "mixed_extensions_require_all_lifecycles",
             ],
         ),

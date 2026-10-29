@@ -67,6 +67,7 @@ class AttachedDevelopmentSourceRead(BaseModel):
     copy_sync_eligible: bool = False
     enablement_state: str = Field(default="Not copied", max_length=128)
     enable_eligible: bool = False
+    service_start_requires_approval: bool = False
     enablement_blocked_dependency_id: str | None = Field(default=None, max_length=128)
     enablement_blocked_reason: str | None = Field(default=None, max_length=64)
     smoke_test_state: str = Field(default="Not run", max_length=128)

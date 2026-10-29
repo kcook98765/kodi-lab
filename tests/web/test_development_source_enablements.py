@@ -54,11 +54,17 @@ AT_DATETIME = datetime.fromisoformat(AT.replace("Z", "+00:00"))
 class FakeEnablementService:
     def __init__(self) -> None:
         self.calls: list[tuple[object, object]] = []
+        self.start_authority: list[bool] = []
 
     def enable(
-        self, instance_id: object, source_id: object
+        self,
+        instance_id: object,
+        source_id: object,
+        *,
+        allow_service_start: bool = False,
     ) -> DevelopmentSourceEnablementStatus:
         self.calls.append((instance_id, source_id))
+        self.start_authority.append(allow_service_start)
         return DevelopmentSourceEnablementStatus(
             operation_id=UUID(ENABLEMENT_OPERATION_ID),
             original_managed_instance_id=INSTANCE_ID,
@@ -71,6 +77,7 @@ class FakeEnablementService:
             prior_enabled=False,
             result_enabled=True,
             enable_performed=True,
+            service_start_authorized=allow_service_start,
             reconciliation_required=False,
             requested_at=AT_DATETIME,
             completed_at=AT_DATETIME,
@@ -350,3 +357,87 @@ def test_historical_dependency_failure_allows_fresh_preflight_only_when_eligible
         assert original is not None
         assert original.state is DevelopmentSourceEnablementOperationState.FAILED
         assert original.failure_reason == "dependency_missing"
+
+
+def test_service_start_opt_in_is_strict_and_authenticated(
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    _seed_copied_source(database)
+    development_root = tmp_path / "development"
+    _write_source(development_root)
+    service = FakeEnablementService()
+    path = f"/api/instances/{INSTANCE_ID}/development-sources/{SOURCE_A}/enable"
+    with _client(database, broker, data_root, development_root, service) as client:
+        assert client.post(path, json={"allow_service_start": True}).status_code == 401
+        csrf = login(client)
+        for invalid in (1, "true", None):
+            response = client.post(
+                path,
+                json={"allow_service_start": invalid},
+                headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+            )
+            assert response.status_code == 422
+        assert (
+            client.post(
+                path, json={"allow_service_start": True}, headers=ORIGIN
+            ).status_code
+            == 403
+        )
+        response = client.post(
+            path,
+            json={"allow_service_start": True},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        )
+        assert response.status_code == 200
+        assert response.json()["service_start_authorized"] is True
+        assert response.json()["service_execution"] == "not_observed"
+    assert service.start_authority == [True]
+
+
+def test_service_enable_ui_requires_startup_choice_for_disabled_copied_service(
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import update
+
+    from kodi_lab.storage.models import DevelopmentSourceRow
+
+    _seed_copied_source(database)
+    development_root = tmp_path / "development"
+    _write_source(development_root)
+    with database.begin() as session:
+        session.execute(
+            update(DevelopmentSourceRow)
+            .where(DevelopmentSourceRow.id == str(SOURCE_A))
+            .values(extension_types_json='["xbmc.service"]')
+        )
+        session.execute(
+            update(RuntimeExecutionProfileRow).values(python_bytecode_policy="suppress")
+        )
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                addon_id="plugin.video.alpha",
+                name="Alpha Video",
+                version="1.2.3",
+                enabled=False,
+                kodi_type="xbmc.service",
+            ),
+        ),
+    )
+    with _client(
+        database, broker, data_root, development_root, FakeEnablementService()
+    ) as client:
+        login(client)
+        response = client.get(f"/instances/{INSTANCE_ID}")
+    assert response.status_code == 200
+    assert 'class="development-source-service-start"' in response.text
+    assert "Enable service" in response.text
+    assert "Check its logs to verify execution" in response.text

@@ -555,3 +555,24 @@ def test_detail_adapter_requires_exact_single_item_limits() -> None:
 
     with pytest.raises(KodiAddonDetailsUnsupportedResponseError):
         adapter.get_addon_details("plugin.video.example")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {},
+        {"message": "missing code"},
+        {"code": True, "message": "bad code"},
+        {"code": -1, "message": None},
+        {"code": -1, "message": "extra", "other": 1},
+    ],
+)
+def test_malformed_enable_error_is_ambiguous_not_rejected(error: object) -> None:
+    payload = json.dumps(
+        {"jsonrpc": "2.0", "id": "kodi-lab-addon-enable", "error": error}
+    ).encode()
+    adapter = KodiAddonEnablementAdapter(
+        observation(), profile(), transport=FakeTransport([payload])
+    )
+    with pytest.raises(KodiAddonEnablementAmbiguousError):
+        adapter.enable("plugin.video.example")

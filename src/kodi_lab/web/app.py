@@ -704,6 +704,11 @@ class ManagedPreviewPolicyRequest(BaseModel):
     target_fps: Literal[1, 3] = 1
 
 
+class DevelopmentSourceEnablementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allow_service_start: StrictBool = False
+
+
 class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
@@ -7704,9 +7709,13 @@ def create_app(
     def enable_development_source(
         instance_id: UUID,
         source_id: UUID,
-        _body: EmptyActionRequest,
+        body: DevelopmentSourceEnablementRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> DevelopmentSourceEnablementStatus:
+        if body.allow_service_start:
+            return context.development_source_enablement.enable(
+                instance_id, source_id, allow_service_start=True
+            )
         return context.development_source_enablement.enable(instance_id, source_id)
 
     @app.get(

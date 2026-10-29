@@ -234,11 +234,30 @@ class ManagedInstanceDetailService:
                         enable_eligible = True
                     else:
                         state = "Provenance unknown"
-            if "xbmc.service" in source.extension_types:
-                state = "Unsupported auto-start/service add-on"
+            service_declared = "xbmc.service" in source.extension_types
+            pure_service = tuple(
+                point
+                for point in source.extension_types
+                if point != "xbmc.addon.metadata"
+            ) == ("xbmc.service",)
+            if service_declared and not pure_service:
+                state = "Unsupported mixed service extensions"
                 enable_eligible = False
-            elif any(
-                point.startswith("xbmc.python.") for point in source.extension_types
+            elif service_declared and (
+                profile is None
+                or profile.expected_kodi_version != "21.3"
+                or profile.expected_version_tag != "stable"
+                or profile.runtime_uid == 0
+                or profile.runtime_gid == 0
+                or instance.instance_type.value != "disposable"
+            ):
+                state = "Service startup is unqualified for this runtime"
+                enable_eligible = False
+            elif (
+                service_declared
+                or any(
+                    point.startswith("xbmc.python.") for point in source.extension_types
+                )
             ) and (
                 profile is None
                 or profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS
@@ -335,6 +354,7 @@ class ManagedInstanceDetailService:
                             and not reconciliation.blocking
                             and not active_mutation
                         ),
+                        "service_start_requires_approval": pure_service,
                         "enablement_blocked_dependency_id": blocked_dependency_id,
                         "enablement_blocked_reason": blocked_reason,
                         "smoke_test_state": smoke_state,

@@ -290,7 +290,7 @@ def test_activation_assessment_requires_exact_current_validation_without_new_pro
     plan = result.activation_assessment
     assert plan is not None
     assert plan.constraints == (
-        "service_enablement_unsupported",
+        "service_start_requires_opt_in",
         "dependent_interpreters_require_restart",
         "mixed_extensions_require_all_lifecycles",
     )

@@ -7332,3 +7332,20 @@ that operation does not perform. Destination-only retention is explicit; exact
 mirroring is not established. Replays preserve these historical claims without
 probing current runtime state. External receipts acquire no managed restart claim.
 This adds no executor, command, grant, mode override or persistent schema change.
+
+## D-0469: Require explicit durable consent for copied Python service enablement
+
+The existing administrator enablement action may enable one qualified Python
+service only with strict Boolean opt-in recorded before dispatch. Consent covers
+persistent enablement and potential startup now and on future Kodi starts.
+Descriptor restrictions must be derived from the verified installed tree as well
+as checked on the host source. Single safe Python entrypoint, no platform
+override/mixed entries, stable Omega 21.3, non-root SUPPRESS runtime and existing
+provenance/native/dependency/reservation checks bound this slice.
+
+Enabled state does not prove execution. Receipts retain an explicit unobserved
+execution state; ambiguity retains intent and reconciliation. Migration 0088
+backfills false and refuses downgrade over retained true history. Known historical
+readers preserve unresolved fences with false authority; current/unknown missing
+safety storage fails closed. Existing terminal retention remains unchanged.
+See `FAST-LOOP-SERVICE-ENABLEMENT.md` for admission limits and native/test evidence.

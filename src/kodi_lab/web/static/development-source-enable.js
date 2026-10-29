@@ -9,6 +9,14 @@ for (const button of document.querySelectorAll(".development-source-enable")) {
     const statusBox = button.parentElement.querySelector(
       ".development-source-enable-status",
     );
+    const serviceChoice = button.parentElement.querySelector(
+      ".development-source-service-start",
+    );
+    if (serviceChoice && !serviceChoice.checked) {
+      statusBox.hidden = false;
+      statusBox.textContent = "Select service startup before enabling this service.";
+      return;
+    }
     button.disabled = true;
     statusBox.hidden = false;
     statusBox.textContent = "Enablement preflight is running…";
@@ -22,7 +30,7 @@ for (const button of document.querySelectorAll(".development-source-enable")) {
             "Content-Type": "application/json",
             "X-Kodi-Lab-CSRF": enableCsrf,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify(serviceChoice ? { allow_service_start: true } : {}),
         },
       );
       const document = await response.json();
@@ -30,7 +38,9 @@ for (const button of document.querySelectorAll(".development-source-enable")) {
         throw new Error(document?.error?.message || "Enablement was rejected.");
       }
       if (document.result_classification === "enabled") {
-        statusBox.textContent = "Add-on enabled. Refresh for live Kodi state.";
+        statusBox.textContent = serviceChoice
+          ? "Service enabled. Check logs to verify execution."
+          : "Add-on enabled. Refresh for live Kodi state.";
       } else if (document.result_classification === "already_enabled") {
         statusBox.textContent = "Add-on was already enabled.";
       } else if (document.result_classification === "dependency_blocked") {

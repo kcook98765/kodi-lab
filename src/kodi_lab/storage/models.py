@@ -3478,6 +3478,9 @@ class DevelopmentSourceEnablementOperationRow(Base):
     enable_performed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
+    service_start_authorized: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
     blocked_dependency_id: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )

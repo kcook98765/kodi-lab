@@ -129,3 +129,23 @@ def test_incomplete_historical_identity_never_hides_settings_storage(
             uuid4()
         )
     engine.dispose()
+
+
+def test_missing_current_service_authority_storage_is_corruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _config, url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    engine = create_database_engine(url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE development_source_enablement_operations "
+                "DROP COLUMN service_start_authorized"
+            )
+        )
+    with pytest.raises(CoordinationCorruptionError, match="storage is unavailable"):
+        ManagedInstanceReconciliationService(create_session_factory(engine)).status(
+            uuid4()
+        )
+    engine.dispose()

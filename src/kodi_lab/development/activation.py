@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kodi_lab.domain import normalize_extension_types
 
 Constraint = Literal[
-    "service_enablement_unsupported",
+    "service_start_requires_opt_in",
     "dependent_interpreters_require_restart",
     "skin_selection_and_recovery_unqualified",
     "resource_consumer_refresh_unqualified",
@@ -68,7 +68,7 @@ def assess_declared_extensions(encoded: str) -> ActivationAssessment | None:
     executable = tuple(p for p in extensions if p != "xbmc.addon.metadata")
     constraints: list[Constraint] = []
     if "xbmc.service" in executable:
-        constraints.append("service_enablement_unsupported")
+        constraints.append("service_start_requires_opt_in")
     if "xbmc.python.module" in executable:
         constraints.append("dependent_interpreters_require_restart")
     if "xbmc.gui.skin" in executable:
