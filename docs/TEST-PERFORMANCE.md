@@ -329,3 +329,29 @@ unchanged source, alternating disabled/enabled/enabled/disabled reports, all
 passed. Wall times were 72.02/69.85/67.17/67.51s. Enabled reporting showed no
 measurable overhead within that spread; this is a bounded local measurement,
 not a universal overhead guarantee or complete-release speedup.
+
+## One migration-template store per pytest session (#119)
+
+Importing the same session fixture into multiple modules creates separate pytest
+fixture definitions. Those definitions previously rebuilt the entire verified
+Alembic template graph. They now reuse only a successfully constructed store
+held on that pytest Config. Every revision is still built and verified, and each
+case still copies and verifies its own private database. No test body, transition,
+seed, assertion, parameter selection or production file changed. Verification
+connections now close explicitly; failed construction cannot publish a cache.
+
+Two matched 195-case runs per frozen source (`a7d8cff` before, `b9111c3` after)
+all passed with identical case IDs. Wall times were 237.96/234.43s before and
+70.00/65.61s after: median 236.19→67.81s
+(71.3% lower). Median setup fell 187.21→16.25s; call
+37.76→38.93s and teardown 1.91→1.76s stayed broadly similar. The journal recorded
+26 template builds before and one after. End scratch was 2,848,387,335→111,644,935
+logical bytes, with all 195 case roots reclaimed in every run; peak process RSS
+620,144–627,208→444,184–445,420 KiB. These are local group measurements, not a
+complete-release speedup. Two samples do not support a reliable tail-latency
+estimate. Full release results belong in the issue119 qualification record.
+
+Regressions exercise real imported fixtures across two modules, clone mutation
+isolation, nonpublication after construction failure, and deterministic clone
+verification-handle closure. Original global history, populated predecessor and
+recovery proofs remain unchanged.

@@ -54,6 +54,8 @@ def test_second(migration_templates, tmp_path, request):
             "-m",
             "pytest",
             "-q",
+            "--basetemp",
+            str(tmp_path / "run"),
             "-c",
             str(config),
             str(first),
