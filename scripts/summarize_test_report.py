@@ -169,6 +169,7 @@ def main() -> None:
             f"missing: {result['missing_cases']}; "
             f"last completion: {result['last_completed_case']}"
         )
+        print(f"Active case at last record: {result['active_case']}")
         print(
             f"Last recorded session elapsed (lower bound if incomplete): "
             f"{result['elapsed_seconds']:.2f}s; "

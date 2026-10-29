@@ -135,6 +135,7 @@ def summarize_journal(body: bytes) -> dict[str, Any]:
             and collected == len(completed)
             and active is None
             and not truncated
+            and not result["outcomes"].get("incomplete")
             else "incomplete"
         ),
         collected_cases=collected,

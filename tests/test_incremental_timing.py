@@ -247,3 +247,32 @@ def test_cli_recovers_timeout_from_companion_stage_evidence(tmp_path: Path) -> N
     assert summary["classification"] == "incomplete"
     assert summary["pytest_exit_status"] is None
     assert summary["companion_pytest_stage_outcome"] == "watchdog_timeout"
+
+
+def test_text_summary_identifies_active_case(tmp_path: Path) -> None:
+    path = tmp_path / "pytest.timing.jsonl"
+    lines = journal(finish=False, total=8).splitlines(keepends=True)
+    path.write_bytes(b"".join(lines[:-1]))
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.summarize_test_report", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    active_line = next(
+        line for line in result.stdout.splitlines() if line.startswith("Active case")
+    )
+    assert "test_4" in active_line
+    assert "'ordinal': 4" in active_line
+    assert "Journal: incomplete" in result.stdout
+
+
+def test_missing_passed_phase_prevents_complete_classification() -> None:
+    events = [json.loads(line) for line in journal().splitlines()]
+    del events[3]["phases"]["call"]
+    result = summarize_journal(
+        b"".join((json.dumps(e) + "\n").encode() for e in events)
+    )
+    assert result["classification"] == "incomplete"
+    assert result["outcomes"]["incomplete"] == 1
