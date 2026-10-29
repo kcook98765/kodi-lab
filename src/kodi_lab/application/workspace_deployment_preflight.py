@@ -42,7 +42,11 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
 )
-from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
+from kodi_lab.storage.workspace_deployments import (
+    failed_verified_workspace_copy,
+    failed_verified_workspace_copy_sql,
+    selected_profile_lineage_sql,
+)
 
 _VERIFIED = DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
 
@@ -70,6 +74,7 @@ class PrerequisiteCheck(BaseModel):
         "source",
         "attachment",
         "source_baseline",
+        "deployment_provenance",
         "target_lease",
         "global_lease",
         "reconciliation",
@@ -107,6 +112,7 @@ class PrerequisiteCheck(BaseModel):
         "source_baseline_runtime_mismatch",
         "source_baseline_requires_container_proof",
         "prior_workspace_requires_container_proof",
+        "deployment_provenance_review_required",
         "bridge_not_assessed",
         "target_idle",
         "target_busy",
@@ -396,6 +402,65 @@ class WorkspaceDeploymentPreflightService:
                     and baseline.runtime_revision_id == instance.runtime_revision_id
                 ):
                     baseline_reason = "prior_workspace_requires_container_proof"
+                # A later no-write conflict must not hide the earlier completed
+                # copy. This is guidance about retained evidence only: it does
+                # not enroll recovery, prove current bytes or trust a failure.
+                copied = (
+                    None
+                    if source is None
+                    else session.scalar(
+                        select(McpWorkspaceDeploymentOperationRow)
+                        .where(
+                            McpWorkspaceDeploymentOperationRow.workspace_id
+                            == str(operation.workspace_id),
+                            McpWorkspaceDeploymentOperationRow.target_id
+                            == str(operation.target_id),
+                            McpWorkspaceDeploymentOperationRow.development_source_id
+                            == str(source.id),
+                            McpWorkspaceDeploymentOperationRow.runtime_revision_id
+                            == str(instance.runtime_revision_id),
+                            McpWorkspaceDeploymentOperationRow.target_class
+                            == "internal_lab",
+                            McpWorkspaceDeploymentOperationRow.deployment_mode
+                            == "direct",
+                            McpWorkspaceDeploymentOperationRow.sync_completed.is_(True),
+                            McpWorkspaceDeploymentOperationRow.completed_at.is_not(
+                                None
+                            ),
+                            selected_profile_lineage_sql(),
+                        )
+                        .order_by(
+                            McpWorkspaceDeploymentOperationRow.completed_at.desc(),
+                            # A tied failure is review evidence, never permission
+                            # to choose a successful receipt as current authority.
+                            failed_verified_workspace_copy_sql().desc(),
+                        )
+                        .limit(1)
+                    )
+                )
+                provenance_review = (
+                    copied is not None
+                    and failed_verified_workspace_copy(copied)
+                    and copied.completed_at is not None
+                    and (
+                        baseline is None
+                        or baseline.verified_at
+                        <= datetime.fromisoformat(
+                            copied.completed_at.replace("Z", "+00:00")
+                        )
+                    )
+                )
+                if provenance_review:
+                    assert copied is not None and copied.completed_at is not None
+                    check(
+                        "deployment_provenance",
+                        "unknown",
+                        "deployment_provenance_review_required",
+                        datetime.fromisoformat(
+                            copied.completed_at.replace("Z", "+00:00")
+                        ),
+                    )
+                    action("review_history", "web_administrator")
                 # A prior workspace copy may satisfy mutation admission even when
                 # source confidence is stale. Without fresh container/tree proof
                 # this durable-only assessment must not declare it deployable.
@@ -411,7 +476,7 @@ class WorkspaceDeploymentPreflightService:
                     baseline_reason,
                     None if baseline is None else baseline.verified_at,
                 )
-                if baseline_reason not in {
+                if not provenance_review and baseline_reason not in {
                     "source_baseline_requires_container_proof",
                     "prior_workspace_requires_container_proof",
                 }:

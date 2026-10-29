@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -71,6 +71,33 @@ def failed_verified_workspace_copy(row: McpWorkspaceDeploymentOperationRow) -> b
         and row.result_classification
         in {"initial_deployment", "synchronized", "unchanged"}
         and row.completed_at is not None
+    )
+
+
+def failed_verified_workspace_copy_sql() -> ColumnElement[bool]:
+    """SQL counterpart for diagnostic ordering; never confers recovery admission."""
+    row = McpWorkspaceDeploymentOperationRow
+    return and_(
+        row.state == "failed",
+        row.phase == "finalize",
+        row.target_class == "internal_lab",
+        row.deployment_mode == "direct",
+        row.failure_phase == "inventory",
+        row.failure_code == "deployment_verification_failed",
+        row.recovery_state.is_(None),
+        row.mutation_started.is_(True),
+        row.target_stopped.is_(True),
+        row.sync_started.is_(True),
+        row.sync_completed.is_(True),
+        row.target_started.is_(True),
+        row.inventory_classification.in_(["failed", "unknown"]),
+        row.original_container_id.is_not(None),
+        row.source_manifest_digest.is_not(None),
+        row.verified_destination_digest.is_not(None),
+        row.result_classification.in_(
+            ["initial_deployment", "synchronized", "unchanged"]
+        ),
+        row.completed_at.is_not(None),
     )
 
 
