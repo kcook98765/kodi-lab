@@ -1,8 +1,9 @@
 # Current Kodi: one add-on, one development environment
 
 Use **Kodi → Current Kodi** (`/development-session`) for one persistent add-on workspace
-and one disposable Kodi profile. This guide describes the composed feature-branch
-workflow. Code review and source tests do not install it into an existing Lab;
+and one disposable Kodi profile. This guide describes the Current Kodi workflow.
+Available actions depend on the installed application, broker, schema and approved
+runtime. Code review and source tests do not install updates into an existing Lab;
 matched application, broker and schema deployment and native/platform acceptance
 remain separate. Existing runtime/version eligibility still decides which cached
 versions can be selected.
