@@ -6563,6 +6563,13 @@ class ManagedInstanceMutationLeaseRepository:
         kind: ManagedInstanceMutationKind,
         operation_id: UUID,
     ) -> None:
+        from kodi_lab.storage.retained_development import require_retained_selection
+
+        if kind not in {
+            ManagedInstanceMutationKind.LIFECYCLE,
+            ManagedInstanceMutationKind.RECONSTRUCTION,
+        }:
+            require_retained_selection(self._session, str(instance_id))
         from kodi_lab.application.browser_remote_coordination import (
             require_no_active_browser_remote,
         )

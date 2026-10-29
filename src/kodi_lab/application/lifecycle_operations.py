@@ -118,6 +118,12 @@ class ManagedInstanceLifecycleOperationCoordinator:
         try:
             with self._session_factory.begin() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
+                if kind is ManagedInstanceLifecycleKind.START:
+                    from kodi_lab.storage.retained_development import (
+                        require_retained_selection,
+                    )
+
+                    require_retained_selection(session, str(instance_id))
                 if precondition is not None:
                     precondition(session)
                 ManagedInstanceLifecycleOperationRepository(session).create(operation)

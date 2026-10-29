@@ -253,6 +253,18 @@ class ManagedAgentLifecycleService:
                     raise ManagedAgentLifecycleError("request_conflict")
                 session.expunge(existing)
                 return existing, True
+            if action == "ensure_ready":
+                from kodi_lab.storage.development_sessions import active_session
+                from kodi_lab.storage.retained_development import retained_targets
+
+                if retained_targets(session):
+                    selected = active_session(session)
+                    if (
+                        selected is None
+                        or selected.target_id != str(target_id)
+                        or selected.phase not in {"reserved", "bound"}
+                    ):
+                        raise ManagedAgentLifecycleError("retained_selection_required")
             # Only terminal, unreferenced request receipts expire. Pending and
             # uncertain operations remain available for explicit reconciliation.
             session.execute(

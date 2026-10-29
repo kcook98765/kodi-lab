@@ -131,7 +131,18 @@ class CurrentKodiPresentation:
                         summary.actions = ["prepare"]
             elif current.phase == "bound":
                 inventory = observation.inventory
-                if inventory is None or len(inventory.containers) != 1:
+                from kodi_lab.storage.retained_development import (
+                    session_inventory_matches,
+                )
+
+                with self.factory() as db:
+                    confirmed = inventory is not None and session_inventory_matches(
+                        db,
+                        inventory.containers,
+                        str(current.target_id),
+                        current.container_id,
+                    )
+                if not confirmed:
                     summary.detail = (
                         "The selected Kodi profile is absent or unconfirmed. "
                         "Review its exact history."

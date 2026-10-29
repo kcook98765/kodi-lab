@@ -320,10 +320,41 @@ class DevelopmentSessionPolicyRow(Base):
     """Presence of an active generation opts into one provisioned environment."""
 
     __tablename__ = "development_session_policy"
-    __table_args__ = (CheckConstraint("id=1", name="development_session_singleton"),)
+    __table_args__ = (
+        CheckConstraint("id=1", name="development_session_singleton"),
+        CheckConstraint(
+            "(retain_profiles=0 AND retained_omega_target_id IS NULL) OR "
+            "(retain_profiles=1 AND retained_omega_target_id IS NOT NULL "
+            "AND retained_omega_target_id IN "
+            "('908822fe-132a-5283-ac40-04e26d387db3','d968c23e-67e7-5cb2-99be-472b13ba3536'))",
+            name="development_retained_policy",
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     active_generation: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("development_sessions.generation", ondelete="RESTRICT")
+    )
+    retain_profiles: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    retained_omega_target_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class DevelopmentSelectionRow(Base):
+    """Requester-bound selection replay, independent of profile and active pointer."""
+
+    __tablename__ = "development_selections"
+    __table_args__ = (
+        CheckConstraint("length(fingerprint)=64", name="development_selection_digest"),
+        CheckConstraint("length(request_id)=36", name="development_selection_request"),
+    )
+    actor: Mapped[str] = mapped_column(String(48), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("development_sessions.generation", ondelete="RESTRICT"),
+        nullable=False,
     )
 
 
@@ -8661,3 +8692,12 @@ for _trigger_sql in NOVNC_INPUT_TRIGGERS:
         "after_create",
         DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )
+
+
+from kodi_lab.storage.retained_policy_sql import RETAINED_MUTATION_TRIGGER  # noqa: E402
+
+event.listen(
+    Base.metadata,
+    "after_create",
+    DDL(RETAINED_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+)

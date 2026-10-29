@@ -42,7 +42,9 @@ def test_real_session_reservation_and_broker_binding_on_migrated_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    command.upgrade(config, REVISION)
+    # Current ORM/admission runs on the complete upgraded schema. The direct
+    # predecessor/0080 round trip remains covered independently above.
+    command.upgrade(config, "head")
     path = Path(url.removeprefix("sqlite:///"))
     state = environment(tmp_path / "case", monkeypatch, database_path=path)
     reserved = state.service.reserve(state.request)

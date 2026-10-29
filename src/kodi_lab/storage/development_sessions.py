@@ -45,7 +45,42 @@ def require_session_admission(
     container_id: str | None = None,
     starting: bool = False,
 ) -> DevelopmentSessionRow | None:
+    from kodi_lab.storage.retained_development import (
+        retained_inventory,
+        retained_targets,
+    )
+
+    allowed = retained_targets(session)
     current = active_session(session)
+    if allowed:
+        retained_inventory(session, records)
+        if target_id not in allowed:
+            raise DevelopmentSessionConflict("retained_target_not_enrolled")
+        if session.scalar(select(ManagedStartReservationRow).limit(1)) is not None:
+            raise DevelopmentSessionConflict("development_session_start_pending")
+        if session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None:
+            raise DevelopmentSessionConflict("development_session_provision_pending")
+        if current is not None and current.phase not in {"reserved", "bound"}:
+            raise DevelopmentSessionConflict("development_session_requires_review")
+        if starting:
+            if current is None:
+                raise DevelopmentSessionConflict("retained_selection_required")
+            if any(r.runtime_state not in {"stopped", "running"} for r in records):
+                raise DevelopmentSessionConflict("retained_runtime_unknown")
+            if any(
+                r.managed_instance_id != target_id and r.runtime_state != "stopped"
+                for r in records
+            ):
+                raise DevelopmentSessionConflict("retained_other_runtime_active")
+        else:
+            if any(r.runtime_state != "stopped" for r in records):
+                raise DevelopmentSessionConflict("retained_runtime_active")
+            if current is None or current.target_id != target_id:
+                return None  # Stopped provisioning reserves without selecting/binding.
+        if current is not None and current.container_id is not None:
+            selected = [r for r in records if r.managed_instance_id == target_id]
+            if len(selected) != 1 or selected[0].container_id != current.container_id:
+                raise DevelopmentSessionConflict("development_session_identity_changed")
     if current is None:
         return None
     if current.target_id != target_id or current.runtime_revision_id != revision_id:
@@ -55,13 +90,16 @@ def require_session_admission(
     if starting and current.container_id != container_id:
         raise DevelopmentSessionConflict("development_session_identity_changed")
     if current.container_id is None:
-        if records:
+        if records and not allowed:
             raise DevelopmentSessionConflict("development_session_existing_resource")
-    elif len(records) != 1 or any(
-        item.managed_instance_id != current.target_id
-        or item.container_id != current.container_id
-        or item.runtime_revision_id != current.runtime_revision_id
-        for item in records
+    elif not allowed and (
+        len(records) != 1
+        or any(
+            item.managed_instance_id != current.target_id
+            or item.container_id != current.container_id
+            or item.runtime_revision_id != current.runtime_revision_id
+            for item in records
+        )
     ):
         raise DevelopmentSessionConflict("development_session_identity_changed")
     if session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None:
@@ -85,8 +123,12 @@ def require_workspace_session_admission(
     grant, deployment baseline, attachment, trust or permission of its own.
     Offline edits, historical receipt reads and external targets do not use it.
     """
+    from kodi_lab.storage.retained_development import retained_targets
+
     current = active_session(session)
     if current is None:
+        if retained_targets(session):
+            raise DevelopmentSessionConflict("retained_selection_required")
         return None
     if current.target_id != target_id:
         raise DevelopmentSessionConflict("development_session_other_target")
@@ -150,6 +192,10 @@ def require_source_session_admission(
     ):
         raise DevelopmentSessionConflict("session_source_copy_selection_changed")
     if current is None:
+        from kodi_lab.storage.retained_development import retained_targets
+
+        if retained_targets(session):
+            raise DevelopmentSessionConflict("retained_selection_required")
         return None
     return require_workspace_session_admission(
         session,
