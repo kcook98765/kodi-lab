@@ -7294,3 +7294,22 @@ The deterministic benchmark uses real capture/copy code with simulated Docker ta
 transport and private generated trees. Its small-sample p50/p95 values do not qualify
 native throughput, Kodi readiness, code execution or platform support. Native
 acceptance remains separate, and ZIP/repository release testing remains required.
+
+
+## D-0467: Stage only the verified deployment delta while hashing the complete source
+
+Issue #110 measurements attribute substantial iterative copy cost to staging and
+fsync of unchanged payload. The first #111 slice therefore hashes/validates every
+included source member without staging, retaining only bounded root `addon.xml`
+from the same descriptor-bound read. After freshly proving the complete stopped
+destination against exact prior evidence, the server derives a delta. A second
+complete source hash/validation stages only selected new/changed files; canonical
+manifest equality is still required before mutation. Directory parents remain
+normalized, and existing capture callers keep full staging by default.
+
+This selection controls materialization only. It must not filter source safety,
+manifest members, size limits, identity checks or either destination readback.
+No old digest substitutes for fresh bytes. Successful selected sizes give completed
+staged-byte counts; planned sizes remain separate, and incomplete captures do not
+claim completed staging. No deletion/type-replacement capability is added here.
+See `FAST-LOOP-SELECTIVE-STAGING.md` for bounded fixture/native evidence and limits.
