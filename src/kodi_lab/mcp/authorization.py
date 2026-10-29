@@ -902,9 +902,14 @@ class McpAuthorizationService:
             {"managed.lifecycle", "workspace.inspect"}
         ):
             raise McpAuthorizationError("permission_denied")
-        self.authorize_workspace_target_scope(
-            principal, tool_name, workspace_id, target_id, read_session=session
-        )
+        try:
+            self.authorize_workspace_target_scope(
+                principal, tool_name, workspace_id, target_id, read_session=session
+            )
+        except McpAuthorizationError as error:
+            if error.code == "deployment_not_allowed":
+                raise McpAuthorizationError("permission_denied") from error
+            raise
         client = self._require_client_permission(session, principal, definition)
         self._require_current_credential(session, principal, client)
         target = session.get(TargetRow, str(target_id))

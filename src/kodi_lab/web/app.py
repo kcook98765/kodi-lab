@@ -4581,10 +4581,10 @@ def create_app(
                     raise ValueError("invalid retained policy")
                 values["enabled"] = values["enabled"] == "true"
                 body = RetainedPolicyRequest.model_validate(values)
-                session_service.configure_retained(body)
+                await asyncio.to_thread(session_service.configure_retained, body)
             else:
                 selection = RetainedSelectionRequest.model_validate(values)
-                session_service.select_retained(selection)
+                await asyncio.to_thread(session_service.select_retained, selection)
         except (ValueError, ValidationError):
             raise HTTPException(422, "invalid_retained_request") from None
         return RedirectResponse("/development-session", status_code=303)

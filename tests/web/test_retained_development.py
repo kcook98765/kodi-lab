@@ -406,3 +406,104 @@ def test_concurrent_authenticated_web_and_mcp_start_requests_share_admission(
     finally:
         delegate.start_finish.set()
         context.readiness.close()
+
+
+@pytest.mark.parametrize("name", ["managed_selection_preview", "managed_select"])
+def test_target_policy_revocation_is_audited_before_selection_replay(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from kodi_lab.application.mcp_administration import ADDON_DEVELOPMENT_PRESET_ID
+
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    authorize(s)
+    params = {"target_id": str(s.ids["nexus"]), "workspace_id": str(s.env.workspace_id)}
+    p = _post(
+        client,
+        s.token,
+        "tools/call",
+        params={"name": "managed_selection_preview", "arguments": params},
+    ).json()["result"]["structuredContent"]
+    body = {
+        **params,
+        "request_id": str(uuid4()),
+        "expected_generation": p["latest_generation"],
+        "identity": p["identity"],
+    }
+    first = _post(
+        client,
+        s.token,
+        "tools/call",
+        params={"name": "managed_select", "arguments": body},
+    ).json()["result"]
+    assert not first.get("isError"), first
+    s.admin.assign_target_preset(s.ids["nexus"], ADDON_DEVELOPMENT_PRESET_ID)
+    caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
+    result = _post(
+        client,
+        s.token,
+        "tools/call",
+        params={
+            "name": name,
+            "arguments": params if name == "managed_selection_preview" else body,
+        },
+    ).json()["result"]
+    assert result["isError"]
+    records = [
+        json.loads(r.getMessage().removeprefix("mcp_request "))
+        for r in caplog.records
+        if r.getMessage().startswith("mcp_request ")
+    ]
+    record = next(r for r in records if r["tool"] == name)
+    assert record["outcome"] == "authorization_denied"
+    assert record["result_code"] == "permission_denied"
+
+
+def test_slow_html_selection_does_not_block_other_http_requests(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    csrf = login(client)
+    params = {"target_id": str(s.ids["omega"]), "workspace_id": str(s.env.workspace_id)}
+    p = client.get("/api/development-session/selection-preview", params=params).json()
+    body = {
+        **params,
+        "csrf_token": csrf,
+        "request_id": str(uuid4()),
+        "expected_generation": str(p["latest_generation"]),
+        "identity": p["identity"],
+    }
+    entered, finish = Event(), Event()
+    original = DevelopmentSessionService.select_retained
+
+    def slow(self: Any, *args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        assert finish.wait(5)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(DevelopmentSessionService, "select_retained", slow)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        form = pool.submit(
+            client.post,
+            "/development-session/retained/select",
+            data=body,
+            headers=ORIGIN,
+            follow_redirects=False,
+        )
+        try:
+            assert entered.wait(5)
+            other = pool.submit(client.get, "/api/development-session/policy")
+            assert other.result(timeout=1).status_code == 200
+        finally:
+            finish.set()
+        assert form.result(timeout=5).status_code == 303
