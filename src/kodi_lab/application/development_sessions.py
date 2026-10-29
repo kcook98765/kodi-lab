@@ -89,7 +89,7 @@ class DevelopmentSessionStatus(BaseModel):
 class RetainedPolicyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
-    expected_generation: int = Field(ge=0)
+    expected_generation: int = Field(ge=0, strict=True)
     omega_target_id: UUID | None = None
 
 

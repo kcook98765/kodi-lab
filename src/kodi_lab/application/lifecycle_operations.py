@@ -54,6 +54,7 @@ class RunningLifecycleOperation:
     instance_id: UUID
     token: str
     runtime_state_revision: int = 0
+    preserve_native_projection: bool = False
 
     @property
     def token_digest(self) -> str:
@@ -99,10 +100,52 @@ class ManagedInstanceLifecycleOperationCoordinator:
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
     ) -> RunningLifecycleOperation:
+        return self._begin(
+            instance_id,
+            instance_name=instance_name,
+            kind=kind,
+            prior_state=prior_state,
+            operation_id=operation_id,
+            precondition=precondition,
+            on_claim=on_claim,
+        )
+
+    def begin_bridge_preparation(
+        self, instance_id: UUID, *, precondition: Callable[[Session], None]
+    ) -> RunningLifecycleOperation:
+        """Own resident preparation while preserving native lifecycle identity.
+
+        No public lifecycle request can select this path. Unknown/interrupted
+        results use ordinary typed START reconciliation and invalidate observations.
+        """
+        return self._begin(
+            instance_id,
+            instance_name="Resident Bridge preparation",
+            kind=ManagedInstanceLifecycleKind.START,
+            prior_state=ManagedInstanceSemanticState.RUNNING_USABLE,
+            precondition=precondition,
+            preserve_native_projection=True,
+        )
+
+    def _begin(
+        self,
+        instance_id: UUID,
+        *,
+        instance_name: str,
+        kind: ManagedInstanceLifecycleKind,
+        prior_state: ManagedInstanceSemanticState,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        preserve_native_projection: bool = False,
+    ) -> RunningLifecycleOperation:
         self._stale.sweep_instance(instance_id)
         self._reconciliation.require_allowed(instance_id, _ACTION[kind])
         handle = RunningLifecycleOperation(
-            operation_id or uuid4(), instance_id, secrets.token_urlsafe(32)
+            operation_id or uuid4(),
+            instance_id,
+            secrets.token_urlsafe(32),
+            preserve_native_projection=preserve_native_projection,
         )
         now = self._clock()
         operation = ManagedInstanceLifecycleOperation(
@@ -132,6 +175,7 @@ class ManagedInstanceLifecycleOperationCoordinator:
                     instance_id,
                     kind=ManagedInstanceMutationKind.LIFECYCLE,
                     operation_id=handle.operation_id,
+                    preserve_native_projection=preserve_native_projection,
                 )
                 observation = ManagedRuntimeProjectionRepository(
                     session
@@ -213,6 +257,8 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 handle.instance_id,
                 operation_id=handle.operation_id,
                 token_digest=handle.token_digest,
+                preserve_native_projection=handle.preserve_native_projection
+                and not reconciliation_required,
             ):
                 raise LifecycleOperationLeaseLostError(
                     "Lifecycle mutation lease is no longer owned."
