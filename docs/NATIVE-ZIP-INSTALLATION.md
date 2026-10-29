@@ -1,5 +1,8 @@
 # Native repository ZIP installation
 
+For the separate active-development-add-on request, see the
+[one-call native ZIP feasibility audit](ONE-CALL-NATIVE-ZIP-FEASIBILITY.md).
+
 This is an operator-assisted development workflow for one explicitly granted
 disposable managed target. Kodi installs the ZIP. Lab delivers the validated
 original and verifies the installed result; it never extracts repository files
