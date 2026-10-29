@@ -169,3 +169,33 @@ def test_validation_and_cleanup_failure_remains_failed(
         row = RuntimeRecipeInstallationRepository(session).get(operation)
         assert row is not None and row.state.value == "failed"
         assert row.failure_code == "installation_cleanup_failed"
+
+
+def test_missing_reviewed_support_records_exact_category_without_approval(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.runtime.ostree import CommandResult
+    from kodi_lab.runtime.ostree_worker import require_support_success
+
+    operation = admitted(factory)
+    _client, phases = dependencies(factory, monkeypatch, operation)
+
+    def unavailable(*args: Any) -> Any:
+        require_support_success(CommandResult(71, b"untrusted diagnostic text"))
+
+    monkeypatch.setattr(
+        "kodi_lab.runtime.ostree_worker.assemble_in_worker", unavailable
+    )
+    with pytest.raises(RecipeInstallationError):
+        install_reviewed_runtime(
+            "piers", settings=Settings(), operation_id=operation, report=phases.append
+        )
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation)
+        assert row and row.state.value == "failed"
+        assert row.failure_code == "pinned_support_unavailable"
+        assert row.runtime_revision_id is None and row.image_id is None
+        assert row.completed_at is not None
+        assert ManagedInstanceRepository(session).list() == []
+    assert phases == ["acquiring"]

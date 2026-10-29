@@ -639,6 +639,17 @@ class RuntimeInstallationService:
                 )
             elif code == "validation_failed":
                 message = "The assembled Kodi runtime did not pass validation."
+            elif code == "pinned_support_unavailable":
+                message = (
+                    "An exact reviewed Ubuntu support package could not be acquired. "
+                    "Check its pinned availability before retrying; "
+                    "no replacement package was used."
+                )
+            elif code in {"support_artifact_mismatch", "support_download_bound"}:
+                message = (
+                    "Reviewed Ubuntu support acquisition failed "
+                    "its exact verification or bounds."
+                )
             return replace(
                 current,
                 action="none" if development_variant else "retry",

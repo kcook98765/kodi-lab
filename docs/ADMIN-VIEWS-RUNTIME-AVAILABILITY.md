@@ -256,3 +256,20 @@ violations or browser errors, keyboard/mobile/deep-link/no-JavaScript checks and
 real-preview preference persistence. Its request log confirms exactly two
 intercepted installation POSTs per viewport (busy then accepted), with no duplicate
 installation requests from polling. Final independent security/scope review passes.
+
+## Exact reviewed Ubuntu support failures
+
+The socketless Piers acquisition helper returns a closed failure category for an
+unavailable pinned Ubuntu support package, an exact support-byte mismatch, or a
+support download exceeding its existing bounds. The installer records the same
+category in the original failed operation. Raw upstream error text, URLs and
+response bodies do not become public failure state. Unknown helper failures
+retain the generic closed failure behavior.
+
+`pinned_support_unavailable` requires checking the exact reviewed support closure
+before another retry. A downloaded OSTree app/platform/graphics closure does not
+prove the reviewed Ubuntu packages remain available. Do not resolve newer DEBs,
+relax signature/hash/size checks, change recipe pins, or treat an image build as
+installation acceptance. Recovery requires the exact pinned bytes to become
+available, or a separately reviewed new recipe. These diagnostics do not retry,
+approve an artifact, provision an instance or alter an existing runtime pin.

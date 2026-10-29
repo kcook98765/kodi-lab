@@ -41,12 +41,28 @@ from kodi_lab.runtime.temporary_networks import (
     remove_exact_temporary_network,
 )
 from kodi_lab.runtime.ubuntu_support import (
+    SupportError,
     fetch_support_packages,
     load_support_closure,
     validate_support_entries,
 )
 
 STAGING_ROOT = Path("/run/kodi-lab/ostree-staging")
+
+# Only these fixed categories cross the socketless helper boundary. No stderr,
+# URL, response body or caller-selected error text becomes durable/public state.
+SUPPORT_FAILURE_EXITS = {
+    71: "pinned_support_unavailable",
+    72: "support_artifact_mismatch",
+    73: "support_download_bound",
+}
+
+
+def require_support_success(result: CommandResult) -> None:
+    if result.returncode:
+        raise OstreeAcquisitionError(
+            SUPPORT_FAILURE_EXITS.get(result.returncode, "support_acquisition_failed")
+        )
 
 
 class HelperRunner(BoundedCommandRunner):
@@ -235,8 +251,7 @@ def assemble_in_worker(
                 stage=acquired.stage,
                 timeout=650,
             )
-            if result.returncode != 0:
-                raise OstreeAcquisitionError("support_acquisition_failed")
+            require_support_success(result)
             entries = {
                 "support/" + p.archive_name: _read_file(
                     acquired.stage / "support" / p.archive_name, maximum=p.size
@@ -283,7 +298,17 @@ def main() -> int:
         if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
             raise OstreeAcquisitionError("unsafe_support_stage")
         os.mkdir("support", 0o700, dir_fd=fd)
-        entries = fetch_support_packages()
+        try:
+            entries = fetch_support_packages()
+        except SupportError as error:
+            return next(
+                (
+                    status
+                    for status, code in SUPPORT_FAILURE_EXITS.items()
+                    if str(error) == code
+                ),
+                1,
+            )
         for name, payload in entries.items():
             _write_file(stage / name, payload)
     finally:
