@@ -596,10 +596,15 @@ def test_unexpected_post_apply_failure_is_typed_reconciliation_required(
 def test_copy_sync_measurements_cover_real_work_without_more_readbacks(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import json
     import logging
 
+    # Alembic may disable an existing logger before this test runs.
+    monkeypatch.setattr(
+        logging.getLogger("kodi_lab.deployment.measurement"), "disabled", False
+    )
     client = FakeDeploymentDockerClient()
     with caplog.at_level(logging.INFO, logger="kodi_lab.deployment.measurement"):
         first = _apply(client, _spec(tmp_path))
@@ -728,6 +733,9 @@ def test_rejected_changed_capture_reports_confirmed_staged_size_not_plan(
     import json
     import logging
 
+    monkeypatch.setattr(
+        logging.getLogger("kodi_lab.deployment.measurement"), "disabled", False
+    )
     client = FakeDeploymentDockerClient()
     first = _apply(client, _spec(tmp_path))
     source = tmp_path / "development" / "addon"
