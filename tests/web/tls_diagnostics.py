@@ -7,9 +7,10 @@ import gc
 import json
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, suppress
+from io import StringIO
 from pathlib import Path
-from typing import Any, TextIO
+from typing import IO, Any, TextIO
 from urllib.parse import urlsplit
 
 import httpx
@@ -25,10 +26,14 @@ class RequestTrace:
         if self.records >= 128:
             return
         self.records += 1
-        self.stream.write(
-            json.dumps({"at": time.monotonic(), **values}, allow_nan=False) + "\n"
-        )
-        self.stream.flush()
+        try:
+            self.stream.write(
+                json.dumps({"at": time.monotonic(), **values}, allow_nan=False) + "\n"
+            )
+            self.stream.flush()
+        except (OSError, ValueError):
+            # Diagnostics must never replace a request result or exception.
+            pass
 
     def observe_gc(self, phase: str, info: dict[str, int]) -> None:
         if info.get("generation") != 2:
@@ -72,38 +77,65 @@ class RequestTrace:
         return response
 
 
+def _close_diagnostic(stream: IO[Any]) -> None:
+    with suppress(OSError, ValueError):
+        stream.close()
+
+
 @contextmanager
 def request_diagnostics(
     root: Path, *, existing_watchdog: bool = False
 ) -> Iterator[RequestTrace]:
     """Observe requests/GC/stacks without changing requests, deadlines or retries."""
-    with (
-        (root / "requests.jsonl").open("x") as stream,
-        (root / "threads.log").open("xb") as stacks,
-    ):
+    with ExitStack() as resources:
+        stream: TextIO
+        try:
+            stream = (root / "requests.jsonl").open("x")
+        except OSError:
+            stream = StringIO()
+        resources.callback(_close_diagnostic, stream)
+        try:
+            stacks = (root / "threads.log").open("xb")
+        except OSError:
+            stacks = None
+        if stacks is not None:
+            resources.callback(_close_diagnostic, stacks)
         trace = RequestTrace(stream)
         callback = trace.observe_gc
         gc.callbacks.append(callback)
-        # Respect an explicitly configured pytest faulthandler watchdog.
-        if not existing_watchdog:
-            faulthandler.dump_traceback_later(3, file=stacks)
+        timer_installed = False
         try:
+            # Respect an explicitly configured pytest faulthandler watchdog.
+            if not existing_watchdog and stacks is not None:
+                try:
+                    faulthandler.dump_traceback_later(3, file=stacks)
+                    timer_installed = True
+                except (OSError, RuntimeError):
+                    pass
             yield trace
         except BaseException:
-            stream.flush()
+            with suppress(OSError, ValueError):
+                stream.flush()
             for name in (
                 "requests.jsonl",
                 "nginx-access.log",
                 "nginx-error.log",
                 "threads.log",
             ):
-                path = root / name
-                if path.is_file():
-                    with path.open("rb") as diagnostic:
-                        body = diagnostic.read(16384)
-                    print(f"TLS diagnostic {name}:\n{body.decode(errors='replace')}")
+                try:
+                    path = root / name
+                    if path.is_file():
+                        with path.open("rb") as diagnostic:
+                            body = diagnostic.read(16384)
+                        print(
+                            f"TLS diagnostic {name}:\n{body.decode(errors='replace')}"
+                        )
+                except (OSError, ValueError):
+                    continue
             raise
         finally:
-            if not existing_watchdog:
-                faulthandler.cancel_dump_traceback_later()
-            gc.callbacks.remove(callback)
+            try:
+                if timer_installed:
+                    faulthandler.cancel_dump_traceback_later()
+            finally:
+                gc.callbacks.remove(callback)
