@@ -9,6 +9,7 @@ function boot(initial = "prepared") {
   const refresh = {disabled: false, addEventListener(_event, fn) {this.click = fn;}};
   const status = {textContent: ""};
   const requests = [], timers = new Map(), listeners = {}, windowListeners = {};
+  let reloads = 0;
   let next = 0;
   const scenario = {state: initial, getFailure: false, postFailure: false, detail: null, pending: false};
   const document = {
@@ -22,7 +23,7 @@ function boot(initial = "prepared") {
     },
   };
   vm.runInNewContext(code, {
-    document, window: {addEventListener(event, fn) {windowListeners[event] = fn;}},
+    document, window: {addEventListener(event, fn) {windowListeners[event] = fn;}, location: {reload() {reloads += 1;}}},
     AbortController, Error, Set,
     setTimeout(fn, delay) {timers.set(++next, {fn, delay});return next;},
     clearTimeout(id) {timers.delete(id);},
@@ -39,7 +40,7 @@ function boot(initial = "prepared") {
       return {ok: !scenario.getFailure, json: async () => ({state: scenario.state, generation: scenario.generation, resume_available: scenario.resume})};
     },
   });
-  return {install, refresh, status, requests, timers, scenario, document, listeners, windowListeners,
+  return {install, refresh, status, requests, timers, scenario, document, listeners, windowListeners, reloads: () => reloads,
     async tick(delay) {
       const selected = [...timers].find(([, timer]) => timer.delay === delay);
       assert.ok(selected, `missing ${delay}ms timer`);
@@ -143,6 +144,18 @@ function boot(initial = "prepared") {
     assert.equal(panel.requests.length, 1);
     if (event === "pagehide") {await panel.refresh.click();assert.equal(panel.requests.length, 1);}
   }
+  // Cached restoration reloads fresh server state without replaying setup.
+  const restored = boot("uninstalled");await flush();
+  restored.scenario.postFailure = true;await restored.install.click();
+  assert.equal(restored.install.disabled, true);
+  const beforeBack = restored.requests.length;
+  restored.windowListeners.pageshow({persisted: false});
+  assert.equal(restored.reloads(), 0);
+  restored.windowListeners.pagehide();
+  restored.windowListeners.pageshow({persisted: true});
+  assert.equal(restored.reloads(), 1);
+  assert.equal(restored.requests.length, beforeBack);
+  assert.equal(restored.requests.filter(r => r.options.method).length, 1);
   const cancelled = boot("active");await flush();
   cancelled.scenario.pending = true;
   const read = cancelled.refresh.click();await flush();

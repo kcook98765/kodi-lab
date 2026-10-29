@@ -1,5 +1,8 @@
 "use strict";
 (() => {
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) window.location.reload();
+  });
   const token = document.querySelector('meta[name="kodi-lab-csrf"]')?.content;
   for (const root of document.querySelectorAll("[data-deployment-reconcile-target]")) {
     const button = root.querySelector("[data-deployment-recheck]");
