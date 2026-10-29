@@ -187,6 +187,8 @@ def test_nexus_lifecycle_installation_keeps_real_typed_lease(
     restarted = []
     monkeypatch.setattr(lifecycle, "_stop", lambda *args: restarted.append("stop"))
     monkeypatch.setattr(lifecycle, "_start", lambda *args: restarted.append("start"))
+    # This proof isolates synchronous staging/lease ownership from native probing.
+    monkeypatch.setattr(lifecycle, "_queue_readiness", lambda *args: None)
     try:
         lifecycle.install_reviewed_bridge(INSTANCE_ID)
         assert restarted == ["stop", "start"]

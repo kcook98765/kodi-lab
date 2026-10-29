@@ -26,6 +26,7 @@ from kodi_lab.application.lifecycle_status import (
     semantic_state_is_unambiguous,
 )
 from kodi_lab.application.managed_bridge_trust import (
+    ManagedBridgeMutationUnconfirmedError,
     ManagedBridgeTrustService,
     invalidate_managed_bridge_trust,
 )
@@ -560,7 +561,10 @@ class ManagedRuntimeLifecycleService:
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
         | None = None,
     ) -> None:
-        unconfirmed = isinstance(error, LifecycleDispatchUnconfirmedError)
+        unconfirmed = isinstance(
+            error,
+            (LifecycleDispatchUnconfirmedError, ManagedBridgeMutationUnconfirmedError),
+        )
         known = isinstance(error, BrokerUnavailableError) or (
             semantic_state_is_unambiguous(resulting_state) and not unconfirmed
         )

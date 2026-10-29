@@ -43,6 +43,10 @@ class ManagedBridgeTrustError(RuntimeError):
     pass
 
 
+class ManagedBridgeMutationUnconfirmedError(ManagedBridgeTrustError):
+    """A resident/profile mutation may still be in flight; retain its owner."""
+
+
 def identity_json(identity: BridgeIdentity) -> str:
     value = {**asdict(identity), "bridge_id": str(identity.bridge_id)}
     if identity.kodi_release is None:
@@ -644,13 +648,20 @@ class ManagedBridgeTrustService:
                 current.state = "active"
             return True
         except Exception as error:
-            with self.sessions.begin() as session:
-                current = session.get(ManagedBridgeTrustRow, str(target_id))
-                if current is not None and current.secret_reference == str(reference):
-                    invalidate_managed_bridge_trust(
-                        session, target_id, secrets=self.secrets
-                    )
-            self.secrets.retire(reference)
-            raise ManagedBridgeTrustError(
+            try:
+                with self.sessions.begin() as session:
+                    current = session.get(ManagedBridgeTrustRow, str(target_id))
+                    if current is not None and current.secret_reference == str(
+                        reference
+                    ):
+                        invalidate_managed_bridge_trust(
+                            session, target_id, secrets=self.secrets
+                        )
+                self.secrets.retire(reference)
+            except Exception as cleanup_error:
+                raise ManagedBridgeMutationUnconfirmedError(
+                    "managed_bridge_establishment_failed"
+                ) from cleanup_error
+            raise ManagedBridgeMutationUnconfirmedError(
                 "managed_bridge_establishment_failed"
             ) from error

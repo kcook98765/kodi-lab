@@ -302,7 +302,8 @@ def test_actual_web_and_mcp_lifecycle_start_paths_cannot_double_dispatch(
             target_id=s.ids["omega"],
             authorize=lambda _: None,
         )
-        assert release.receipt_state in {"released", "retained"}
+        assert release.receipt_state == "released"
+        assert s.broker.stops == 1
     finally:
         s.readiness.close()
     assert len(s.records) == 4
@@ -598,5 +599,80 @@ def test_historical_ensure_cannot_report_ready_after_image_drift(
             and replay.hold_until == first.hold_until
         )
         assert s.broker.starts == 1
+    finally:
+        s.readiness.close()
+
+
+@pytest.mark.parametrize("action", ["install", "resume"])
+def test_synchronous_bridge_lost_write_retains_original_blocking_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    from kodi_lab.application.development_sessions import RetainedSelectionRequest
+    from kodi_lab.application.managed_bridge_trust import (
+        ManagedBridgeMutationUnconfirmedError,
+    )
+    from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+    from kodi_lab.storage.models import ManagedInstanceLifecycleOperationRow
+
+    s = setup(tmp_path, monkeypatch)
+    s.records[2] = replace(s.records[2], runtime_state=ContainerRuntimeState.RUNNING)
+    # Isolate the synchronous operation; readiness ownership is tested above.
+    monkeypatch.setattr(s.lifecycle, "_queue_readiness", lambda *_: None)
+    try:
+        if action == "resume":
+            s.lifecycle.install_reviewed_bridge(s.ids["omega"])
+            with s.env.sessions() as session:
+                generation = session.get(
+                    ManagedBridgeTrustRow, str(s.ids["omega"])
+                ).generation
+        original = s.broker.establish_managed_bridge_trust
+
+        def lost(**kwargs: Any) -> Any:
+            original(**kwargs)
+            raise TimeoutError("lost synchronous write reply")
+
+        monkeypatch.setattr(s.broker, "establish_managed_bridge_trust", lost)
+        with pytest.raises(ManagedBridgeMutationUnconfirmedError):
+            if action == "install":
+                s.lifecycle.install_reviewed_bridge(s.ids["omega"])
+            else:
+                s.lifecycle.resume_reviewed_bridge(
+                    s.ids["omega"], expected_generation=generation
+                )
+        with s.env.sessions() as session:
+            uncertain = session.scalars(
+                select(ManagedInstanceLifecycleOperationRow).where(
+                    ManagedInstanceLifecycleOperationRow.state
+                    == "reconciliation_required"
+                )
+            ).all()
+            assert len(uncertain) == 1
+            operation_id = uncertain[0].id
+            assert uncertain[0].failure_reason == "broker_runtime_dispatch_unconfirmed"
+        live = ManagedInstanceReconciliationService(
+            s.env.sessions, broker=s.broker, readiness=s.readiness
+        )
+        for state in (ContainerRuntimeState.RUNNING, ContainerRuntimeState.STOPPED):
+            s.records[2] = replace(s.records[2], runtime_state=state)
+            assert live.status(s.ids["omega"]).blocking
+            with pytest.raises(ManagedInstanceReconciliationRequiredError):
+                s.lifecycle.install_reviewed_bridge(s.ids["omega"])
+        p = s.service.selection_preview(s.ids["nexus"], s.env.workspace_id)
+        with pytest.raises(DevelopmentSessionConflict, match="reconciliation_required"):
+            s.service.select_retained(
+                RetainedSelectionRequest(
+                    request_id=uuid4(),
+                    expected_generation=p.latest_generation,
+                    target_id=p.target_id,
+                    workspace_id=p.workspace_id,
+                    identity=p.identity,
+                )
+            )
+        with s.env.sessions() as session:
+            assert (
+                session.get(ManagedInstanceLifecycleOperationRow, operation_id).state
+                == "reconciliation_required"
+            )
+        assert s.service.status().target_id == s.ids["omega"] and len(s.records) == 4
     finally:
         s.readiness.close()

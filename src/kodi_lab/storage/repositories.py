@@ -6694,6 +6694,7 @@ class ManagedInstanceMutationLeaseRepository:
         operation_id: UUID,
         token_digest: str,
         preserve_native_projection: bool = False,
+        record_use: bool = True,
     ) -> bool:
         current = self.current(instance_id)
         if preserve_native_projection and (
@@ -6711,7 +6712,7 @@ class ManagedInstanceMutationLeaseRepository:
             )
         )
         released = int(getattr(result, "rowcount", 0)) == 1
-        if released and current is not None:
+        if released and current is not None and record_use:
             record_operation_activity(
                 self._session,
                 instance_id,

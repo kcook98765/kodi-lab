@@ -259,6 +259,7 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 token_digest=handle.token_digest,
                 preserve_native_projection=handle.preserve_native_projection
                 and not reconciliation_required,
+                record_use=not handle.preserve_native_projection,
             ):
                 raise LifecycleOperationLeaseLostError(
                     "Lifecycle mutation lease is no longer owned."
