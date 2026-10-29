@@ -147,6 +147,7 @@ class TimingJournal:
             outcome=outcome,
             phases=phases,
             cleanup=case.get("cleanup", "no_scratch"),
+            orm_cache=case.get("orm_cache"),
             resources=resources(self.scratch),
         )
 

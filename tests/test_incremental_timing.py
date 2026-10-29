@@ -276,3 +276,27 @@ def test_missing_passed_phase_prevents_complete_classification() -> None:
     )
     assert result["classification"] == "incomplete"
     assert result["outcomes"]["incomplete"] == 1
+
+
+def test_post_teardown_cache_time_is_accounted_separately() -> None:
+    events = [json.loads(line) for line in journal().splitlines()]
+    events[3]["orm_cache"] = {"outcome": "reclaimed", "entries": 12, "seconds": 0.2}
+    events[5]["orm_cache"] = {"outcome": "retained_workers_or_unknown"}
+    result = summarize_journal(
+        b"".join((json.dumps(e) + "\n").encode() for e in events)
+    )
+    cleanup = result["orm_compilation_cleanup"]
+    assert cleanup["entries"] == 12
+    assert cleanup["seconds"] == 0.2
+    assert cleanup["retained_workers_or_unknown_cases"] == 1
+    assert result["total_phase_seconds"] == pytest.approx(2.8)
+    assert result["unaccounted_seconds"] == pytest.approx(6.2)
+
+
+@pytest.mark.parametrize("field,value", [("entries", -1), ("seconds", float("nan"))])
+def test_corrupt_cache_accounting_is_rejected(field: str, value: object) -> None:
+    events = [json.loads(line) for line in journal().splitlines()]
+    events[3]["orm_cache"] = {"outcome": "reclaimed", "entries": 12, "seconds": 0.2}
+    events[3]["orm_cache"][field] = value
+    with pytest.raises(ValueError):
+        summarize_journal(b"".join((json.dumps(e) + "\n").encode() for e in events))

@@ -194,6 +194,32 @@ def summarize_journal(body: bytes) -> dict[str, Any]:
             )
             low, start = high, end
     result["progress_segments"] = segments
+    cache_seconds = 0.0
+    cache_entries = 0
+    cache_retained = 0
+    for event in completed:
+        cleanup = event.get("orm_cache")
+        if cleanup is None:
+            continue
+        if not isinstance(cleanup, dict):
+            raise ValueError("invalid ORM compilation cleanup record")
+        if cleanup.get("outcome") == "retained_workers_or_unknown":
+            cache_retained += 1
+        elif cleanup.get("outcome") == "reclaimed":
+            entries = cleanup.get("entries")
+            if type(entries) is not int or entries < 0:
+                raise ValueError("invalid ORM compilation entry count")
+            cache_seconds += seconds(cleanup.get("seconds"))
+            seconds(cache_seconds)
+            cache_entries += entries
+        else:
+            raise ValueError("invalid ORM compilation cleanup outcome")
+    result["orm_compilation_cleanup"] = {
+        "seconds": cache_seconds,
+        "entries": cache_entries,
+        "retained_workers_or_unknown_cases": cache_retained,
+        "scope": "post-teardown cleanup; included in unaccounted elapsed time",
+    }
     file_wall: dict[str, float] = defaultdict(float)
     for event in completed:
         file_wall[event["nodeid"].split("::", 1)[0]] += event["wall_seconds"]
