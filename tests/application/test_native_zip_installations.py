@@ -394,7 +394,7 @@ def test_native_permission_is_explicit_and_does_not_expand_mcp_catalog(
     native: Fixture,
 ) -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 29
+    assert len(registry.names()) == 31
     assert registry.discoverable(frozenset({"addon.install"})) == ()
     presets = native.admin.list_presets()
     assert all("addon.install" not in p.permissions for p in presets if p.builtin)

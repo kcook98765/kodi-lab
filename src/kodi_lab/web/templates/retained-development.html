@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Retained Kodi versions · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Retained Kodi versions</h1>
+<p>Keep a private profile for Matrix, Nexus, Omega and Piers RC1 where its reviewed runtime is available. Only one Kodi may run at a time. Stop Kodi and release use holds before choosing another version.</p>
+<p><a href="/development-session">Back to Current Kodi</a> · <a href="/runtimes">Reviewed runtime installations</a></p>
+{% if not policy.enabled %}
+<section>
+  <h2>Enable retained versions</h2>
+  <p>This keeps existing profiles. It does not acquire, prepare, start or reset Kodi. Your current selected environment remains selected.</p>
+  <form method="post" action="/development-session/retained/policy">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="expected_generation" value="{{ policy.latest_generation }}">
+    <input type="hidden" name="enabled" value="true">
+    <label>Retain this Omega environment <select name="omega_target_id" required>
+    {% for choice in choices %}{% if choice.kodi_version == '21.3' %}<option value="{{ choice.target_id }}"{% if current and choice.target_id == current.target_id %} selected{% endif %}>{{ choice.name }}</option>{% endif %}{% endfor %}
+    </select></label>
+    <button type="submit">Enable retained versions</button>
+  </form>
+</section>
+{% else %}
+<section>
+  <h2>Choose a retained version</h2>
+  <form method="get" action="/development-session/retained">
+    <label>Add-on workspace <select name="workspace_id" required>
+    {% for workspace in workspaces %}{% if workspace.state.value == 'ready' and workspace.bytes_state.value == 'present' %}<option value="{{ workspace.id }}"{% if current and workspace.id == current.workspace_id %} selected{% endif %}>{{ workspace.source_logical_name }} — {{ workspace.source_addon_id }}</option>{% endif %}{% endfor %}
+    </select></label>
+    <label>Kodi version <select name="target_id" required>
+    {% for choice in choices %}<option value="{{ choice.target_id }}">{{ choice.kodi_version }} · {{ choice.name }}</option>{% endfor %}
+    </select></label>
+    <button type="submit">Review selection</button>
+  </form>
+  {% if preview %}
+  <h3>Confirm selection</h3>
+  <p>{% for choice in choices %}{% if choice.target_id == preview.target_id %}{{ choice.kodi_version }} · {{ choice.name }}{% endif %}{% endfor %}</p>
+  <p>{% if preview.provisioned %}Use this existing stopped profile.{% else %}Select this version for separate profile preparation.{% endif %} The previous profile stays retained. Source setup, native readiness, Bridge trust and agent permissions remain separate checks.</p>
+  <form method="post" action="/development-session/retained/select">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="request_id" value="{{ request_id }}">
+    <input type="hidden" name="expected_generation" value="{{ preview.latest_generation }}">
+    <input type="hidden" name="target_id" value="{{ preview.target_id }}">
+    <input type="hidden" name="workspace_id" value="{{ preview.workspace_id }}">
+    <input type="hidden" name="identity" value="{{ preview.identity }}">
+    <button type="submit">Select and keep profiles</button>
+  </form>
+  {% endif %}
+</section>
+<details><summary>Disposable workflow</summary>
+<p>Returning to the disposable workflow requires its existing single-profile inventory conditions. This action never removes retained profiles. Review additional profiles through their explicit Advanced controls first.</p>
+<form method="post" action="/development-session/retained/policy">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="expected_generation" value="{{ policy.latest_generation }}"><input type="hidden" name="enabled" value="false"><button type="submit">Return to disposable workflow</button>
+</form></details>
+{% endif %}
+{% endblock %}

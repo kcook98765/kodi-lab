@@ -173,6 +173,26 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             scope=ToolScope.WORKSPACE_TARGET,
         )
     )
+    for name, effect in (
+        ("managed_selection_preview", ToolEffect.READ_ONLY),
+        ("managed_select", ToolEffect.MUTATING),
+    ):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset({"managed.lifecycle", "workspace.inspect"}),
+                effect=effect,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset(),
+                required_states=frozenset(),
+                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
+                adapter="managed_runtime." + name,
+                production_eligible=False,
+                target_scope_required=False,
+                scope=ToolScope.WORKSPACE_TARGET,
+            )
+        )
     for name in ("managed_ensure_ready", "managed_release"):
         registry.register(
             McpToolDefinition(

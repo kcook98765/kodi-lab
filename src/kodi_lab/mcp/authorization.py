@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, TypeVar, cast
@@ -825,13 +826,19 @@ class McpAuthorizationService:
         tool_name: str,
         workspace_id: UUID,
         target_id: UUID,
+        *,
+        read_session: Session | None = None,
     ) -> AgentWorkspace:
         """Intersect exact workspace ownership/source authority with target policy."""
 
         definition = self._definition(tool_name)
         if definition.resolved_scope is not ToolScope.WORKSPACE_TARGET:
             raise McpAuthorizationError("permission_denied")
-        with self._session_factory() as session:
+        with (
+            self._session_factory()
+            if read_session is None
+            else nullcontext(read_session)
+        ) as session:
             client = self._require_client_permission(session, principal, definition)
             binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
             source_grant = (
@@ -878,6 +885,35 @@ class McpAuthorizationService:
                     else "deployment_not_allowed"
                 )
         return workspace
+
+    def recheck_retained_selection(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        tool_name: str,
+        workspace_id: UUID,
+        target_id: UUID,
+    ) -> None:
+        definition = self._definition(tool_name)
+        if tool_name not in {
+            "managed_selection_preview",
+            "managed_select",
+        } or definition.permissions != frozenset(
+            {"managed.lifecycle", "workspace.inspect"}
+        ):
+            raise McpAuthorizationError("permission_denied")
+        self.authorize_workspace_target_scope(
+            principal, tool_name, workspace_id, target_id, read_session=session
+        )
+        client = self._require_client_permission(session, principal, definition)
+        self._require_current_credential(session, principal, client)
+        target = session.get(TargetRow, str(target_id))
+        if (
+            target is None
+            or target.target_type is not TargetType.MANAGED
+            or session.get(ManagedInstanceRow, str(target_id)) is None
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
 
     def authorize_workspace_target(
         self,

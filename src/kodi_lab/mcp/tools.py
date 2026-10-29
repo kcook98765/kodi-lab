@@ -28,6 +28,11 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceRead,
     AgentWorkspaceService,
 )
+from kodi_lab.application.development_sessions import (
+    DevelopmentSessionService,
+    RetainedSelectionPreview,
+    RetainedSelectionRequest,
+)
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.managed_agent_lifecycle import (
     ManagedAgentLifecycleError,
@@ -712,6 +717,23 @@ class WorkspaceValidateResult(BaseModel):
     truncated: StrictBool
 
 
+class ManagedSelectionPreviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    target_id: UUID = Field(strict=False)
+    workspace_id: UUID = Field(strict=False)
+
+
+class ManagedSelectionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    generation: int
+    target_id: UUID
+    workspace_id: UUID
+    source_id: UUID
+    phase: str
+    selected: bool
+
+
 class ManagedEnsureReadyInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: UUID = Field(strict=False)
@@ -748,6 +770,7 @@ class McpTargetToolService:
         managed_lifecycle: ManagedAgentLifecycleService | None = None,
         workspace_launch: WorkspaceLaunchService | None = None,
         addon_settings: AddonSettingsService | None = None,
+        retained_sessions: DevelopmentSessionService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -770,6 +793,7 @@ class McpTargetToolService:
         self._managed_lifecycle = managed_lifecycle
         self._workspace_launch = workspace_launch
         self._addon_settings = addon_settings
+        self._retained_sessions = retained_sessions
         self._workspace_imports = (
             None if workspaces is None else WorkspaceImportService(workspaces)
         )
@@ -779,6 +803,81 @@ class McpTargetToolService:
         self._validation_slots = threading.BoundedSemaphore(2)
         self._active_validation_clients: set[UUID] = set()
         self._active_validation_workspaces: set[UUID] = set()
+
+    def _selection_authorize(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        name: str,
+        workspace_id: UUID,
+        target_id: UUID,
+    ) -> None:
+        self._authorization.recheck_retained_selection(
+            session,
+            principal,
+            name,
+            workspace_id,
+            target_id,
+        )
+        from kodi_lab.storage.development_sessions import active_session
+
+        current = active_session(session)
+        if current is None or current.workspace_id != str(workspace_id):
+            raise McpAuthorizationError("retained_workspace_requires_administrator")
+
+    def managed_selection_preview(
+        self, principal: McpPrincipal, operation: ManagedSelectionPreviewInput
+    ) -> RetainedSelectionPreview:
+        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+        if self._retained_sessions is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._retained_sessions.selection_preview(
+                operation.target_id,
+                operation.workspace_id,
+                authorize=lambda session: self._selection_authorize(
+                    session,
+                    principal,
+                    "managed_selection_preview",
+                    operation.workspace_id,
+                    operation.target_id,
+                ),
+            )
+        except DevelopmentSessionConflict as error:
+            raise McpAuthorizationError(error.code) from error
+
+    def managed_select(
+        self, principal: McpPrincipal, operation: RetainedSelectionRequest
+    ) -> ManagedSelectionResult:
+        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+        if self._retained_sessions is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._retained_sessions.select_retained(
+                operation,
+                actor="mcp:" + str(principal.client_id),
+                authorize=lambda session: self._selection_authorize(
+                    session,
+                    principal,
+                    "managed_select",
+                    operation.workspace_id,
+                    operation.target_id,
+                ),
+            )
+        except DevelopmentSessionConflict as error:
+            raise McpAuthorizationError(error.code) from error
+        current = self._retained_sessions.status()
+        return ManagedSelectionResult(
+            request_id=operation.request_id,
+            generation=result.generation,
+            target_id=result.target_id,
+            workspace_id=result.workspace_id,
+            source_id=result.source_id,
+            phase=result.phase,
+            selected=current is not None and current.generation == result.generation,
+        )
 
     def managed_ensure_ready(
         self,
