@@ -446,6 +446,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_start_reservations",
         "managed_provision_reservations",
         "development_sessions",
+        "development_selections",
         "development_session_policy",
         "managed_diagnostic_captures",
         "development_session_replacement_reviews",

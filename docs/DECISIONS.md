@@ -7366,3 +7366,28 @@ permissions and grants remain unchanged. Capture/body access, internal Kodi log
 retention, crash symbolication and Windows acceptance remain separate. The fixed
 rotation policy prevents ordinary stdout/stderr growth from being unlimited,
 while accepting loss of old output and preserving explicit bounded captures.
+
+## D-0471: Explicit retained profiles with one selected active development Kodi
+
+Refine issue #51 by opt-in, preserving its disposable workflow by default. Reuse
+the existing selected generation, mutation leases and broker reservations. Permit
+stopped provisioning within the closed reviewed Matrix/Nexus/Omega/Piers RC1
+cohort. An exact reviewed, requester-bound selection may retain a stopped profile
+or reserve its absence, but never starts, resets, repins, grants, copies trust/
+baselines or deletes. Selection and effective single-running admission share the
+SQLite writer boundary. Pending/uncertain outcomes keep their identity/capacity;
+all workers, leases, holds and typed reconciliation must be idle before switching.
+
+Fence exact observed identity before reviewed Bridge side effects. In retained
+mode queue readiness after original start terminalization and give optional
+resident preparation its own existing typed START ownership through final cleanup.
+This keeps asynchronous trust publication within the same durable exclusion as
+Stop and selection. A missing optional Bridge is not native failure; interrupted
+Bridge mutation remains explicit reconciliation. Automatic preparation is owned
+in legacy mode too, so opt-in cannot race an older worker. Successful resident
+preparation preserves native projection/receipt identity; unknown writes do not.
+
+Migration 0089 defaults off, preserves legacy state and refuses to discard enabled
+policy or requester-bound selection history. No scheduler, broad permission,
+production authority, pin change or implicit profile retirement is introduced.
+See [policy](RETAINED-DEVELOPMENT-POLICY.md) for contract and evidence limits.

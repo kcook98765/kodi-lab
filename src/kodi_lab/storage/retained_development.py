@@ -16,6 +16,9 @@ from kodi_lab.storage.models import (
 
 class RetainedContainer(Protocol):
     @property
+    def runtime_state(self) -> str: ...
+
+    @property
     def managed_instance_id(self) -> str: ...
     @property
     def container_id(self) -> str: ...
@@ -121,3 +124,45 @@ def require_retained_selection(session: Session, target_id: str) -> None:
         or current.container_id is None
     ):
         raise DevelopmentSessionConflict("retained_selection_required")
+
+
+def require_retained_container(
+    session: Session,
+    records: Sequence[RetainedContainer],
+    target_id: str,
+    *,
+    running: bool = False,
+    observed_container_id: str | None = None,
+) -> None:
+    """Fence before side effects while the caller acquires/holds mutation ownership."""
+    from kodi_lab.storage.development_sessions import (
+        DevelopmentSessionConflict,
+        active_session,
+    )
+
+    if not retained_targets(session):
+        return
+    require_retained_selection(session, target_id)
+    retained_inventory(session, records)
+    current = active_session(session)
+    assert current is not None
+    selected = [r for r in records if r.managed_instance_id == target_id]
+    if (
+        len(selected) != 1
+        or selected[0].container_id != current.container_id
+        or (
+            observed_container_id is not None
+            and observed_container_id != current.container_id
+        )
+    ):
+        raise DevelopmentSessionConflict("development_session_identity_changed")
+    if any(
+        r.runtime_state != "stopped"
+        for r in records
+        if r.managed_instance_id != target_id
+    ):
+        raise DevelopmentSessionConflict("retained_other_runtime_active")
+    if selected[0].runtime_state not in (
+        {"running"} if running else {"running", "stopped"}
+    ):
+        raise DevelopmentSessionConflict("retained_runtime_unavailable")

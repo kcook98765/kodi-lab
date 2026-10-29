@@ -6562,7 +6562,15 @@ class ManagedInstanceMutationLeaseRepository:
         *,
         kind: ManagedInstanceMutationKind,
         operation_id: UUID,
+        preserve_native_projection: bool = False,
     ) -> None:
+        if (
+            preserve_native_projection
+            and kind is not ManagedInstanceMutationKind.LIFECYCLE
+        ):
+            raise ValueError(
+                "Only owned resident preparation preserves native projection"
+            )
         from kodi_lab.storage.retained_development import require_retained_selection
 
         if kind not in {
@@ -6596,7 +6604,7 @@ class ManagedInstanceMutationLeaseRepository:
         # Exclusion must succeed before an attempted mutation can revoke a
         # human viewer. A refused Start/settings action cannot cancel control.
         cancel_live_display_for_mutation(instance_id, kind, self._session, operation_id)
-        if kind in _RUNTIME_INVALIDATING_MUTATIONS:
+        if kind in _RUNTIME_INVALIDATING_MUTATIONS and not preserve_native_projection:
             ManagedRuntimeProjectionRepository(self._session).reserve_mutation(
                 instance_id
             )
@@ -6680,9 +6688,21 @@ class ManagedInstanceMutationLeaseRepository:
         return int(getattr(result, "rowcount", 0)) == 1
 
     def release(
-        self, instance_id: UUID, *, operation_id: UUID, token_digest: str
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        preserve_native_projection: bool = False,
     ) -> bool:
         current = self.current(instance_id)
+        if preserve_native_projection and (
+            current is None
+            or current.operation_kind != ManagedInstanceMutationKind.LIFECYCLE
+        ):
+            raise ValueError(
+                "Only owned resident preparation preserves native projection"
+            )
         result = self._session.execute(
             delete(ManagedInstanceMutationLeaseRow).where(
                 ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
@@ -6703,6 +6723,7 @@ class ManagedInstanceMutationLeaseRepository:
             released
             and current is not None
             and current.operation_kind in _RUNTIME_INVALIDATING_MUTATIONS
+            and not preserve_native_projection
         ):
             ManagedRuntimeProjectionRepository(self._session).advance(instance_id)
         return released

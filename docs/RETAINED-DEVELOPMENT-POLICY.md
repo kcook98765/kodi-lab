@@ -60,3 +60,15 @@ Production upgrade and administrator opt-in require a separately authorized task
 Tests use real SQLite transactions, migrated schemas and adapter-owned modeled
 container identities with real private profile files. They prove admission,
 concurrency and preservation, not native multi-version runtime acceptance.
+
+Retained starts check observed target/container/runtime/image before any reviewed
+Bridge staging or restart side effect. Bridge admission checks the observed
+container again. Asynchronous readiness remains asynchronous: after the original
+start terminalizes, optional resident preparation acquires a separate existing
+typed START lifecycle lease. Its complete trust/secret/profile and cleanup lifetime
+is exclusive. Stop and selection refuse while it owns mutation; an interrupted
+preparation leaves typed reconciliation evidence. No new operation kind, scheduler,
+worker service or safety timeout is introduced. Automatic preparation uses ownership in legacy mode too, so opt-in cannot race
+a previously started worker. Its native projection stays unchanged on successful
+preparation and read-only refusal; unknown writes use typed reconciliation.
+Existing disposable-session policy remains the default.

@@ -245,6 +245,10 @@ class ManagedRuntimeLifecycleService:
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
 
+    def _queue_readiness(
+        self, instance_id: UUID, profile: RuntimeExecutionProfile
+    ) -> None:
+
         def run(cancel_event: Event) -> ReadinessResult:
             coordinator = self._coordinator_factory(self._broker, profile)
             result = coordinator.wait_until_usable(
@@ -256,7 +260,7 @@ class ManagedRuntimeLifecycleService:
                 and self._bridge_trust is not None
             ):
                 try:
-                    self._bridge_trust.prepare(instance_id)
+                    self._bridge_trust.prepare_background(instance_id)
                 except Exception:
                     # Optional resident capability must not make native Kodi
                     # operations unusable. No secret or raw error is logged.
@@ -445,13 +449,30 @@ class ManagedRuntimeLifecycleService:
         | None = None,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
+
+        def admission(session: Session) -> None:
+            if kind is ManagedInstanceLifecycleKind.START:
+                from kodi_lab.storage.retained_development import (
+                    require_retained_container,
+                    retained_targets,
+                )
+
+                if retained_targets(session):
+                    require_retained_container(
+                        session,
+                        self._broker.managed_container_inventory().containers,
+                        str(instance_id),
+                    )
+            if precondition is not None:
+                precondition(session)
+
         handle = self._operations.begin(
             instance_id,
             instance_name=instance_name,
             kind=kind,
             prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
             operation_id=operation_id,
-            precondition=precondition,
+            precondition=admission,
             on_claim=on_claim,
         )
         try:
@@ -497,6 +518,10 @@ class ManagedRuntimeLifecycleService:
                 ),
                 on_terminal=on_terminal,
             )
+        if kind is ManagedInstanceLifecycleKind.START and self._is_expected_result(
+            kind, resulting_state
+        ):
+            self._queue_readiness(instance_id, profile)
         return result
 
     @staticmethod
