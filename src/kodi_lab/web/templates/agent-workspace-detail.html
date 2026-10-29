@@ -41,6 +41,22 @@
       <p id="source-capture-result" role="status"></p>
     </section>
     {% endif %}
+    {% if workspace.state.value == "ready" %}
+    <section id="workspace-deployment-preflight" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}">
+      <h2>Deployment prerequisites</h2>
+      <p>Check the stored setup for this workspace generation and one managed disposable Kodi. This does not deploy, start, stop or repair Kodi, or check an agent's permissions. Live readiness and installed bytes still need verification.</p>
+      {% if preflight_targets %}
+      <label>Kodi to assess <select data-preflight-target>
+        <option value="">Choose a managed disposable Kodi</option>
+        {% for target in preflight_targets %}<option value="{{ target.id }}" {% if target.id == preflight_target_id %}selected{% endif %}>{{ target.name }}</option>{% endfor %}
+      </select></label>
+      <button data-preflight-check type="button">Check deployment prerequisites</button>
+      <p data-preflight-status role="status">No assessment requested.</p>
+      <ul data-preflight-checks></ul>
+      <ul data-preflight-actions></ul>
+      {% else %}<p>No managed disposable Kodi is registered. Review <a href="/development-session">Current Kodi</a> setup.</p>{% endif %}
+    </section>
+    {% endif %}
     {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
     {% if repository_deployments %}<h2>Repository deployments</h2><ul>{% for item in repository_deployments %}<li><code>{{ item.addon_id }}</code> {{ item.addon_version }} → target <code>{{ item.target_id }}</code>: {{ item.state }} (operation <code>{{ item.operation_id }}</code>). {% if item.failure_code %}{{ item.failure_code }}.{% endif %} <a href="/kodi-repository">Review or recheck</a></li>{% endfor %}</ul>{% endif %}
     {% if workspace.state.value == "ready" %}
@@ -85,6 +101,7 @@
     </section>
     <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, Git, MCP, and Kodi actions are not available.</p>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
+    <script src="{{ url_for('static', path='/workspace-deployment-preflight.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-retention.js') }}" defer></script>
