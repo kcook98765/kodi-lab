@@ -55,3 +55,10 @@ do not reset, discard work, edit the database or infer an installed generation.
 Current readiness becomes idle for a stopped container. Historical readiness is
 shown separately and cannot make the stopped target usable. Recovery receipts
 and failed-phase evidence prohibit lossy schema downgrade.
+
+The browser bounds each explicit inspection request to 30 seconds, including
+response decoding. A timeout, lost response or unreadable result leaves the
+inspection unconfirmed and disables resubmission on that page. The server may
+still complete its inspection; refresh instance status and retained history
+before deciding whether to inspect the same operation again. Leaving the page
+cancels the browser wait, not server recovery. No deployment is replayed.

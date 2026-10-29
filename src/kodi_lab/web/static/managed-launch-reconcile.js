@@ -5,21 +5,38 @@
     const button = root.querySelector("[data-deployment-recheck]");
     const status = root.querySelector("[data-deployment-reconcile-status]");
     let busy = false;
+    let uncertain = false;
+    let closed = false;
+    let controller;
+    window.addEventListener("pagehide", () => {
+      closed = true;
+      controller?.abort();
+    });
     button.addEventListener("click", async () => {
-      if (busy || !token) return;
+      if (busy || uncertain || closed || !token) return;
       busy = true;
       button.disabled = true;
+      controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+        uncertain = true;
+        if (!closed) status.textContent = "Inspection is still unconfirmed. The server may still be inspecting this deployment. Preserve the workspace; refresh instance status and retained history before another inspection.";
+      }, 30000);
+      status.textContent = "Inspecting the exact stopped deployment…";
       try {
         const url = `/api/instances/${encodeURIComponent(root.dataset.deploymentReconcileTarget)}/deployments/${encodeURIComponent(root.dataset.deploymentId)}/reconcile`;
-        const response = await fetch(url, {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": token}, body: "{}"});
+        const response = await fetch(url, {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": token}, body: "{}", signal: controller.signal});
         const result = await response.json();
-        if (!response.ok) throw new Error("Deployment inspection unavailable. Preserve the workspace and inspect current status.");
+        if (closed || controller.signal.aborted) return;
+        if (!response.ok) throw new Error();
         status.textContent = `${result.outcome}: ${result.reason}. ${result.next_action} Original failed phase: ${result.failed_phase || "unknown (historical)"}. Refresh status and retained history.`;
-      } catch (error) {
-        status.textContent = error.message || "Deployment evidence unavailable; no deployment was replayed.";
+      } catch (_) {
+        uncertain = true;
+        if (!closed) status.textContent = "Deployment inspection is unconfirmed. Preserve the workspace; refresh instance status and retained history before another inspection. The server may still be processing this request.";
       } finally {
+        clearTimeout(timeout);
         busy = false;
-        button.disabled = false;
+        button.disabled = uncertain || closed;
       }
     });
   }
