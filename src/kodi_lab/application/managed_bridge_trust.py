@@ -36,7 +36,12 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.storage.models import ManagedBridgeTrustRow, ManagedInstanceRow, TargetRow
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
-from kodi_lab.storage.secrets import ExternalBridgeSecretStore
+from kodi_lab.storage.secrets import (
+    ExternalBridgeSecretStore,
+    external_secret_publication,
+    queue_external_secret_retirement,
+    retire_pending_external_secrets,
+)
 
 
 class ManagedBridgeTrustError(RuntimeError):
@@ -96,6 +101,7 @@ def invalidate_managed_bridge_trust(
     *,
     secrets: ExternalBridgeSecretStore | None = None,
     revoked: bool = False,
+    defer_retirement: bool = False,
 ) -> None:
     """Retire authority before replacement. A rollback after retirement fails closed."""
     row = session.get(ManagedBridgeTrustRow, str(target_id))
@@ -110,6 +116,14 @@ def invalidate_managed_bridge_trust(
     )
     session.flush()
     if reference:
+        if defer_retirement:
+            queue_external_secret_retirement(
+                session,
+                store_kind="bridge",
+                target_id=target_id,
+                reference=UUID(reference),
+            )
+            return
         store = (
             secrets
             or session.info.get("managed_bridge_secrets")
@@ -330,9 +344,13 @@ class ManagedBridgeTrustService:
             ManagedInstanceLifecycleOperationState,
             ManagedInstanceSemanticState,
         )
-        from kodi_lab.storage.retained_development import require_retained_container
+        from kodi_lab.storage.retained_development import (
+            require_retained_container,
+            require_runtime_reservations_idle,
+        )
 
         def admission(session: Session) -> None:
+            require_runtime_reservations_idle(session, str(target_id))
             require_retained_container(
                 session,
                 self.broker.managed_container_inventory().containers,
@@ -544,15 +562,26 @@ class ManagedBridgeTrustService:
             return False
         if mutation_started is not None:
             mutation_started()
-        reference = self.secrets.write(
-            target_id, "request_authentication", os.urandom(32)
-        )
+        reference = None
         now = (
             datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
         )
         generation = 1 if row is None else row.generation + 1
         try:
-            with self.sessions.begin() as session:
+            # Register the exact cleanup identity before materialization. A
+            # post-rename fsync failure or process loss retains its obligation.
+            with external_secret_publication(
+                self.sessions,
+                store_kind="bridge",
+                target_id=target_id,
+                write=lambda candidate: self.secrets.write(
+                    target_id,
+                    "request_authentication",
+                    os.urandom(32),
+                    reference=candidate,
+                ),
+                retire=self.secrets.retire,
+            ) as (session, reference):
                 current = session.get(ManagedBridgeTrustRow, str(target_id))
                 if (current is None) != (row is None) or (
                     current is not None
@@ -562,7 +591,7 @@ class ManagedBridgeTrustService:
                     raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")
                 if current is not None:
                     invalidate_managed_bridge_trust(
-                        session, target_id, secrets=self.secrets
+                        session, target_id, defer_retirement=True
                     )
                     session.delete(current)
                     session.flush()
@@ -586,6 +615,13 @@ class ManagedBridgeTrustService:
                         ),
                     )
                 )
+            assert reference is not None
+            retire_pending_external_secrets(
+                self.sessions,
+                store_kind="bridge",
+                target_id=target_id,
+                retire=self.secrets.retire,
+            )
             if addon is not None:
                 self._call(
                     observed,
@@ -649,15 +685,22 @@ class ManagedBridgeTrustService:
             return True
         except Exception as error:
             try:
-                with self.sessions.begin() as session:
-                    current = session.get(ManagedBridgeTrustRow, str(target_id))
-                    if current is not None and current.secret_reference == str(
-                        reference
-                    ):
-                        invalidate_managed_bridge_trust(
-                            session, target_id, secrets=self.secrets
-                        )
-                self.secrets.retire(reference)
+                if reference is not None:
+                    with self.sessions.begin() as session:
+                        current = session.get(ManagedBridgeTrustRow, str(target_id))
+                        if current is not None and current.secret_reference == str(
+                            reference
+                        ):
+                            invalidate_managed_bridge_trust(
+                                session, target_id, defer_retirement=True
+                            )
+                    retire_pending_external_secrets(
+                        self.sessions,
+                        store_kind="bridge",
+                        target_id=target_id,
+                        reference=reference,
+                        retire=self.secrets.retire,
+                    )
             except Exception as cleanup_error:
                 raise ManagedBridgeMutationUnconfirmedError(
                     "managed_bridge_establishment_failed"

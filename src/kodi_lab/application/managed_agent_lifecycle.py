@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -176,7 +177,8 @@ class ManagedAgentLifecycleService:
                         self._ensure(row, authorize)
                     else:
                         self._release(row, authorize)
-                except ManagedAgentLifecycleError:
+                except ManagedAgentLifecycleError as error:
+                    self._refuse_undispatched(row, error.code)
                     raise
                 except ManagedResourceProtected as error:
                     self._finish(
@@ -325,6 +327,41 @@ class ManagedAgentLifecycleService:
             )
         except DevelopmentSessionConflict as error:
             raise ManagedAgentLifecycleError(error.code) from error
+
+    def _refuse_undispatched(
+        self, original: ManagedAgentLifecycleRequestRow, code: str
+    ) -> None:
+        """Close only this proven pre-dispatch intent; never settle another owner."""
+        with self._sessions.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            current = session.get(ManagedAgentLifecycleRequestRow, original.id)
+            if (
+                current is None
+                or current.state != "pending"
+                or current.lifecycle_operation_id is not None
+                or any(
+                    getattr(current, k) != getattr(original, k)
+                    for k in (
+                        "client_id",
+                        "request_id",
+                        "original_instance_id",
+                        "action",
+                        "hold_minutes",
+                    )
+                )
+                or session.get(ManagedInstanceLifecycleOperationRow, original.id)
+                is not None
+            ):
+                return
+            current.state = "failed"
+            current.result_json = json.dumps(
+                {
+                    "code": code
+                    if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code)
+                    else "pre_dispatch_admission_refused"
+                }
+            )
+            current.updated_at = timestamp(self._clock())
 
     def _pending(
         self,
