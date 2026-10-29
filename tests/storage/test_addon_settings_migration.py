@@ -196,6 +196,7 @@ def test_populated_predecessor_preserves_lease_then_runs_real_settings_coordinat
     config, url = migration_setup(
         monkeypatch, tmp_path / "migration", start_revision=PRIOR
     )
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     fixture_root = tmp_path / "fixture"
     env = fixtures._environment(
@@ -216,6 +217,7 @@ def test_populated_predecessor_preserves_lease_then_runs_real_settings_coordinat
             now=fixtures.NOW,
             expires_at=fixtures.NOW + timedelta(minutes=15),
         )
+    command.downgrade(config, PRIOR)
     with engine.connect() as connection:
         before = connection.execute(
             text("SELECT * FROM managed_instance_mutation_leases")
@@ -228,6 +230,7 @@ def test_populated_predecessor_preserves_lease_then_runs_real_settings_coordinat
             ).all()
             == before
         )
+    command.upgrade(config, "head")
     with env.sessions.begin() as session:
         assert ManagedInstanceMutationLeaseRepository(session).release(
             fixtures.TARGET_ID, operation_id=lease_id, token_digest="c" * 64
@@ -289,15 +292,16 @@ def test_downgrade_refuses_unrepresentable_lease_even_without_settings_history(
     config, url = migration_setup(
         monkeypatch, tmp_path / "migration", start_revision=PRIOR
     )
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     env = fixtures._environment(
         tmp_path / "fixture", database_path=Path(str(engine.url.database))
     )
-    command.upgrade(config, CURRENT)
     with env.sessions.begin() as session:
         ManagedInstanceMutationLeaseRepository(session).reserve(
             fixtures.TARGET_ID, kind=kind, operation_id=uuid4()
         )
+    command.downgrade(config, CURRENT)
     with pytest.raises(RuntimeError, match="history must be preserved"):
         command.downgrade(config, PRIOR)
     with engine.connect() as connection:

@@ -148,6 +148,8 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "log_read",
         "managed_ensure_ready",
         "managed_release",
+        "managed_select",
+        "managed_selection_preview",
         "promotion_request",
         "remote_action",
         "screenshot_capture",

@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from kodi_lab.application.session_replacement_reviews import (
+    ReplacementReviewRequest,
     ReplacementReviewSnapshot,
     ReplacementReviewStatus,
 )
@@ -20,8 +21,12 @@ from kodi_lab.storage.managed_activity import timestamp
 from tests.application import test_mcp_workspace_development as fixture
 
 
-def save_historical_review(env: Any) -> ReplacementReviewStatus:
-    operation = env.request()
+def save_historical_review(
+    env: Any, *, request: ReplacementReviewRequest | None = None
+) -> ReplacementReviewStatus:
+    # Freeze the current service's offer before entering a historical schema.
+    # Historical transitions then use only their actual SQL column vocabulary.
+    operation = env.request() if request is None else request
     now = datetime.now(UTC)
     snapshot = ReplacementReviewSnapshot(
         request=operation,

@@ -314,6 +314,8 @@ def test_mcp_workspace_admin_refusal_is_audited_as_authorization_denied(
         arguments.update(
             request_id=str(uuid4()), expected_generation=1, identity="a" * 64
         )
+    # Explicit capture must also undo other tests' disabled named logger.
+    monkeypatch.setattr(logging.getLogger("kodi_lab.mcp"), "disabled", False)
     caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
     result = _post(
         client, s.token, "tools/call", params={"name": name, "arguments": arguments}
@@ -444,6 +446,7 @@ def test_target_policy_revocation_is_audited_before_selection_replay(
     ).json()["result"]
     assert not first.get("isError"), first
     s.admin.assign_target_preset(s.ids["nexus"], ADDON_DEVELOPMENT_PRESET_ID)
+    monkeypatch.setattr(logging.getLogger("kodi_lab.mcp"), "disabled", False)
     caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
     result = _post(
         client,

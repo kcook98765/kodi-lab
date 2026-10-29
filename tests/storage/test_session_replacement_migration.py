@@ -65,6 +65,7 @@ def test_existing_open_review_and_capture_holds_survive_nullable_column_round_tr
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, "head")
     # Populate the predecessor using its actual columns, without teaching the
     # current application to accept an outdated database.
     case = predecessor_build(
@@ -74,6 +75,7 @@ def test_existing_open_review_and_capture_holds_survive_nullable_column_round_tr
     )
     try:
         review = save_historical_review(case.env)
+        command.downgrade(config, PREDECESSOR)
         evidence = case.env.retained.read(case.env.capture.capture_id)
         command.upgrade(config, REVISION)
         assert case.env.reviews.get(review.review_id) == review
@@ -97,6 +99,7 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, "head")
     # Build ordinary current-data fixtures on the predecessor before creating a
     # review; the review itself is the exact historical schema fixture.
     from typing import Any, cast
@@ -114,8 +117,12 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
         database_path=Path(url.removeprefix("sqlite:///")),
     )
     review = save_historical_review(env)
+    command.downgrade(config, PREDECESSOR)
     before = env.retained.read(env.capture.capture_id)
     command.upgrade(config, REVISION)
+    assert load_historical_review(env, review.review_id) == review
+    assert env.retained.read(env.capture.capture_id) == before
+    command.upgrade(config, "head")
     broker = Broker(env.state)
     readiness = ReadinessTaskRegistry(max_workers=1)
     lifecycle = ManagedRuntimeLifecycleService(
@@ -155,6 +162,7 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
                 == REVISION
             )
             assert session.execute(text("PRAGMA foreign_key_check")).all() == []
+        command.upgrade(config, "head")
         assert service.get(review.review_id) == result
     finally:
         readiness.close()

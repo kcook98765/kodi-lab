@@ -841,6 +841,13 @@ def test_lifecycle_uses_only_fresh_trusted_preconditions(
         time.sleep(0.01)
     assert current["jsonrpc_state"] == "responsive"
 
+    # Native usability precedes optional resident preparation. Its real owned
+    # work must finish before an ordinary Stop can acquire lifecycle authority.
+    context = cast(FastAPI, client.app).state.kodi_lab
+    with context.readiness._lock:
+        future = context.readiness._entries[INSTANCE_ID].future
+    assert future is not None
+    future.result(timeout=5)
     stopped = client.post(
         f"/api/instances/{INSTANCE_ID}/stop", json={}, headers=mutation_headers
     )
@@ -872,6 +879,18 @@ def test_lifecycle_uses_only_fresh_trusted_preconditions(
         )
         assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
     by_kind = {operation.kind.value: operation for operation in operations}
+    starts = [operation for operation in operations if operation.kind.value == "start"]
+    assert len(starts) == 2
+    native_start = next(
+        operation for operation in starts if operation.prior_state.value == "stopped"
+    )
+    preparation = next(
+        operation for operation in starts if operation.id != native_start.id
+    )
+    assert preparation.prior_state.value == "running_usable"
+    assert preparation.resulting_state == "running_usable"
+    by_kind["start"] = native_start
+    assert len(operations) == 5
     assert set(by_kind) == {"provision", "start", "stop", "deprovision"}
     assert (
         by_kind["provision"].prior_state.value,

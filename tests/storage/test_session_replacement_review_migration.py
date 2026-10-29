@@ -44,14 +44,17 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, "head")
     env = environment(
         tmp_path / "case",
         monkeypatch,
         database_path=Path(url.removeprefix("sqlite:///")),
     )
+    request = env.request()
+    command.downgrade(config, PREDECESSOR)
     before = env.retained.read(env.capture.capture_id)
     command.upgrade(config, REVISION)
-    review = save_historical_review(env)
+    review = save_historical_review(env, request=request)
     assert env.retained.read(env.capture.capture_id) == before
     with env.state.env.sessions() as session:
         assert (
@@ -92,5 +95,6 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
                 session.scalar(text("SELECT version_num FROM alembic_version"))
                 == REVISION
             )
+    command.upgrade(config, "head")
     assert env.state.service.status().phase == "bound"
     assert env.retained.read(env.capture.capture_id) == before
