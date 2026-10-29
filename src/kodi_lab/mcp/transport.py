@@ -101,6 +101,10 @@ from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.kodi.ui_state import UiObservation
+from kodi_lab.kodi.ui_state_native import (
+    MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
+    MANAGED_BRIDGE_RECOVERY_REASONS,
+)
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
@@ -1888,6 +1892,7 @@ def build_mcp_http_transport(
 
 
 _SAFE_TOOL_REASONS = {
+    "identity_mismatch": MANAGED_BRIDGE_RECOVERY_REASONS,
     "deployment_not_allowed": MANAGED_BASELINE_REASONS,
     "screenshot_capture_unavailable": frozenset(
         {
@@ -1934,6 +1939,12 @@ def _tool_error_result(
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if (
+        tool_name in {"inspect_ui_state", "log_read"}
+        and result_code == "identity_mismatch"
+        and reason in MANAGED_BRIDGE_RECOVERY_REASONS
+    ):
+        message += "\nnext_action: " + MANAGED_BRIDGE_RECOVERY_NEXT_ACTION
     if (
         tool_name == "workspace_deploy"
         and result_code == "deployment_not_allowed"

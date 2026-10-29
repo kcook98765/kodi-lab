@@ -6637,12 +6637,29 @@ def create_app(
     def inspect_managed_ui_state(
         instance_id: UUID,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> UiObservation:
-        from kodi_lab.kodi.ui_state_native import UiObservationError
+    ) -> UiObservation | JSONResponse:
+        from kodi_lab.kodi.ui_state_native import (
+            MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
+            MANAGED_BRIDGE_RECOVERY_REASONS,
+            UiObservationError,
+        )
 
         try:
             return managed_ui_state.inspect(instance_id)
         except UiObservationError as error:
+            if (
+                error.code == "identity_mismatch"
+                and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
+            ):
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": error.code,
+                        "reason": error.reason,
+                        "next_action": MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
+                    },
+                    headers={"Cache-Control": "no-store"},
+                )
             raise HTTPException(status_code=503, detail=error.code) from error
 
     @app.get("/api/development-sources", response_model=list[DevelopmentSourceSummary])

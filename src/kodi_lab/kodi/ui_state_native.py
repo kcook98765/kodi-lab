@@ -18,9 +18,28 @@ from kodi_lab.kodi.ui_state import (
 type UiRpc = Callable[[str, dict[str, Any] | None], object]
 
 
+MANAGED_BRIDGE_RECOVERY_REASONS = frozenset(
+    {
+        "managed_bridge_recovery_required",
+        "managed_bridge_runtime_mismatch",
+        "managed_bridge_identity_unconfirmed",
+        "managed_bridge_trust_changed",
+    }
+)
+
+MANAGED_BRIDGE_RECOVERY_NEXT_ACTION = (
+    "Ask a Web administrator to review this target's reviewed Bridge status and "
+    "retained history. Resume matching prepared setup or install the reviewed "
+    "Bridge through the existing explicit controls; a running target is required "
+    "and installation restarts Kodi. Native usability and direct workspace "
+    "deployment have separate prerequisites."
+)
+
+
 class UiObservationError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, reason: str | None = None) -> None:
         self.code = code
+        self.reason = reason
         super().__init__(code)
 
 
