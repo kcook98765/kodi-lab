@@ -80,3 +80,9 @@ cancelled/serialized before the lifecycle's Bridge continuation, so its existing
 probe cannot silently discard automatic preparation. A lost Bridge write uses the
 existing dispatch-unconfirmed classification; live running/stopped observations
 cannot convert that uncertainty into mutation admission.
+
+Synchronous reviewed Bridge staging/resume carry any unconfirmed mutation into
+their original lifecycle record using the same blocking classification. Cleanup
+failure cannot erase that uncertainty. Automatic preparation creates no synthetic
+Web use activity: the original start/use actor remains authoritative. Ordinary
+release still protects in-flight preparation and unrelated real use holds.
