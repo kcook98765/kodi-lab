@@ -22,7 +22,10 @@ from kodi_lab.broker.errors import (
     ContainerMustBeStoppedError,
     DockerDevelopmentSourceDeploymentError,
 )
-from kodi_lab.development.deployment import capture_destination_archive
+from kodi_lab.development.deployment import (
+    capture_destination_archive,
+    capture_development_tree,
+)
 from kodi_lab.domain import DevelopmentSourceDeploymentConfidence
 
 INSTANCE_ID = str(UUID(int=1))
@@ -617,16 +620,135 @@ def test_copy_sync_measurements_cover_real_work_without_more_readbacks(
     assert initial["counts"]["delta_archive_bytes"] > first.transferred_bytes
     assert noop["counts"]["transferred_payload_bytes"] == result.transferred_bytes == 0
     assert "delta_archive_bytes" not in noop["counts"]
+    assert noop["counts"]["source_stage_bytes"] == 0
+    assert noop["counts"]["source_scan_bytes"] == noop["counts"]["source_confirm_bytes"]
     assert (
         noop["counts"]["destination_before_archive_bytes"]
         == noop["counts"]["destination_after_archive_bytes"]
     )
     assert set(noop["phases_seconds"]) >= {
-        "source_scan_hash_stage",
-        "source_scan_hash_confirm",
+        "source_scan_hash",
+        "source_scan_hash_stage_confirm",
         "destination_before",
         "destination_after",
         "destination_verify",
         "stage_cleanup",
     }
+    assert len(client.put_members) == 1
+
+
+def test_delta_stages_only_changed_files_but_hashes_every_member_twice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    spec = _spec(tmp_path)
+    first = _apply(client, spec)
+    source = tmp_path / "development" / "addon"
+    (source / "resources" / "changed.py").write_text("after")
+    real_capture = capture_development_tree
+    captured: list[tuple[int, tuple[str, ...]]] = []
+
+    def capture(*args: object, **kwargs: object) -> object:
+        result = real_capture(*args, **kwargs)  # type: ignore[arg-type]
+        stage = kwargs.get("stage_root")
+        paths = (
+            ()
+            if not isinstance(stage, Path)
+            else tuple(
+                sorted(
+                    str(path.relative_to(stage))
+                    for path in stage.rglob("*")
+                    if path.is_file()
+                )
+            )
+        )
+        captured.append((len(result.entries), paths))
+        return result
+
+    monkeypatch.setattr(inventory, "capture_development_tree", capture)
+    changed = _apply(client, _spec(tmp_path, prior=_prior(first)))
+    assert captured == [(5, ()), (5, ("resources/changed.py",))]
+    assert changed.transferred_bytes == len("after")
+    captured.clear()
+    _apply(client, _spec(tmp_path, prior=_prior(changed)))
+    assert captured == [(5, ()), (5, ())]
+
+
+def test_unstaged_source_change_during_destination_read_still_refuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    original_get = client.get_archive
+    source = tmp_path / "development" / "addon"
+    (source / "resources" / "changed.py").write_text("after")
+
+    def get_archive(container: str, path: str) -> tuple[object, object]:
+        result = original_get(container, path)
+        (source / "unchanged.py").write_text("out of band change")
+        return result
+
+    monkeypatch.setattr(client, "get_archive", get_archive)
+    with pytest.raises(DockerDevelopmentSourceDeploymentError) as caught:
+        _apply(client, _spec(tmp_path, prior=_prior(first)))
+    assert caught.value.code == "development_source_changed_during_capture"
+    assert len(client.put_members) == 1
+
+
+@pytest.mark.parametrize("change", ["nested", "mode"])
+def test_selective_staging_handles_new_nested_paths_and_mode_only_edits(
+    tmp_path: Path,
+    change: str,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    source = tmp_path / "development" / "addon"
+    if change == "nested":
+        (source / "nested" / "deep").mkdir(parents=True)
+        (source / "nested" / "deep" / "new.bin").write_bytes(b"\x00native resource\xff")
+        selected = "nested/deep/new.bin"
+    else:
+        (source / "unchanged.py").chmod(0o751)
+        selected = "unchanged.py"
+    result = _apply(client, _spec(tmp_path, prior=_prior(first)))
+    assert selected in client.put_members[-1]
+    assert result.transferred_bytes == len(client.entries[selected][0] or b"")
+    assert client.current_digest() == result.verified_destination_digest
+    if change == "mode":
+        assert client.entries[selected][1] == 0o755
+
+
+def test_rejected_changed_capture_reports_confirmed_staged_size_not_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import json
+    import logging
+
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    source = tmp_path / "development" / "addon"
+    (source / "resources" / "changed.py").write_text("after")
+    original_get = client.get_archive
+
+    def get_archive(container: str, path: str) -> tuple[object, object]:
+        result = original_get(container, path)
+        (source / "resources" / "changed.py").write_text("larger captured content")
+        return result
+
+    monkeypatch.setattr(client, "get_archive", get_archive)
+    with (
+        caplog.at_level(logging.INFO, logger="kodi_lab.deployment.measurement"),
+        pytest.raises(DockerDevelopmentSourceDeploymentError),
+    ):
+        _apply(client, _spec(tmp_path, prior=_prior(first)))
+    item = json.loads(
+        caplog.records[-1].getMessage().removeprefix("deployment measurement ")
+    )
+    assert not item["completed"]
+    assert item["counts"]["planned_stage_bytes"] == len("after")
+    assert item["counts"]["source_stage_bytes"] == len("larger captured content")
     assert len(client.put_members) == 1

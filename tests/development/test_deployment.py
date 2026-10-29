@@ -345,3 +345,60 @@ def test_destination_verification_preserves_destination_only_and_ownership() -> 
     )
     with pytest.raises(DevelopmentTreeError):
         verify_destination(source, before, bad, runtime_uid=42, runtime_gid=43)
+
+
+def test_selective_staging_does_not_filter_manifest_or_descriptor(
+    tmp_path: Path,
+) -> None:
+    root, source = _source(tmp_path)
+    full = capture_development_tree(root, "addon")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    selected = capture_development_tree(
+        root,
+        "addon",
+        stage_root=stage,
+        stage_paths=frozenset({"resources/run.sh"}),
+        capture_addon_xml=True,
+    )
+    assert selected.canonical_json == full.canonical_json
+    assert selected.digest == full.digest
+    assert selected.included_bytes == full.included_bytes
+    assert selected.captured_file("addon.xml") == (source / "addon.xml").read_bytes()
+    assert not (stage / "addon.xml").exists()
+    assert (stage / "resources/run.sh").read_bytes() == (
+        source / "resources/run.sh"
+    ).read_bytes()
+    assert stat.S_IMODE((stage / "resources/run.sh").stat().st_mode) == 0o755
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo"])
+def test_unstaged_members_still_enforce_complete_tree_safety(
+    tmp_path: Path, kind: str
+) -> None:
+    root, source = _source(tmp_path)
+    if kind == "symlink":
+        (source / "unsafe").symlink_to(source / "addon.xml")
+    elif kind == "hardlink":
+        os.link(source / "addon.xml", source / "unsafe")
+    else:
+        os.mkfifo(source / "unsafe")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    with pytest.raises(DevelopmentTreeError, match="development_source_unsafe_entry"):
+        capture_development_tree(
+            root, "addon", stage_root=stage, stage_paths=frozenset()
+        )
+
+
+def test_captured_source_descriptor_is_bounded_even_when_not_staged(
+    tmp_path: Path,
+) -> None:
+    root, source = _source(tmp_path)
+    (source / "addon.xml").write_bytes(
+        b"x" * (deployment.MAX_CAPTURED_DESCRIPTOR_BYTES + 1)
+    )
+    with pytest.raises(
+        DevelopmentTreeError, match="development_source_identity_invalid"
+    ):
+        capture_development_tree(root, "addon", capture_addon_xml=True)

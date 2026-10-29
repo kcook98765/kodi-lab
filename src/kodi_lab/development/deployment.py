@@ -161,8 +161,18 @@ def _same_object(first: os.stat_result, second: os.stat_result) -> bool:
 
 
 class _Capture:
-    def __init__(self, stage_root: Path | None, *, reject_vcs: bool) -> None:
+    def __init__(
+        self,
+        stage_root: Path | None,
+        *,
+        reject_vcs: bool,
+        stage_paths: frozenset[str] | None,
+        capture_addon_xml: bool,
+    ) -> None:
         self.stage_root = stage_root
+        self.stage_paths = stage_paths
+        self.capture_addon_xml = capture_addon_xml
+        self.addon_xml: bytes | None = None
         self.reject_vcs = reject_vcs
         self.entries: list[DevelopmentTreeEntry] = []
         self.regular_files = 0
@@ -224,11 +234,25 @@ def capture_development_tree(
     *,
     stage_root: Path | None = None,
     reject_vcs: bool = False,
+    stage_paths: frozenset[str] | None = None,
+    capture_addon_xml: bool = False,
 ) -> DevelopmentTreeManifest:
-    """Capture one deterministic tree, optionally materializing normalized bytes."""
+    """Hash the complete tree; optionally stage only server-selected members.
 
+    Selection controls materialization only, never traversal, validation or the
+    manifest. The descriptor can be retained during that same bounded read.
+    """
+
+    if stage_paths is not None:
+        for path in stage_paths:
+            _safe_relative_path(path)
     source_fd = _open_development_source(development_root, locator)
-    capture = _Capture(stage_root, reject_vcs=reject_vcs)
+    capture = _Capture(
+        stage_root,
+        reject_vcs=reject_vcs,
+        stage_paths=stage_paths,
+        capture_addon_xml=capture_addon_xml,
+    )
     try:
         root_stat = os.fstat(source_fd)
         _walk_directory(source_fd, "", 0, capture)
@@ -246,6 +270,9 @@ def capture_development_tree(
         digest=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
         canonical_json=canonical,
         included_bytes=capture.included_bytes,
+        captured_files=()
+        if capture.addon_xml is None
+        else (("addon.xml", capture.addon_xml),),
     )
 
 
@@ -348,6 +375,9 @@ def _capture_file(
     target_fd: int | None = None
     digest = hashlib.sha256()
     total = 0
+    retained = (
+        bytearray() if capture.capture_addon_xml and relative == "addon.xml" else None
+    )
     try:
         opened = os.fstat(source_fd)
         if not _same_object(before, opened) or opened.st_nlink != 1:
@@ -355,7 +385,9 @@ def _capture_file(
                 "development_source_changed_during_capture",
                 "Development source changed during capture.",
             )
-        if capture.stage_root is not None:
+        if capture.stage_root is not None and (
+            capture.stage_paths is None or relative in capture.stage_paths
+        ):
             target = capture.stage_root.joinpath(*relative.split("/"))
             target_fd = os.open(
                 target,
@@ -372,6 +404,13 @@ def _capture_file(
                     "development_source_tree_bounds", "Source file size limit exceeded."
                 )
             digest.update(chunk)
+            if retained is not None:
+                retained.extend(chunk)
+                if len(retained) > MAX_CAPTURED_DESCRIPTOR_BYTES:
+                    raise DevelopmentTreeError(
+                        "development_source_identity_invalid",
+                        "Captured add-on descriptor is too large.",
+                    )
             if target_fd is not None:
                 view = memoryview(chunk)
                 while view:
@@ -389,6 +428,8 @@ def _capture_file(
                 "Development source changed during capture.",
             )
         mode = _normalized_mode(before.st_mode, directory=False)
+        if retained is not None:
+            capture.addon_xml = bytes(retained)
         if target_fd is not None:
             os.fchmod(target_fd, mode)
             os.fsync(target_fd)
