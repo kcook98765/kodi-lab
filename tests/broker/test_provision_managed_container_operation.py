@@ -12,13 +12,16 @@ import pytest
 from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
+    DockerManagedContainerAdapter,
     ProvisionedManagedContainerRecord,
 )
 from kodi_lab.broker.errors import (
     BrokerAuthorizationError,
     ClientProtocolError,
     ManagedNetworkUnavailableError,
+    PartialProvisioningClientError,
     PersistentProvisioningUnsupportedError,
+    PostCreateVerificationClientError,
     ProvisioningPrerequisiteClientError,
     RemoteBrokerError,
 )
@@ -32,6 +35,11 @@ from kodi_lab.broker.provisioning import ManagedContainerProvisioningSpec
 from kodi_lab.broker.socket_path import SocketPathConfig
 from kodi_lab.broker.transport import receive_frame, send_frame
 from kodi_lab.domain import PythonBytecodePolicy
+
+from .test_provision_managed_container import (
+    FakeProvisioningDockerClient,
+    container_data,
+)
 
 INSTANCE_ID = str(UUID(int=1))
 REVISION_ID = str(UUID(int=2))
@@ -155,6 +163,13 @@ def test_unauthorized_peer_does_zero_resolver_or_docker_work(
         {"managed_instance_id": INSTANCE_ID, "network": "legacy"},
         {"managed_instance_id": INSTANCE_ID, "mount": "/host"},
         {"managed_instance_id": INSTANCE_ID, "privileged": True},
+        {"managed_instance_id": INSTANCE_ID, "log_driver": "none"},
+        {"managed_instance_id": INSTANCE_ID, "log_config": {"Type": "none"}},
+        {"managed_instance_id": INSTANCE_ID, "max-file": "99"},
+        {
+            "managed_instance_id": INSTANCE_ID,
+            "labels": {"io.kodi-lab.log-policy": "old"},
+        },
     ],
 )
 def test_invalid_or_injected_configuration_never_reaches_resolver(
@@ -231,3 +246,46 @@ def test_unexpected_provisioning_handler_failure_is_sanitized(
         )
     assert raised.value.code == "internal_error"
     assert "PRIVATE" not in str(raised.value)
+
+
+@pytest.mark.parametrize("outcome", ["created", "bad_limits", "identity_drift"])
+def test_logging_policy_through_real_broker_adapter_round_trip(
+    socket_config: SocketPathConfig, run_broker: Any, outcome: str
+) -> None:
+    data = container_data()
+    if outcome != "created":
+        host = data["HostConfig"]
+        assert isinstance(host, dict)
+        host["LogConfig"] = {"Type": "none", "Config": {}}
+    cleanup = container_data(
+        container_id="2" * 64 if outcome == "identity_drift" else CONTAINER_ID
+    )
+    docker_client = FakeProvisioningDockerClient(inspections=[data, cleanup])
+    adapter = DockerManagedContainerAdapter(lambda: docker_client)
+    resolver = FakeResolver()
+    operations = build_foundation_registry(
+        provisioning_resolver=resolver, provisioning_provider=adapter
+    )
+    with run_broker(socket_config, registry=operations):
+        client = BrokerClient(socket_config.socket_path)
+        if outcome == "created":
+            assert client.provision_managed_container(
+                managed_instance_id=INSTANCE_ID
+            ).created
+        else:
+            error = (
+                PartialProvisioningClientError
+                if outcome == "identity_drift"
+                else PostCreateVerificationClientError
+            )
+            with pytest.raises(error):
+                client.provision_managed_container(managed_instance_id=INSTANCE_ID)
+    assert resolver.calls == [INSTANCE_ID]
+    assert docker_client.host_config_calls[0]["log_config"] == {
+        "Type": "json-file",
+        "Config": {"max-size": "1m", "max-file": "2"},
+    }
+    assert docker_client.remove_calls == (
+        [(CONTAINER_ID, False, False)] if outcome == "bad_limits" else []
+    )
+    assert docker_client.start_calls == docker_client.stop_calls == 0

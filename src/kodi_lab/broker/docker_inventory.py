@@ -23,6 +23,7 @@ from docker.errors import (  # type: ignore[import-untyped]
     DockerException,
     NotFound,
 )
+from docker.types import LogConfig  # type: ignore[import-untyped]
 
 from kodi_lab.broker.addon_zips import (
     AddonZipInstallationSpec,
@@ -117,6 +118,8 @@ from kodi_lab.snapshot.validation import (
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
 MANAGED_LABEL_VALUE = "true"
 INSTANCE_ID_LABEL_KEY = "io.kodi-lab.instance-id"
+LOG_POLICY_LABEL_KEY = "io.kodi-lab.log-policy"
+LOG_POLICY_LABEL_VALUE = "json-file-1m-2-v1"
 MAX_MANAGED_CONTAINERS = 128
 DOCKER_API_BASE_URL = "unix:///var/run/docker.sock"
 DOCKER_API_TIMEOUT_SECONDS = 5
@@ -539,6 +542,7 @@ class _ProvisioningDockerClient(_DeprovisionDockerClient, Protocol):
         privileged: bool,
         restart_policy: Mapping[str, str],
         network_mode: str,
+        log_config: Mapping[str, object],
     ) -> object: ...
 
     def create_endpoint_config(self) -> object: ...
@@ -1516,11 +1520,15 @@ class DockerManagedContainerAdapter:
                 MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
                 INSTANCE_ID_LABEL_KEY: spec.managed_instance_id,
                 RUNTIME_REVISION_LABEL_KEY: spec.runtime_revision_id,
+                LOG_POLICY_LABEL_KEY: LOG_POLICY_LABEL_VALUE,
             }
             host_config = client.create_host_config(
                 privileged=False,
                 restart_policy={"Name": "no"},
                 network_mode=spec.network_name,
+                log_config=LogConfig(
+                    type="json-file", config={"max-size": "1m", "max-file": "2"}
+                ),
             )
             endpoint = client.create_endpoint_config()
             networking = client.create_networking_config({spec.network_name: endpoint})
@@ -1561,6 +1569,7 @@ class DockerManagedContainerAdapter:
                     expected_container_id=created_id,
                     spec=spec,
                     image_config=image_config,
+                    require_log_limits=True,
                 )
                 if state is not ContainerRuntimeState.STOPPED:
                     raise PostCreateVerificationError(
@@ -2212,6 +2221,7 @@ class DockerManagedContainerAdapter:
         expected_container_id: str,
         spec: ManagedContainerProvisioningSpec,
         image_config: Mapping[str, object],
+        require_log_limits: bool = False,
     ) -> ContainerRuntimeState:
         if _require_container_id(inspected.get("Id")) != expected_container_id:
             raise ProvisioningConflictError("Managed container identity has changed")
@@ -2232,6 +2242,12 @@ class DockerManagedContainerAdapter:
             raise InvalidManagedContainerMetadataError(
                 "Managed container ownership metadata is invalid"
             )
+        if require_log_limits or LOG_POLICY_LABEL_KEY in labels:
+            if labels.get(LOG_POLICY_LABEL_KEY) != LOG_POLICY_LABEL_VALUE:
+                raise ProvisioningConflictError(
+                    "Managed container logging policy marker is invalid"
+                )
+            DockerManagedContainerAdapter._validate_new_container_logging(inspected)
         expected_environment = _expected_provisioned_environment(
             image_config.get("Env"), spec.python_bytecode_policy
         )
@@ -2328,6 +2344,21 @@ class DockerManagedContainerAdapter:
                 "Managed container is not in an acceptable provisioned state"
             )
         return normalized
+
+    @staticmethod
+    def _validate_new_container_logging(inspected: Mapping[str, object]) -> None:
+        # Fresh or explicitly marked containers must prove the fixed policy,
+        # including retries after uncertain rollback. Unmarked legacy logging
+        # does not invalidate identity or authorize replacement/removal.
+        host = _require_mapping(inspected.get("HostConfig"))
+        logging = _require_mapping(host.get("LogConfig"))
+        if logging.get("Type") != "json-file" or logging.get("Config") != {
+            "max-size": "1m",
+            "max-file": "2",
+        }:
+            raise ProvisioningConflictError(
+                "Managed container logging policy could not be verified"
+            )
 
     @staticmethod
     def _rollback_created_container(

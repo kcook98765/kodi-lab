@@ -25,12 +25,11 @@ read; missing backend data is not treated as an empty or healthy runtime.
 
 ## Coordination and remaining evidence work
 
-Reviewed the preserved local branch `feat/nexus-closed-log-retention-20261023`,
-head `3dddbc2`, with commits `09d847e` (Nexus closed-file retention) and `3dddbc2`
-(new-container Docker output rotation). It already bounds four fixed internal
-logs at closed lifecycle boundaries and configures newly provisioned marked
-containers. This feature neither modifies/publishes that branch nor duplicates
-its recipe/helper/logging policy. Existing unmarked containers remain untouched.
+The historical implementation branch `feat/nexus-closed-log-retention-20261023`,
+head `3dddbc2`, is preserved unchanged. Its Nexus closed-file retention helper
+and runtime recipe remain unmerged. The bounded Docker output-rotation slice
+from its second commit is now integrated independently for **new** managed
+containers, as described below; this does not change or repin an existing runtime.
 
 The metadata-only endpoint collects **no log bodies**, arbitrary artifacts,
 native crash reports or stack traces, and does not create a retained capture.
@@ -74,8 +73,8 @@ TTY response), full-window redaction and a 4 KiB retained tail. Oversized,
 malformed or unavailable responses return an explicit artifact state without
 retaining an unsafe partial body. Docker's `source_size_bytes` counts the
 decoded returned window, not all historical output. A bounded window does not
-establish rotation, full-history coverage or crash cause. No logging driver or
-rotation setting is changed. Schema-2 captures include all five fixed artifact
+establish rotation, full-history coverage or crash cause. Capture itself changes no logging driver or
+rotation setting. Schema-2 captures include all five fixed artifact
 states; schema-1 captures remain readable with their Docker output explicitly
 uncollected. A reader that supports schema 2 is required for those new bodies.
 
@@ -241,3 +240,47 @@ Native crash-report availability, a usable original stack, Windows/WSL2 behavior
 and agent-facing stopped diagnostics remain separate acceptance/design gaps.
 The preserved log-rotation/closed-retention branch is also separate work; this
 runbook neither merges it nor changes existing runtime recipes or logging policy.
+
+## Docker output retention for new managed containers
+
+New managed container creation uses the existing Docker `json-file` driver with
+fixed `max-size=1m` and `max-file=2` options. The broker chooses these settings;
+callers cannot provide logging options or policy labels. It verifies the actual
+Engine configuration after creation before reporting success. This bounds normal
+rotated Docker output; it does not bound Kodi's internal profile logs, crash
+reports, disk allocation or an individual oversized log record. See Docker's
+[JSON-file logging options](https://docs.docker.com/engine/logging/drivers/json-file/).
+
+A versioned container label preserves the verification requirement on retries,
+including after uncertain rollback. An absent or different configuration on a
+marked container refuses provisioning; it never silently adopts an unbounded
+new object. Failed creation retains the existing exact-ID ownership checks for
+rollback, preserving uncertain objects rather than removing an unproven identity.
+
+Existing unmarked containers keep their logging configuration and ordinary
+idempotent identity checks. No daemon-wide settings, running services, existing
+profiles or images are changed. Older output can rotate away; explicitly capture
+needed bounded diagnostics before profile disposal. A retained excerpt remains
+a partial historical window, not a full startup record or crash diagnosis.
+
+The Nexus internal-file helper remains separate work requiring exact-runtime
+qualification; it is not supplied by Docker output rotation. Native Linux Engine
+verification of the new settings and bounded synthetic output is separate from
+Kodi application behavior and from untested Windows/Docker Desktop acceptance.
+
+### Isolated Linux Engine evidence (2026-10-29)
+
+A new stopped managed container on cached approved Omega r4 image
+`sha256:8df4cbf1988514ac9713fab7702b0d5f04483f2a167ea95507d9ade66032403b`
+proved the actual Engine logging configuration and idempotent same-container
+readback, then was retired without starting Kodi. A separate sequential,
+network-none, read-only helper on that same image wrote 4,194,304 bytes of
+synthetic records. Docker retained 1,383,466 decoded stream bytes: the oldest
+marker was absent and recent stdout/stderr markers were present. The exact
+helper was stopped and retired after preserving generated output and receipts.
+This is local Engine rotation evidence, not a disk-allocation ceiling, Kodi
+functional test or Windows/Desktop qualification. An earlier harness incorrectly
+rejected inherited image labels before helper startup; its failure and exact-ID
+retirement evidence remain separate from the corrected successful procedure.
+Host-local evidence is retained under
+`/home/kyle/kodi-lab-deployment/open-issue-campaign-20261029/native/50-engine-final/`.
