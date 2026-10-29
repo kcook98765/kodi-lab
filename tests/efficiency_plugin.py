@@ -16,7 +16,11 @@ from typing import Any
 import pytest
 
 from scripts.test_timing import TimingJournal, safe_id
-from tests.efficiency import CurrentSchemaTemplate, OwnedScratch
+from tests.efficiency import (
+    CurrentSchemaTemplate,
+    OwnedScratch,
+    reclaim_orm_compilations,
+)
 
 _SCRATCH: pytest.StashKey[OwnedScratch] = pytest.StashKey()
 _REPORTS: pytest.StashKey[dict[str, dict[str, Any]]] = pytest.StashKey()
@@ -55,6 +59,23 @@ def pytest_runtest_protocol(
     if journal:
         journal.start_case(item.nodeid)
     result = yield
+    case = item.config.stash[_REPORTS].get(item.nodeid)
+    if case is not None:
+        metrics = item.config.stash[_METRICS]
+        if _workers_alive():
+            case["orm_cache"] = {"outcome": "retained_workers_or_unknown"}
+            key = "orm_cache_retained_workers_or_unknown"
+            metrics[key] = metrics.get(key, 0) + 1
+        else:
+            started = time.monotonic()
+            removed = reclaim_orm_compilations()
+            case["orm_cache"] = {
+                "outcome": "reclaimed",
+                "entries": removed,
+                "seconds": time.monotonic() - started,
+            }
+            key = "orm_cache_entries_removed"
+            metrics[key] = metrics.get(key, 0) + removed
     if journal:
         journal.complete_case(item.nodeid, item.config.stash[_REPORTS][item.nodeid])
     return result
@@ -187,4 +208,11 @@ def pytest_terminal_summary(terminalreporter: Any) -> None:
     terminalreporter.write_line(
         "scratch cleanup: "
         + ", ".join(f"{key}={count}" for key, count in sorted(counts.items()))
+    )
+    metrics = terminalreporter.config.stash[_METRICS]
+    terminalreporter.write_line(
+        "ORM compilation cache: "
+        f"{metrics.get('orm_cache_entries_removed', 0)} entries reclaimed; "
+        f"{metrics.get('orm_cache_retained_workers_or_unknown', 0)} "
+        "cases retained with workers or unknown state"
     )

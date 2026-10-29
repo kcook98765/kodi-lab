@@ -178,6 +178,9 @@ def main() -> None:
             "(includes unrecorded active phases in incomplete runs)"
         )
         print(f"Source identity: {json.dumps(result['source'], sort_keys=True)}")
+        print(
+            f"ORM compilation cleanup: {json.dumps(result['orm_compilation_cleanup'])}"
+        )
         if "companion_pytest_stage_outcome" in result:
             print(f"Companion pytest stage: {result['companion_pytest_stage_outcome']}")
         for segment in result["progress_segments"]:

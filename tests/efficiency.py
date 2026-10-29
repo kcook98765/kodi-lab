@@ -6,13 +6,37 @@ import hashlib
 import os
 import sqlite3
 import stat
+from collections.abc import MutableMapping
 from contextlib import closing
 from pathlib import Path
 
 from sqlalchemy import create_engine
 
 from kodi_lab.storage import metadata
+from kodi_lab.storage.metadata import Base
 from scripts.test_scratch import OwnedScratch as OwnedScratch
+
+
+def reclaim_orm_compilations() -> int:
+    """Forget SQL plans, never mappings, engines, transactions or database rows.
+
+    SQLAlchemy 2.0 keeps ORM flush caches on the process-wide Mapper objects.
+    Their keys include each engine's dialect, so single-use test engines leave
+    compilation graphs behind after disposal. This adapter is test-only and is
+    called only after fixture teardown and conservative worker quiescence.
+    The locked dependency and real-SQL regression tests fence the private API.
+    """
+    entries = 0
+    for mapper in Base.registry.mappers:
+        # Avoid initializing a cache on a mapper that has never executed SQL.
+        cache = mapper.__dict__.get("_compiled_cache")
+        if cache is None:
+            continue
+        if not isinstance(cache, MutableMapping):
+            raise RuntimeError("unsupported ORM compilation cache representation")
+        entries += len(cache)
+        cache.clear()
+    return entries
 
 
 class CurrentSchemaTemplate:
