@@ -3,6 +3,7 @@ import re
 import shutil
 import sqlite3
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -63,7 +64,7 @@ class MigrationTemplateStore:
         assert not Path(f"{source}-wal").exists()
         assert not Path(f"{source}-shm").exists()
         shutil.copy2(source, destination)
-        with sqlite3.connect(destination) as connection:
+        with closing(sqlite3.connect(destination)) as connection:
             assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
@@ -71,13 +72,23 @@ class MigrationTemplateStore:
 
 
 _active_migration_templates: MigrationTemplateStore | None = None
+_SESSION_TEMPLATES: pytest.StashKey[MigrationTemplateStore] = pytest.StashKey()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def migration_templates(
     tmp_path_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
 ) -> MigrationTemplateStore:
     """Build every exact revision once by advancing one pristine closed DB."""
+    # Imported fixture functions have distinct FixtureDefs in each importing
+    # module. Cache the closed store on this pytest session, rather than rebuild
+    # the entire migration graph for every such definition.
+    global _active_migration_templates
+    cached = request.config.stash.get(_SESSION_TEMPLATES, None)
+    if cached is not None:
+        _active_migration_templates = cached
+        return cached
     project_root = Path(__file__).parents[2]
     root = tmp_path_factory.mktemp("migration-templates")
     data_root = root / "data"
@@ -99,7 +110,7 @@ def migration_templates(
         for revision in revisions:
             command.upgrade(config, revision)
             template = root / f"{revision}.db"
-            with sqlite3.connect(database_path) as connection:
+            with closing(sqlite3.connect(database_path)) as connection:
                 assert connection.execute("PRAGMA integrity_check").fetchone() == (
                     "ok",
                 )
@@ -118,7 +129,7 @@ def migration_templates(
         if previous_runtime_root is not None:
             os.environ["KODI_LAB_RUNTIME_ROOT"] = previous_runtime_root
     store = MigrationTemplateStore(root, templates, head_revision=revisions[-1])
-    global _active_migration_templates
+    request.config.stash[_SESSION_TEMPLATES] = store
     _active_migration_templates = store
     return store
 
