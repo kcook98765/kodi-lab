@@ -15,13 +15,14 @@ function harness() {
   const events = {};
   let resolve;
   let reject;
+  let reloads = 0;
   let serial = 0;
   vm.runInNewContext(source, {
     document: {
       querySelector: () => ({content: "csrf-fixture"}),
       querySelectorAll: selector => selector === "[data-deployment-reconcile-target]" ? [root] : [],
     },
-    window: {addEventListener(name, callback) {events[name] = callback;}},
+    window: {addEventListener(name, callback) {events[name] = callback;}, location: {reload() {reloads += 1;}}},
     setTimeout(callback, ms) {assert.equal(ms, 30000); timers.set(++serial, callback); return serial;},
     clearTimeout(id) {timers.delete(id);},
     AbortController,
@@ -31,7 +32,7 @@ function harness() {
     },
     Error, encodeURIComponent,
   });
-  return {button, status, requests, timers, events,
+  return {button, status, requests, timers, events, reloads: () => reloads,
     respond: response => resolve(response), fail: () => reject(new Error("private error")),
     expire: () => [...timers.values()][0]()};
 }
@@ -58,6 +59,10 @@ const receipt = {outcome: "still_requires_admin", reason: "stop_target_then_rech
   const second = h.button.click(); h.respond({ok: true, json: async () => receipt}); await second;
   assert.equal(h.requests.length, 2);
 
+  h.events.pageshow({persisted: false}); assert.equal(h.reloads(), 0);
+  const beforeBack = h.requests.length;
+  h.events.pagehide(); h.events.pageshow({persisted: true});
+  assert.equal(h.reloads(), 1); assert.equal(h.requests.length, beforeBack);
   for (const failure of ["http", "network", "json", "fetch_timeout", "body_timeout", "pagehide"]) {
     const x = harness();
     const pending = x.button.click();
