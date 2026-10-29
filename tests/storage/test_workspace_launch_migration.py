@@ -5,8 +5,12 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, select, text
 
+from kodi_lab.application.mcp_workspace_development import BoundedIntervalRateLimiter
 from kodi_lab.application.workspace_launch import WorkspaceLaunchService
 from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.storage.engine import create_database_engine
@@ -102,11 +106,35 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
         data_root=tmp_path / "fixture/data",
         clock=lambda: fixture.NOW + timedelta(minutes=1),
     )
-    assert launch(env, service).state == "accepted"
+    # Upgrading preserves historical evidence; it cannot invent its missing
+    # original-container binding. A fresh verified deployment is required.
+    refused = launch(env, service)
+    assert refused.state == "failed" and refused.code == "launch_runtime_changed"
+    assert bridge.calls == []
+    env.development._deployment_rate = BoundedIntervalRateLimiter(0)
+    env.development._clock = lambda: fixture.NOW + timedelta(seconds=30)
+    fixture._deploy_workspace(env)
+    service._clock = lambda: fixture.NOW + timedelta(minutes=2)
+    accepted = launch(env, service)
+    assert accepted.state == "accepted" and bridge.calls == [False]
     with env.sessions() as session:
-        assert session.scalar(select(McpWorkspaceLaunchRow)) is not None
-    with pytest.raises(RuntimeError, match="history must be preserved"):
+        historical = session.get(McpWorkspaceDeploymentOperationRow, deployment.id)
+        receipt = session.get(McpWorkspaceLaunchRow, str(accepted.launch_id))
+        assert historical is not None and historical.original_container_id is None
+        assert receipt is not None and receipt.deployment_id != historical.id
+    # The fresh deployment also creates later recovery evidence, so ordinary
+    # downgrade now stops at 78. Exercise 77's original history guard directly
+    # in a real Alembic context as well; neither preservation guard is relaxed.
+    with pytest.raises(RuntimeError, match="recovery evidence must be preserved"):
         command.downgrade(config, "0076_managed_resource_policy")
+    revision = ScriptDirectory.from_config(config).get_revision("0077_workspace_launch")
+    assert revision is not None
+    with (
+        engine.begin() as connection,
+        Operations.context(MigrationContext.configure(connection)),
+        pytest.raises(RuntimeError, match="Managed launch history must be preserved"),
+    ):
+        revision.module.downgrade()
 
 
 def test_empty_launch_revision_round_trip(
