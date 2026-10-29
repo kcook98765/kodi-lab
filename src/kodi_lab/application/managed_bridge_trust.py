@@ -357,7 +357,11 @@ class ManagedBridgeTrustService:
                     else ManagedInstanceLifecycleOperationState.FAILED
                 ),
                 resulting_state=ManagedInstanceSemanticState.AMBIGUOUS,
-                failure_reason="Resident Bridge preparation did not complete.",
+                failure_reason=(
+                    "broker_runtime_dispatch_unconfirmed"
+                    if mutated
+                    else "Resident Bridge preparation did not complete."
+                ),
             )
             raise
         operations.terminalize(

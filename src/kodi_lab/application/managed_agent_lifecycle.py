@@ -254,17 +254,7 @@ class ManagedAgentLifecycleService:
                 session.expunge(existing)
                 return existing, True
             if action == "ensure_ready":
-                from kodi_lab.storage.development_sessions import active_session
-                from kodi_lab.storage.retained_development import retained_targets
-
-                if retained_targets(session):
-                    selected = active_session(session)
-                    if (
-                        selected is None
-                        or selected.target_id != str(target_id)
-                        or selected.phase not in {"reserved", "bound"}
-                    ):
-                        raise ManagedAgentLifecycleError("retained_selection_required")
+                self._retained_admission(session, target_id)
             # Only terminal, unreferenced request receipts expire. Pending and
             # uncertain operations remain available for explicit reconciliation.
             session.execute(
@@ -311,11 +301,38 @@ class ManagedAgentLifecycleService:
             session.expunge(row)
             return row, False
 
+    def _retained_admission(
+        self,
+        session: Session,
+        target_id: UUID,
+        *,
+        observed_container_id: str | None = None,
+    ) -> None:
+        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+        from kodi_lab.storage.retained_development import (
+            require_retained_container,
+            retained_targets,
+        )
+
+        if not retained_targets(session):
+            return
+        try:
+            require_retained_container(
+                session,
+                self._resources._broker.managed_container_inventory().containers,
+                str(target_id),
+                observed_container_id=observed_container_id,
+            )
+        except DevelopmentSessionConflict as error:
+            raise ManagedAgentLifecycleError(error.code) from error
+
     def _pending(
         self,
         session: Session,
         row: ManagedAgentLifecycleRequestRow,
         authorize: AuthorizeLifecycle,
+        *,
+        observed_container_id: str | None = None,
     ) -> ManagedAgentLifecycleRequestRow:
         authorize(session)
         current = session.get(ManagedAgentLifecycleRequestRow, row.id)
@@ -328,6 +345,9 @@ class ManagedAgentLifecycleService:
             raise ManagedAgentLifecycleError("request_conflict")
         instance_id = UUID(row.original_instance_id)
         self._resources.require_managed(session, instance_id)
+        self._retained_admission(
+            session, instance_id, observed_container_id=observed_container_id
+        )
         if (
             session.get(ManagedInstanceMutationLeaseRow, row.original_instance_id)
             is not None
@@ -383,7 +403,9 @@ class ManagedAgentLifecycleService:
         if status.container_state is ContainerRuntimeState.RUNNING:
             with self._sessions.begin() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
-                current = self._pending(session, row, authorize)
+                current = self._pending(
+                    session, row, authorize, observed_container_id=container_id
+                )
                 if (
                     ManagedRuntimeProjectionRepository(session).observation_token(
                         instance_id
@@ -576,6 +598,12 @@ class ManagedAgentLifecycleService:
             observation = self._status.get_observation(UUID(row.original_instance_id))
             current = observation.status
             with self._sessions() as session:
+                if row.action == "ensure_ready":
+                    self._retained_admission(
+                        session,
+                        UUID(row.original_instance_id),
+                        observed_container_id=row.container_id,
+                    )
                 token = ManagedRuntimeProjectionRepository(session).observation_token(
                     UUID(row.original_instance_id)
                 )
