@@ -1629,11 +1629,11 @@ class DockerManagedContainerAdapter:
         try:
             source_stage.mkdir(mode=0o700)
             first = measurement.run(
-                "source_scan_hash_stage",
+                "source_scan_hash",
                 lambda: capture_development_tree(
                     spec.development_root,
                     spec.relative_locator,
-                    stage_root=source_stage,
+                    capture_addon_xml=True,
                 ),
             )
             if (
@@ -1645,15 +1645,15 @@ class DockerManagedContainerAdapter:
                     "Workspace bytes differ from the validated exact generation.",
                 )
             measurement.counts.update(
-                source_stage_bytes=first.included_bytes,
+                source_scan_bytes=first.included_bytes,
                 source_entries=len(first.entries),
                 source_files=sum(entry.entry_type == "file" for entry in first.entries),
             )
-            addon_xml = source_stage / "addon.xml"
             try:
-                observed = parse_captured_addon_xml(
-                    spec.relative_locator, addon_xml.read_bytes()
-                )
+                addon_xml = first.captured_file("addon.xml")
+                if addon_xml is None:
+                    raise OSError("Captured descriptor is absent")
+                observed = parse_captured_addon_xml(spec.relative_locator, addon_xml)
             except (OSError, DevelopmentSourceValidationError) as error:
                 raise DockerDevelopmentSourceDeploymentError(
                     "development_source_identity_invalid",
@@ -1664,15 +1664,6 @@ class DockerManagedContainerAdapter:
                     "development_source_identity_changed",
                     "Development source add-on identity changed.",
                 )
-            second = measurement.run(
-                "source_scan_hash_confirm",
-                lambda: capture_development_tree(
-                    spec.development_root, spec.relative_locator
-                ),
-            )
-            measurement.counts["source_confirm_bytes"] = second.included_bytes
-            compare_captures(first, second)
-
             client = cast(_SnapshotDockerClient, self._client_factory())
             summaries = client.containers(
                 all=True,
@@ -1753,6 +1744,26 @@ class DockerManagedContainerAdapter:
             delta = measurement.run(
                 "delta_classify", lambda: classify_delta(first, before)
             )
+            # Both passes still hash/validate every included source member.
+            # Only new/changed payloads need immutable staged copies and fsync.
+            measurement.counts["planned_stage_bytes"] = delta.transferred_bytes
+            second = measurement.run(
+                "source_scan_hash_stage_confirm",
+                lambda: capture_development_tree(
+                    spec.development_root,
+                    spec.relative_locator,
+                    stage_root=source_stage if delta.applied_paths else None,
+                    stage_paths=frozenset(delta.applied_paths),
+                ),
+            )
+            measurement.counts["source_confirm_bytes"] = second.included_bytes
+            applied_paths = frozenset(delta.applied_paths)
+            measurement.counts["source_stage_bytes"] = sum(
+                entry.size
+                for entry in second.entries
+                if entry.entry_type == "file" and entry.path in applied_paths
+            )
+            compare_captures(first, second)
             if delta.applied_paths:
                 measurement.run(
                     "delta_archive",
