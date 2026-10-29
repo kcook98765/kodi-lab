@@ -153,3 +153,25 @@ condition to them. Missing records do not prove add-on absence. Prepared reviewe
 intent can suggest the existing explicit continuation, subject to its live lease,
 generation, runtime, container and identity checks. It never offers a mutation
 without that admission. No MCP tool/schema, grants or security policy changed.
+
+
+## Managed observation recovery reasons
+
+For managed UI inspection and live log reads, `identity_mismatch` retains its
+existing denial semantics. An allowlisted reason identifies the failed Bridge
+check: `managed_bridge_recovery_required` for non-active trust,
+`managed_bridge_runtime_mismatch` for a changed runtime/container binding,
+`managed_bridge_identity_unconfirmed` for unconfirmed resident identity or
+credential evidence, and `managed_bridge_trust_changed` for trust changed during
+the read. Generic native identity failures carry no Bridge diagnosis.
+
+Both MCP transports include the bounded reason and Web administrator next action.
+The authenticated UI-state Web API retains its `detail` code and adds `reason`
+and `next_action` for these cases. Unknown exception detail is never exposed.
+Use the existing reviewed-Bridge panel and retained history; inspect native
+readiness first. Matching prepared reviewed setup may be continued explicitly;
+installation requires a running target and restarts Kodi. A diagnostic read never
+installs, enables, rotates trust or starts/restarts Kodi. Optional Bridge failure
+does not add a prerequisite to direct workspace deployment, native remote input
+or managed X11 screenshots. Existing fallback, grants and identity fences remain
+authoritative; a recovery reason grants no mutation authority.

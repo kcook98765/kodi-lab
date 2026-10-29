@@ -257,6 +257,51 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
         return self._authorize_target_definition(principal, definition, target_id)
 
+    def authorize_managed_observation_error_detail(
+        self, principal: McpPrincipal, tool_name: str, target_id: UUID
+    ) -> None:
+        """Recheck durable scope before publishing managed Bridge failure facts.
+
+        This read grants no successful observation or mutation authority and
+        performs no additional native probe after the failed observation.
+        """
+        definition = self._definition(tool_name)
+        if tool_name not in {"inspect_ui_state", "log_read"}:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            client = session.get(McpClientRow, str(principal.client_id))
+            if client is None or not client.enabled:
+                raise McpAuthorizationError("permission_denied")
+            if not definition.permissions.issubset(
+                self._permissions(session, client.preset_id)
+            ):
+                raise McpAuthorizationError("permission_denied")
+            self._require_current_credential(session, principal, client)
+            if client.preset_id in {
+                str(PRODUCTION_INSPECTION_PRESET_ID),
+                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
+                str(PRODUCTION_VISUAL_PRESET_ID),
+            }:
+                raise McpAuthorizationError("permission_denied")
+            target = session.get(TargetRow, str(target_id))
+            assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+            if (
+                target is None
+                or target.target_type is not TargetType.MANAGED
+                or session.get(ManagedInstanceRow, str(target_id)) is None
+                or assignment is None
+                or session.get(
+                    McpClientTargetGrantRow,
+                    (str(principal.client_id), str(target_id)),
+                )
+                is None
+            ):
+                raise McpAuthorizationError("target_not_found_or_not_authorized")
+            if not definition.permissions.issubset(
+                self._permissions(session, assignment.preset_id)
+            ):
+                raise McpAuthorizationError("permission_denied")
+
     def recheck_workspace_launch(
         self,
         session: Session,

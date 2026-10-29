@@ -107,8 +107,9 @@ from kodi_lab.storage.secrets import (
 
 
 class KodiTargetAdapterError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, reason: str | None = None) -> None:
         self.code = code
+        self.reason = reason
         super().__init__(code)
 
 
@@ -649,7 +650,10 @@ class KodiTargetAdapterService:
             ExternalProbeError,
             UiObservationError,
         ) as error:
-            raise KodiTargetAdapterError(error.code) from error
+            raise KodiTargetAdapterError(
+                error.code,
+                reason=error.reason if isinstance(error, UiObservationError) else None,
+            ) from error
 
     def inspect_ui_state(self, target_id: UUID) -> UiObservation:
         try:
@@ -717,7 +721,7 @@ class KodiTargetAdapterService:
                     )
         except UiObservationError as error:
             self._window_hints.discard(target_id)
-            raise KodiTargetAdapterError(error.code) from error
+            raise KodiTargetAdapterError(error.code, reason=error.reason) from error
         except ExternalProbeError as error:
             self._window_hints.discard(target_id)
             raise KodiTargetAdapterError(error.code) from error

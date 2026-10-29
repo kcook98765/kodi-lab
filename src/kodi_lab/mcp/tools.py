@@ -140,6 +140,7 @@ from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.kodi.ui_state import UiObservation
+from kodi_lab.kodi.ui_state_native import MANAGED_BRIDGE_RECOVERY_REASONS
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
 from kodi_lab.storage.models import (
@@ -1733,7 +1734,16 @@ class McpTargetToolService:
                     "target_not_found_or_not_authorized"
                 ) from error
             except KodiTargetAdapterError as error:
-                raise McpAuthorizationError(error.code) from error
+                if (
+                    error.code == "identity_mismatch"
+                    and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
+                ):
+                    # Detailed failure facts require current target authority,
+                    # including when generic identity errors skip the log fence.
+                    self._authorization.authorize_managed_observation_error_detail(
+                        principal, "log_read", target_id
+                    )
+                raise McpAuthorizationError(error.code, reason=error.reason) from error
             self._require_bounded(result)
             return result
 
@@ -1752,7 +1762,16 @@ class McpTargetToolService:
                     "target_not_found_or_not_authorized"
                 ) from error
             except KodiTargetAdapterError as error:
-                raise McpAuthorizationError(error.code) from error
+                if (
+                    error.code == "identity_mismatch"
+                    and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
+                ):
+                    # Detailed failure facts require current target authority,
+                    # including when generic identity errors skip the log fence.
+                    self._authorization.authorize_managed_observation_error_detail(
+                        principal, "inspect_ui_state", target_id
+                    )
+                raise McpAuthorizationError(error.code, reason=error.reason) from error
             self._require_bounded(result)
             return result
 

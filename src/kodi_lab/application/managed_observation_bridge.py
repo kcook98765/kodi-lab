@@ -48,16 +48,8 @@ class ManagedObservationBridgeService:
                 return None  # native fallback has no resident-Bridge authority
             session.expunge(row)
         try:
-            if (
-                row.state != "active"
-                or row.container_id != observed.container_id
-                or row.runtime_revision_id != observed.runtime_revision_id
-                or observed.managed_instance_id != str(target_id)
-                or not row.secret_reference
-                or not row.bridge_id
-                or not row.identity_json
-            ):
-                raise UiObservationError("identity_mismatch")
+            self._require_binding(row, target_id, observed)
+            assert row.secret_reference and row.bridge_id and row.identity_json
             endpoint = ValidatedExternalEndpoint(
                 ExternalProtocolKind.JSONRPC_HTTP,
                 observed.ipv4_address,
@@ -75,16 +67,24 @@ class ManagedObservationBridgeService:
             )
             require_approved_identity(identity, kodi_version, established=True)
             if identity_json(identity) != row.identity_json:
-                raise UiObservationError("identity_mismatch")
+                raise UiObservationError(
+                    "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+                )
             self._require_current(row)
             return raw
         except ExternalBridgeError as error:
             if error.code in {"bridge_unreachable", "bridge_operation_failed"}:
                 self._require_current(row)
                 return None
-            raise UiObservationError("identity_mismatch") from error
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+            ) from error
+        except UiObservationError:
+            raise
         except Exception as error:
-            raise UiObservationError("identity_mismatch") from error
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+            ) from error
 
     def read_log(
         self,
@@ -99,16 +99,8 @@ class ManagedObservationBridgeService:
                 raise UiObservationError("bridge_not_paired")
             session.expunge(row)
         try:
-            if (
-                row.state != "active"
-                or row.container_id != observed.container_id
-                or row.runtime_revision_id != observed.runtime_revision_id
-                or observed.managed_instance_id != str(target_id)
-                or not row.secret_reference
-                or not row.bridge_id
-                or not row.identity_json
-            ):
-                raise UiObservationError("identity_mismatch")
+            self._require_binding(row, target_id, observed)
+            assert row.secret_reference and row.bridge_id and row.identity_json
             pinned = ExternalBridgeClient._identity(json.loads(row.identity_json))
             require_approved_identity(pinned, kodi_version, established=True)
             if "log_read" not in pinned.capabilities:
@@ -131,7 +123,9 @@ class ManagedObservationBridgeService:
             )
             require_approved_identity(identity, kodi_version, established=True)
             if identity_json(identity) != row.identity_json:
-                raise UiObservationError("identity_mismatch")
+                raise UiObservationError(
+                    "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+                )
             if "log_read" not in identity.capabilities:
                 raise UiObservationError("capability_unavailable")
             self._require_current(row)
@@ -141,7 +135,32 @@ class ManagedObservationBridgeService:
         except UiObservationError:
             raise
         except Exception as error:
-            raise UiObservationError("identity_mismatch") from error
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+            ) from error
+
+    @staticmethod
+    def _require_binding(
+        row: ManagedBridgeTrustRow,
+        target_id: UUID,
+        observed: ObserveManagedKodiRuntimeResult,
+    ) -> None:
+        if row.state != "active":
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_recovery_required"
+            )
+        if (
+            row.container_id != observed.container_id
+            or row.runtime_revision_id != observed.runtime_revision_id
+            or observed.managed_instance_id != str(target_id)
+        ):
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_runtime_mismatch"
+            )
+        if not row.secret_reference or not row.bridge_id or not row.identity_json:
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+            )
 
     def _require_current(self, row: ManagedBridgeTrustRow) -> None:
         with self._sessions() as session:
@@ -153,4 +172,6 @@ class ManagedObservationBridgeService:
                 or current.secret_reference != row.secret_reference
                 or current.identity_json != row.identity_json
             ):
-                raise UiObservationError("identity_mismatch")
+                raise UiObservationError(
+                    "identity_mismatch", reason="managed_bridge_trust_changed"
+                )
