@@ -7269,3 +7269,28 @@ continues to use the existing reciprocal database triggers and native terminatio
 proof. Busy Take Control refuses immediately while retaining a healthy view-only
 connection. Requests are never queued or replayed. No general lease override,
 profile parking, second viewing instance or audio is introduced.
+
+
+## D-0466: Measure the managed deployment pipeline and bound consecutive iterations
+
+Issue #110 reduces only the managed disposable workspace deployment interval
+from 300 to five seconds per client/target. External development deployments
+retain 300 seconds. Exact request replay and fingerprint checks precede rate
+admission; target/global-heavy reservations, current generation and provenance,
+and unresolved reconciliation fences remain authoritative for occupancy.
+Rate denial retains replay evidence without runtime mutation. The interval is
+server policy, with no caller override, queued retry, or grant expansion.
+
+Aggregate operation-correlated telemetry measures existing source scan/hash/stage,
+confirmation capture, delta archive, Docker copy/readbacks, destination verification,
+stop/start/readiness/inventory and total entered-pipeline time. Byte counts distinguish
+payload from tar archive bytes and attempted archive size from confirmed payload.
+No telemetry adds a tree read or logs paths, contents, credentials or exception text;
+log-sink failure cannot change a mutation outcome. Early claim/recheck/staging-creation
+refusals remain visible through existing operation/request audits, outside this
+pipeline measurement. These log observations are not durable deployment receipts.
+
+The deterministic benchmark uses real capture/copy code with simulated Docker tar
+transport and private generated trees. Its small-sample p50/p95 values do not qualify
+native throughput, Kodi readiness, code execution or platform support. Native
+acceptance remains separate, and ZIP/repository release testing remains required.

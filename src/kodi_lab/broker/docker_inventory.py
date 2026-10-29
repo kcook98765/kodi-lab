@@ -85,6 +85,7 @@ from kodi_lab.development import (
 )
 from kodi_lab.development.deployment import (
     DevelopmentTreeError,
+    DevelopmentTreeManifest,
     build_delta_archive,
     capture_destination_archive,
     capture_development_tree,
@@ -92,6 +93,7 @@ from kodi_lab.development.deployment import (
     compare_captures,
     verify_destination,
 )
+from kodi_lab.development.measurements import DeploymentMeasurement
 from kodi_lab.domain import PythonBytecodePolicy
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
@@ -1616,17 +1618,23 @@ class DockerManagedContainerAdapter:
             raise ContainerIdentityPreconditionError(
                 "Expected container identity is not canonical"
             )
-        operation_stage = self._create_deployment_stage(spec)
+        measurement = DeploymentMeasurement(spec.deployment_operation_id, "copy_sync")
+        operation_stage = measurement.run(
+            "stage_create", lambda: self._create_deployment_stage(spec)
+        )
         source_stage = operation_stage / "source"
         archive_path = operation_stage / "delta.tar"
         client: _SnapshotDockerClient | None = None
         apply_started = False
         try:
             source_stage.mkdir(mode=0o700)
-            first = capture_development_tree(
-                spec.development_root,
-                spec.relative_locator,
-                stage_root=source_stage,
+            first = measurement.run(
+                "source_scan_hash_stage",
+                lambda: capture_development_tree(
+                    spec.development_root,
+                    spec.relative_locator,
+                    stage_root=source_stage,
+                ),
             )
             if (
                 spec.expected_source_digest is not None
@@ -1636,6 +1644,11 @@ class DockerManagedContainerAdapter:
                     "workspace_generation_conflict",
                     "Workspace bytes differ from the validated exact generation.",
                 )
+            measurement.counts.update(
+                source_stage_bytes=first.included_bytes,
+                source_entries=len(first.entries),
+                source_files=sum(entry.entry_type == "file" for entry in first.entries),
+            )
             addon_xml = source_stage / "addon.xml"
             try:
                 observed = parse_captured_addon_xml(
@@ -1651,9 +1664,13 @@ class DockerManagedContainerAdapter:
                     "development_source_identity_changed",
                     "Development source add-on identity changed.",
                 )
-            second = capture_development_tree(
-                spec.development_root, spec.relative_locator
+            second = measurement.run(
+                "source_scan_hash_confirm",
+                lambda: capture_development_tree(
+                    spec.development_root, spec.relative_locator
+                ),
             )
+            measurement.counts["source_confirm_bytes"] = second.included_bytes
             compare_captures(first, second)
 
             client = cast(_SnapshotDockerClient, self._client_factory())
@@ -1689,11 +1706,23 @@ class DockerManagedContainerAdapter:
             )
 
             destination = f"/home/kodi/.kodi/addons/{spec.addon_id}"
+
+            def read_destination(phase: str) -> DevelopmentTreeManifest:
+                assert client is not None
+
+                def read() -> DevelopmentTreeManifest:
+                    stream, _ = client.get_archive(selected_id, destination)
+                    return capture_destination_archive(
+                        measurement.chunks(
+                            phase + "_archive_bytes", cast(Iterable[bytes], stream)
+                        ),
+                        root_name=spec.addon_id,
+                    )
+
+                return measurement.run(phase, read)
+
             try:
-                before_stream, _ = client.get_archive(selected_id, destination)
-                before = capture_destination_archive(
-                    cast(Iterable[bytes], before_stream), root_name=spec.addon_id
-                )
+                before = read_destination("destination_before")
             except NotFound:
                 before = None
             if before is not None:
@@ -1721,28 +1750,37 @@ class DockerManagedContainerAdapter:
                         "Stale destination cannot be safely reaffirmed.",
                     )
 
-            delta = classify_delta(first, before)
+            delta = measurement.run(
+                "delta_classify", lambda: classify_delta(first, before)
+            )
             if delta.applied_paths:
-                build_delta_archive(
-                    source_stage,
-                    archive_path,
-                    first,
-                    delta,
-                    runtime_uid=spec.runtime_uid,
-                    runtime_gid=spec.runtime_gid,
-                    root_name=(
-                        f".kodi/addons/{spec.addon_id}" if before is None else None
+                measurement.run(
+                    "delta_archive",
+                    lambda: build_delta_archive(
+                        source_stage,
+                        archive_path,
+                        first,
+                        delta,
+                        runtime_uid=spec.runtime_uid,
+                        runtime_gid=spec.runtime_gid,
+                        root_name=(
+                            f".kodi/addons/{spec.addon_id}" if before is None else None
+                        ),
+                        # Docker creates omitted archive parents as root. Keep the
+                        # fixed add-ons parent writable by the approved runtime user,
+                        # without changing the existing .kodi profile root.
+                        parent_directories=(".kodi/addons",) if before is None else (),
                     ),
-                    # Docker creates omitted archive parents as root. Keep the
-                    # fixed add-ons parent writable by the approved runtime user,
-                    # without changing the existing .kodi profile root.
-                    parent_directories=(".kodi/addons",) if before is None else (),
                 )
+                measurement.counts["delta_archive_bytes"] = archive_path.stat().st_size
                 apply_destination = "/home/kodi" if before is None else destination
                 apply_started = True
                 with archive_path.open("rb") as archive_file:
-                    applied = client.put_archive(
-                        selected_id, apply_destination, archive_file
+                    applied = measurement.run(
+                        "docker_copy",
+                        lambda: client.put_archive(
+                            selected_id, apply_destination, archive_file
+                        ),
                     )
                 if applied is not True:
                     raise DockerDevelopmentSourceDeploymentError(
@@ -1751,16 +1789,16 @@ class DockerManagedContainerAdapter:
                         reconciliation_required=True,
                     )
 
-            after_stream, _ = client.get_archive(selected_id, destination)
-            after = capture_destination_archive(
-                cast(Iterable[bytes], after_stream), root_name=spec.addon_id
-            )
-            verify_destination(
-                first,
-                before,
-                after,
-                runtime_uid=spec.runtime_uid,
-                runtime_gid=spec.runtime_gid,
+            after = read_destination("destination_after")
+            measurement.run(
+                "destination_verify",
+                lambda: verify_destination(
+                    first,
+                    before,
+                    after,
+                    runtime_uid=spec.runtime_uid,
+                    runtime_gid=spec.runtime_gid,
+                ),
             )
             final = _require_mapping(client.inspect_container(selected_id))
             self._validate_deprovision_candidate(
@@ -1779,6 +1817,8 @@ class DockerManagedContainerAdapter:
                 if delta.applied_paths
                 else "unchanged"
             )
+            measurement.counts["transferred_payload_bytes"] = delta.transferred_bytes
+            measurement.completed = True
             return AppliedDevelopmentSourceDeploymentRecord(
                 managed_instance_id=spec.managed_instance_id,
                 development_source_id=spec.development_source_id,
@@ -1844,7 +1884,16 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
-            self._remove_deployment_stage(spec, operation_stage)
+            try:
+                measurement.run(
+                    "stage_cleanup",
+                    lambda: self._remove_deployment_stage(spec, operation_stage),
+                )
+            except Exception:
+                measurement.completed = False
+                raise
+            finally:
+                measurement.emit()
 
     def verify_attached_development_source_destination(
         self,
