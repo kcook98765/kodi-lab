@@ -43,6 +43,18 @@ validation digest is diagnostic here; this increment does not silently change th
 existing deployment predicate. Reconciliation must be resolved through supported
 recovery, independently of any fresh-profile development workflow.
 
+An uncontained terminal inventory failure after a verified workspace copy is
+reported as `deployment_provenance_review_required` when it is the latest retained
+completed copy for this workspace/source/runtime and has no newer source baseline.
+Copy chronology uses completion time; a tied uncontained failure still requires
+review. The source-baseline check remains separate, preserving its own confidence
+and runtime reasons.
+A later no-write replacement conflict does not hide that evidence. The next action
+is Web administrator review of retained history, rather than ordinary source-copy
+advice. This remains an `unknown` prerequisite: preflight neither proves which
+bytes are installed nor enrolls the failed operation for recovery. Exact historical
+admission and stopped-tree inspection remain separate administrator actions.
+
 
 When a disposable development session is selected, managed direct preflight also
 checks its stored bound target/runtime/workspace/source and pending provision or
