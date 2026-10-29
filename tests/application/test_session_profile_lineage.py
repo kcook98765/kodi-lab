@@ -239,7 +239,7 @@ def test_old_profile_copy_cannot_bypass_new_profile_baseline_before_stop_or_sync
     assert counts(env) == before
 
 
-def test_legacy_unscoped_receipt_keeps_existing_behavior_without_an_active_session(
+def test_legacy_unscoped_receipt_requires_container_evidence_without_active_session(
     tmp_path: Path,
 ) -> None:
     env = fixtures._environment(tmp_path)
@@ -249,7 +249,9 @@ def test_legacy_unscoped_receipt_keeps_existing_behavior_without_an_active_sessi
         assert previous is not None
         previous.original_container_id = None
         previous.original_runtime_state_revision = None
-    assert fixtures._execute_workspace(env).state == "succeeded"
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
+        fixtures._execute_workspace(env)
+    assert env.smoke.count == 0
 
 
 def test_broker_uses_new_profile_source_baseline_instead_of_old_workspace_receipt(

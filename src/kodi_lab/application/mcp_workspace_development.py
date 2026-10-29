@@ -54,6 +54,11 @@ from kodi_lab.application.mcp_development_requests import (
     WORKSPACE_EXECUTE_OPERATION_KIND as EXECUTE_OPERATION_KIND,
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.workspace_deployment_selection import (
+    WorkspaceDeploymentAmbiguousError,
+    latest_verified_workspace_deployment,
+    workspace_deployment_bytes_match,
+)
 from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryResult,
     WorkspaceExecutionRecoveryService,
@@ -2508,26 +2513,15 @@ class McpWorkspaceDevelopmentService:
                         workspace_id=str(workspace_id),
                         source_id=str(workspace.development_source_id),
                     )
-                deployments = list(
-                    session.scalars(
-                        select(McpWorkspaceDeploymentOperationRow)
-                        .where(
-                            McpWorkspaceDeploymentOperationRow.workspace_id
-                            == str(workspace_id),
-                            McpWorkspaceDeploymentOperationRow.target_id
-                            == str(target_id),
-                            McpWorkspaceDeploymentOperationRow.generation == generation,
-                            McpWorkspaceDeploymentOperationRow.state == "succeeded",
-                            selected_profile_lineage_sql(),
-                        )
-                        .limit(2)
-                    )
+                deployment = latest_verified_workspace_deployment(
+                    session,
+                    workspace_id=str(workspace_id),
+                    target_id=str(target_id),
+                    source_id=str(workspace.development_source_id),
+                    generation=generation,
                 )
-                if not deployments:
+                if deployment is None:
                     raise McpWorkspaceDevelopmentError("execution_not_deployed")
-                if len(deployments) != 1:
-                    raise McpWorkspaceDevelopmentError("execution_ambiguous")
-                deployment = deployments[0]
                 if (
                     execution_kind
                     is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
@@ -2602,6 +2596,8 @@ class McpWorkspaceDevelopmentService:
                 session.expunge(row)
                 session.commit()
                 return row, True
+        except WorkspaceDeploymentAmbiguousError as error:
+            raise McpWorkspaceDevelopmentError("execution_ambiguous") from error
         except McpWorkspaceDevelopmentError:
             raise
         except IntegrityError as error:
@@ -3498,6 +3494,22 @@ class McpWorkspaceDevelopmentService:
                 source_id=operation.development_source_id,
                 container_id=container_id,
             )
+        with self._sessions() as session:
+            workspace = AgentWorkspaceRepository(session).get(
+                UUID(operation.workspace_id)
+            )
+        if (
+            deployment.runtime_revision_id != str(profile.runtime_revision_id)
+            or deployment.original_container_id != container_id
+            or workspace is None
+            or not workspace_deployment_bytes_match(
+                deployment,
+                data_root=self._data_root,
+                workspace_digest=workspace.current_tree_digest,
+                profile=profile,
+            )
+        ):
+            raise McpWorkspaceDevelopmentError("execution_not_deployed")
         if profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS:
             self._finish_execution(
                 operation.id, "failed", "execution_unsupported", digest=digest
@@ -3903,23 +3915,17 @@ class McpWorkspaceDevelopmentService:
                     workspace_id=operation.workspace_id,
                     source_id=operation.development_source_id,
                 )
-            successes = list(
-                session.scalars(
-                    select(McpWorkspaceDeploymentOperationRow.id)
-                    .where(
-                        McpWorkspaceDeploymentOperationRow.workspace_id
-                        == operation.workspace_id,
-                        McpWorkspaceDeploymentOperationRow.target_id
-                        == operation.target_id,
-                        McpWorkspaceDeploymentOperationRow.generation
-                        == operation.generation,
-                        McpWorkspaceDeploymentOperationRow.state == "succeeded",
-                        selected_profile_lineage_sql(),
-                    )
-                    .limit(2)
+            try:
+                latest = latest_verified_workspace_deployment(
+                    session,
+                    workspace_id=operation.workspace_id,
+                    target_id=operation.target_id,
+                    source_id=operation.development_source_id,
+                    generation=operation.generation,
                 )
-            )
-            if successes != [deployment.id]:
+            except WorkspaceDeploymentAmbiguousError as error:
+                raise McpWorkspaceDevelopmentError("execution_ambiguous") from error
+            if latest is None or latest.id != deployment.id:
                 raise McpWorkspaceDevelopmentError("execution_ambiguous")
             workspace = AgentWorkspaceRepository(session).get(
                 UUID(operation.workspace_id)

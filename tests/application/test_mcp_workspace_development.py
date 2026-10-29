@@ -73,6 +73,7 @@ from kodi_lab.broker.operations import (
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
 from kodi_lab.broker.smoke_diagnostics import SqliteSmokeLogAuthorityResolver
+from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.domain import (
     AgentWorkspaceState,
     ConnectionState,
@@ -146,6 +147,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeProjectionRepository,
     ManagedRuntimeProjectionResult,
 )
+from kodi_lab.workspace import capture_workspace_deployment_tree
 
 SOURCE_ID = UUID("72000000-0000-4000-8000-000000000001")
 TARGET_ID = UUID("72000000-0000-4000-8000-000000000002")
@@ -692,7 +694,15 @@ def _environment(
                 created_at=NOW_TEXT,
             )
         )
-    broker = FakeBroker()
+    manifest = capture_workspace_deployment_tree(
+        tmp_path / "data", creation.workspace_id
+    )
+    broker = FakeBroker(
+        sync_source_digest=manifest.digest,
+        sync_destination_digest=expected_destination_digest(
+            manifest, runtime_uid=1000, runtime_gid=1000
+        ),
+    )
     smoke = SmokeCounter()
     development = McpWorkspaceDevelopmentService(
         sessions,

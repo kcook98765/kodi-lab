@@ -21,9 +21,13 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
 )
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+from kodi_lab.application.workspace_deployment_selection import (
+    WorkspaceDeploymentAmbiguousError,
+    latest_verified_workspace_deployment,
+    workspace_deployment_bytes_match,
+)
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
-from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.development.launch import manifest_launch_entries
 from kodi_lab.domain import (
     AgentWorkspaceBytesState,
@@ -53,10 +57,7 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeProjectionRepository,
     RuntimeExecutionProfileRepository,
 )
-from kodi_lab.storage.workspace_deployments import selected_profile_lineage_sql
 from kodi_lab.workspace.storage import (
-    AgentWorkspaceStorageError,
-    capture_workspace_deployment_tree,
     workspace_coordination_lock,
 )
 
@@ -213,31 +214,17 @@ class WorkspaceLaunchService:
                 is None
             ):
                 raise WorkspaceLaunchError("launch_source_not_attached")
-            latest = session.scalar(
-                select(McpWorkspaceDeploymentOperationRow)
-                .where(
-                    McpWorkspaceDeploymentOperationRow.target_id == str(target_id),
-                    McpWorkspaceDeploymentOperationRow.workspace_id
-                    == str(workspace_id),
-                    selected_profile_lineage_sql(),
+            try:
+                latest = latest_verified_workspace_deployment(
+                    session,
+                    workspace_id=str(workspace_id),
+                    target_id=str(target_id),
+                    source_id=workspace.development_source_id,
+                    generation=generation,
                 )
-                .order_by(
-                    McpWorkspaceDeploymentOperationRow.requested_at.desc(),
-                    McpWorkspaceDeploymentOperationRow.id.desc(),
-                )
-                .limit(1)
-            )
-            if (
-                latest is None
-                or latest.state != "succeeded"
-                or latest.target_class != "internal_lab"
-                or latest.generation != generation
-                or not latest.addon_enabled
-                or latest.source_manifest_digest is None
-                or latest.verified_destination_digest is None
-                or latest.source_manifest_digest.removeprefix("sha256:")
-                != (workspace.current_tree_digest or "").removeprefix("sha256:")
-            ):
+            except WorkspaceDeploymentAmbiguousError as error:
+                raise WorkspaceLaunchError("launch_not_deployed") from error
+            if latest is None or latest.target_class != "internal_lab":
                 raise WorkspaceLaunchError("launch_not_deployed")
             profile = RuntimeExecutionProfileRepository(session).get(
                 UUID(instance.runtime_revision_id)
@@ -247,27 +234,12 @@ class WorkspaceLaunchService:
                 or latest.runtime_revision_id != instance.runtime_revision_id
             ):
                 raise WorkspaceLaunchError("launch_not_deployed")
-            try:
-                # The source digest excludes ownership; Docker readback includes
-                # the canonical runtime UID/GID. Prove their exact relationship
-                # from fresh private bytes under the caller's workspace lock.
-                manifest = capture_workspace_deployment_tree(
-                    self._data_root, workspace_id
-                )
-            except (AgentWorkspaceStorageError, OSError):
-                raise WorkspaceLaunchError("launch_not_deployed") from None
-            expected_owned_digest = expected_destination_digest(
-                manifest,
-                runtime_uid=profile.runtime_uid,
-                runtime_gid=profile.runtime_gid,
-            )
-            if manifest.digest.removeprefix(
-                "sha256:"
-            ) != latest.source_manifest_digest.removeprefix(
-                "sha256:"
-            ) or latest.verified_destination_digest.removeprefix(
-                "sha256:"
-            ) != expected_owned_digest.removeprefix("sha256:"):
+            if not workspace_deployment_bytes_match(
+                latest,
+                data_root=self._data_root,
+                workspace_digest=workspace.current_tree_digest,
+                profile=profile,
+            ):
                 raise WorkspaceLaunchError("launch_not_deployed")
             session.expunge(latest)
             return latest
@@ -292,6 +264,7 @@ class WorkspaceLaunchService:
             or str(token.runtime_revision_id) != row.runtime_revision_id
             or token.runtime_state_revision != row.runtime_state_revision
             or container != row.container_id
+            or deployment.original_container_id != container
         ):
             raise WorkspaceLaunchError("launch_runtime_changed")
         descriptor = self._development._workspace_descriptor(UUID(row.workspace_id))
