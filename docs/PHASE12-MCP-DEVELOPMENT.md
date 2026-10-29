@@ -632,3 +632,10 @@ Add-on launch is not dispatched by this operation, fresh code remains unobserved
 and functional smoke is not run. The copy retains destination-only members, so
 the receipt does not establish exact mirroring. An idempotent replay does not
 probe current runtime state or turn those distinctions into current liveness.
+
+The existing administrator copied-source enablement route has a separate explicit
+Python-service opt-in. It records intent before dispatch and proves the descriptor
+against the installed tree; default requests still refuse service startup.
+This adds no MCP execution capability. The receipt distinguishes enabled state
+from unobserved execution. See [service admission and evidence](FAST-LOOP-SERVICE-ENABLEMENT.md)
+for the bounded Omega policy, migration and native acceptance limits.

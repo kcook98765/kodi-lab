@@ -8,7 +8,7 @@ from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from kodi_lab.domain import (
     AddonRepositoryAttachmentOperation,
@@ -1477,6 +1477,8 @@ def _development_source_deployment_operation_from_row(
 
 def _development_source_enablement_operation_from_row(
     row: DevelopmentSourceEnablementOperationRow,
+    *,
+    legacy_service_authority: bool = False,
 ) -> DevelopmentSourceEnablementOperation:
     return DevelopmentSourceEnablementOperation(
         id=UUID(row.id),
@@ -1497,6 +1499,9 @@ def _development_source_enablement_operation_from_row(
         prior_enabled=row.prior_enabled,
         result_enabled=row.result_enabled,
         enable_performed=row.enable_performed,
+        service_start_authorized=False
+        if legacy_service_authority
+        else row.service_start_authorized,
         blocked_dependency_id=row.blocked_dependency_id,
         blocked_dependency_reason=row.blocked_dependency_reason,
         completed_at=(
@@ -7096,6 +7101,7 @@ class DevelopmentSourceEnablementOperationRepository:
                 prior_enabled=operation.prior_enabled,
                 result_enabled=operation.result_enabled,
                 enable_performed=operation.enable_performed,
+                service_start_authorized=operation.service_start_authorized,
                 reconciliation_required=operation.reconciliation_required,
             )
         )
@@ -7258,9 +7264,13 @@ class DevelopmentSourceEnablementOperationRepository:
         )
 
     def reconciliation_for_instance(
-        self, instance_id: UUID, *, limit: int = 2
+        self,
+        instance_id: UUID,
+        *,
+        limit: int = 2,
+        legacy_service_authority: bool = False,
     ) -> list[DevelopmentSourceEnablementOperation]:
-        rows = self._session.scalars(
+        statement = (
             select(DevelopmentSourceEnablementOperationRow)
             .where(
                 DevelopmentSourceEnablementOperationRow.original_managed_instance_id
@@ -7272,7 +7282,19 @@ class DevelopmentSourceEnablementOperationRepository:
             .order_by(DevelopmentSourceEnablementOperationRow.requested_at.desc())
             .limit(limit)
         )
-        return [_development_source_enablement_operation_from_row(row) for row in rows]
+        if legacy_service_authority:
+            statement = statement.options(
+                defer(
+                    DevelopmentSourceEnablementOperationRow.service_start_authorized,
+                    raiseload=True,
+                )
+            )
+        return [
+            _development_source_enablement_operation_from_row(
+                row, legacy_service_authority=legacy_service_authority
+            )
+            for row in self._session.scalars(statement)
+        ]
 
     def clear_live_instance(self, instance_id: UUID) -> int:
         result = self._session.execute(

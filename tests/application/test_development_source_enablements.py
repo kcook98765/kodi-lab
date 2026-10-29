@@ -239,6 +239,7 @@ def _write_descriptor(
 class FakeBroker:
     def __init__(self) -> None:
         self.destination_matches = True
+        self.service_descriptor_eligible = False
         self.verify_calls = 0
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
@@ -289,6 +290,7 @@ class FakeBroker:
             addon_id=ADDON_ID,
             addon_version=VERSION,
             matched=True,
+            python_service_descriptor_eligible=self.service_descriptor_eligible,
         )
 
 
@@ -987,3 +989,234 @@ def test_dependency_install_then_enable_retains_prior_failure(
         assert original is not None
         assert original.state is DevelopmentSourceEnablementOperationState.FAILED
         assert original.failure_reason == "dependency_missing"
+
+
+def _python_service(tmp_path: Path) -> None:
+    (tmp_path / "source" / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="{VERSION}">'
+        '<extension point="xbmc.service" library="service.py"/></addon>'
+    )
+    (tmp_path / "source" / "service.py").write_text("# controlled service fixture\n")
+
+
+def test_service_start_requires_explicit_authority_and_persists_enabled_only_receipt(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from kodi_lab.storage.repositories import (
+        DevelopmentSourceEnablementOperationRepository,
+    )
+
+    _python_service(tmp_path)
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    target = replace(_target(), kodi_type="xbmc.service")
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    service = _service(factory, tmp_path, broker, [target], adapter)
+    refused = service.enable(INSTANCE_ID, SOURCE_ID)
+    assert refused.failure_reason == "auto_start_addon_unsupported"
+    assert not refused.service_start_authorized and adapter.enable_calls == []
+    result = service.enable(INSTANCE_ID, SOURCE_ID, allow_service_start=True)
+    assert result.result_classification is DevelopmentSourceEnablementResult.ENABLED
+    assert result.service_start_authorized and result.result_enabled
+    assert result.service_execution == "not_observed"
+    assert adapter.enable_calls == [ADDON_ID]
+    with factory() as session:
+        receipt = DevelopmentSourceEnablementOperationRepository(session).get(
+            result.operation_id
+        )
+        assert receipt is not None and receipt.service_start_authorized
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "mixed",
+        "library",
+        "duplicate",
+        "platform",
+        "bytecode",
+        "native_type",
+        "provenance",
+        "runtime",
+        "root",
+    ],
+)
+def test_opted_service_start_keeps_descriptor_runtime_and_provenance_guards(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    defect: str,
+) -> None:
+    from dataclasses import replace
+
+    _python_service(tmp_path)
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    if defect in {"mixed", "library", "duplicate", "platform"}:
+        path = tmp_path / "source" / "addon.xml"
+        text = path.read_text()
+        if defect == "mixed":
+            text = text.replace(
+                "</addon>",
+                '<extension point="xbmc.python.script" library="other.py"/></addon>',
+            )
+        elif defect == "library":
+            text = text.replace("service.py", "../escape.py")
+        elif defect == "duplicate":
+            text = text.replace(
+                "</addon>",
+                '<extension point="xbmc.service" library="second.py"/></addon>',
+            )
+        else:
+            text = text.replace(
+                'library="service.py"',
+                'library="service.py" library_linux="unqualified.so"',
+            )
+        path.write_text(text)
+    elif defect == "bytecode":
+        with factory.begin() as session:
+            session.execute(
+                update(RuntimeExecutionProfileRow).values(
+                    python_bytecode_policy="interpreter_default"
+                )
+            )
+    elif defect == "runtime":
+        with factory.begin() as session:
+            session.execute(
+                update(RuntimeExecutionProfileRow).values(expected_kodi_version="20.5")
+            )
+    elif defect == "root":
+        with factory.begin() as session:
+            session.execute(update(RuntimeExecutionProfileRow).values(runtime_uid=0))
+    elif defect == "native_type":
+        adapter.kodi_type = "xbmc.python.pluginsource"
+    else:
+        broker.destination_matches = False
+    result = _service(
+        factory,
+        tmp_path,
+        broker,
+        [replace(_target(), kodi_type="xbmc.service")],
+        adapter,
+    ).enable(
+        INSTANCE_ID,
+        SOURCE_ID,
+        allow_service_start=True,
+    )
+    assert result.result_classification is not DevelopmentSourceEnablementResult.ENABLED
+    assert result.service_start_authorized
+    assert adapter.enable_calls == []
+
+
+def test_service_enable_unknown_response_retains_start_authority_and_fence(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    _python_service(tmp_path)
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    adapter.enable_error = KodiAddonEnablementAmbiguousError("lost response")
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    result = _service(
+        factory,
+        tmp_path,
+        broker,
+        [replace(_target(), kodi_type="xbmc.service")],
+        adapter,
+    ).enable(
+        INSTANCE_ID,
+        SOURCE_ID,
+        allow_service_start=True,
+    )
+    assert result.reconciliation_required and result.service_start_authorized
+    assert result.service_execution == "not_observed"
+    assert adapter.enable_calls == [ADDON_ID]
+    from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+
+    assert ManagedInstanceReconciliationService(factory).status(INSTANCE_ID).blocking
+
+
+def test_host_descriptor_cannot_qualify_different_installed_service_descriptor(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    _python_service(tmp_path)
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    broker = FakeBroker()
+    # Installed bytes match retained evidence; its descriptor remains unqualified.
+    broker.service_descriptor_eligible = False
+    result = _service(
+        factory,
+        tmp_path,
+        broker,
+        [replace(_target(), kodi_type="xbmc.service")],
+        adapter,
+    ).enable(
+        INSTANCE_ID,
+        SOURCE_ID,
+        allow_service_start=True,
+    )
+    assert result.failure_reason == "service_descriptor_unsupported"
+    assert result.service_start_authorized and not result.enable_performed
+    assert adapter.enable_calls == []
+
+
+def test_malformed_native_error_keeps_service_start_authority_and_reconciliation(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+    from kodi_lab.kodi.addons import KodiAddonEnablementAdapter
+    from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
+
+    _python_service(tmp_path)
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    observation = broker.observe_managed_kodi_runtime(
+        managed_instance_id=str(INSTANCE_ID), expected_container_id=CONTAINER_ID
+    )
+    with factory() as session:
+        profile = RuntimeExecutionProfileRepository(session).get(REVISION_ID)
+    assert profile is not None
+
+    class Malformed:
+        def post(self, **_kwargs: object) -> bytes:
+            return b'{"jsonrpc":"2.0","id":"kodi-lab-addon-enable","error":{}}'
+
+    native = KodiAddonEnablementAdapter(observation, profile, transport=Malformed())
+
+    def enable(addon_id: str) -> None:
+        adapter.enable_calls.append(addon_id)
+        native.enable(addon_id)
+
+    monkeypatch.setattr(adapter, "enable", enable)
+    result = _service(
+        factory,
+        tmp_path,
+        broker,
+        [replace(_target(), kodi_type="xbmc.service")],
+        adapter,
+    ).enable(
+        INSTANCE_ID,
+        SOURCE_ID,
+        allow_service_start=True,
+    )
+    assert result.reconciliation_required and result.service_start_authorized
+    assert adapter.enable_calls == [ADDON_ID]
+    assert ManagedInstanceReconciliationService(factory).status(INSTANCE_ID).blocking

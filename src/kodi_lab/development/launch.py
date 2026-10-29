@@ -84,3 +84,18 @@ def manifest_launch_entries(
             )
         )
     return tuple(result)
+
+
+def python_service_descriptor_eligible(
+    descriptor: DevelopmentSourceValidationResult,
+) -> bool:
+    """Qualify one Python service without platform overrides or mixed entries."""
+    entries = tuple(
+        item for item in descriptor.extensions if item.point != "xbmc.addon.metadata"
+    )
+    return bool(
+        len(entries) == 1
+        and entries[0].point == "xbmc.service"
+        and not entries[0].has_platform_library
+        and safe_launch_library(entries[0].library)
+    )

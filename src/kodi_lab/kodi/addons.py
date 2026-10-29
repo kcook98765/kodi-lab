@@ -647,7 +647,16 @@ class KodiAddonEnablementAdapter:
             and set(document) == {"jsonrpc", "id", "error"}
             and isinstance(document.get("error"), dict)
         ):
-            raise KodiAddonEnableRejectedError("Kodi rejected add-on enablement")
+            error_document = document["error"]
+            if (
+                {"code", "message"}
+                <= set(error_document)
+                <= {"code", "message", "data"}
+                and type(error_document["code"]) is int
+                and isinstance(error_document["message"], str)
+            ):
+                raise KodiAddonEnableRejectedError("Kodi rejected add-on enablement")
+            raise KodiAddonEnablementAmbiguousError("Kodi enable error is unsupported")
         if (
             not isinstance(document, dict)
             or set(document) != {"jsonrpc", "id", "result"}

@@ -435,3 +435,16 @@ def test_oversized_addon_xml_is_rejected(tmp_path: Path) -> None:
         "source",
         DevelopmentSourceValidationCode.ADDON_XML_TOO_LARGE,
     )
+
+
+def test_service_platform_library_metadata_is_retained() -> None:
+    from kodi_lab.development.sources import parse_captured_addon_xml
+
+    result = parse_captured_addon_xml(
+        "source",
+        b'<addon id="service.example" name="Example" version="1.0.0">'
+        b'<extension point="xbmc.service" library="main.py" '
+        b'library_linux="native.so"/></addon>',
+    )
+    assert result.extensions[0].has_platform_library is True
+    assert result.has_auto_start_behavior is True

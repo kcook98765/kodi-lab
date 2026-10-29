@@ -279,7 +279,11 @@
           <p class="development-source-detach-status secondary" role="status" hidden></p>
           {% endif %}
           {% if source.enable_eligible %}
-          <button class="development-source-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Enable</button>
+          {% if source.service_start_requires_approval %}
+          <label><input type="checkbox" class="development-source-service-start"> Allow this service to start now and on future Kodi starts while enabled</label>
+          <p class="secondary">Enablement can start the service. Check its logs to verify execution.</p>
+          {% endif %}
+          <button class="development-source-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">{% if source.service_start_requires_approval %}Enable service{% else %}Enable{% endif %}</button>
           <p class="development-source-enable-status secondary" role="status" hidden></p>
           {% endif %}
           {% if source.smoke_test_eligible %}

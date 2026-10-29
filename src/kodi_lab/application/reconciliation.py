@@ -83,6 +83,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.models import (
+    DevelopmentSourceEnablementOperationRow,
     GlobalHeavyOperationLeaseRow,
     HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
@@ -1499,6 +1500,70 @@ _PRE_SETTINGS_LEASE_KINDS = frozenset(
 )
 
 
+def _legacy_service_start_authority(session: Session) -> bool:
+    """Only recognized complete predecessor storage can lack startup authority.
+
+    This affects reading historical blockers only; it never grants admission,
+    supplies an empty fence, migrates, or probes storage by writing.
+    """
+    inspector = inspect(session.connection())
+    table = "development_source_enablement_operations"
+    if not inspector.has_table(table):
+        raise CoordinationCorruptionError(
+            "Service startup authority storage is unavailable."
+        )
+    columns = {column["name"] for column in inspector.get_columns(table)}
+    if "service_start_authorized" in columns:
+        return False
+    revisions = (
+        list(session.scalars(text("SELECT version_num FROM alembic_version")))
+        if inspector.has_table("alembic_version")
+        else []
+    )
+    checks = (
+        inspector.get_check_constraints("managed_instance_mutation_leases")
+        if inspector.has_table("managed_instance_mutation_leases")
+        else []
+    )
+    kinds_sql = [
+        item["sqltext"]
+        for item in checks
+        if item["name"]
+        in {
+            "managed_instance_mutation_kind",
+            "ck_managed_instance_mutation_leases_managed_instance_mutation_kind",
+        }
+    ]
+    match = (
+        re.fullmatch(
+            r"operation_kind\s+IN\s*\(\s*((?:'[a-z_]+'\s*,\s*)*'[a-z_]+'\s*)\)",
+            kinds_sql[0].strip(),
+        )
+        if len(kinds_sql) == 1
+        else None
+    )
+    kinds = re.findall(r"'([a-z_]+)'", match.group(1)) if match is not None else []
+    revision = revisions[0] if len(revisions) == 1 else None
+    post_settings = revision in {"0086_addon_settings", "0087_novnc_control"}
+    expected_kinds = _PRE_SETTINGS_LEASE_KINDS | (
+        {"mcp_addon_settings", "reconstruction"} if post_settings else set()
+    )
+    if (
+        revision
+        in _PRE_SETTINGS_REVISIONS | {"0086_addon_settings", "0087_novnc_control"}
+        and columns
+        == set(DevelopmentSourceEnablementOperationRow.__table__.columns.keys())
+        - {"service_start_authorized"}
+        and len(kinds) == len(set(kinds))
+        and frozenset(kinds) == expected_kinds
+        and inspector.has_table("mcp_addon_settings_operations") == post_settings
+    ):
+        return True
+    raise CoordinationCorruptionError(
+        "Service startup authority storage is unavailable."
+    )
+
+
 def _settings_reconciliation_rows(
     session: Session,
     instance_id: UUID,
@@ -1666,7 +1731,10 @@ class ManagedInstanceReconciliationService:
                 (ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT, item)
                 for item in DevelopmentSourceEnablementOperationRepository(
                     session
-                ).reconciliation_for_instance(instance_id)
+                ).reconciliation_for_instance(
+                    instance_id,
+                    legacy_service_authority=_legacy_service_start_authority(session),
+                )
             )
             records.extend(
                 (ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST, item)

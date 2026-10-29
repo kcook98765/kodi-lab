@@ -752,3 +752,36 @@ def test_rejected_changed_capture_reports_confirmed_staged_size_not_plan(
     assert item["counts"]["planned_stage_bytes"] == len("after")
     assert item["counts"]["source_stage_bytes"] == len("larger captured content")
     assert len(client.put_members) == 1
+
+
+@pytest.mark.parametrize("installed", ["safe", "platform", "unsafe", "missing"])
+def test_service_eligibility_comes_from_verified_installed_descriptor(
+    tmp_path: Path,
+    installed: str,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    spec = _spec(tmp_path)
+    source = tmp_path / "development" / "addon"
+    library = "../outside.py" if installed == "unsafe" else "service.py"
+    override = ' library_linux="unqualified.so"' if installed == "platform" else ""
+    (source / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="1.0.0">'
+        f'<extension point="xbmc.service" library="{library}"{override}/></addon>'
+    )
+    if installed != "missing":
+        (source / "service.py").write_text("# known installed service\n")
+    applied = _apply(client, spec)
+    # Repairing the host descriptor cannot qualify an unsafe installed tree.
+    (source / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="1.0.0">'
+        '<extension point="xbmc.service" library="service.py"/></addon>'
+    )
+    client.inspection = _inspection(state="running")
+    proof = DockerManagedContainerAdapter(
+        lambda: client
+    ).verify_attached_development_source_destination(
+        spec=_verification_spec(applied.verified_destination_digest),
+        expected_container_id=CONTAINER_ID,
+    )
+    assert proof.matched is True
+    assert proof.python_service_descriptor_eligible is (installed == "safe")

@@ -55,6 +55,7 @@ class DevelopmentSourceEnablementOperation:
     prior_enabled: bool | None = None
     result_enabled: bool | None = None
     enable_performed: bool = False
+    service_start_authorized: bool = False
     blocked_dependency_id: str | None = None
     blocked_dependency_reason: str | None = None
     completed_at: datetime | None = None
@@ -62,6 +63,8 @@ class DevelopmentSourceEnablementOperation:
     reconciliation_required: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.service_start_authorized) is not bool:
+            raise ValueError("service start authorization must be Boolean")
         object.__setattr__(
             self,
             "source_logical_name",

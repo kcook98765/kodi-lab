@@ -7,7 +7,7 @@ import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +48,7 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
 )
+from kodi_lab.development.launch import python_service_descriptor_eligible
 from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperationState,
@@ -134,6 +135,8 @@ class DevelopmentSourceEnablementStatus(BaseModel):
     prior_enabled: bool | None
     result_enabled: bool | None
     enable_performed: bool
+    service_start_authorized: bool = False
+    service_execution: Literal["not_observed"] = "not_observed"
     blocked_dependency_id: str | None = Field(default=None, max_length=128)
     blocked_dependency_reason: str | None = Field(default=None, max_length=64)
     failure_reason: str | None = Field(default=None, max_length=256)
@@ -221,6 +224,7 @@ class DevelopmentSourceEnablementOperationCoordinator:
         addon_id: str,
         addon_version: str,
         runtime_revision_id: UUID,
+        service_start_authorized: bool = False,
     ) -> RunningDevelopmentSourceEnablement:
         self._stale.sweep_instance(instance_id)
         self._reconciliation.require_allowed(
@@ -243,6 +247,7 @@ class DevelopmentSourceEnablementOperationCoordinator:
             started_at=now,
             state=DevelopmentSourceEnablementOperationState.RUNNING,
             phase=DevelopmentSourceEnablementOperationPhase.PREFLIGHT,
+            service_start_authorized=service_start_authorized,
         )
         try:
             with self._session_factory.begin() as session:
@@ -439,8 +444,13 @@ class DevelopmentSourceEnablementService:
         self._after_enable_hook = after_enable_hook
 
     def enable(
-        self, instance_id: UUID, source_id: UUID
+        self, instance_id: UUID, source_id: UUID, *, allow_service_start: bool = False
     ) -> DevelopmentSourceEnablementStatus:
+        if type(allow_service_start) is not bool:
+            raise DevelopmentSourceEnablementError(
+                "Service start authorization must be Boolean.",
+                code="enablement_not_allowed",
+            )
         with self._session_factory() as session:
             instance = ManagedInstanceRepository(session).get(instance_id)
             source = DevelopmentSourceRepository(session).get(source_id)
@@ -478,6 +488,7 @@ class DevelopmentSourceEnablementService:
             addon_id=source.addon_id,
             addon_version=addon_version,
             runtime_revision_id=instance.runtime_revision_id,
+            service_start_authorized=allow_service_start,
         )
         dependencies: list[DevelopmentSourceDependencyState] = []
         mutation_started = False
@@ -491,14 +502,27 @@ class DevelopmentSourceEnablementService:
                 or source_observation.observed_version != addon_version
             ):
                 return self._failed(handle, "deployment_evidence_stale", dependencies)
-            if source_observation.has_auto_start_behavior or "xbmc.service" in (
-                source.extension_types
-            ):
-                return self._failed(
-                    handle, "auto_start_addon_unsupported", dependencies
-                )
+            service_declared = (
+                source_observation.has_auto_start_behavior
+                or "xbmc.service" in source.extension_types
+            )
+            pure_service = tuple(
+                point
+                for point in source_observation.extension_types
+                if point != "xbmc.addon.metadata"
+            ) == ("xbmc.service",)
+            if service_declared:
+                if not allow_service_start:
+                    return self._failed(
+                        handle, "auto_start_addon_unsupported", dependencies
+                    )
+                if not python_service_descriptor_eligible(source_observation):
+                    return self._failed(
+                        handle, "service_descriptor_unsupported", dependencies
+                    )
             if (
                 source_observation.is_python_addon
+                or service_declared
                 or any(
                     point in _PYTHON_EXTENSION_POINTS
                     for point in source.extension_types
@@ -507,6 +531,13 @@ class DevelopmentSourceEnablementService:
                 return self._failed(
                     handle, "runtime_bytecode_policy_incompatible", dependencies
                 )
+            if service_declared and (
+                profile.expected_kodi_version != "21.3"
+                or profile.expected_version_tag != "stable"
+                or profile.runtime_uid == 0
+                or profile.runtime_gid == 0
+            ):
+                return self._failed(handle, "service_runtime_unqualified", dependencies)
             runtime = self._resolve_runtime(instance_id, instance.runtime_revision_id)
             if isinstance(runtime, str):
                 return self._failed(handle, runtime, dependencies)
@@ -552,6 +583,8 @@ class DevelopmentSourceEnablementService:
                 )
             if (
                 not verified.matched
+                or verified.managed_instance_id != str(instance_id)
+                or verified.development_source_id != str(source_id)
                 or verified.runtime_revision_id != str(instance.runtime_revision_id)
                 or verified.container_id != container_id
                 or verified.addon_id != source.addon_id
@@ -559,6 +592,10 @@ class DevelopmentSourceEnablementService:
             ):
                 return self._failed(
                     handle, "deployment_verification_failed", dependencies
+                )
+            if service_declared and not verified.python_service_descriptor_eligible:
+                return self._failed(
+                    handle, "service_descriptor_unsupported", dependencies
                 )
             try:
                 inventory = self._inventory_factory(
@@ -595,10 +632,18 @@ class DevelopmentSourceEnablementService:
                 return self._failed(handle, "addon_not_recognized", dependencies)
             if details.version != addon_version:
                 return self._failed(handle, "addon_version_mismatch", dependencies)
-            if details.kodi_type == "xbmc.service":
-                return self._failed(
-                    handle, "auto_start_addon_unsupported", dependencies
-                )
+            if details.kodi_type == "xbmc.service" or service_declared:
+                native_item = inventory_by_id.get(source.addon_id)
+                if not (
+                    allow_service_start
+                    and pure_service
+                    and details.kodi_type == "xbmc.service"
+                    and native_item is not None
+                    and native_item.kodi_type == "xbmc.service"
+                ):
+                    return self._failed(
+                        handle, "auto_start_addon_unsupported", dependencies
+                    )
             if (
                 details.kodi_type in _PYTHON_EXTENSION_POINTS
                 and profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS
@@ -668,6 +713,8 @@ class DevelopmentSourceEnablementService:
             ):
                 return self._reconciliation(handle, dependencies)
             if after.addon_id != source.addon_id or after.version != addon_version:
+                return self._reconciliation(handle, dependencies)
+            if service_declared and after.kodi_type != "xbmc.service":
                 return self._reconciliation(handle, dependencies)
             if not after.enabled:
                 return self._failed(
@@ -863,6 +910,7 @@ class DevelopmentSourceEnablementService:
             prior_enabled=operation.prior_enabled,
             result_enabled=operation.result_enabled,
             enable_performed=operation.enable_performed,
+            service_start_authorized=operation.service_start_authorized,
             blocked_dependency_id=operation.blocked_dependency_id,
             blocked_dependency_reason=operation.blocked_dependency_reason,
             failure_reason=operation.failure_reason,

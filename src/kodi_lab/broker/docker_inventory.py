@@ -93,6 +93,7 @@ from kodi_lab.development.deployment import (
     compare_captures,
     verify_destination,
 )
+from kodi_lab.development.launch import python_service_descriptor_eligible
 from kodi_lab.development.measurements import DeploymentMeasurement
 from kodi_lab.domain import PythonBytecodePolicy
 from kodi_lab.fixtures.package import (
@@ -324,6 +325,7 @@ class VerifiedDevelopmentSourceDestinationRecord:
     addon_version: str
     matched: bool
     video_plugin_descriptor_eligible: bool = False
+    python_service_descriptor_eligible: bool = False
     verified_destination_digest: str | None = None
 
 
@@ -1964,11 +1966,28 @@ class DockerManagedContainerAdapter:
                     "Current destination bytes do not match retained evidence.",
                 )
             descriptor_eligible = False
+            service_eligible = False
             descriptor_bytes = manifest.captured_file("addon.xml")
             if descriptor_bytes is not None:
                 try:
                     descriptor = parse_captured_addon_xml(
                         "destination", descriptor_bytes
+                    )
+                    executable = tuple(
+                        item
+                        for item in descriptor.extensions
+                        if item.point != "xbmc.addon.metadata"
+                    )
+                    service_library = (
+                        executable[0].library if len(executable) == 1 else None
+                    )
+                    service_entry = manifest.by_path().get(service_library or "")
+                    service_eligible = bool(
+                        descriptor.addon_id == spec.addon_id
+                        and descriptor.observed_version == spec.addon_version
+                        and python_service_descriptor_eligible(descriptor)
+                        and service_entry is not None
+                        and service_entry.entry_type == "file"
                     )
                     library = copied_video_plugin_library(descriptor)
                     entry = None if library is None else manifest.by_path().get(library)
@@ -1998,6 +2017,7 @@ class DockerManagedContainerAdapter:
                 addon_version=spec.addon_version,
                 matched=True,
                 video_plugin_descriptor_eligible=descriptor_eligible,
+                python_service_descriptor_eligible=service_eligible,
                 verified_destination_digest=manifest.digest,
             )
         except DockerDevelopmentSourceDeploymentError:

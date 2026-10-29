@@ -110,6 +110,7 @@ class DevelopmentSourceExtension:
     point: str
     library: str | None
     provides: tuple[str, ...]
+    has_platform_library: bool = False
 
 
 def copied_video_plugin_library(
@@ -373,6 +374,9 @@ class DevelopmentSourceValidator:
                 DevelopmentSourceExtension(
                     point=child.attrib.get("point", ""),
                     library=child.attrib.get("library"),
+                    has_platform_library=any(
+                        key.startswith("library_") for key in child.attrib
+                    ),
                     provides=tuple(
                         token
                         for grandchild in child
