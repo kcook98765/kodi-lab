@@ -407,8 +407,11 @@ stopped containment. Unknown sync also invalidates canonical deployment
 confidence. Exact completed duplicates return stored evidence; changed
 workspace/generation/target conflicts. Startup reconciliation closes
 pending/running records without invoking broker or Kodi. Deployment is admitted
-once per client/target pair per five minutes through a bounded fake-clock-tested
-map.
+once per client/target pair per five seconds for managed disposable targets;
+external development targets retain five minutes. Both use bounded,
+fake-clock-tested maps. Durable target/global-heavy reservations and unresolved
+operation fences independently block overlap; a shorter cooldown never clears
+an unsettled receipt or authorizes a retry.
 
 Execution never deploys. It requires a successful exact deployment for the same
 current workspace, generation and target, ready target state, matching enabled
