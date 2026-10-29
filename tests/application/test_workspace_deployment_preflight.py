@@ -321,3 +321,74 @@ def test_activation_assessment_does_not_reuse_another_addon_validation(
     result = WorkspaceDeploymentPreflightService(env.sessions).inspect(operation(env))
     assert result.activation_assessment is None
     assert reasons(result)["source"].reason == "source_identity_changed"
+
+
+@pytest.mark.parametrize(
+    "blocker",
+    [
+        "target_lease",
+        "global_lease",
+        "reconciliation",
+        "session",
+        "source",
+        "attachment",
+    ],
+)
+def test_source_copy_guidance_waits_for_scope_and_mutation_blockers(
+    tmp_path: Path, blocker: str
+) -> None:
+    from kodi_lab.storage.models import ManagedInstanceDevelopmentSourceRow
+    from tests.application.test_session_workspace_admission import bind
+    from tests.application.test_workspace_deployment_recovery import inventory_failure
+
+    env = (
+        inventory_failure(tmp_path)[0]
+        if blocker == "reconciliation"
+        else fixture._environment(tmp_path)
+    )
+    if blocker == "session":
+        bind(env, mismatch="target")
+    with env.sessions.begin() as session:
+        baseline = session.get(
+            DevelopmentSourceDeploymentRow,
+            (str(fixture.TARGET_ID), str(fixture.SOURCE_ID)),
+        )
+        assert baseline is not None
+        session.delete(baseline)
+        if blocker == "target_lease":
+            ManagedInstanceMutationLeaseRepository(session).reserve(
+                fixture.TARGET_ID,
+                kind=ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT,
+                operation_id=uuid4(),
+            )
+        elif blocker == "global_lease":
+            GlobalHeavyOperationLeaseRepository(session).reserve(
+                kind=GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT,
+                operation_id=uuid4(),
+            )
+        elif blocker == "source":
+            workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
+            assert workspace is not None
+            workspace.source_addon_id = "plugin.video.other"
+        elif blocker == "attachment":
+            attachment = session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                (str(fixture.TARGET_ID), str(fixture.SOURCE_ID)),
+            )
+            assert attachment is not None
+            session.delete(attachment)
+    result = WorkspaceDeploymentPreflightService(env.sessions).inspect(operation(env))
+    assert reasons(result)["source_baseline"].reason == "source_baseline_missing"
+    assert reasons(result)[blocker].state == "blocked"
+    assert not any(item.action == "copy_source" for item in result.next_actions)
+    expected = (
+        "review_history"
+        if blocker in {"target_lease", "global_lease", "reconciliation"}
+        else "review_session"
+        if blocker == "session"
+        else "review_source"
+        if blocker == "source"
+        else "attach_source"
+    )
+    assert any(item.action == expected for item in result.next_actions)
+    assert result.verdict == "blocked" and not result.reservation_created

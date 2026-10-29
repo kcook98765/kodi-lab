@@ -72,3 +72,9 @@ and unknowns and links to existing target history, setup or Current Kodi control
 It never reports a ready verdict or performs an agent permission check. Reads
 remain separate from stopped source copy, recovery and fresh deployment admission.
 After editing or capturing, reload the page to assess its new generation.
+
+Missing-baseline evidence remains visible while ownership/session, attachment,
+mutation leases or reconciliation block preparation. In those states the next
+actions guide review or waiting rather than suggesting a source-copy mutation.
+After resolving the blocker, request a fresh assessment for current advice.
+Preflight still creates no reservation and cannot guarantee mutation admission.
