@@ -269,7 +269,9 @@ class ManagedRuntimeLifecycleService:
                     )
             return result
 
-        self._readiness.start(instance_id, run)
+        # Status recovery may have queued a native-only probe while this START
+        # owned mutation. Replace/serialize that runner so Bridge work is not lost.
+        self._readiness.start(instance_id, run, replace_checking=True)
 
     def stop(
         self,

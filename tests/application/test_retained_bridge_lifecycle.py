@@ -14,6 +14,9 @@ from sqlalchemy import select
 from kodi_lab.application.lifecycle_operations import LifecycleOperationConflictError
 from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationRequiredError,
+)
 from kodi_lab.application.runtime_lifecycle import ManagedRuntimeLifecycleService
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
@@ -133,6 +136,11 @@ class Broker:
 
 
 def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    from kodi_lab.application.lifecycle_operations import (
+        ManagedInstanceLifecycleOperationCoordinator,
+    )
+    from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+
     s = environment(tmp_path, monkeypatch)
     s.choose("omega")
     client = Client()
@@ -145,13 +153,26 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
     s.owner.transport = Native()
     s.readiness = ReadinessTaskRegistry(max_workers=1)
-    s.status = ManagedRuntimeStatusService(s.env.sessions, s.broker, s.readiness)
+    reconciliation = ManagedInstanceReconciliationService(
+        s.env.sessions, broker=s.broker, readiness=s.readiness
+    )
+    s.status = ManagedRuntimeStatusService(
+        s.env.sessions,
+        s.broker,
+        s.readiness,
+        reconciliation,
+        recover_running_readiness=True,
+        coordinator_factory=lambda *_: ImmediateReadiness(),
+    )
     s.lifecycle = ManagedRuntimeLifecycleService(
         s.env.sessions,
         cast(Any, s.broker),
         s.readiness,
         s.status,
         bridge_trust=s.owner,
+        lifecycle_operations=ManagedInstanceLifecycleOperationCoordinator(
+            s.env.sessions, reconciliation=reconciliation
+        ),
         coordinator_factory=lambda *_: ImmediateReadiness(),
     )
     return s
@@ -398,10 +419,23 @@ def test_lost_bridge_write_keeps_typed_reconciliation_after_restart(
             op = session.scalar(select(ManagedInstanceLifecycleOperationRow))
             assert op is not None and op.state == "reconciliation_required"
             operation_id = op.id
+        from kodi_lab.application.reconciliation import (
+            ManagedInstanceReconciliationService,
+        )
+
+        live = ManagedInstanceReconciliationService(
+            s.env.sessions, broker=s.broker, readiness=s.readiness
+        )
+        assert live.status(s.ids["omega"]).blocking
+        with pytest.raises(ManagedInstanceReconciliationRequiredError):
+            s.lifecycle.install_reviewed_bridge(s.ids["omega"])
         assert s.profiles[s.ids["omega"]].with_name("bridge-stage.txt").is_file()
         s.records[2] = replace(
             s.records[2], runtime_state=ContainerRuntimeState.STOPPED
         )
+        assert live.status(s.ids["omega"]).blocking
+        with pytest.raises(ManagedInstanceReconciliationRequiredError):
+            s.lifecycle.start(s.ids["omega"])
         restarted = DevelopmentSessionService(
             s.env.sessions, s.inventory, data_root=tmp_path / "data"
         )
@@ -422,5 +456,147 @@ def test_lost_bridge_write_keeps_typed_reconciliation_after_restart(
                 session.get(ManagedInstanceLifecycleOperationRow, operation_id).state
                 == "reconciliation_required"
             )
+    finally:
+        s.readiness.close()
+
+
+def test_production_native_recovery_cannot_discard_owned_bridge_continuation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = setup(tmp_path, monkeypatch)
+    entered, finish = Event(), Event()
+
+    class RecoveredReadiness:
+        def wait_until_usable(self, *args: Any, **kwargs: Any) -> Any:
+            entered.set()
+            assert finish.wait(5)
+            return ImmediateReadiness().wait_until_usable(*args, **kwargs)
+
+    s.status._coordinator_factory = lambda *_: RecoveredReadiness()
+    try:
+        s.lifecycle.start(s.ids["omega"])
+        assert entered.wait(5)
+        finish.set()
+        with s.readiness._lock:
+            future = s.readiness._entries[s.ids["omega"]].future
+        assert future is not None
+        future.result(timeout=5)
+        assert s.broker.stages == 1
+        with s.env.sessions() as session:
+            assert (
+                session.get(ManagedBridgeTrustRow, str(s.ids["omega"])).state
+                == "active"
+            )
+    finally:
+        finish.set()
+        s.readiness.close()
+
+
+@pytest.mark.parametrize("drift", ["container", "image", "additional"])
+def test_running_ensure_refuses_drift_before_new_receipt_or_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    from kodi_lab.application.managed_agent_lifecycle import (
+        ManagedAgentLifecycleError,
+        ManagedAgentLifecycleService,
+    )
+    from kodi_lab.application.managed_resources import ManagedResourceService
+    from kodi_lab.storage.models import (
+        ManagedAgentLifecycleRequestRow,
+        ManagedInstanceUseRow,
+    )
+
+    s = setup(tmp_path, monkeypatch)
+    try:
+        s.lifecycle.start(s.ids["omega"])
+        with s.readiness._lock:
+            future = s.readiness._entries[s.ids["omega"]].future
+        assert future is not None
+        future.result(timeout=5)
+        selected = s.service.status()
+        with s.env.sessions() as session:
+            uses_before = session.execute(select(ManagedInstanceUseRow.__table__)).all()
+        if drift == "container":
+            s.records[2] = replace(s.records[2], container_id="f" * 64)
+        elif drift == "image":
+            s.records[2] = replace(s.records[2], image_id="sha256:" + "f" * 64)
+        else:
+            s.records.append(
+                replace(
+                    s.records[0],
+                    managed_instance_id=str(uuid4()),
+                    container_id="e" * 64,
+                )
+            )
+        resources = ManagedResourceService(s.env.sessions, s.broker, s.lifecycle)
+        agent = ManagedAgentLifecycleService(
+            s.env.sessions,
+            resources,
+            s.lifecycle,
+            s.status,
+            lock_root=tmp_path / "agent-locks",
+        )
+        with pytest.raises(ManagedAgentLifecycleError):
+            agent.ensure_ready(
+                client_id=s.env.client_id,
+                request_id=uuid4(),
+                target_id=s.ids["omega"],
+                authorize=lambda _: None,
+            )
+        with s.env.sessions() as session:
+            assert session.scalar(select(ManagedAgentLifecycleRequestRow)) is None
+            assert (
+                session.execute(select(ManagedInstanceUseRow.__table__)).all()
+                == uses_before
+            )
+        assert s.service.status() == selected
+    finally:
+        s.readiness.close()
+
+
+def test_historical_ensure_cannot_report_ready_after_image_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.managed_agent_lifecycle import (
+        ManagedAgentLifecycleService,
+    )
+    from kodi_lab.application.managed_resources import ManagedResourceService
+
+    s = setup(tmp_path, monkeypatch)
+    try:
+        s.lifecycle.start(s.ids["omega"])
+        with s.readiness._lock:
+            future = s.readiness._entries[s.ids["omega"]].future
+        assert future is not None
+        future.result(timeout=5)
+        resources = ManagedResourceService(s.env.sessions, s.broker, s.lifecycle)
+        agent = ManagedAgentLifecycleService(
+            s.env.sessions,
+            resources,
+            s.lifecycle,
+            s.status,
+            lock_root=tmp_path / "agent-locks",
+        )
+        request_id = uuid4()
+        first = agent.ensure_ready(
+            client_id=s.env.client_id,
+            request_id=request_id,
+            target_id=s.ids["omega"],
+            authorize=lambda _: None,
+        )
+        assert first.ready
+        s.records[2] = replace(s.records[2], image_id="sha256:" + "f" * 64)
+        replay = agent.ensure_ready(
+            client_id=s.env.client_id,
+            request_id=request_id,
+            target_id=s.ids["omega"],
+            authorize=lambda _: None,
+        )
+        assert not replay.ready and replay.code == "runtime_changed_since_request"
+        assert (
+            replay.operation_id == first.operation_id
+            and replay.hold_until == first.hold_until
+        )
+        assert s.broker.starts == 1
     finally:
         s.readiness.close()

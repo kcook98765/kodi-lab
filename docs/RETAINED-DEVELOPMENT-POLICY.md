@@ -72,3 +72,11 @@ worker service or safety timeout is introduced. Automatic preparation uses owner
 a previously started worker. Its native projection stays unchanged on successful
 preparation and read-only refusal; unknown writes use typed reconciliation.
 Existing disposable-session policy remains the default.
+
+Already-running ensure and historical ready observations also recheck the closed
+inventory and exact selected container/image. A fresh running receipt cannot adopt
+a replacement container or mint a hold over drift. Native-only status recovery is
+cancelled/serialized before the lifecycle's Bridge continuation, so its existing
+probe cannot silently discard automatic preparation. A lost Bridge write uses the
+existing dispatch-unconfirmed classification; live running/stopped observations
+cannot convert that uncertainty into mutation admission.
