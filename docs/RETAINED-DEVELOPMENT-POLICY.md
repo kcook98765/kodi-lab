@@ -95,3 +95,10 @@ broker start/stop failures after possible dispatch remain unconfirmed despite a
 later running/stopped observation; provision failures retain their durable create
 reservation and original lifecycle uncertainty. Proven pre-dispatch refusals stay
 ordinary failures.
+
+If admission changes after a managed ensure intent commits but before it claims a
+child, a proven refusal closes that exact pending intent as failed. Cleanup checks
+request/client/target/action identity and the absence of both a linked and a
+same-ID committed child under the writer boundary. It never clears another
+operation's reservation/lease, an existing use hold, or dispatched/ambiguous work.
+Replaying the refused request returns its failure without dispatching it later.
