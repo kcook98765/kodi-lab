@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID
@@ -35,11 +36,20 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.storage.models import ManagedBridgeTrustRow, ManagedInstanceRow, TargetRow
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
-from kodi_lab.storage.secrets import ExternalBridgeSecretStore
+from kodi_lab.storage.secrets import (
+    ExternalBridgeSecretStore,
+    external_secret_publication,
+    queue_external_secret_retirement,
+    retire_pending_external_secrets,
+)
 
 
 class ManagedBridgeTrustError(RuntimeError):
     pass
+
+
+class ManagedBridgeMutationUnconfirmedError(ManagedBridgeTrustError):
+    """A resident/profile mutation may still be in flight; retain its owner."""
 
 
 def identity_json(identity: BridgeIdentity) -> str:
@@ -91,6 +101,7 @@ def invalidate_managed_bridge_trust(
     *,
     secrets: ExternalBridgeSecretStore | None = None,
     revoked: bool = False,
+    defer_retirement: bool = False,
 ) -> None:
     """Retire authority before replacement. A rollback after retirement fails closed."""
     row = session.get(ManagedBridgeTrustRow, str(target_id))
@@ -105,6 +116,14 @@ def invalidate_managed_bridge_trust(
     )
     session.flush()
     if reference:
+        if defer_retirement:
+            queue_external_secret_retirement(
+                session,
+                store_kind="bridge",
+                target_id=target_id,
+                reference=UUID(reference),
+            )
+            return
         store = (
             secrets
             or session.info.get("managed_bridge_secrets")
@@ -178,6 +197,20 @@ class ManagedBridgeTrustService:
             or observed.process_state is not KodiProcessState.RUNNING
         ):
             raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")
+        from kodi_lab.storage.retained_development import (
+            require_retained_container,
+            retained_targets,
+        )
+
+        with self.sessions() as session:
+            if retained_targets(session):
+                require_retained_container(
+                    session,
+                    self.broker.managed_container_inventory().containers,
+                    str(target_id),
+                    running=True,
+                    observed_container_id=observed.container_id,
+                )
         identity = KodiJsonRpcReadinessAdapter(
             observed, profile, transport=self.transport
         ).get_application_identity()
@@ -280,7 +313,85 @@ class ManagedBridgeTrustService:
         authenticated and reused. Revocation/drift needs explicit replacement.
         """
         with self._gate.enter(target_id):
-            return self._prepare(target_id, replace=replace)
+            from kodi_lab.storage.retained_development import retained_targets
+
+            with self.sessions() as session:
+                retained = bool(retained_targets(session))
+            if not retained:
+                return self._prepare(target_id, replace=replace)
+            return self._owned_prepare(target_id, replace=replace)
+
+    def prepare_background(self, target_id: UUID) -> bool:
+        """Automatic readiness is owned in both legacy and retained mode.
+
+        This also excludes enabling retained policy over an old live worker.
+        Direct legacy synchronous preparation retains its existing contract.
+        """
+        with self._gate.enter(target_id):
+            return self._owned_prepare(target_id, replace=False)
+
+    def _owned_prepare(self, target_id: UUID, *, replace: bool) -> bool:
+        """Background work shares durable lifecycle ownership through cleanup.
+
+        Stop/selection cannot pass while credentials/profile changes are still
+        possible. Interruption leaves typed lifecycle reconciliation evidence.
+        Synchronous reviewed staging/resume already hold their caller's lease.
+        """
+        from kodi_lab.application.lifecycle_operations import (
+            ManagedInstanceLifecycleOperationCoordinator,
+        )
+        from kodi_lab.domain import (
+            ManagedInstanceLifecycleOperationState,
+            ManagedInstanceSemanticState,
+        )
+        from kodi_lab.storage.retained_development import (
+            require_retained_container,
+            require_runtime_reservations_idle,
+        )
+
+        def admission(session: Session) -> None:
+            require_runtime_reservations_idle(session, str(target_id))
+            require_retained_container(
+                session,
+                self.broker.managed_container_inventory().containers,
+                str(target_id),
+                running=True,
+            )
+
+        operations = ManagedInstanceLifecycleOperationCoordinator(self.sessions)
+        handle = operations.begin_bridge_preparation(target_id, precondition=admission)
+        mutated = False
+
+        def mutation_started() -> None:
+            nonlocal mutated
+            mutated = True
+
+        try:
+            result = self._prepare(
+                target_id, replace=replace, mutation_started=mutation_started
+            )
+        except BaseException:
+            operations.terminalize(
+                handle,
+                state=(
+                    ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED
+                    if mutated
+                    else ManagedInstanceLifecycleOperationState.FAILED
+                ),
+                resulting_state=ManagedInstanceSemanticState.AMBIGUOUS,
+                failure_reason=(
+                    "broker_runtime_dispatch_unconfirmed"
+                    if mutated
+                    else "Resident Bridge preparation did not complete."
+                ),
+            )
+            raise
+        operations.terminalize(
+            handle,
+            state=ManagedInstanceLifecycleOperationState.SUCCEEDED,
+            resulting_state=ManagedInstanceSemanticState.RUNNING_USABLE,
+        )
+        return result
 
     def resume_reviewed(self, target_id: UUID, *, expected_generation: int) -> None:
         """Explicit lifecycle continuation; prepared intent is not staging proof."""
@@ -333,6 +444,7 @@ class ManagedBridgeTrustService:
         replace: bool,
         install_reviewed: bool = False,
         expected_prepared_generation: int | None = None,
+        mutation_started: Callable[[], None] | None = None,
     ) -> bool:
         observed, profile = self._admit(target_id)
         if install_reviewed and profile.kodi_release.canonical not in {
@@ -385,11 +497,15 @@ class ManagedBridgeTrustService:
                     raise ManagedBridgeTrustError(
                         "managed_bridge_unavailable"
                     ) from error
+                if mutation_started is not None:
+                    mutation_started()
                 self._invalidate_if_current(row)
                 raise ManagedBridgeTrustError(
                     "managed_bridge_identity_mismatch"
                 ) from error
             except Exception as error:
+                if mutation_started is not None:
+                    mutation_started()
                 self._invalidate_if_current(row)
                 raise ManagedBridgeTrustError(
                     "managed_bridge_identity_mismatch"
@@ -444,15 +560,28 @@ class ManagedBridgeTrustService:
             or addon.get("addonid") != "service.kodi_lab_bridge"
         ):
             return False
-        reference = self.secrets.write(
-            target_id, "request_authentication", os.urandom(32)
-        )
+        if mutation_started is not None:
+            mutation_started()
+        reference = None
         now = (
             datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
         )
         generation = 1 if row is None else row.generation + 1
         try:
-            with self.sessions.begin() as session:
+            # Register the exact cleanup identity before materialization. A
+            # post-rename fsync failure or process loss retains its obligation.
+            with external_secret_publication(
+                self.sessions,
+                store_kind="bridge",
+                target_id=target_id,
+                write=lambda candidate: self.secrets.write(
+                    target_id,
+                    "request_authentication",
+                    os.urandom(32),
+                    reference=candidate,
+                ),
+                retire=self.secrets.retire,
+            ) as (session, reference):
                 current = session.get(ManagedBridgeTrustRow, str(target_id))
                 if (current is None) != (row is None) or (
                     current is not None
@@ -462,7 +591,7 @@ class ManagedBridgeTrustService:
                     raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")
                 if current is not None:
                     invalidate_managed_bridge_trust(
-                        session, target_id, secrets=self.secrets
+                        session, target_id, defer_retirement=True
                     )
                     session.delete(current)
                     session.flush()
@@ -486,6 +615,13 @@ class ManagedBridgeTrustService:
                         ),
                     )
                 )
+            assert reference is not None
+            retire_pending_external_secrets(
+                self.sessions,
+                store_kind="bridge",
+                target_id=target_id,
+                retire=self.secrets.retire,
+            )
             if addon is not None:
                 self._call(
                     observed,
@@ -548,13 +684,27 @@ class ManagedBridgeTrustService:
                 current.state = "active"
             return True
         except Exception as error:
-            with self.sessions.begin() as session:
-                current = session.get(ManagedBridgeTrustRow, str(target_id))
-                if current is not None and current.secret_reference == str(reference):
-                    invalidate_managed_bridge_trust(
-                        session, target_id, secrets=self.secrets
+            try:
+                if reference is not None:
+                    with self.sessions.begin() as session:
+                        current = session.get(ManagedBridgeTrustRow, str(target_id))
+                        if current is not None and current.secret_reference == str(
+                            reference
+                        ):
+                            invalidate_managed_bridge_trust(
+                                session, target_id, defer_retirement=True
+                            )
+                    retire_pending_external_secrets(
+                        self.sessions,
+                        store_kind="bridge",
+                        target_id=target_id,
+                        reference=reference,
+                        retire=self.secrets.retire,
                     )
-            self.secrets.retire(reference)
-            raise ManagedBridgeTrustError(
+            except Exception as cleanup_error:
+                raise ManagedBridgeMutationUnconfirmedError(
+                    "managed_bridge_establishment_failed"
+                ) from cleanup_error
+            raise ManagedBridgeMutationUnconfirmedError(
                 "managed_bridge_establishment_failed"
             ) from error

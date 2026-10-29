@@ -26,6 +26,7 @@ from kodi_lab.application.lifecycle_status import (
     semantic_state_is_unambiguous,
 )
 from kodi_lab.application.managed_bridge_trust import (
+    ManagedBridgeMutationUnconfirmedError,
     ManagedBridgeTrustService,
     invalidate_managed_bridge_trust,
 )
@@ -179,6 +180,21 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            from kodi_lab.storage.models import ManagedProvisionReservationRow
+
+            with self._session_factory() as session:
+                reservation = session.get(
+                    ManagedProvisionReservationRow, str(instance_id)
+                )
+                uncertain = (
+                    reservation is not None
+                    and reservation.runtime_revision_id
+                    == str(_profile.runtime_revision_id)
+                )
+            if uncertain or error.code == "internal_error":
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
         self._readiness.clear(instance_id)
 
     def start(
@@ -244,6 +260,20 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            if error.code in {
+                "docker_start_failed",
+                "post_start_verification_failed",
+                "managed_start_result_unverified",
+                "managed_start_requires_reconciliation",
+                "internal_error",
+            }:
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
+
+    def _queue_readiness(
+        self, instance_id: UUID, profile: RuntimeExecutionProfile
+    ) -> None:
 
         def run(cancel_event: Event) -> ReadinessResult:
             coordinator = self._coordinator_factory(self._broker, profile)
@@ -256,7 +286,7 @@ class ManagedRuntimeLifecycleService:
                 and self._bridge_trust is not None
             ):
                 try:
-                    self._bridge_trust.prepare(instance_id)
+                    self._bridge_trust.prepare_background(instance_id)
                 except Exception:
                     # Optional resident capability must not make native Kodi
                     # operations unusable. No secret or raw error is logged.
@@ -265,7 +295,9 @@ class ManagedRuntimeLifecycleService:
                     )
             return result
 
-        self._readiness.start(instance_id, run)
+        # Status recovery may have queued a native-only probe while this START
+        # owned mutation. Replace/serialize that runner so Bridge work is not lost.
+        self._readiness.start(instance_id, run, replace_checking=True)
 
     def stop(
         self,
@@ -309,6 +341,14 @@ class ManagedRuntimeLifecycleService:
             )
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
+        except RemoteBrokerError as error:
+            if error.code in {
+                "docker_stop_failed",
+                "post_stop_verification_failed",
+                "internal_error",
+            }:
+                raise LifecycleDispatchUnconfirmedError from error
+            raise
 
         if (
             result.container_id != container.container_id
@@ -445,13 +485,39 @@ class ManagedRuntimeLifecycleService:
         | None = None,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
+
+        def admission(session: Session) -> None:
+            from kodi_lab.storage.retained_development import (
+                require_runtime_reservations_idle,
+            )
+
+            if kind in {
+                ManagedInstanceLifecycleKind.START,
+                ManagedInstanceLifecycleKind.PROVISION,
+            }:
+                require_runtime_reservations_idle(session, str(instance_id))
+            if kind is ManagedInstanceLifecycleKind.START:
+                from kodi_lab.storage.retained_development import (
+                    require_retained_container,
+                    retained_targets,
+                )
+
+                if retained_targets(session):
+                    require_retained_container(
+                        session,
+                        self._broker.managed_container_inventory().containers,
+                        str(instance_id),
+                    )
+            if precondition is not None:
+                precondition(session)
+
         handle = self._operations.begin(
             instance_id,
             instance_name=instance_name,
             kind=kind,
             prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
             operation_id=operation_id,
-            precondition=precondition,
+            precondition=admission,
             on_claim=on_claim,
         )
         try:
@@ -497,6 +563,10 @@ class ManagedRuntimeLifecycleService:
                 ),
                 on_terminal=on_terminal,
             )
+        if kind is ManagedInstanceLifecycleKind.START and self._is_expected_result(
+            kind, resulting_state
+        ):
+            self._queue_readiness(instance_id, profile)
         return result
 
     @staticmethod
@@ -533,7 +603,10 @@ class ManagedRuntimeLifecycleService:
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
         | None = None,
     ) -> None:
-        unconfirmed = isinstance(error, LifecycleDispatchUnconfirmedError)
+        unconfirmed = isinstance(
+            error,
+            (LifecycleDispatchUnconfirmedError, ManagedBridgeMutationUnconfirmedError),
+        )
         known = isinstance(error, BrokerUnavailableError) or (
             semantic_state_is_unambiguous(resulting_state) and not unconfirmed
         )

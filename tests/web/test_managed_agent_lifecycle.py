@@ -68,6 +68,15 @@ def _provision(client: TestClient) -> None:
     )
 
 
+def _finish_readiness(client: TestClient) -> None:
+    """Finish the real asynchronous fixture before asserting an ordinary stop."""
+    context = cast(FastAPI, client.app).state.kodi_lab
+    with context.readiness._lock:
+        future = context.readiness._entries[INSTANCE_ID].future
+    assert future is not None
+    future.result(timeout=5)
+
+
 def test_explicit_lifecycle_permission_applies_to_both_client_and_target(
     client: TestClient,
     broker: FakeBroker,
@@ -102,6 +111,10 @@ def test_explicit_lifecycle_permission_applies_to_both_client_and_target(
     assert replay["replayed"] and replay["operation_id"] == original["operation_id"]
     assert replay["hold_until"] == original["hold_until"]
     assert sum(name == "start" for name, _ in broker.calls) == 1
+    _finish_readiness(client)
+    assert _call(client, token, "managed_ensure_ready", request_id)[
+        "structuredContent"
+    ]["ready"]
     release_id = uuid4()
     released = _call(client, token, "managed_release", release_id)["structuredContent"]
     assert released["receipt_state"] == "released"
@@ -125,6 +138,7 @@ def test_release_preserves_other_clients_current_use(
     _, first, _ = _agent(client)
     _, second, _ = _agent(client)
     _call(client, first, "managed_ensure_ready", uuid4())
+    _finish_readiness(client)
     _call(client, second, "managed_ensure_ready", uuid4())
     retained = _call(client, first, "managed_release", uuid4())["structuredContent"]
     assert retained["receipt_state"] == "retained" and retained["code"] == "keep_awake"

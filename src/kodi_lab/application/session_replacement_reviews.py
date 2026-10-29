@@ -337,6 +337,12 @@ class SessionReplacementReviewService:
         try:
             with self._sessions._sessions() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
+                from kodi_lab.storage.retained_development import retained_targets
+
+                if retained_targets(session):
+                    raise SessionReplacementReviewError(
+                        "retained_mode_requires_selection"
+                    )
                 prior = session.scalar(
                     select(DevelopmentSessionReplacementReviewRow).where(
                         DevelopmentSessionReplacementReviewRow.request_id

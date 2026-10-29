@@ -91,7 +91,13 @@ class DevelopmentSessionWorkflow:
     def choices(self) -> tuple[SessionTargetChoice, ...]:
         result = []
         with self._sessions._sessions() as session:
-            for target_id in sorted(development_target_ids(), key=str):
+            from kodi_lab.storage.retained_development import retained_targets
+
+            retained = retained_targets(session)
+            choices = (
+                {UUID(t) for t in retained} if retained else development_target_ids()
+            )
+            for target_id in sorted(choices, key=str):
                 instance = ManagedInstanceRepository(session).get(target_id)
                 target = TargetRepository(session).get(target_id)
                 if instance is None or target is None or target.kodi_version is None:
@@ -131,10 +137,10 @@ class DevelopmentSessionWorkflow:
         with self._sessions._sessions() as session:
             current = self._binding(session, generation, "bound", target_id)
             containers = self._sessions._inventory().containers
-            if (
-                len(containers) != 1
-                or containers[0].managed_instance_id != current.target_id
-                or containers[0].container_id != current.container_id
+            from kodi_lab.storage.retained_development import session_inventory_matches
+
+            if not session_inventory_matches(
+                session, containers, current.target_id, current.container_id
             ):
                 raise DevelopmentSessionConflict("development_session_identity_changed")
 

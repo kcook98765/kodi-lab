@@ -58,11 +58,19 @@ class ReadinessTaskRegistry:
         self._lock = threading.Lock()
 
     def start(
-        self, instance_id: UUID, runner: ReadinessRunner
+        self,
+        instance_id: UUID,
+        runner: ReadinessRunner,
+        *,
+        replace_checking: bool = False,
     ) -> ReadinessTaskSnapshot:
         with self._lock:
             current = self._entries.get(instance_id)
-            if current is not None and current.state is ReadinessTaskState.CHECKING:
+            if (
+                current is not None
+                and current.state is ReadinessTaskState.CHECKING
+                and not replace_checking
+            ):
                 return self._snapshot(current)
             predecessor = (
                 current

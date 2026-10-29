@@ -42,6 +42,7 @@ from kodi_lab.storage.models import (
     ManagedProvisionReservationRow,
     ManagedStartReservationRow,
 )
+from kodi_lab.storage.retained_development import retained_inventory, retained_targets
 
 _SAFE_BEFORE_DISPATCH = (
     AmbiguousManagedContainerError,
@@ -90,6 +91,7 @@ class ManagedCapacityAdmission:
         operation_id = str(uuid4())
         generation: int | None = None
         expected_container: str | None = None
+        retained = False
         try:
             with self._sessions() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
@@ -101,6 +103,16 @@ class ManagedCapacityAdmission:
                         "managed_provision_requires_reconciliation"
                     )
                 records = self._inventory()
+                retained = bool(retained_targets(session))
+                if retained:
+                    expected_container = next(
+                        (
+                            r.container_id
+                            for r in records
+                            if r.managed_instance_id == instance_id
+                        ),
+                        None,
+                    )
                 try:
                     current = require_session_admission(
                         session, records, target_id=instance_id, revision_id=revision_id
@@ -137,19 +149,26 @@ class ManagedCapacityAdmission:
                 or result.runtime_revision_id != revision_id
             ):
                 raise ManagedCapacityError("managed_provision_result_unverified")
-            if generation is not None:
+            if generation is not None or retained:
                 if (expected_container is None and not result.created) or (
                     expected_container is not None
                     and result.container_id != expected_container
                 ):
                     raise ManagedCapacityError("managed_provision_result_unverified")
                 records = self._inventory()
+                with self._sessions() as session:
+                    if retained:
+                        retained_inventory(session, records)
+                selected_records = [
+                    r for r in records if r.managed_instance_id == instance_id
+                ]
                 if (
-                    len(records) != 1
-                    or records[0].managed_instance_id != instance_id
-                    or records[0].container_id != result.container_id
-                    or records[0].runtime_revision_id != revision_id
-                    or records[0].image_id != result.image_id
+                    (not retained and len(records) != 1)
+                    or (retained and any(r.runtime_state != "stopped" for r in records))
+                    or len(selected_records) != 1
+                    or selected_records[0].container_id != result.container_id
+                    or selected_records[0].runtime_revision_id != revision_id
+                    or selected_records[0].image_id != result.image_id
                 ):
                     raise ManagedCapacityError("managed_provision_result_unverified")
             self._finish_provision(instance_id, operation_id, result)
@@ -250,6 +269,7 @@ class ManagedCapacityAdmission:
                 raise ManagedCapacityError(error.code) from error
             reservations = list(session.scalars(select(ManagedStartReservationRow)))
             policy = resource_policy(session)
+            limit = 1 if retained_targets(session) else policy.max_running
             used = {
                 item.managed_instance_id
                 for item in records
@@ -259,11 +279,11 @@ class ManagedCapacityAdmission:
                 raise ManagedCapacityError(
                     "managed_start_requires_reconciliation",
                     used=len(used),
-                    limit=policy.max_running,
+                    limit=limit,
                 )
-            if instance_id not in used and len(used) >= policy.max_running:
+            if instance_id not in used and len(used) >= limit:
                 raise ManagedCapacityError(
-                    "managed_capacity_full", used=len(used), limit=policy.max_running
+                    "managed_capacity_full", used=len(used), limit=limit
                 )
             session.add(
                 ManagedStartReservationRow(
