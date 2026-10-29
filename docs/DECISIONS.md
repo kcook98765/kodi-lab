@@ -7313,3 +7313,22 @@ No old digest substitutes for fresh bytes. Successful selected sizes give comple
 staged-byte counts; planned sizes remain separate, and incomplete captures do not
 claim completed staging. No deletion/type-replacement capability is added here.
 See `FAST-LOOP-SELECTIVE-STAGING.md` for bounded fixture/native evidence and limits.
+
+## D-0468: Distinguish deployment proof from lifecycle qualification
+
+The existing durable-only deployment preflight may project the current validated
+extension set into a conservative activation assessment. It reads no files or
+runtime endpoint and creates no reservation. Stale, mismatched, malformed or
+out-of-scope validation yields no assessment. All extension combinations retain
+an unqualified live/removal state and a stopped-copy/restart candidate, with
+explicit service, dependent interpreter, skin, resource, repository, native or
+unknown and mixed-extension constraints. Descriptor metadata and platform/runtime
+qualification remain unassessed; this projection cannot admit a mutation.
+
+Managed direct deployment results derive historical iteration evidence solely
+from durable copy/restart fields. A verified copy and observed Kodi restart are
+separate from add-on launch, fresh code observation and functional smoke, which
+that operation does not perform. Destination-only retention is explicit; exact
+mirroring is not established. Replays preserve these historical claims without
+probing current runtime state. External receipts acquire no managed restart claim.
+This adds no executor, command, grant, mode override or persistent schema change.

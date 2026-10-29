@@ -269,3 +269,55 @@ def test_repository_assessment_explicitly_unsupported(tmp_path: Path) -> None:
     )
     assert result.resolved_mode is None and result.verdict == "unknown"
     assert reasons(result)["bridge"].reason == "bridge_not_assessed"
+
+
+def test_activation_assessment_requires_exact_current_validation_without_new_probes(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    env = fixture._environment(tmp_path)
+    with env.sessions.begin() as session:
+        validation = session.scalar(select(McpWorkspaceValidationRow))
+        workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
+        assert validation is not None and workspace is not None
+        validation.tree_digest = workspace.current_tree_digest
+        validation.extension_types_json = json.dumps(
+            ["xbmc.service", "xbmc.python.module"]
+        )
+    service = WorkspaceDeploymentPreflightService(env.sessions)
+    result = service.inspect(operation(env))
+    plan = result.activation_assessment
+    assert plan is not None
+    assert plan.constraints == (
+        "service_enablement_unsupported",
+        "dependent_interpreters_require_restart",
+        "mixed_extensions_require_all_lifecycles",
+    )
+    assert result.verdict == "unknown" and not result.reservation_created
+    assert not plan.live_qualified and plan.admission == "not_assessed"
+    assert (
+        service.inspect(operation(env, expected_generation=1)).activation_assessment
+        is None
+    )
+    with env.sessions.begin() as session:
+        validation = session.scalar(select(McpWorkspaceValidationRow))
+        assert validation is not None
+        validation.tree_digest = "sha256:" + "0" * 64
+    assert service.inspect(operation(env)).activation_assessment is None
+    assert env.broker.stop_count == env.broker.sync_count == env.broker.start_count == 0
+
+
+def test_activation_assessment_does_not_reuse_another_addon_validation(
+    tmp_path: Path,
+) -> None:
+    env = fixture._environment(tmp_path)
+    with env.sessions.begin() as session:
+        validation = session.scalar(select(McpWorkspaceValidationRow))
+        workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
+        assert validation is not None and workspace is not None
+        validation.tree_digest = workspace.current_tree_digest
+        validation.addon_id = "service.other"
+    result = WorkspaceDeploymentPreflightService(env.sessions).inspect(operation(env))
+    assert result.activation_assessment is None
+    assert reasons(result)["source"].reason == "source_identity_changed"

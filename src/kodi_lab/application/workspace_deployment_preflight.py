@@ -16,6 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+from kodi_lab.development.activation import (
+    ActivationAssessment,
+    assess_declared_extensions,
+)
 from kodi_lab.domain import (
     AgentWorkspaceBytesState,
     AgentWorkspaceState,
@@ -163,6 +167,7 @@ class DeploymentPreflightResult(BaseModel):
     bridge_trust_state: BridgeTrustState = "unknown"
     live_bridge_readiness: Literal["unknown"] = "unknown"
     reservation_created: Literal[False] = False
+    activation_assessment: ActivationAssessment | None = None
 
 
 class WorkspaceDeploymentPreflightService:
@@ -533,4 +538,14 @@ class WorkspaceDeploymentPreflightService:
             checks=tuple(checks),
             next_actions=tuple(actions),
             bridge_trust_state=cast(BridgeTrustState, trust_state),
+            activation_assessment=(
+                assess_declared_extensions(validation.extension_types_json)
+                if managed
+                and ready
+                and generation_current
+                and source_current
+                and validation_reason == "validation_current"
+                and validation is not None
+                else None
+            ),
         )
