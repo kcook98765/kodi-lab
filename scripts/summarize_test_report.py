@@ -108,7 +108,9 @@ def _limit(value: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", type=Path, help="retained pytest.json harness report")
+    parser.add_argument(
+        "report", type=Path, help="retained pytest.json or .timing.jsonl"
+    )
     parser.add_argument("--limit", type=_limit, default=10)
     parser.add_argument("--json", action="store_true", help="emit a structured summary")
     args = parser.parse_args()
@@ -117,7 +119,36 @@ def main() -> None:
             body = stream.read(_MAX_REPORT_BYTES + 1)
         if len(body) > _MAX_REPORT_BYTES:
             raise ValueError("harness report exceeds 64 MiB")
-        result = summarize(json.loads(body))
+        if args.report.suffix == ".jsonl":
+            from scripts.summarize_timing import summarize_journal
+
+            result = summarize_journal(body)
+            stages = args.report.parent / "stages.tsv"
+            if args.report.name == "pytest.timing.jsonl" and stages.is_file():
+                with stages.open("rb") as stream:
+                    stage_body = stream.read(65537)
+                if len(stage_body) > 65536:
+                    raise ValueError("stage report exceeds 64 KiB")
+                rows = [line.split("\t") for line in stage_body.decode().splitlines()]
+                pytest_rows = [row for row in rows if row[0] == "pytest"]
+                if len(pytest_rows) > 1:
+                    raise ValueError("duplicate pytest stage status")
+                if pytest_rows:
+                    row = pytest_rows[0]
+                    if len(row) != 3 or not all(x.isdecimal() for x in row[1:]):
+                        raise ValueError("invalid pytest stage status")
+                    result["companion_pytest_stage_status"] = int(row[2])
+                    result["companion_pytest_stage_outcome"] = (
+                        "watchdog_timeout"
+                        if row[2] == "124"
+                        else "forced_kill_cause_unknown"
+                        if row[2] == "137"
+                        else "passed"
+                        if row[2] == "0"
+                        else "failed"
+                    )
+        else:
+            result = summarize(json.loads(body))
     except (OSError, ValueError) as error:
         parser.error(str(error))
     if args.json:
@@ -131,6 +162,37 @@ def main() -> None:
         f"outcomes: {json.dumps(result['outcomes'], sort_keys=True)}"
     )
     print("Phase sums are measured test phases, not elapsed lane or release wall time.")
+    if "classification" in result:
+        print(
+            f"Journal: {result['classification']}; "
+            f"collected: {result['collected_cases']}; "
+            f"missing: {result['missing_cases']}; "
+            f"last completion: {result['last_completed_case']}"
+        )
+        print(f"Active case at last record: {result['active_case']}")
+        print(
+            f"Last recorded session elapsed (lower bound if incomplete): "
+            f"{result['elapsed_seconds']:.2f}s; "
+            f"not accounted for by completed-case phases: "
+            f"{result['unaccounted_seconds']:.2f}s "
+            "(includes unrecorded active phases in incomplete runs)"
+        )
+        print(f"Source identity: {json.dumps(result['source'], sort_keys=True)}")
+        if "companion_pytest_stage_outcome" in result:
+            print(f"Companion pytest stage: {result['companion_pytest_stage_outcome']}")
+        for segment in result["progress_segments"]:
+            print(
+                f"Progress through {segment['progress_end']:.0%}: "
+                f"cumulative elapsed {segment['cumulative_elapsed_seconds']}; "
+                f"segment elapsed {segment['elapsed_seconds']}; "
+                f"complete={segment['complete']}"
+            )
+        print("Slow fixture setups >=50ms (may include nested dynamic dependencies):")
+        for fixture in result["fixtures"][: args.limit]:
+            print(
+                f"{fixture['seconds']:.2f}s / {fixture['count']} setups: "
+                f"{fixture['fixture']}"
+            )
     print("   total    setup     call teardown  cases  file")
     for entry in result["files"][: args.limit]:
         phases = entry["phase_seconds"]

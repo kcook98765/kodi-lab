@@ -6,6 +6,7 @@ import json
 import os
 import resource
 import threading
+import time
 from collections import Counter
 from collections.abc import Generator
 from contextlib import suppress
@@ -14,17 +15,49 @@ from typing import Any
 
 import pytest
 
+from scripts.test_timing import TimingJournal, safe_id
 from tests.efficiency import CurrentSchemaTemplate, OwnedScratch
 
 _SCRATCH: pytest.StashKey[OwnedScratch] = pytest.StashKey()
 _REPORTS: pytest.StashKey[dict[str, dict[str, Any]]] = pytest.StashKey()
 _METRICS: pytest.StashKey[dict[str, int]] = pytest.StashKey()
+_TIMING: pytest.StashKey[TimingJournal] = pytest.StashKey()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("Kodi Lab test resources")
     group.addoption("--keep-passed-tmp", action="store_true", default=False)
     group.addoption("--harness-report", default=None, metavar="PATH")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    report = session.config.getoption("harness_report")
+    if report:
+        scratch = session.config.getoption("basetemp")
+        session.config.stash[_TIMING] = TimingJournal(
+            Path(report).with_suffix(".timing.jsonl"),
+            session.config.rootpath,
+            Path(scratch).parent if scratch else Path("/tmp"),
+        )
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    journal = session.config.stash.get(_TIMING, None)
+    if journal:
+        journal.emit("collection", collected=len(session.items))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(
+    item: pytest.Item, nextitem: pytest.Item | None
+) -> Generator[None, bool | None, bool | None]:
+    journal = item.config.stash.get(_TIMING, None)
+    if journal:
+        journal.start_case(item.nodeid)
+    result = yield
+    if journal:
+        journal.complete_case(item.nodeid, item.config.stash[_REPORTS][item.nodeid])
+    return result
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -46,7 +79,18 @@ def current_schema(tmp_path_factory: pytest.TempPathFactory) -> CurrentSchemaTem
 def pytest_fixture_setup(
     fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest
 ) -> Generator[None, Any, Any]:
+    started = time.monotonic()
     value = yield
+    elapsed = time.monotonic() - started
+    journal = request.config.stash.get(_TIMING, None)
+    if journal and elapsed >= 0.05:
+        journal.emit(
+            "fixture_setup",
+            name=safe_id(fixturedef.argname),
+            scope=fixturedef.scope,
+            seconds=elapsed,
+            ordinal=journal.ordinal,
+        )
     if (
         fixturedef.argname == "tmp_path"
         and fixturedef.func.__module__ == "_pytest.tmpdir"
@@ -119,6 +163,9 @@ def pytest_runtest_makereport(
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    journal = session.config.stash.get(_TIMING, None)
+    if journal:
+        journal.finish(exitstatus)
     path = session.config.getoption("harness_report")
     if path:
         document = {

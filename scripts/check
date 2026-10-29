@@ -101,6 +101,7 @@ fi
 evidence_root="$(mktemp -d --tmpdir="$evidence_parent" kodi-lab-check-results.XXXXXXXX)"
 chmod 700 -- "$evidence_root"
 printf 'check evidence: %s\n' "$evidence_root"
+python3 -m scripts.check_environment "$pytest_tmp_parent" "$evidence_root/environment.json"
 
 printf 'pytest temp root: %s (%s bytes free)\n' \
     "$pytest_tmpdir" \
