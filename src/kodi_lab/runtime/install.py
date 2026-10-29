@@ -241,10 +241,18 @@ def _fail(
 
 
 def _installation_failure_code(error: BaseException) -> str:
+    from kodi_lab.runtime.ostree import OstreeAcquisitionError
+
     current: BaseException | None = error
     for _ in range(5):
         if isinstance(current, TemporaryNetworkError):
             return current.code
+        if isinstance(current, OstreeAcquisitionError) and str(current) in {
+            "pinned_support_unavailable",
+            "support_artifact_mismatch",
+            "support_download_bound",
+        }:
+            return str(current)
         current = current.__cause__ if current is not None else None
     return (
         "validation_failed"

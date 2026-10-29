@@ -142,6 +142,9 @@ def test_missing_worker_reconciles_without_elapsed_time(
 @pytest.mark.parametrize(
     "code,expected",
     [
+        ("pinned_support_unavailable", "pinned availability"),
+        ("support_artifact_mismatch", "exact verification"),
+        ("support_download_bound", "exact verification"),
         ("acquisition_network_creation_failed", "acquisition network"),
         ("validation_network_creation_failed", "validation network"),
         ("docker_address_pool_exhausted", "acquisition network"),

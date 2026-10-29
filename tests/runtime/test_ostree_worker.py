@@ -132,3 +132,95 @@ def test_helper_timeout_or_interruption_reaps_execution(
     with pytest.raises(KeyboardInterrupt if interrupted else OstreeAcquisitionError):
         HelperRunner(h).execute(pull(stage), stage=stage, timeout=0.01)
     assert stopped.is_set()
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("pinned_support_unavailable", 71),
+        ("support_artifact_mismatch", 72),
+        ("support_download_bound", 73),
+        ("private unexpected text", 1),
+    ],
+)
+def test_support_helper_transfers_only_closed_failure_categories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    code: str,
+    expected: int,
+) -> None:
+    """Actual helper entrypoint, including its finally, never emits raw HTTP errors."""
+    import os
+    import stat
+    import sys
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    from kodi_lab.runtime import ostree_worker as worker
+    from kodi_lab.runtime.ubuntu_support import SupportError
+
+    operation = uuid4()
+    root = tmp_path / "staging"
+    stage = root / ("ostree-" + operation.hex)
+    stage.mkdir(parents=True, mode=0o700)
+    monkeypatch.setattr(worker, "STAGING_ROOT", root)
+    monkeypatch.setattr(sys, "argv", ["worker", str(operation)])
+    monkeypatch.setattr(
+        worker,
+        "os",
+        SimpleNamespace(
+            fstat=lambda fd: SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o700),
+            mkdir=os.mkdir,
+            close=os.close,
+        ),
+    )
+
+    def unavailable() -> dict[str, bytes]:
+        try:
+            raise HTTPError(
+                "https://private.invalid/token", 404, "secret body", Message(), None
+            )
+        except HTTPError as error:
+            raise SupportError(code) from error
+
+    monkeypatch.setattr(worker, "fetch_support_packages", unavailable)
+    assert worker.main() == expected
+    assert capsys.readouterr() == ("", "")
+    assert list((stage / "support").iterdir()) == []
+
+
+@pytest.mark.parametrize("status", [1, 71, 72, 73, 255])
+def test_support_failure_cannot_become_ready_or_inject_durable_error(
+    status: int,
+) -> None:
+    from kodi_lab.runtime.install import _installation_failure_code
+    from kodi_lab.runtime.ostree import CommandResult
+    from kodi_lab.runtime.ostree_worker import (
+        SUPPORT_FAILURE_EXITS,
+        require_support_success,
+    )
+
+    with pytest.raises(OstreeAcquisitionError) as failure:
+        require_support_success(
+            CommandResult(status, b"secret arbitrary error or fake success")
+        )
+    assert str(failure.value) == SUPPORT_FAILURE_EXITS.get(
+        status, "support_acquisition_failed"
+    )
+    assert _installation_failure_code(failure.value) == (
+        SUPPORT_FAILURE_EXITS.get(status, "installation_failed")
+    )
+
+
+def test_support_classification_requires_type_and_follows_explicit_cause() -> None:
+    from kodi_lab.runtime.install import _installation_failure_code
+
+    assert (
+        _installation_failure_code(ValueError("pinned_support_unavailable"))
+        == "installation_failed"
+    )
+    cause = OstreeAcquisitionError("pinned_support_unavailable")
+    wrapped = RuntimeError("private wrapper")
+    wrapped.__cause__ = cause
+    assert _installation_failure_code(wrapped) == "pinned_support_unavailable"
