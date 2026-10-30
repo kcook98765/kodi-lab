@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from mcp_types import CallToolRequestParams, CallToolResult, ImageContent
+from mcp_types import CallToolRequestParams, CallToolResult, ImageContent, TextContent
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -327,8 +328,14 @@ def test_transport_precomputation_failure_preserves_real_receipts_and_reachabili
 
         result = cast(CallToolResult, response)
         assert result.is_error is False
-        assert len(result.content) == 1
-        assert ImageContent.model_validate(result.content[0]).mime_type == "image/png"
+        assert len(result.content) == 2
+        image = ImageContent.model_validate(result.content[0])
+        assert image.mime_type == "image/png"
+        metadata = json.loads(TextContent.model_validate(result.content[1]).text)
+        assert metadata == result.structured_content
+        assert metadata["target_id"] == str(target_id)
+        assert (metadata["width"], metadata["height"]) == (1280, 720)
+        assert metadata["byte_size"] == len(base64.b64decode(image.data))
         assert fake.capture_count == 1
         assert bridges.status(target_id).reachability_state.value == "reachable"
         with factory() as session:
@@ -337,6 +344,15 @@ def test_transport_precomputation_failure_preserves_real_receipts_and_reachabili
                 {"client_id": str(principal.client_id), "request_id": str(request_id)},
             )
             assert mcp_receipt is not None and mcp_receipt.state == "completed"
+            assert (
+                mcp_receipt.response_digest
+                == hashlib.sha256(base64.b64decode(image.data)).hexdigest()
+            )
+            assert mcp_receipt.byte_size == metadata["byte_size"]
+            assert (mcp_receipt.width, mcp_receipt.height) == (
+                metadata["width"],
+                metadata["height"],
+            )
             bridge_receipt = session.get(
                 ExternalBridgeRequestReceiptRow,
                 {
