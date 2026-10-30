@@ -10,7 +10,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -88,6 +88,7 @@ from kodi_lab.development import (
 )
 from kodi_lab.development.activation import ManagedIterationEvidence
 from kodi_lab.development.measurements import DeploymentMeasurement
+from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.development.sources import (
     COPIED_SMOKE_UNSUPPORTED_REASONS,
     copied_video_plugin_unsupported_reason,
@@ -454,6 +455,8 @@ class WorkspaceDeploymentResult(BaseModel):
     next_action: str | None = Field(default=None, max_length=160)
     result_classification: str = Field(max_length=64)
     iteration_evidence: ManagedIterationEvidence | None = None
+    deployment_work_skipped: bool = False
+    managed_verification: ManagedDeploymentVerification | None = None
     inventory_classification: str = Field(max_length=16)
     addon_enabled: bool | None = None
     started_at: datetime | None = None
@@ -685,6 +688,7 @@ class McpWorkspaceDevelopmentService:
         self._max_global = max_global
         self._external_bridges = external_bridges
         self._target_adapters = target_adapters
+        self._managed_noop_bridge: Callable[[Any, str], Any] | None = None
         self._development_repository: DevelopmentRepositoryService | None = None
         self._recovery = WorkspaceExecutionRecoveryService(
             session_factory,
@@ -694,6 +698,11 @@ class McpWorkspaceDevelopmentService:
             readiness_registry=readiness_registry,
             clock=clock,
         )
+
+    def configure_managed_noop_verifier(
+        self, verify_bridge: Callable[[Any, str], Any]
+    ) -> None:
+        self._managed_noop_bridge = verify_bridge
 
     def recovery_context(
         self, client_id: UUID, execution_operation_id: UUID
@@ -1881,6 +1890,7 @@ class McpWorkspaceDevelopmentService:
         expected_generation: int,
         target_id: UUID,
         deployment_mode: str = "auto",
+        recheck_authority: Callable[[Session], object] | None = None,
     ) -> WorkspaceDeploymentResult:
         if deployment_mode not in {"auto", "direct", "repository"}:
             raise McpWorkspaceDevelopmentError("deployment_not_allowed")
@@ -1923,7 +1933,7 @@ class McpWorkspaceDevelopmentService:
             ):
                 if deployment_mode == "repository":
                     return self._run_repository_deployment(row, digest)
-                return self._run_deployment(UUID(row.id), digest)
+                return self._run_deployment(UUID(row.id), digest, recheck_authority)
         except McpWorkspaceDevelopmentError as error:
             current = self._deployment(UUID(row.id))
             if current is not None and current.state in {"pending", "running"}:
@@ -2862,7 +2872,10 @@ class McpWorkspaceDevelopmentService:
                 raise McpWorkspaceDevelopmentError("deployment_conflict")
 
     def _run_deployment(
-        self, operation_id: UUID, digest: str
+        self,
+        operation_id: UUID,
+        digest: str,
+        recheck_authority: Callable[[Session], object] | None = None,
     ) -> WorkspaceDeploymentResult:
         operation = self._deployment_required(operation_id)
         self._failure("claim_before_target_mutation")
@@ -2871,7 +2884,9 @@ class McpWorkspaceDevelopmentService:
             return self._run_external_deployment(operation, digest)
         measurement = DeploymentMeasurement(operation.id, "managed_workspace")
         try:
-            result = self._run_managed_deployment(operation, digest, measurement)
+            result = self._run_managed_deployment(
+                operation, digest, measurement, recheck_authority
+            )
             measurement.completed = True
             return result
         finally:
@@ -2882,12 +2897,59 @@ class McpWorkspaceDevelopmentService:
         operation: McpWorkspaceDeploymentOperationRow,
         digest: str,
         measurement: DeploymentMeasurement,
+        recheck_authority: Callable[[Session], object] | None = None,
     ) -> WorkspaceDeploymentResult:
         operation_id = UUID(operation.id)
+        from kodi_lab.application.workspace_noop import try_verified_noop
+
+        reused = try_verified_noop(
+            self, operation, digest, measurement, recheck_authority
+        )
+        if reused is not None:
+            return reused
         container_id = self._exact_running_container(UUID(operation.target_id))
-        with self._sessions() as session:
+        with self._sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            current = session.get(McpWorkspaceDeploymentOperationRow, operation.id)
+            lease = ManagedInstanceMutationLeaseRepository(session).current(
+                UUID(operation.target_id)
+            )
+            heavy = GlobalHeavyOperationLeaseRepository(session).current()
+            now = _to_text(self._clock())
+            if (
+                current is None
+                or current.state != "running"
+                or current.mutation_started
+                or lease is None
+                or lease.operation_id != operation.id
+                or lease.operation_kind
+                is not ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT
+                or lease.lease_token_digest != digest
+                or lease.lease_expires_at is None
+                or lease.lease_expires_at <= now
+                or heavy is None
+                or heavy.operation_id != operation.id
+                or heavy.operation_kind
+                is not GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT
+                or heavy.lease_token_digest != digest
+                or heavy.lease_expires_at is None
+                or heavy.lease_expires_at <= now
+            ):
+                raise McpWorkspaceDevelopmentError("deployment_conflict")
+            if recheck_authority is not None:
+                recheck_authority(session)
+            self._deployment_preflight_rows(
+                session,
+                UUID(operation.workspace_id),
+                operation.generation,
+                UUID(operation.target_id),
+            )
             original_instance = session.get(ManagedInstanceRow, operation.target_id)
-            if original_instance is None:
+            if (
+                original_instance is None
+                or original_instance.runtime_revision_id
+                != operation.runtime_revision_id
+            ):
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
             self._session_admission(
                 session,
@@ -2897,14 +2959,12 @@ class McpWorkspaceDevelopmentService:
                 source_id=operation.development_source_id,
                 container_id=container_id,
             )
-            original_revision = original_instance.runtime_state_revision
-        self._update_deployment(
-            operation_id,
-            phase="stop",
-            mutation_started=True,
-            original_container_id=container_id,
-            original_runtime_state_revision=original_revision,
-        )
+            current.phase = "stop"
+            current.mutation_started = True
+            current.original_container_id = container_id
+            current.original_runtime_state_revision = (
+                original_instance.runtime_state_revision
+            )
         try:
             measurement.run(
                 "stop",
@@ -3070,6 +3130,11 @@ class McpWorkspaceDevelopmentService:
                 else "deployment_ambiguous"
             )
         assert item is not None
+        from kodi_lab.application.workspace_noop import record_managed_verification
+
+        record_managed_verification(
+            self, self._deployment_required(operation_id), measurement
+        )
         self._update_deployment(
             operation_id,
             inventory_classification="matched",
@@ -4302,9 +4367,12 @@ class McpWorkspaceDevelopmentService:
         failure_code: str | None,
         *,
         digest: str | None = None,
+        session: Session | None = None,
     ) -> None:
         now = self._clock()
-        with self._sessions.begin() as session:
+        with (
+            self._sessions.begin() if session is None else nullcontext(session)
+        ) as session:
             row = session.get(McpWorkspaceDeploymentOperationRow, operation_id)
             if row is None or row.state not in {"pending", "running"}:
                 return
@@ -4345,6 +4413,20 @@ class McpWorkspaceDevelopmentService:
                         token_digest=digest,
                     )
                 heavy.release(operation_id=UUID(row.id), token_digest=digest)
+
+            if row.state == "succeeded" and row.managed_verification_json is not None:
+                instance = session.get(ManagedInstanceRow, row.target_id)
+                if instance is not None:
+                    proof = ManagedDeploymentVerification.model_validate_json(
+                        row.managed_verification_json
+                    )
+                    # Release advances the observation epoch, without a native
+                    # action. Retain both checked and committed revisions.
+                    row.managed_verification_json = proof.model_copy(
+                        update={
+                            "runtime_state_revision": instance.runtime_state_revision,
+                        }
+                    ).model_dump_json()
 
     def _finish_execution(
         self,
@@ -4566,12 +4648,22 @@ class McpWorkspaceDevelopmentService:
             ),
             next_action=next_action,
             result_classification=row.result_classification or "verified",
+            deployment_work_skipped=row.result_classification == "verified_existing",
+            managed_verification=(
+                None
+                if row.managed_verification_json is None
+                else ManagedDeploymentVerification.model_validate_json(
+                    row.managed_verification_json
+                )
+            ),
             inventory_classification=row.inventory_classification,
             addon_enabled=row.addon_enabled,
             iteration_evidence=(
                 ManagedIterationEvidence(
                     file_application=(
-                        "verified_at_operation"
+                        "verified_existing_at_operation"
+                        if row.result_classification == "verified_existing"
+                        else "verified_at_operation"
                         if row.sync_completed
                         and row.source_manifest_digest
                         and row.verified_destination_digest

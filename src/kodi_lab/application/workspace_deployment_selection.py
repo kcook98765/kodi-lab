@@ -30,6 +30,7 @@ def latest_verified_workspace_deployment(
     target_id: str,
     source_id: str,
     generation: int,
+    exclude_operation_id: str | None = None,
 ) -> McpWorkspaceDeploymentOperationRow | None:
     """Inspect the latest attempt before checking success; never fall back.
 
@@ -44,6 +45,7 @@ def latest_verified_workspace_deployment(
             .where(
                 row.workspace_id == workspace_id,
                 row.target_id == target_id,
+                row.id != exclude_operation_id,
                 or_(
                     selected_profile_lineage_sql(),
                     # Unbound non-successes cannot authorize a profile, but

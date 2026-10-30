@@ -37,6 +37,40 @@ class ManagedLaunchBridgeService:
         self._sessions, self._secrets = sessions, secrets
         self._client = client or ExternalBridgeClient(response_timeout=5)
 
+    def verify_identity(
+        self, observed: ObserveManagedKodiRuntimeResult, kodi_version: str
+    ) -> ManagedLaunchRuntimeBinding:
+        """Authenticate existing trust without establishing trust or dispatching."""
+        binding = self.binding(observed, kodi_version)
+        with self._sessions() as session:
+            row = session.get(ManagedBridgeTrustRow, observed.managed_instance_id)
+            assert row is not None and row.secret_reference and row.bridge_id
+            secret_reference, bridge_id = row.secret_reference, row.bridge_id
+            bridge_port, pinned = row.bridge_port, row.identity_json
+        secret = self._secrets.read(
+            UUID(observed.managed_instance_id),
+            UUID(secret_reference),
+            "request_authentication",
+        )
+        identity = self._client.identity(
+            ValidatedExternalEndpoint(
+                ExternalProtocolKind.JSONRPC_HTTP,
+                observed.ipv4_address,
+                observed.jsonrpc_port,
+            ),
+            bridge_port=bridge_port,
+            target_id=UUID(observed.managed_instance_id),
+            bridge_id=UUID(bridge_id),
+            secret=secret,
+        )
+        require_approved_identity(identity, kodi_version)
+        if (
+            identity_json(identity) != pinned
+            or self.binding(observed, kodi_version) != binding
+        ):
+            raise ExternalBridgeError("managed_bridge_identity_mismatch")
+        return binding
+
     def binding(
         self, observed: ObserveManagedKodiRuntimeResult, kodi_version: str
     ) -> ManagedLaunchRuntimeBinding:

@@ -1305,6 +1305,21 @@ class McpTargetToolService:
         )
         if self._workspace_development is None:
             raise McpAuthorizationError("capability_unavailable")
+
+        def recheck_authority(session: Session) -> None:
+            try:
+                self._authorization.recheck_workspace_launch(
+                    session,
+                    principal,
+                    operation.workspace_id,
+                    operation.target_id,
+                    tool_name="workspace_deploy",
+                )
+            except McpAuthorizationError as error:
+                raise McpWorkspaceDevelopmentError(
+                    error.code, reason=error.reason
+                ) from error
+
         try:
             result = self._workspace_development.deploy(
                 client_id=principal.client_id,
@@ -1313,6 +1328,7 @@ class McpTargetToolService:
                 expected_generation=operation.expected_generation,
                 target_id=operation.target_id,
                 deployment_mode=operation.deployment_mode,
+                recheck_authority=recheck_authority,
             )
         except McpWorkspaceDevelopmentError as error:
             raise McpAuthorizationError(error.code, reason=error.reason) from error

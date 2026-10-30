@@ -95,6 +95,10 @@ def test_retained_admission_on_real_migration_and_history_blocks_downgrade(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     command.upgrade(config, NEW)
+    # The current application requires the current schema. Exercise retained
+    # admission there, then return to 0089 (no verification history exists)
+    # before testing 0089's original used-history downgrade prohibition.
+    command.upgrade(config, "head")
     s = environment(
         tmp_path / "retained",
         monkeypatch,
@@ -102,6 +106,7 @@ def test_retained_admission_on_real_migration_and_history_blocks_downgrade(
     )
     for generation in ("omega", "nexus", "matrix", "omega"):
         s.choose(generation)
+    command.downgrade(config, NEW)
     with pytest.raises(RuntimeError, match="cannot be discarded"):
         command.downgrade(config, OLD)
     with s.env.sessions() as session:

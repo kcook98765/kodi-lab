@@ -156,6 +156,58 @@ def test_prepare_confirms_identity_before_active_and_reuses_after_restart(
     )
 
 
+@pytest.mark.parametrize(
+    "change", [None, "authentication", "identity", "trust_generation", "revoked"]
+)
+def test_noop_identity_verifier_consumes_current_trust_without_establishment(
+    setup: Any,
+    change: str | None,
+) -> None:
+    from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
+
+    owner, broker, client, secrets = setup
+    assert owner.prepare(INSTANCE_ID)
+    before = row(owner)
+    observed, _ = owner._admit(INSTANCE_ID)
+    verifier = ManagedLaunchBridgeService(owner.sessions, secrets, client=client)
+    calls = client.calls
+    if change == "authentication":
+        client.fail = "bridge_authentication_failed"
+    elif change == "identity":
+        client.value = replace(client.value, bridge_id=uuid4())
+    elif change == "trust_generation":
+
+        def advance() -> None:
+            with owner.sessions.begin() as session:
+                active = session.get(ManagedBridgeTrustRow, str(INSTANCE_ID))
+                assert active is not None
+                active.generation += 1
+
+        client.before_return = advance
+    elif change == "revoked":
+        owner.revoke(INSTANCE_ID)
+    if change is not None:
+        with pytest.raises((ExternalBridgeError, ManagedBridgeTrustError)):
+            verifier.verify_identity(observed, "21.3")
+    else:
+        binding = verifier.verify_identity(observed, "21.3")
+        assert binding.generation == before.generation
+        assert client.calls == calls + 1
+        after = row(owner)
+        assert (
+            after.identity_json,
+            after.secret_reference,
+            after.generation,
+            after.state,
+        ) == (
+            before.identity_json,
+            before.secret_reference,
+            before.generation,
+            before.state,
+        )
+    assert broker.establishments == 1
+
+
 @pytest.mark.parametrize("tier", ["previous", "predecessor", "settings_predecessor"])
 @pytest.mark.parametrize("release", ["21.3", "22.0-rc.1"])
 def test_existing_previous_bridge_keeps_its_credential_and_generation(

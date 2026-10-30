@@ -6792,19 +6792,38 @@ class McpWorkspaceDeploymentOperationRow(Base):
             name="mcp_workspace_deployment_markers_ordered",
         ),
         CheckConstraint(
-            "state<>'succeeded' OR (inventory_classification='matched' "
-            "AND addon_enabled IS NOT NULL AND result_classification IS NOT NULL "
-            "AND source_manifest_digest IS NOT NULL "
-            "AND verified_destination_digest IS NOT NULL AND failure_code IS NULL "
-            "AND ((deployment_mode='direct' AND sync_completed=1 "
-            "AND target_started=1 AND (target_class='internal_lab' OR "
-            "(bridge_receipt_id IS NOT NULL AND file_count IS NOT NULL "
-            "AND total_bytes IS NOT NULL))) OR "
-            "(deployment_mode='repository' AND target_class='external_development' "
-            "AND addon_enabled=1 AND file_count IS NOT NULL "
-            "AND total_bytes IS NOT NULL AND source_manifest_digest="
-            "verified_destination_digest)))",
+            (
+                "state<>'succeeded' OR (inventory_classification='matched' AND "
+                "addon_enabled IS NOT NULL AND result_classification IS NOT NULL "
+                "AND source_manifest_digest IS NOT NULL AND "
+                "verified_destination_digest IS NOT NULL AND failure_code IS NULL "
+                "AND ((target_class='internal_lab' AND deployment_mode='direct' "
+                "AND result_classification='verified_existing' AND "
+                "managed_verification_json IS NOT NULL AND mutation_started=0 AND "
+                "target_stopped=0 AND sync_started=0 AND sync_completed=0 AND "
+                "target_started=0 AND addon_enabled=1) OR "
+                "(deployment_mode='direct' AND sync_completed=1 AND "
+                "target_started=1 AND (target_class='internal_lab' OR "
+                "(bridge_receipt_id IS NOT NULL AND file_count IS NOT NULL AND "
+                "total_bytes IS NOT NULL))) OR (deployment_mode='repository' AND "
+                "target_class='external_development' AND addon_enabled=1 AND "
+                "file_count IS NOT NULL AND total_bytes IS NOT NULL AND "
+                "source_manifest_digest=verified_destination_digest)))"
+            ),
             name="mcp_workspace_deployment_success_complete",
+        ),
+        CheckConstraint(
+            (
+                "(managed_verification_json IS NULL OR "
+                "(target_class='internal_lab' AND "
+                "length(managed_verification_json) BETWEEN 2 AND 8192 AND "
+                "json_valid(managed_verification_json))) AND "
+                "(COALESCE(result_classification,'')<>'verified_existing' OR "
+                "(managed_verification_json IS NOT NULL AND mutation_started=0 AND"
+                " target_stopped=0 AND sync_started=0 AND sync_completed=0 AND "
+                "target_started=0))"
+            ),
+            name="mcp_workspace_managed_verification",
         ),
         UniqueConstraint(
             "client_id", "request_id", name="uq_mcp_workspace_deployment_request"
@@ -6880,6 +6899,7 @@ class McpWorkspaceDeploymentOperationRow(Base):
     source_manifest_digest: Mapped[str | None] = mapped_column(String(71))
     verified_destination_digest: Mapped[str | None] = mapped_column(String(71))
     failure_code: Mapped[str | None] = mapped_column(String(128))
+    managed_verification_json: Mapped[str | None] = mapped_column(Text)
     original_container_id: Mapped[str | None] = mapped_column(String(64))
     original_runtime_state_revision: Mapped[int | None] = mapped_column(Integer)
     failure_phase: Mapped[str | None] = mapped_column(String(32))

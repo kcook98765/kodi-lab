@@ -252,6 +252,7 @@ def test_running_destination_verification_reuses_complete_capture(
     assert result.addon_id == ADDON_ID
     assert result.addon_version == "1.0.0"
     assert result.video_plugin_descriptor_eligible is True
+    assert result.readback_bytes is not None and result.readback_bytes > 0
 
 
 def test_running_destination_verification_reports_missing_declared_library(
@@ -276,12 +277,25 @@ def test_running_destination_verification_reports_missing_declared_library(
     assert result.video_plugin_descriptor_eligible is False
 
 
+@pytest.mark.parametrize("drift", ["extra", "modified", "removed", "ownership", "mode"])
 def test_running_destination_verification_rejects_external_drift(
     tmp_path: Path,
+    drift: str,
 ) -> None:
     client = FakeDeploymentDockerClient()
     deployed = _apply(client, _spec(tmp_path))
-    client.entries["drift.txt"] = (b"external", 0o644, 42, 43)
+    if drift == "extra":
+        client.entries["drift.txt"] = (b"external", 0o644, 42, 43)
+    elif drift == "removed":
+        del client.entries["unchanged.py"]
+    else:
+        content, mode, uid, gid = client.entries["unchanged.py"]
+        client.entries["unchanged.py"] = (
+            b"external" if drift == "modified" else content,
+            0o600 if drift == "mode" else mode,
+            999 if drift == "ownership" else uid,
+            gid,
+        )
     client.inspection = _inspection(state="running")
     with pytest.raises(
         DockerDevelopmentSourceDeploymentError,

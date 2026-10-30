@@ -40,7 +40,9 @@ class ManagedIterationEvidence(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     scope: Literal["historical_operation"] = "historical_operation"
-    file_application: Literal["verified_at_operation", "not_verified"]
+    file_application: Literal[
+        "verified_at_operation", "verified_existing_at_operation", "not_verified"
+    ]
     tree_policy: Literal["retain_destination_only"] = "retain_destination_only"
     exact_mirror: Literal["not_established"] = "not_established"
     kodi_restart: Literal["observed_at_operation", "not_observed"]

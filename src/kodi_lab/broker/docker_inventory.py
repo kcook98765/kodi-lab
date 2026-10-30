@@ -330,6 +330,7 @@ class VerifiedDevelopmentSourceDestinationRecord:
     video_plugin_descriptor_eligible: bool = False
     python_service_descriptor_eligible: bool = False
     verified_destination_digest: str | None = None
+    readback_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1961,8 +1962,9 @@ class DockerManagedContainerAdapter:
             stream, _ = client.get_archive(
                 selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
             )
+            measurement = DeploymentMeasurement("destination_verification", "readback")
             manifest = capture_destination_archive(
-                cast(Iterable[bytes], stream),
+                measurement.chunks("readback_bytes", cast(Iterable[bytes], stream)),
                 root_name=spec.addon_id,
                 capture_paths=frozenset({"addon.xml"}),
             )
@@ -2028,6 +2030,7 @@ class DockerManagedContainerAdapter:
                 video_plugin_descriptor_eligible=descriptor_eligible,
                 python_service_descriptor_eligible=service_eligible,
                 verified_destination_digest=manifest.digest,
+                readback_bytes=measurement.counts["readback_bytes"],
             )
         except DockerDevelopmentSourceDeploymentError:
             raise

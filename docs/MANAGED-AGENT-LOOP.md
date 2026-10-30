@@ -44,7 +44,12 @@ enable/start the add-on, or give an agent new permissions. Follow the
    agent or administrator path. Preflight remains `blocked` or `unknown`; live
    native/Bridge/add-on readiness and exact container proof remain separate.
    `workspace_deploy` performs its mandatory mutation-time checks for that same
-   generation and target. Select an eligible `launch_entries`
+   generation and target. A `verified_existing` result with
+   `deployment_work_skipped: true` is a fresh verification of an existing
+   deployment, with zero copy/restart work; it does not execute code. Retain
+   its generation and reused deployment identity. See
+   [verified no-op eligibility and receipts](VERIFIED-NOOP-DEPLOYMENT.md).
+   Select an eligible `launch_entries`
    ordinal and use `workspace_launch` when the installed server and reviewed
    Bridge support it. Launch acceptance establishes dispatch, not the intended
    window, completed execution or functional acceptance: inspect the UI and
