@@ -6,7 +6,7 @@ from typing import Literal, Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, defer, sessionmaker
 
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
@@ -111,7 +111,15 @@ class WorkspaceDeploymentRecoveryService:
     def _scope(
         self, session: Session, target_id: UUID, operation_id: UUID
     ) -> tuple[McpWorkspaceDeploymentOperationRow, ManagedInstanceRow]:
-        row = session.get(McpWorkspaceDeploymentOperationRow, str(operation_id))
+        # Recovery consumes the original receipt fields, including on pre-0090
+        # schemas. It neither needs nor confers verified no-op reuse proof.
+        row = session.get(
+            McpWorkspaceDeploymentOperationRow,
+            str(operation_id),
+            options=[
+                defer(McpWorkspaceDeploymentOperationRow.managed_verification_json)
+            ],
+        )
         target = session.get(TargetRow, str(target_id))
         instance = session.get(ManagedInstanceRow, str(target_id))
         if (
@@ -131,7 +139,13 @@ class WorkspaceDeploymentRecoveryService:
         self, operation_id: UUID, reason: str
     ) -> WorkspaceDeploymentRecoveryResult:
         with self._sessions.begin() as session:
-            row = session.get(McpWorkspaceDeploymentOperationRow, str(operation_id))
+            row = session.get(
+                McpWorkspaceDeploymentOperationRow,
+                str(operation_id),
+                options=[
+                    defer(McpWorkspaceDeploymentOperationRow.managed_verification_json)
+                ],
+            )
             if row is None:
                 raise WorkspaceDeploymentRecoveryError("managed_deployment_not_found")
             if row.state in {"ambiguous", "reconciliation_required"}:

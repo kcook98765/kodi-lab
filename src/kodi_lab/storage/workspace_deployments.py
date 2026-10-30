@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from kodi_lab.storage.managed_activity import timestamp
@@ -113,10 +113,13 @@ def prior_workspace_copy(
     The caller must establish the baseline's exact runtime/container binding.
     Historical workspace receipts without a container binding rely on that
     retained binding; a contradictory recorded container is never accepted.
+    Recovery also uses this projection on pre-0090 schemas; reuse-proof JSON
+    is not consumed by this stopped-tree authority decision.
     """
     row = McpWorkspaceDeploymentOperationRow
     return session.scalar(
         select(row)
+        .options(defer(row.managed_verification_json))
         .where(
             row.id != operation.id,
             row.workspace_id == operation.workspace_id,

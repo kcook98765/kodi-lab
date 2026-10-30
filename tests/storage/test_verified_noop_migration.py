@@ -7,7 +7,10 @@ import pytest
 from alembic import command
 from sqlalchemy import inspect, text
 
-from kodi_lab.application.mcp_workspace_development import _fingerprint
+from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentError,
+    _fingerprint,
+)
 from kodi_lab.storage.engine import create_database_engine
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_workspace_noop import deploy, environment
@@ -169,4 +172,35 @@ def test_noop_proof_works_on_migrated_schema_and_blocks_lossy_downgrade(
             )
             == 2
         )
+    engine.dispose()
+
+
+def test_missing_current_proof_storage_cannot_admit_native_deployment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    _config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
+    engine = create_database_engine(url)
+    # Corrupt only this isolated fixture: a current stamp cannot substitute
+    # for the actual required proof storage. Historical observers remain
+    # supported, but current mutation admission must fail before native work.
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE alembic_version SET version_num=:head"), {"head": NEW}
+        )
+    env = environment(
+        tmp_path / "fixture", database_path=Path(url.removeprefix("sqlite:///"))
+    )
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="deployment_ambiguous"
+    ) as caught:
+        deploy(env)
+    assert isinstance(caught.value.__cause__, SQLAlchemyError)
+    assert "managed_verification_json" in str(caught.value.__cause__)
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        0,
+        0,
+        0,
+    )
     engine.dispose()

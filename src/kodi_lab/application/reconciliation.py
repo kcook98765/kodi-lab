@@ -13,7 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import inspect, select, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, defer, sessionmaker
 
 from kodi_lab.application.lifecycle_status import (
     observe_lifecycle_semantic_state,
@@ -1754,10 +1754,18 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            # This observer also reads supported historical schemas; optional
+            # 0090 reuse proof is not part of uncertain-operation projection.
             records.extend(
                 (ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT, item)
                 for item in session.scalars(
-                    select(McpWorkspaceDeploymentOperationRow).where(
+                    select(McpWorkspaceDeploymentOperationRow)
+                    .options(
+                        defer(
+                            McpWorkspaceDeploymentOperationRow.managed_verification_json
+                        )
+                    )
+                    .where(
                         McpWorkspaceDeploymentOperationRow.target_id
                         == str(instance_id),
                         McpWorkspaceDeploymentOperationRow.state
