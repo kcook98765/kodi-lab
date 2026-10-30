@@ -7,14 +7,15 @@ returns `managed_bridge_upgrade_required` for launch and `bridge_not_paired` for
 logs. Missing managed installation eligibility returns
 `managed_bridge_candidate_unavailable`; changing MCP grants cannot repair it.
 
-The minimum candidate for separate qualification is the exact packaged stable
+The natively qualified candidate is the exact packaged stable
 Bridge 1.1.31, protocol 1,
 fingerprint `e18b4176611506335316a41e4dee9ea2ed113f8b5e7a0b95f6c156597d1618be`.
 Its entire frozen inventory is checked by the existing broker materializer.
-Source inspection identifies no necessary Matrix overlay for launch/log reading.
-That is a compatibility hypothesis, not reviewed native support. Ordinary Matrix
-installation eligibility remains closed in status, prerequisites, lifecycle,
-broker and UI. There is no alternate pairing ceremony, copied trust or
+Isolated native qualification on the exact reviewed Ubuntu Matrix 19.4 image
+established launch and log compatibility without a Matrix overlay. See
+[the native qualification record](MATRIX-BRIDGE-NATIVE-QUALIFICATION.md). Explicit
+reviewed installation is available for Matrix 19.4 in status, prerequisites,
+lifecycle, broker and UI. There is no alternate pairing ceremony, copied trust or
 caller-supplied program. External reviewed-build eligibility is unchanged.
 
 The compatibility basis is the tagged [19.4 Python API manifest](https://github.com/xbmc/xbmc/blob/19.4-Matrix/addons/xbmc.python/addon.xml)
@@ -37,23 +38,22 @@ The add-on under development must itself use Matrix APIs, such as the typed
 `Addon.getSetting*` getters, and separately matched static tooling.
 
 Regression coverage exercises stable candidate materialization in a temporary
-filesystem, exact Matrix/adjacent-release installation denial, manifest dispatch
+filesystem, exact Matrix admission and adjacent-release denial, manifest dispatch
 replay/pending barriers and log rotation using Matrix-shaped doubles without
 `getSettings`. The existing trust/authentication/lease tests remain unchanged.
 This is source qualification; it is not native candidate installation or GUI
 acceptance. The helper materializer test does not admit a production request.
 
-Before any admission change, separately authorized native candidate qualification
-must establish actual resident startup/authentication, fixed plugin/script launch,
-current/previous bounded log reads, response loss and durable pending-receipt
-behavior on the exact reviewed Matrix image. Use isolated resources under explicit
-native-test authority; do not bypass the installed production candidate policy.
-Only independently reviewed native evidence can justify a subsequent focused
-admission change. Tagged APIs and doubles are insufficient by themselves.
+Isolated native acceptance verified resident startup/authentication, fixed plugin
+and script GUI launch, current/previous bounded log reads, actual response loss
+and durable pending-receipt behavior on the exact reviewed Matrix image. It does
+not qualify arbitrary Matrix interpreters or images. Source and fixture tests
+remain separate from the native evidence.
 
-After that change is independently approved and qualified, a separate authorized
-production upgrade and **Install reviewed Bridge** operation would still be
-required. Each target must establish its own secret, native identity, trust
+An application upgrade does not install a Bridge. On the existing managed Matrix
+target, use the administrator's **Install reviewed Bridge** operation, then verify
+the resident identity and perform direct launch/log acceptance on that instance.
+Each target must establish its own secret, native identity, trust
 generation and signed managed-launch marker. Exact container/runtime/generation
 checks, authorization, deployed-tree verification and response-loss reconciliation
 remain mandatory. Final installed acceptance must verify GUI behavior, bounded

@@ -144,7 +144,7 @@ def test_nexus_refuses_wrong_resident_identity(
     assert row(owner).state == "invalidated" and row(owner).secret_reference is None
 
 
-@pytest.mark.parametrize("release", ["20.4", "19.4", "21.2"])
+@pytest.mark.parametrize("release", ["20.4", "19.5", "21.2"])
 def test_other_releases_remain_ineligible(setup: Any, release: str) -> None:
     owner, broker, _, _ = setup
     set_release(owner.sessions, release)

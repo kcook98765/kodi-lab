@@ -57,8 +57,8 @@ def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
     assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.32"
 
 
-@pytest.mark.parametrize("release", ["20.5", "20.4", "19.4"])
-def test_broker_reviewed_nexus_installation_requires_exact_release_and_live_lease(
+@pytest.mark.parametrize("release", ["19.4", "19.5", "20.5", "20.4"])
+def test_broker_reviewed_installation_requires_exact_release_and_live_lease(
     database: Any, tmp_path: Path, release: str
 ) -> None:
     from kodi_lab.application.lifecycle_operations import (
@@ -104,12 +104,12 @@ def test_broker_reviewed_nexus_installation_requires_exact_release_and_live_leas
         kind=ManagedInstanceLifecycleKind.START,
         prior_state=ManagedInstanceSemanticState.RUNNING_USABLE,
     )
-    if release != "20.5":
+    if release not in {"19.4", "20.5"}:
         with pytest.raises(ManagedBridgeProvisionError, match="identity_mismatch"):
             resolver.resolve(str(INSTANCE_ID), "a" * 64, 1, install_reviewed=True)
     else:
         spec = resolver.resolve(str(INSTANCE_ID), "a" * 64, 1, install_reviewed=True)
-        assert spec.kodi_release == "20.5" and spec.install_reviewed
+        assert spec.kodi_release == release and spec.install_reviewed
         assert spec.provisioning.runtime_uid == spec.provisioning.runtime_gid == 1000
         for container, generation in [("b" * 64, 1), ("a" * 64, 2)]:
             with pytest.raises(ManagedBridgeProvisionError, match="not_prepared"):
