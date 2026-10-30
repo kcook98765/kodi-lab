@@ -46,6 +46,9 @@ _ASSET_NAMES = frozenset(
         "guisettings.xml",
     )
 )
+_SHARED_PYTHON_ASSETS = frozenset(
+    {"healthcheck.py", "profile_init.py", "supervisor.py", "xvfb_guard.py"}
+)
 _MAX_LOG = 2 * 1024**2
 _MAX_BUILD_SECONDS = 900
 _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -116,7 +119,16 @@ def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
         raise OstreeAssemblyError("unexpected_assembly_asset")
     entries = {}
     for name, expected in manifest.items():
-        payload = root.joinpath(name).read_bytes()
+        # Both support revisions execute these exact unchanged frozen helpers.
+        # Keep one canonical Python resource so source checks see each module once.
+        source = (
+            resources.files("kodi_lab.runtime").joinpath(
+                "assembly_assets/piers-22.0-rc1-r1"
+            )
+            if revision == 2 and name in _SHARED_PYTHON_ASSETS
+            else root
+        )
+        payload = source.joinpath(name).read_bytes()
         if len(payload) > 64 * 1024 or hashlib.sha256(payload).hexdigest() != expected:
             raise OstreeAssemblyError("assembly_asset_mismatch")
         entries[name] = payload
