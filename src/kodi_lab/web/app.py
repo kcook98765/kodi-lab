@@ -1641,6 +1641,13 @@ def create_app(
         ),
         key_version=settings.external_target_master_key_version,
     )
+    mcp_workspace_development.configure_managed_noop_verifier(
+        ManagedLaunchBridgeService(
+            session_factory,
+            external_bridge_secret_store,
+            client=ExternalBridgeClient(transport=external_target_transport),
+        ).verify_identity
+    )
     external_bridges = external_bridge_service or ExternalBridgeService(
         session_factory,
         endpoint_policy=external_bridge_endpoint_policy,

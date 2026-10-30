@@ -1078,6 +1078,7 @@ class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
     matched: Literal[True]
     video_plugin_descriptor_eligible: bool = False
     python_service_descriptor_eligible: bool = False
+    readback_bytes: int | None = Field(default=None, ge=0)
 
     @field_validator(
         "managed_instance_id", "development_source_id", "runtime_revision_id"
@@ -3722,6 +3723,7 @@ def build_foundation_registry(
             matched=True,
             video_plugin_descriptor_eligible=(outcome.video_plugin_descriptor_eligible),
             python_service_descriptor_eligible=outcome.python_service_descriptor_eligible,
+            readback_bytes=outcome.readback_bytes,
         )
 
     registry.register(

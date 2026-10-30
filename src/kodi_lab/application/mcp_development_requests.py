@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, delete, exists, or_, select
+from pydantic import ValidationError
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.storage.models import (
     AgentWorkspaceCreationOperationRow,
     AgentWorkspacePromotionHandoffRow,
@@ -70,6 +72,24 @@ def _deployment_success_evidence_is_consistent(
     session: Session,
     operation: McpWorkspaceDeploymentOperationRow,
 ) -> bool:
+    if operation.result_classification == "verified_existing":
+        try:
+            proof = ManagedDeploymentVerification.model_validate_json(
+                operation.managed_verification_json or ""
+            )
+        except ValidationError:
+            return False
+        return bool(
+            proof.reused_deployment_id is not None
+            and str(proof.reused_deployment_id) != operation.id
+            and proof.native_restart_count == 0
+            and proof.bytes_staged == proof.bytes_transferred == 0
+            and session.scalar(
+                select(_verified_noop_evidence_sql()).where(
+                    McpWorkspaceDeploymentOperationRow.id == operation.id
+                )
+            )
+        )
     common = bool(
         operation.state == "succeeded"
         and operation.phase == "finalize"
@@ -229,6 +249,46 @@ def _execution_pre_dispatch_failure_evidence_is_consistent(
     )
 
 
+def _verified_noop_evidence_sql() -> ColumnElement[bool]:
+    row = McpWorkspaceDeploymentOperationRow
+    proof = row.managed_verification_json
+    return and_(
+        row.state == "succeeded",
+        row.phase == "finalize",
+        row.started_at.is_not(None),
+        row.completed_at.is_not(None),
+        row.initiator_kind == "mcp",
+        row.client_id.is_not(None),
+        row.target_class == "internal_lab",
+        row.deployment_mode == "direct",
+        row.result_classification == "verified_existing",
+        row.failure_code.is_(None),
+        row.mutation_started.is_(False),
+        row.target_stopped.is_(False),
+        row.sync_started.is_(False),
+        row.sync_completed.is_(False),
+        row.target_started.is_(False),
+        row.inventory_classification == "matched",
+        row.addon_enabled.is_(True),
+        row.source_manifest_digest.is_not(None),
+        row.verified_destination_digest.is_not(None),
+        proof.is_not(None),
+        func.json_valid(proof) == 1,
+        func.json_extract(proof, "$.container_id") == row.original_container_id,
+        func.json_extract(proof, "$.runtime_revision_id") == row.runtime_revision_id,
+        func.json_extract(proof, "$.source_manifest_digest")
+        == row.source_manifest_digest,
+        func.json_extract(proof, "$.destination_manifest_digest")
+        == row.verified_destination_digest,
+        func.length(func.json_extract(proof, "$.reused_deployment_id")) == 36,
+        func.json_extract(proof, "$.reused_deployment_id") != row.id,
+        func.json_extract(proof, "$.native_restart_count") == 0,
+        func.json_extract(proof, "$.bytes_staged") == 0,
+        func.json_extract(proof, "$.bytes_transferred") == 0,
+        func.json_extract(proof, "$.readiness_checked") == 1,
+    )
+
+
 def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
     """SQL form used by bounded terminal-operation cleanup."""
 
@@ -265,6 +325,7 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
         .correlate(operation)
     )
     return or_(
+        _verified_noop_evidence_sql(),
         and_(
             operation.state == "succeeded",
             operation.phase == "finalize",
