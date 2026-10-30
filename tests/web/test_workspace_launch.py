@@ -17,9 +17,16 @@ from tests.web.conftest import INSTANCE_ID
 from tests.web.test_mcp import _administration, _post, _strict_tool_result
 
 
+@pytest.mark.parametrize("release", ["19.4", "20.5", "21.3"])
 def test_direct_launch_wire_authority_and_closed_schema(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch, database: sessionmaker[Session]
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    database: sessionmaker[Session],
+    release: str,
 ) -> None:
+    from tests.application.test_nexus_reviewed_bridge import set_release
+
+    set_release(database, release)
     context = cast(FastAPI, client.app).state.kodi_lab
     root = context.settings.development_root / "script.launch-wire"
     root.mkdir()

@@ -75,6 +75,7 @@ trust. Downgrade refuses while any paired or reviewed record contains
 `log_read`; use normal credential retirement and record removal rather than
 discarding provenance. See D-0433.
 
-Managed Matrix 19.4 currently has no reviewed resident installation candidate.
+Managed Matrix 19.4 supports the exact reviewed stable Bridge 1.1.31 after
+explicit administrator installation and fresh target-specific authentication.
 Native JSON-RPC readiness or readable log files cannot satisfy resident trust.
-See [Matrix qualification prerequisites](MATRIX-BRIDGE-COMPATIBILITY.md).
+See [Matrix compatibility and installed acceptance](MATRIX-BRIDGE-COMPATIBILITY.md).

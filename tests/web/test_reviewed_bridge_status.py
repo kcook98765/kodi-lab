@@ -17,7 +17,7 @@ from tests.web.conftest import INSTANCE_ID, REVISION_ID, login
         ("20.5", True),
         ("21.3", True),
         ("20.4", False),
-        ("19.4", False),
+        ("19.4", True),
         ("19.3", False),
         ("19.5", False),
     ],

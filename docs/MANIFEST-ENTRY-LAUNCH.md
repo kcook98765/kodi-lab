@@ -80,9 +80,9 @@ GUI work needs a bounded hold; accepted launch does not monitor script lifetime.
 
 ## Reviewed managed Bridge upgrade
 
-Launch requires stable Bridge **1.1.25**, or its exact Kodi 22 RC1 overlay
-**1.1.26**. Source changes do not upgrade an installed Bridge. On an existing
-managed Omega 21.3 or Kodi 22 RC1 instance, open its Web detail page and explicitly
+Launch requires stable Bridge **1.1.31**, or its exact Kodi 22 RC1 overlay
+**1.1.32**. Source changes do not upgrade an installed Bridge. On an existing
+managed Matrix 19.4, Nexus 20.5, Omega 21.3 or Kodi 22 RC1 instance, open its Web detail page and explicitly
 choose **Install reviewed Bridge**. This uses ordinary lifecycle coordination,
 installs only packaged reviewed bytes and restarts that instance. Current code
 can be reused; a previous 1.1.23/1.1.24 tree can be replaced only when its entire
@@ -99,6 +99,6 @@ existing operations, without acquiring launch authority. Existing external
 pairings are not changed. Windows external direct-install validation remains
 separate from this managed Linux development feature.
 
-Matrix 19.4 has no reviewed managed installation candidate in this release.
-See [Matrix compatibility and native qualification prerequisites](MATRIX-BRIDGE-COMPATIBILITY.md).
+Matrix 19.4 admits the exact stable candidate following isolated native launch
+and log qualification. See [Matrix compatibility and installed acceptance](MATRIX-BRIDGE-COMPATIBILITY.md).
 A supported menu route is separate from direct manifest launch acceptance.
