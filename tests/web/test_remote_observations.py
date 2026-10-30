@@ -1,6 +1,7 @@
 """Managed action observation/reuse keeps replay and visual authority separate."""
 
 import base64
+import json
 from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -123,6 +124,9 @@ def test_action_returns_ui_and_reuses_one_capture_without_dispatch_or_capture_re
     )
     assert reused["structuredContent"]["request_id"] == arguments["request_id"]
     assert reused["structuredContent"]["age_seconds"] <= 120
+    assert len(reused["content"]) == 2
+    assert reused["content"][1]["type"] == "text"
+    assert json.loads(reused["content"][1]["text"]) == reused["structuredContent"]
     assert base64.b64decode(reused["content"][0]["data"]).startswith(
         b"\x89PNG\r\n\x1a\n"
     )
