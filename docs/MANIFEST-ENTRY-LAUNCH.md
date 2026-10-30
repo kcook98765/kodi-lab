@@ -98,3 +98,7 @@ OTP pairing never creates it. Old 1.1.23/1.1.24, 1.1.19/1.1.20, 1.1.17/1.1.18 an
 existing operations, without acquiring launch authority. Existing external
 pairings are not changed. Windows external direct-install validation remains
 separate from this managed Linux development feature.
+
+Matrix 19.4 has no reviewed managed installation candidate in this release.
+See [Matrix compatibility and native qualification prerequisites](MATRIX-BRIDGE-COMPATIBILITY.md).
+A supported menu route is separate from direct manifest launch acceptance.

@@ -62,7 +62,7 @@ def run_candidate(
     ), home
 
 
-@pytest.mark.parametrize("release", ["20.5", "21.3", "22.0-rc.1"])
+@pytest.mark.parametrize("release", ["19.4", "20.5", "21.3", "22.0-rc.1"])
 def test_closed_candidate_materialization_and_readback(
     tmp_path: Path, release: str
 ) -> None:

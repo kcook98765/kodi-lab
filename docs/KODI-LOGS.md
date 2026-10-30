@@ -74,3 +74,7 @@ preserves existing rows and authority triggers, and grants no permissions or
 trust. Downgrade refuses while any paired or reviewed record contains
 `log_read`; use normal credential retirement and record removal rather than
 discarding provenance. See D-0433.
+
+Managed Matrix 19.4 currently has no reviewed resident installation candidate.
+Native JSON-RPC readiness or readable log files cannot satisfy resident trust.
+See [Matrix qualification prerequisites](MATRIX-BRIDGE-COMPATIBILITY.md).

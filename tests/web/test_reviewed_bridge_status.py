@@ -13,7 +13,14 @@ from tests.web.conftest import INSTANCE_ID, REVISION_ID, login
 
 @pytest.mark.parametrize(
     "release,available",
-    [("20.5", True), ("21.3", True), ("20.4", False), ("19.4", False)],
+    [
+        ("20.5", True),
+        ("21.3", True),
+        ("20.4", False),
+        ("19.4", False),
+        ("19.3", False),
+        ("19.5", False),
+    ],
 )
 def test_reviewed_candidate_status_and_web_control_match_exact_release(
     client: TestClient, database: sessionmaker[Session], release: str, available: bool
