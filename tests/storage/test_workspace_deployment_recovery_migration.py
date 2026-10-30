@@ -103,6 +103,7 @@ def test_recovery_coordinator_runs_on_the_upgraded_schema(
     from uuid import UUID, uuid4
 
     from sqlalchemy import MetaData, Table
+    from sqlalchemy.orm import defer
 
     from kodi_lab.application.workspace_deployment_recovery import (
         WorkspaceDeploymentRecoveryService,
@@ -165,7 +166,13 @@ def test_recovery_coordinator_runs_on_the_upgraded_schema(
         )
     env.broker.state = ContainerRuntimeState.STOPPED
     with env.sessions() as session:
-        row = session.get(McpWorkspaceDeploymentOperationRow, operation_id)
+        row = session.get(
+            McpWorkspaceDeploymentOperationRow,
+            operation_id,
+            options=[
+                defer(McpWorkspaceDeploymentOperationRow.managed_verification_json)
+            ],
+        )
         assert row is not None
         session.expunge(row)
     broker = EvidenceBroker(env, row)

@@ -12,7 +12,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, defer, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.development.confined_fs import open_development_root
@@ -885,10 +885,17 @@ class SqliteDevelopmentSourceDeploymentResolver:
         managed_instance_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDestinationVerificationSpec:
-        """Resolve only the exact retained operation and its unchanged workspace."""
+        """Resolve the exact retained operation, including pre-0090 recovery.
+
+        Optional no-op reuse proof is not an authority input to containment.
+        """
         with self._session_factory() as session:
             operation = session.get(
-                McpWorkspaceDeploymentOperationRow, deployment_operation_id
+                McpWorkspaceDeploymentOperationRow,
+                deployment_operation_id,
+                options=[
+                    defer(McpWorkspaceDeploymentOperationRow.managed_verification_json)
+                ],
             )
             instance = ManagedInstanceRepository(session).get(UUID(managed_instance_id))
             workspace = (
