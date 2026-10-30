@@ -20,11 +20,14 @@ _BUILTIN_DEPENDENCY_IDS = frozenset(
 
 # Reviewed stable Kodi system descriptors, not JSON-RPC inventory records.
 # Matrix 19.4: 3.0.0 / ABI 3.0.0; Nexus 20.5 and Omega 21.3:
-# 3.0.1 / ABI 3.0.0. Unknown releases retain version-unverified behavior.
+# 3.0.1 / ABI 3.0.0; Piers 22.0 RC1: 3.1.0 / ABI 3.0.0.
+# Reviewed 22.0rc1-Piers/addons/xbmc.python/addon.xml, identical to the sealed
+# RC1 runtime descriptor. Unknown releases retain version-unverified behavior.
 _PYTHON_API_BY_RELEASE = {
     "19.4": ((3, 0, 0), (3, 0, 0)),
     "20.5": ((3, 0, 1), (3, 0, 0)),
     "21.3": ((3, 0, 1), (3, 0, 0)),
+    "22.0-rc.1": ((3, 1, 0), (3, 0, 0)),
 }
 # A bounded subset whose tuple ordering agrees with Kodi CAddonVersion. Epochs,
 # revisions, suffixes and explicit minversion ranges remain unverified.
