@@ -252,7 +252,7 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                 )
                 assert not http_screenshot.is_error and not stdio_screenshot.is_error
                 assert (
-                    len(http_screenshot.content) == len(stdio_screenshot.content) == 1
+                    len(http_screenshot.content) == len(stdio_screenshot.content) == 2
                 )
                 http_image = http_screenshot.content[0]
                 stdio_image = stdio_screenshot.content[0]
@@ -266,6 +266,9 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                 validated = validate_png(http_png)
                 for result in (http_screenshot, stdio_screenshot):
                     metadata = cast(dict[str, object], result.structured_content)
+                    text = result.content[1]
+                    assert isinstance(text, TextContent)
+                    assert json.loads(text.text) == metadata
                     assert metadata["target_id"] == str(INSTANCE_ID)
                     assert metadata["mime_type"] == "image/png"
                     assert (metadata["width"], metadata["height"]) == (

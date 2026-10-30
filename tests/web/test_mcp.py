@@ -914,12 +914,15 @@ def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
         },
     ).json()["result"]
     assert not screenshot["isError"]
-    assert len(screenshot["content"]) == 1
+    assert len(screenshot["content"]) == 2
     image = ImageContent.model_validate(screenshot["content"][0])
     assert image.mime_type == "image/png"
     png = base64.b64decode(image.data, validate=True)
     validated = validate_png(png)
     metadata = screenshot["structuredContent"]
+    # OpenCode forwards text/image content, but drops structuredContent.
+    # The text copy must describe these exact pixels and the original capture.
+    assert json.loads(screenshot["content"][1]["text"]) == metadata
     assert png.startswith(PNG_SIGNATURE)
     assert (validated.width, validated.height) == (
         metadata["width"],

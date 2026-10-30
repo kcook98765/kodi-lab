@@ -1806,7 +1806,15 @@ def build_mcp_http_transport(
                         content = result.metadata.model_dump(mode="json")
                         response = CallToolResult(
                             content=[
-                                ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)
+                                ImageContent(data=encoded, mime_type=PNG_MIME_TYPE),
+                                # Content-only clients (including OpenCode) do not
+                                # forward structuredContent to the agent. Keep
+                                # this safe metadata bound to the same image.
+                                TextContent(
+                                    text=json.dumps(
+                                        content, separators=(",", ":"), sort_keys=True
+                                    )
+                                ),
                             ],
                             structured_content=content,
                             is_error=False,
