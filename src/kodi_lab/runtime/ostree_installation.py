@@ -11,6 +11,7 @@ from kodi_lab.runtime.attestation_integrity import canonical_json
 from kodi_lab.runtime.ostree import OstreeVerificationEvidence
 from kodi_lab.runtime.ostree_assembly import (
     ASSETS_SHA256,
+    HISTORICAL_ASSETS_SHA256,
     OstreeAssemblyEvidence,
     load_assembly_assets,
 )
@@ -108,11 +109,11 @@ def ostree_attestation_matches(
         assembly = value["assembly"]
         if not isinstance(assembly, dict):
             return False
-        assets = load_assembly_assets()
+        assets = load_assembly_assets(revision=reviewed.recipe.recipe_revision)
         fixed = {
             "schema_version": "flathub-ostree-assembly-v1",
             "recipe_id": reviewed.recipe.recipe_id,
-            "recipe_revision": 1,
+            "recipe_revision": reviewed.recipe.recipe_revision,
             "recipe_digest": inputs.digest,
             "image_id": image_id,
             "operation_id": value["operation_id"],
@@ -121,8 +122,15 @@ def ostree_attestation_matches(
             "kodi_source_revision": inputs.recipe.kodi_source_revision,
             "acquisition_digest": "sha256:"
             + hashlib.sha256(acquired.canonical_bytes()).hexdigest(),
-            "supporting_closure_digest": load_support_closure().digest,
-            "assembly_assets_digest": "sha256:" + ASSETS_SHA256,
+            "supporting_closure_digest": load_support_closure(
+                revision=reviewed.recipe.recipe_revision
+            ).digest,
+            "assembly_assets_digest": "sha256:"
+            + (
+                ASSETS_SHA256
+                if reviewed.recipe.recipe_revision == 2
+                else HISTORICAL_ASSETS_SHA256
+            ),
             "base_image": reviewed.recipe.base_image_reference,
             "asset_hashes": sorted(
                 [[k, hashlib.sha256(v).hexdigest()] for k, v in assets.items()]

@@ -20,12 +20,17 @@ from uuid import UUID
 
 from kodi_lab.runtime.ostree import AcquiredOstree
 
-SUPPORT_SHA256 = "05afddc1b4174d4a5b3e472173ebbfc04fb0ff5c4630a3b784e7e186de058f29"
+SUPPORT_SHA256 = "1dd0391796d618a541d39a1817f0ac3074fe4ff350dd7474c6e41dae0d0870d1"
 BASE_IMAGE = (
     "ubuntu:26.04@sha256:"
     "e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d"
 )
-ASSET_DIRECTORY = "assembly_assets/piers-22.0-rc1-r1"
+ASSET_DIRECTORY = "assembly_assets/piers-22.0-rc1-r2"
+HISTORICAL_SUPPORT_SHA256 = (
+    "05afddc1b4174d4a5b3e472173ebbfc04fb0ff5c4630a3b784e7e186de058f29"
+)
+SNAPSHOT_PREFIX = "/ubuntu/20261001T000000Z/pool/"
+SNAPSHOT_PACKAGES = frozenset({"ca-certificates", "tzdata", "xserver-common", "xvfb"})
 MAX_SUPPORT_BYTES = 128 * 1024**2
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
@@ -112,8 +117,17 @@ def _parse(raw: bytes) -> SupportClosure:
             or not p.archive_name.startswith(p.name + "_")
             or not p.archive_name.endswith("_" + p.architecture + ".deb")
             or parsed.scheme != "https"
-            or parsed.netloc != "archive.ubuntu.com"
-            or not parsed.path.startswith("/ubuntu/pool/")
+            or not (
+                (
+                    parsed.netloc == "archive.ubuntu.com"
+                    and parsed.path.startswith("/ubuntu/pool/")
+                )
+                or (
+                    parsed.netloc == "snapshot.ubuntu.com"
+                    and parsed.path.startswith(SNAPSHOT_PREFIX)
+                    and p.name in SNAPSHOT_PACKAGES
+                )
+            )
             or parsed.path.rsplit("/", 1)[-1] != p.archive_name
             or any(part in (".", "..", "") for part in parsed.path[1:].split("/"))
             or parsed.query
@@ -142,13 +156,19 @@ def _parse(raw: bytes) -> SupportClosure:
     return SupportClosure(raw, packages, base, final)
 
 
-def load_support_closure() -> SupportClosure:
+def load_support_closure(*, revision: int = 2) -> SupportClosure:
+    if type(revision) is not int or revision not in (1, 2):
+        raise SupportError("unsupported_support_revision")
+    directory = (
+        ASSET_DIRECTORY if revision == 2 else "assembly_assets/piers-22.0-rc1-r1"
+    )
+    expected = SUPPORT_SHA256 if revision == 2 else HISTORICAL_SUPPORT_SHA256
     raw = (
         resources.files("kodi_lab.runtime")
-        .joinpath(ASSET_DIRECTORY, "ubuntu-support.json")
+        .joinpath(directory, "ubuntu-support.json")
         .read_bytes()
     )
-    if hashlib.sha256(raw).hexdigest() != SUPPORT_SHA256:
+    if hashlib.sha256(raw).hexdigest() != expected:
         raise SupportError("support_manifest_digest_mismatch")
     try:
         return _parse(raw)

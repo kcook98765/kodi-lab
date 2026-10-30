@@ -240,6 +240,8 @@ class RuntimeInstallationService:
         if development_mode is not True:
             raise RuntimeInstallationUnavailable("Development mode required")
         ack = PreviewAcknowledgement.model_validate(acknowledgement)
+        if ack.model_dump(mode="json") != preview_acknowledgement():
+            raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
         if action is not None:
             current = self._view("piers", self._latest("piers"), capable=True)
             if current.action != action:
@@ -324,7 +326,9 @@ class RuntimeInstallationService:
         """Create only the exact sealed Preview revision through normal selection."""
         if development_mode is not True:
             raise RuntimeInstallationUnavailable("Development mode required")
-        PreviewAcknowledgement.model_validate(acknowledgement)
+        ack = PreviewAcknowledgement.model_validate(acknowledgement)
+        if ack.model_dump(mode="json") != preview_acknowledgement():
+            raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
         current = self._view("piers", self._latest("piers"), capable=self._capable())
         if current.action == "open":
             return current

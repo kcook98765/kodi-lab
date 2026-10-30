@@ -72,3 +72,32 @@ def test_ineligible_preview_never_creates_instance(
         )
     with factory() as session:
         assert ManagedInstanceRepository(session).list() == []
+
+
+def test_historical_consent_cannot_create_qualified_current_instance(
+    factory: sessionmaker[Session],
+) -> None:
+    from kodi_lab.runtime.preview import PreviewAcknowledgement
+    from kodi_lab.runtime.recipes import HISTORICAL_PREVIEW_INSTALLATION_DIGEST
+
+    operation = ready(factory)
+    backend = broker()
+    backend.reviewed_runtime_image_present = lambda _id: SimpleNamespace(present=True)
+    service = RuntimeInstallationService(factory, backend)
+    view = service.get(operation)
+    assert view is not None and view.status == "ready" and view.action == "create"
+    old = {
+        **acknowledgement().model_dump(),
+        "recipe_id": "piers-22.0-rc1-r1",
+        "recipe_revision": 1,
+        "recipe_digest": HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
+    }
+    with pytest.raises(
+        RuntimeInstallationActionConflict, match="acknowledgement differs"
+    ):
+        service.create_preview_instance(
+            development_mode=True,
+            acknowledgement=PreviewAcknowledgement.model_validate(old),
+        )
+    with factory() as session:
+        assert ManagedInstanceRepository(session).list() == []
