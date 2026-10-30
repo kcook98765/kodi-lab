@@ -283,7 +283,7 @@ def test_unreviewed_image_assets_fail_closed(
     from importlib import resources
 
     assets = assembly.load_assembly_assets()
-    root = tmp_path / "assembly_assets/piers-22.0-rc1-r1"
+    root = tmp_path / "assembly_assets/piers-22.0-rc1-r2"
     root.mkdir(parents=True)
     manifest = {
         name: hashlib.sha256(payload).hexdigest() for name, payload in assets.items()

@@ -6,6 +6,7 @@ Image assembly and validation doubles here do not claim live installation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from dataclasses import fields
@@ -64,8 +65,8 @@ from tests.runtime.test_recipe_installation import factory as factory
 
 def acknowledgement() -> PreviewAcknowledgement:
     return PreviewAcknowledgement(
-        recipe_id="piers-22.0-rc1-r1",
-        recipe_revision=1,
+        recipe_id="piers-22.0-rc1-r2",
+        recipe_revision=2,
         recipe_digest=PREVIEW_INSTALLATION_DIGEST,
         release="22.0-rc.1",
         support_tier="preview",
@@ -79,6 +80,17 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     )
     raw = data["assembly"]
     raw["operation_id"] = operation.hex
+    # Derive current synthetic assembly from retained original evidence.
+    # The historical evidence file remains unchanged.
+    from kodi_lab.runtime.ostree_assembly import ASSETS_SHA256, load_assembly_assets
+    from kodi_lab.runtime.ubuntu_support import load_support_closure
+
+    raw["supporting_closure_digest"] = load_support_closure().digest
+    raw["assembly_assets_digest"] = "sha256:" + ASSETS_SHA256
+    raw["asset_hashes"] = sorted(
+        (name, hashlib.sha256(payload).hexdigest())
+        for name, payload in load_assembly_assets().items()
+    )
     names = {f.name for f in fields(OstreeAssemblyEvidence)}
     for key in ("asset_hashes", "input_components"):
         raw[key] = tuple(tuple(row) for row in raw[key])
@@ -154,7 +166,7 @@ def test_exact_backend_recipe_does_not_change_web_stable_registry() -> None:
     with pytest.raises(ValueError):
         load_reviewed_recipe("piers")
     assert (
-        load_recorded_reviewed_recipe("piers", "piers-22.0-rc1-r1", 1, reviewed.digest)
+        load_recorded_reviewed_recipe("piers", "piers-22.0-rc1-r2", 2, reviewed.digest)
         == reviewed
     )
 
@@ -165,7 +177,7 @@ def test_exact_backend_recipe_does_not_change_web_stable_registry() -> None:
         ("recipe_digest", "sha256:" + "f" * 64),
         ("release", "22.0-rc.2"),
         ("release", "22.0"),
-        ("recipe_revision", 2),
+        ("recipe_revision", 1),
         ("support_tier", "current"),
         ("recipe_id", "piers-22.0-rc2-r1"),
         ("acknowledgement", "all-prereleases"),

@@ -30,7 +30,10 @@ from kodi_lab.runtime.ubuntu_support import (
     validate_support_entries,
 )
 
-ASSETS_SHA256 = "267deb5e56837d9190ba02e7a00a98b48dfac7e8e035d608c6b6990e85d01b0b"
+ASSETS_SHA256 = "397ced6ae67887b97b0c80fe35c0ace858d0f2722907ed5c31228fa68b7e6589"
+HISTORICAL_ASSETS_SHA256 = (
+    "267deb5e56837d9190ba02e7a00a98b48dfac7e8e035d608c6b6990e85d01b0b"
+)
 _ASSET_NAMES = frozenset(
     (
         "Dockerfile",
@@ -74,8 +77,8 @@ class OstreeAssemblyEvidence:
 
         data = {
             "schema_version": "flathub-ostree-assembly-v1",
-            "recipe_id": "piers-22.0-rc1-r1",
-            "recipe_revision": 1,
+            "recipe_id": "piers-22.0-rc1-r2",
+            "recipe_revision": 2,
             "kodi_release": "22.0-rc.1",
             "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
             "platform": "linux/amd64",
@@ -97,10 +100,16 @@ class OstreeAssemblyEvidence:
         return encoded
 
 
-def load_assembly_assets() -> dict[str, bytes]:
-    root = resources.files("kodi_lab.runtime").joinpath(ASSET_DIRECTORY)
+def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
+    if type(revision) is not int or revision not in (1, 2):
+        raise OstreeAssemblyError("unsupported_assembly_revision")
+    directory = (
+        ASSET_DIRECTORY if revision == 2 else "assembly_assets/piers-22.0-rc1-r1"
+    )
+    expected = ASSETS_SHA256 if revision == 2 else HISTORICAL_ASSETS_SHA256
+    root = resources.files("kodi_lab.runtime").joinpath(directory)
     raw = root.joinpath("assembly-assets.json").read_bytes()
-    if len(raw) > 8192 or hashlib.sha256(raw).hexdigest() != ASSETS_SHA256:
+    if len(raw) > 8192 or hashlib.sha256(raw).hexdigest() != expected:
         raise OstreeAssemblyError("assembly_manifest_mismatch")
     manifest = json.loads(raw)
     if set(manifest) != _ASSET_NAMES:

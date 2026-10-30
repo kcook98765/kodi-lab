@@ -74,8 +74,11 @@ REVIEWED_OSTREE_SOURCE_KIND = "reviewed-flathub-ostree"
 NOVNC_PHASE1_DIGEST: Final = (
     "sha256:44ff250db8587265c74ecf7114a74f51646f7f25ab4199c29c3181c02d9f2d15"
 )
-PREVIEW_INSTALLATION_DIGEST: Final = (
+HISTORICAL_PREVIEW_INSTALLATION_DIGEST: Final = (
     "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793"
+)
+PREVIEW_INSTALLATION_DIGEST: Final = (
+    "sha256:75d32434f6208efc051bc71ff0d501f07e91a1fcd666eed6f8806d49d43e3454"
 )
 
 
@@ -278,11 +281,11 @@ class RuntimeRecipe(_ClosedModel):
             from kodi_lab.runtime.ostree_assembly import load_assembly_assets
             from kodi_lab.runtime.ubuntu_support import BASE_IMAGE
 
-            assets = load_assembly_assets()
+            assets = load_assembly_assets(revision=self.recipe_revision)
             if (
                 self.schema_version != 3
-                or self.recipe_id != "piers-22.0-rc1-r1"
-                or self.recipe_revision != 1
+                or (self.recipe_id, self.recipe_revision)
+                not in {("piers-22.0-rc1-r1", 1), ("piers-22.0-rc1-r2", 2)}
                 or self.generation != "piers"
                 or self.kodi_version != "22.0-rc.1"
                 or self.base_image_reference != BASE_IMAGE
@@ -403,7 +406,14 @@ def load_recorded_reviewed_recipe(
     """Resolve only a wheel-owned historical recipe matching a durable install."""
 
     entries = (
-        (load_installation_recipe(generation),)
+        (
+            _load_recipe_file(
+                "piers",
+                "piers-22.0-rc1-installation-r1.json",
+                HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
+            ),
+            load_installation_recipe(generation),
+        )
         if generation == "piers"
         else _reviewed_for_generation(generation)
     )
@@ -439,7 +449,7 @@ def load_installation_recipe(generation: str) -> ReviewedRecipe:
         return load_reviewed_recipe(generation)
     return _load_recipe_file(
         generation,
-        "piers-22.0-rc1-installation-r1.json",
+        "piers-22.0-rc1-installation-r2.json",
         PREVIEW_INSTALLATION_DIGEST,
     )
 
