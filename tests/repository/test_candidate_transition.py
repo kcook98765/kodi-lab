@@ -1385,14 +1385,15 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
         with sqlite3.connect(root / remote_lifecycle.DATABASE) as db:
             assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
             assert not db.execute("PRAGMA foreign_key_check").fetchall()
-            schema = []
+            schema: list[tuple[object, ...]] = []
             for kind, name, table, sql in db.execute(
                 "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
             ):
                 if kind == "table" and sql is not None:
                     # Alembic batch reflection may reorder whole constraints.
                     # Keep column order and every constraint's exact SQL intact.
-                    columns, constraints = [], []
+                    columns: list[str] = []
+                    constraints: list[str] = []
                     for line in sql.splitlines():
                         clause = line.strip().removesuffix(",")
                         destination = (
@@ -1410,7 +1411,7 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
                         destination.append(clause)
                     sql = json.dumps([columns, sorted(constraints)])
                 schema.append((kind, name, table, sql))
-            rows = {}
+            rows: dict[str, list[tuple[object, ...]]] = {}
             for (table,) in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             ):
