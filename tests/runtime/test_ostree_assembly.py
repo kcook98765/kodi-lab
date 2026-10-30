@@ -275,7 +275,9 @@ def test_altered_assets_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         assembly.load_assembly_assets()
 
 
-@pytest.mark.parametrize("kind", ["loader", "symlink-destination", "extra"])
+@pytest.mark.parametrize(
+    "kind", ["loader", "symlink-destination", "extra", "shared-python"]
+)
 def test_unreviewed_image_assets_fail_closed(
     kind: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -298,10 +300,15 @@ def test_unreviewed_image_assets_fail_closed(
         )
     if kind == "extra":
         manifest["unreviewed.sh"] = "0" * 64
+    if kind == "shared-python":
+        assets["healthcheck.py"] += b"\n# unreviewed shared helper\n"
     raw = json.dumps(manifest, sort_keys=True).encode()
     (root / "assembly-assets.json").write_bytes(raw)
+    shared = tmp_path / "assembly_assets/piers-22.0-rc1-r1"
+    shared.mkdir(parents=True)
     for name, payload in assets.items():
-        (root / name).write_bytes(payload)
+        destination = shared if name in assembly._SHARED_PYTHON_ASSETS else root
+        (destination / name).write_bytes(payload)
     monkeypatch.setattr(assembly, "ASSETS_SHA256", hashlib.sha256(raw).hexdigest())
     monkeypatch.setattr(resources, "files", lambda _: tmp_path)
     with pytest.raises(assembly.OstreeAssemblyError):

@@ -489,10 +489,15 @@ def _load_recipe_file(
     )
     if not asset_root.is_dir():
         asset_root = package.joinpath("assembly_assets")
-    assets = {
-        name: asset_root.joinpath(*name.split("/")).read_bytes()
-        for name in recipe.asset_hashes
-    }
+    if generation == "piers":
+        from kodi_lab.runtime.ostree_assembly import load_assembly_assets
+
+        assets = load_assembly_assets(revision=recipe.recipe_revision)
+    else:
+        assets = {
+            name: asset_root.joinpath(*name.split("/")).read_bytes()
+            for name in recipe.asset_hashes
+        }
     for name, payload in assets.items():
         if "sha256:" + hashlib.sha256(payload).hexdigest() != recipe.asset_hashes[name]:
             raise ValueError("reviewed assembly asset differs")

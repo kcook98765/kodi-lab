@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.runtime.attestation_integrity import canonical_json
 from kodi_lab.runtime.recipes import (
-    PREVIEW_INSTALLATION_DIGEST,
     HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
+    PREVIEW_INSTALLATION_DIGEST,
 )
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
