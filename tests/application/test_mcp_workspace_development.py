@@ -88,6 +88,7 @@ from kodi_lab.domain import (
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
+    KodiReleaseIdentity,
     ManagedInstanceMutationKind,
     TargetAvailability,
     TargetType,
@@ -349,9 +350,17 @@ class InventoryAdapter:
         self.extra = extra
 
     def get_inventory(self) -> KodiAddonInventoryResult:
-        major, minor = (int(part) for part in self.kodi_release.split("."))
+        release = KodiReleaseIdentity.parse(self.kodi_release)
         return KodiAddonInventoryResult(
-            identity=KodiApplicationIdentity("Kodi", major, minor, "stable"),
+            identity=KodiApplicationIdentity(
+                "Kodi",
+                release.major,
+                release.minor,
+                "releasecandidate"
+                if release.channel.value == "rc"
+                else release.channel.value,
+                release.prerelease_ordinal,
+            ),
             items=(
                 KodiAddonInventoryRecord(
                     addon_id="plugin.video.slice4",
@@ -607,8 +616,16 @@ def _environment(
                 runtime_gid=1000,
                 python_bytecode_policy="suppress",
                 expected_application_name="Kodi",
-                expected_kodi_version=kodi_release,
-                expected_version_tag="stable",
+                expected_kodi_version=(
+                    f"{KodiReleaseIdentity.parse(kodi_release).major}."
+                    f"{KodiReleaseIdentity.parse(kodi_release).minor}"
+                ),
+                expected_version_tag=KodiReleaseIdentity.parse(
+                    kodi_release
+                ).channel.value,
+                expected_prerelease_ordinal=KodiReleaseIdentity.parse(
+                    kodi_release
+                ).prerelease_ordinal,
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
                 process_observation="docker_healthcheck",
@@ -1648,11 +1665,13 @@ def test_failed_execution_persists_only_sanitized_message(tmp_path: Path) -> Non
         assert "secret-value" not in row.kodi_error_message
 
 
+@pytest.mark.parametrize("release", ["19.4", "20.5", "21.3", "22.0-rc.1"])
 def test_execute_uses_verified_kodi_release_for_compatible_python_api(
     tmp_path: Path,
+    release: str,
 ) -> None:
     env = _environment(
-        tmp_path, kodi_release="20.5", dependency=("xbmc.python", "3.0.0")
+        tmp_path, kodi_release=release, dependency=("xbmc.python", "3.0.0")
     )
     _deploy_workspace(env)
     with env.sessions.begin() as session:
@@ -1668,11 +1687,13 @@ def test_execute_uses_verified_kodi_release_for_compatible_python_api(
     assert env.smoke.count == 1
 
 
+@pytest.mark.parametrize("release", ["20.5", "22.0-rc.1"])
 def test_execute_rejects_incompatible_python_api_on_verified_kodi_release(
     tmp_path: Path,
+    release: str,
 ) -> None:
     env = _environment(
-        tmp_path, kodi_release="20.5", dependency=("xbmc.python", "4.0.0")
+        tmp_path, kodi_release=release, dependency=("xbmc.python", "4.0.0")
     )
     _deploy_workspace(env)
 
