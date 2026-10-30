@@ -19,7 +19,11 @@ from alembic import command
 from alembic.config import Config
 
 from kodi_lab import remote_lifecycle
-from kodi_lab.host_bootstrap import HostBootstrapError
+from kodi_lab.host_bootstrap import (
+    HostBootstrapError,
+    generate_master_key,
+    initialize_state,
+)
 from kodi_lab.remote_lifecycle import (
     _verify_backup,
     backup,
@@ -64,13 +68,18 @@ from tests.repository.test_development import (
     fixture_zip,
     phase2_candidate,
 )
+from tests.storage.test_migrations import MigrationTemplateStore
+from tests.storage.test_migrations import migration_templates as migration_templates
 
 CURRENT_HEAD = current_migration_head()
+_state_templates: MigrationTemplateStore | None = None
 HISTORICAL_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
 
 
 @pytest.fixture(autouse=True)
-def migrations(monkeypatch: pytest.MonkeyPatch) -> None:
+def migrations(
+    monkeypatch: pytest.MonkeyPatch, migration_templates: MigrationTemplateStore
+) -> None:
     from collections.abc import Iterator
     from contextlib import contextmanager
 
@@ -83,8 +92,30 @@ def migrations(monkeypatch: pytest.MonkeyPatch) -> None:
         config.set_main_option("sqlalchemy.url", database_url)
         yield config
 
+    monkeypatch.setitem(globals(), "_state_templates", migration_templates)
     monkeypatch.setattr(packaged_migrations, "packaged_config", source_config)
     monkeypatch.setattr(remote_lifecycle, "packaged_config", source_config)
+
+
+def _initialize_fixture(root: Path, database_url: str) -> str:
+    """Construct private current state; actual transitions remain test subjects."""
+    templates = _state_templates
+    assert templates is not None and not root.exists()
+    initialize_state(root)
+    generate_master_key(root)
+    database = root / remote_lifecycle.DATABASE
+    assert not database.exists()
+    templates.clone(CURRENT_HEAD, database)
+    database.chmod(0o600)
+    remote_lifecycle._write_json(
+        root / ".state.json",
+        {
+            "format": remote_lifecycle.FORMAT,
+            "key_sha256": remote_lifecycle._key_digest(root),
+        },
+    )
+    # Exercise ordinary initialization's complete existing-state validation.
+    return initialize(root, database_url)
 
 
 def _replacement(
@@ -161,7 +192,7 @@ def _cross_version_setup(
     initialize_development(data / "development-data", BASE, old)
     state = tmp_path / "state"
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
-    initialize(state, url)
+    _initialize_fixture(state, url)
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     engine = create_database_engine(url)
     DevelopmentRepositoryService(create_session_factory(engine), data, BASE).reconcile()
@@ -370,7 +401,7 @@ def _setup(
     initialize_development(data / "development-data", BASE, old)
     state = tmp_path / "state"
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
-    initialize(state, url)
+    _initialize_fixture(state, url)
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     initial_revision = live_revision or old_revision
     if initial_revision != CURRENT_HEAD:
@@ -1260,7 +1291,7 @@ def test_workspace_deployment_linkage_survives_transition(
 ) -> None:
     state = tmp_path / "state"
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
-    initialize(state, url)
+    _initialize_fixture(state, url)
     deployment_root = tmp_path / "deployment"
     env, repository, _ = repository_workspace_setup(
         deployment_root, database_path=state / "database/kodi-lab.db"
@@ -1320,3 +1351,89 @@ def test_tampered_current_or_replacement_rejected_before_switch(
     with pytest.raises(ValueError):
         transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert not (data / "TRANSITION.json").exists()
+
+
+def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
+    tmp_path: Path,
+) -> None:
+    virgin, first, sibling, later = (
+        tmp_path / name for name in ("virgin", "first", "sibling", "later")
+    )
+
+    def url(root: Path) -> str:
+        return f"sqlite:///{root / remote_lifecycle.DATABASE}"
+
+    assert initialize(virgin, url(virgin)) == CURRENT_HEAD
+    for root in (first, sibling):
+        assert _initialize_fixture(root, url(root)) == CURRENT_HEAD
+        assert stat.S_IMODE((root / remote_lifecycle.DATABASE).stat().st_mode) == 0o600
+        assert (
+            remote_lifecycle.validate(
+                root, url(root), require_head=True, require_marker=True
+            )
+            == CURRENT_HEAD
+        )
+    keys = [(root / "master-key").read_bytes() for root in (virgin, first, sibling)]
+    assert len(set(keys)) == 3
+    assert (first / remote_lifecycle.DATABASE).stat().st_ino != (
+        sibling / remote_lifecycle.DATABASE
+    ).stat().st_ino
+
+    def contents(
+        root: Path,
+    ) -> tuple[list[tuple[object, ...]], dict[str, list[tuple[object, ...]]]]:
+        with sqlite3.connect(root / remote_lifecycle.DATABASE) as db:
+            assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+            assert not db.execute("PRAGMA foreign_key_check").fetchall()
+            schema: list[tuple[object, ...]] = []
+            for kind, name, table, sql in db.execute(
+                "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+            ):
+                if kind == "table" and sql is not None:
+                    # Alembic batch reflection may reorder whole constraints.
+                    # Keep column order and every constraint's exact SQL intact.
+                    columns: list[str] = []
+                    constraints: list[str] = []
+                    for line in sql.splitlines():
+                        clause = line.strip().removesuffix(",")
+                        destination = (
+                            constraints
+                            if clause.startswith(
+                                (
+                                    "CONSTRAINT ",
+                                    "PRIMARY KEY",
+                                    "FOREIGN KEY",
+                                    "UNIQUE",
+                                )
+                            )
+                            else columns
+                        )
+                        destination.append(clause)
+                    sql = json.dumps([columns, sorted(constraints)])
+                schema.append((kind, name, table, sql))
+            rows: dict[str, list[tuple[object, ...]]] = {}
+            for (table,) in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ):
+                columns = [
+                    r[1]
+                    for r in db.execute(f'PRAGMA table_info("{table}")')
+                    if r[1] not in {"created_at", "updated_at"}
+                ]
+                rows[table] = db.execute(
+                    "SELECT "
+                    + ",".join('"' + c + '"' for c in columns)
+                    + ' FROM "'
+                    + table
+                    + '"'
+                ).fetchall()
+            return schema, rows
+
+    before = contents(sibling)
+    assert contents(virgin) == contents(first) == before
+    with sqlite3.connect(first / remote_lifecycle.DATABASE) as db:
+        db.execute("CREATE TABLE private_transition_fixture_probe (value TEXT)")
+    assert contents(sibling) == before
+    assert _initialize_fixture(later, url(later)) == CURRENT_HEAD
+    assert contents(later) == before
+    assert (later / "master-key").read_bytes() not in keys

@@ -29,6 +29,7 @@ from tests.repository.test_candidate_transition import (
     migrations as migrations,
 )
 from tests.repository.test_development import BASE
+from tests.storage.test_migrations import migration_templates as migration_templates
 
 
 @dataclass
