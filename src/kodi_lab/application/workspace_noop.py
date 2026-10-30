@@ -17,7 +17,12 @@ from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.development.measurements import DeploymentMeasurement
 from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.development.sources import copied_video_plugin_unsupported_reason
-from kodi_lab.domain import PythonBytecodePolicy
+from kodi_lab.domain import (
+    GlobalHeavyOperationKind,
+    ManagedInstanceMutationKind,
+    PythonBytecodePolicy,
+)
+from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
     ManagedBridgeTrustRow,
     ManagedInstanceRow,
@@ -284,22 +289,42 @@ def try_verified_noop(
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             row = session.get(McpWorkspaceDeploymentOperationRow, operation.id)
             instance = session.get(ManagedInstanceRow, operation.target_id)
+            trust = session.get(ManagedBridgeTrustRow, operation.target_id)
             lease = ManagedInstanceMutationLeaseRepository(session).current(
                 UUID(operation.target_id)
             )
             heavy = GlobalHeavyOperationLeaseRepository(session).current()
+            now = timestamp(service._clock())
             if (
                 row is None
                 or row.state != "running"
                 or row.mutation_started
                 or instance is None
+                or instance.runtime_revision_id != operation.runtime_revision_id
                 or instance.runtime_state_revision != proof.runtime_state_revision
+                or trust is None
+                or trust.state != "active"
+                or not trust.secret_reference
+                or trust.generation != proof.bridge_generation
+                or trust.runtime_revision_id != operation.runtime_revision_id
+                or trust.container_id != container
+                or not trust.identity_json
+                or "sha256:" + hashlib.sha256(trust.identity_json.encode()).hexdigest()
+                != proof.bridge_identity_digest
                 or lease is None
                 or lease.operation_id != operation.id
+                or lease.operation_kind
+                is not ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT
                 or lease.lease_token_digest != digest
+                or lease.lease_expires_at is None
+                or lease.lease_expires_at <= now
                 or heavy is None
                 or heavy.operation_id != operation.id
+                or heavy.operation_kind
+                is not GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT
                 or heavy.lease_token_digest != digest
+                or heavy.lease_expires_at is None
+                or heavy.lease_expires_at <= now
             ):
                 from kodi_lab.application.mcp_workspace_development import (
                     McpWorkspaceDevelopmentError,

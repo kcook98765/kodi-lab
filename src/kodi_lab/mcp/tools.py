@@ -1308,12 +1308,12 @@ class McpTargetToolService:
 
         def recheck_authority(session: Session) -> None:
             try:
-                self._authorization.authorize_workspace_target_scope(
+                self._authorization.recheck_workspace_launch(
+                    session,
                     principal,
-                    "workspace_deploy",
                     operation.workspace_id,
                     operation.target_id,
-                    read_session=session,
+                    tool_name="workspace_deploy",
                 )
             except McpAuthorizationError as error:
                 raise McpWorkspaceDevelopmentError(

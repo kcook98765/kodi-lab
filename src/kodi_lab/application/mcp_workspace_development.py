@@ -2908,9 +2908,48 @@ class McpWorkspaceDevelopmentService:
         if reused is not None:
             return reused
         container_id = self._exact_running_container(UUID(operation.target_id))
-        with self._sessions() as session:
+        with self._sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            current = session.get(McpWorkspaceDeploymentOperationRow, operation.id)
+            lease = ManagedInstanceMutationLeaseRepository(session).current(
+                UUID(operation.target_id)
+            )
+            heavy = GlobalHeavyOperationLeaseRepository(session).current()
+            now = _to_text(self._clock())
+            if (
+                current is None
+                or current.state != "running"
+                or current.mutation_started
+                or lease is None
+                or lease.operation_id != operation.id
+                or lease.operation_kind
+                is not ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT
+                or lease.lease_token_digest != digest
+                or lease.lease_expires_at is None
+                or lease.lease_expires_at <= now
+                or heavy is None
+                or heavy.operation_id != operation.id
+                or heavy.operation_kind
+                is not GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT
+                or heavy.lease_token_digest != digest
+                or heavy.lease_expires_at is None
+                or heavy.lease_expires_at <= now
+            ):
+                raise McpWorkspaceDevelopmentError("deployment_conflict")
+            if recheck_authority is not None:
+                recheck_authority(session)
+            self._deployment_preflight_rows(
+                session,
+                UUID(operation.workspace_id),
+                operation.generation,
+                UUID(operation.target_id),
+            )
             original_instance = session.get(ManagedInstanceRow, operation.target_id)
-            if original_instance is None:
+            if (
+                original_instance is None
+                or original_instance.runtime_revision_id
+                != operation.runtime_revision_id
+            ):
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
             self._session_admission(
                 session,
@@ -2920,14 +2959,12 @@ class McpWorkspaceDevelopmentService:
                 source_id=operation.development_source_id,
                 container_id=container_id,
             )
-            original_revision = original_instance.runtime_state_revision
-        self._update_deployment(
-            operation_id,
-            phase="stop",
-            mutation_started=True,
-            original_container_id=container_id,
-            original_runtime_state_revision=original_revision,
-        )
+            current.phase = "stop"
+            current.mutation_started = True
+            current.original_container_id = container_id
+            current.original_runtime_state_revision = (
+                original_instance.runtime_state_revision
+            )
         try:
             measurement.run(
                 "stop",

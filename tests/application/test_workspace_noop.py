@@ -366,3 +366,55 @@ def test_lost_mutation_lease_during_finalization_never_falls_back(
             session.get(ManagedInstanceMutationLeaseRow, str(fixture.TARGET_ID))
             is not None
         )
+
+
+@pytest.mark.parametrize("mismatch", ["target", "container", "revision", "phase"])
+def test_changed_selected_session_refuses_noop_and_native_work(
+    tmp_path: Path, mismatch: str
+) -> None:
+    from tests.application.test_session_workspace_admission import bind
+
+    env = environment(tmp_path)
+    deploy(env)
+    bind(env, mismatch=mismatch)
+    with pytest.raises(McpWorkspaceDevelopmentError):
+        deploy(env)
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        1,
+        1,
+        1,
+    )
+
+
+def test_replaced_container_refuses_stale_profile_deployment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.application.test_session_profile_lineage import fresh_binding
+
+    env = environment(tmp_path)
+    deploy(env)
+    fresh_binding(env, monkeypatch)
+    env.development._deployment_rate = BoundedIntervalRateLimiter(0)
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_not_allowed"):
+        deploy(env)
+    assert env.broker.stop_count == 1
+
+
+@pytest.mark.parametrize("state", ["ambiguous", "reconciliation_required"])
+def test_unresolved_previous_operation_never_reuses_older_proof(
+    tmp_path: Path, state: str
+) -> None:
+    env = environment(tmp_path)
+    first = deploy(env)
+    with env.sessions.begin() as session:
+        row = session.get(McpWorkspaceDeploymentOperationRow, str(first.deployment_id))
+        assert row is not None
+        row.state = state
+        row.failure_code = "deployment_ambiguous"
+    with pytest.raises(McpWorkspaceDevelopmentError):
+        deploy(env)
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        1,
+        1,
+        1,
+    )
