@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import stat
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 from uuid import uuid4
@@ -15,12 +16,38 @@ import pytest
 
 from kodi_lab import remote_lifecycle as lifecycle
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
-from kodi_lab.host_bootstrap import HostBootstrapError
-from tests.storage.test_remote_lifecycle import _historical, _url, repository_migrations
+from kodi_lab.host_bootstrap import (
+    HostBootstrapError,
+    generate_master_key,
+    initialize_state,
+)
+from tests.storage.test_migrations import (
+    MigrationTemplateStore,
+    migration_templates,
+)
+from tests.storage.test_remote_lifecycle import _url, repository_migrations
 
 # Keep the existing real migration fixture when running this file independently.
-__all__ = ["repository_migrations"]
+__all__ = ["migration_templates", "repository_migrations"]
 SCOPES = ("household-onboarding", "managed-agent-lifecycle", "external-reconnect")
+
+
+@pytest.fixture
+def historical_state(
+    migration_templates: MigrationTemplateStore,
+) -> Callable[[Path], None]:
+    """Clone only the real historical schema prefix; keep each private key fresh."""
+
+    def prepare(root: Path) -> None:
+        initialize_state(root)
+        generate_master_key(root)
+        database = root / lifecycle.DATABASE
+        assert not database.exists()
+        migration_templates.clone("0052_production_policy_revision_binding", database)
+        # Match the original prefix's umask-created private database permissions.
+        database.chmod(0o600)
+
+    return prepare
 
 
 def _lock(root: Path, scope: str) -> Path:
@@ -53,10 +80,10 @@ def _dump(root: Path) -> list[str]:
 
 @pytest.mark.parametrize("scopes", [(s,) for s in SCOPES] + [SCOPES])
 def test_backup_restore_preserves_held_and_later_application_locks(
-    tmp_path: Path, scopes: tuple[str, ...]
+    tmp_path: Path, scopes: tuple[str, ...], historical_state: Callable[[Path], None]
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    historical_state(root)
     before_database = _dump(root)
     key = (root / "master-key").read_bytes()
     with ExitStack() as stack:
@@ -92,9 +119,10 @@ def test_backup_restore_preserves_held_and_later_application_locks(
 
 def test_real_managed_lifecycle_lock_creator_is_backup_compatible(
     tmp_path: Path,
+    historical_state: Callable[[Path], None],
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    historical_state(root)
     # Only the lock context is exercised; no lifecycle dependencies are invoked.
     service = object.__new__(ManagedAgentLifecycleService)
     service._locks = root / "locks" / "managed-agent-lifecycle"
@@ -134,10 +162,14 @@ def test_real_managed_lifecycle_lock_creator_is_backup_compatible(
     ],
 )
 def test_backup_rejects_unsafe_application_locks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope: str, unsafe: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scope: str,
+    unsafe: str,
+    historical_state: Callable[[Path], None],
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    historical_state(root)
     lock = _lock(root, scope)
     locks = root / "locks"
     parent = lock.parent
@@ -195,10 +227,10 @@ def test_backup_rejects_unsafe_application_locks(
 
 @pytest.mark.parametrize("recorded", [False, True])
 def test_backup_verifier_rejects_archived_application_locks(
-    tmp_path: Path, recorded: bool
+    tmp_path: Path, recorded: bool, historical_state: Callable[[Path], None]
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    historical_state(root)
     identifier = lifecycle.backup(root, _url(root))
     archive = root / "backups" / identifier
     lock = _lock(archive, "managed-agent-lifecycle")
@@ -215,3 +247,35 @@ def test_backup_verifier_rejects_archived_application_locks(
         manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(HostBootstrapError, match="inventory"):
         lifecycle._verify_backup(root, identifier)
+
+
+def test_lock_fixture_keeps_keys_and_database_mutations_private(
+    tmp_path: Path,
+    historical_state: Callable[[Path], None],
+) -> None:
+    first, second, later = (tmp_path / name for name in ("first", "second", "later"))
+    historical_state(first)
+    historical_state(second)
+    assert _dump(first) == _dump(second)
+    assert (first / "master-key").read_bytes() != (second / "master-key").read_bytes()
+    for root in (first, second):
+        database = root / lifecycle.DATABASE
+        assert stat.S_IMODE(database.stat().st_mode) == 0o600
+        assert database.stat().st_nlink == 1
+        with sqlite3.connect(database) as db:
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                "0052_production_policy_revision_binding",
+            )
+    assert (
+        _identity(first / lifecycle.DATABASE)[:2]
+        != _identity(second / lifecycle.DATABASE)[:2]
+    )
+    before = _dump(second)
+    with sqlite3.connect(first / lifecycle.DATABASE) as db:
+        db.execute("CREATE TABLE private_lock_fixture_probe (value TEXT)")
+    assert _dump(second) == before
+    historical_state(later)
+    assert _dump(later) == before
+    assert (later / "master-key").read_bytes() not in {
+        (root / "master-key").read_bytes() for root in (first, second)
+    }
