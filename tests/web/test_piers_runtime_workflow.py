@@ -45,7 +45,7 @@ def test_preview_card_requires_development_mode(
     [
         ("release", "22.0-rc.2"),
         ("release", "22.0"),
-        ("recipe_revision", 2),
+        ("recipe_revision", 1),
         ("recipe_revision", True),
         ("recipe_digest", "sha256:" + "f" * 64),
         ("acknowledgement", "all-prereleases"),
@@ -171,3 +171,28 @@ def test_clean_profile_reset_does_not_claim_beta_fixture_approval(
     assert "No fixture is assigned" in page.text
     assert "creates a clean profile" in page.text
     assert "The assigned fixture will be reapplied" not in page.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/runtime-installations/piers", "/api/runtime-installations/piers/instances"],
+)
+def test_complete_historical_consent_cannot_authorize_current_revision(
+    client: TestClient, broker: FakeBroker, path: str
+) -> None:
+    from kodi_lab.runtime.recipes import HISTORICAL_PREVIEW_INSTALLATION_DIGEST
+
+    flow = Flow()
+    flow.attach(broker)
+    token = login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
+    ack = {
+        **preview_acknowledgement(),
+        "recipe_id": "piers-22.0-rc1-r1",
+        "recipe_revision": 1,
+        "recipe_digest": HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
+    }
+    result = client.post(path, json=ack, headers={**ORIGIN, "X-Kodi-Lab-CSRF": token})
+    assert result.status_code == 409
+    assert result.json()["detail"] == "installation_action_conflict"
+    assert not flow.launches
