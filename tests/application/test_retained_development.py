@@ -241,6 +241,35 @@ def environment(
     )
 
 
+def test_selected_profile_absence_blocks_reset_reprovision_without_rebinding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Model post-deprovision inventory only; never run reset or remove a profile."""
+    s = environment(tmp_path, monkeypatch)
+    selected, _request = s.choose("omega")
+    before = {k: p.read_bytes() for k, p in s.profiles.items()}
+    s.records[:] = [
+        r for r in s.records if r.managed_instance_id != str(s.ids["omega"])
+    ]
+
+    def dispatch() -> Any:
+        pytest.fail("The stale selected container must block before provisioning")
+
+    with pytest.raises(
+        ManagedCapacityError, match="development_session_identity_changed"
+    ):
+        s.admission.run_provision(
+            instance_id=str(s.ids["omega"]),
+            revision_id=str(s.revisions[s.ids["omega"]]),
+            dispatch=dispatch,
+        )
+    assert s.service.status() == selected
+    assert len(s.records) == 3
+    assert {k: p.read_bytes() for k, p in s.profiles.items()} == before
+    with s.env.sessions() as session:
+        assert session.scalar(select(ManagedProvisionReservationRow)) is None
+
+
 def test_four_stopped_profiles_switch_without_mutating_bytes_or_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -11,13 +11,23 @@
   <div class="current-kodi-heading">
     <div><p class="eyebrow">Managed development</p>
       <h1 data-current-name>{{ current_kodi.summary.name if current else 'No Kodi selected' }}</h1>
+      <p data-current-profile{% if not current %} hidden{% endif %}>{{ ('Retained profile · switching versions keeps this profile.' if current_kodi.summary.retained else 'Disposable profile') if current else '' }}</p>
       <p class="current-kodi-context" data-current-context>{{ 'Workspace: ' ~ current_kodi.summary.workspace_name if current else '' }}</p>
       <p data-current-state class="current-kodi-state">{{ 'Checking status' if current else 'Choose your development environment' }}</p>
     </div>
-    <a data-session-target{% if current %} href="/instances/{{ current.target_id }}"{% else %} hidden{% endif %}>Advanced management</a>
   </div>
   <p data-session-status role="status" aria-live="polite">Checking the selected environment…</p>
   <p data-current-recovery hidden><a data-current-recovery-link>Review the exact operation and recovery options</a></p>
+  <div class="actions current-lifecycle" aria-label="Kodi lifecycle">
+    <button type="button" data-session-action="prepare" hidden disabled>Prepare Kodi</button>
+    <button type="button" data-session-action="resume" hidden disabled>Start Kodi</button>
+    <button type="button" data-session-action="stop" hidden disabled>Stop Kodi</button>
+    <a class="button-link" href="{{ '/development-session/retained' if retained_profiles else '/development-session/replacement' }}" data-current-switch{% if not current %} hidden{% endif %}>Switch Kodi Version…</a>
+    {% if retained_profiles %}<button type="button" data-current-fresh-test aria-describedby="fresh-test-unavailable"{% if not current %} hidden{% endif %} disabled>Fresh Test…</button>{% endif %}
+    <button type="button" data-session-refresh>Refresh status</button>
+  </div>
+  {% if retained_profiles %}<p id="fresh-test-unavailable" data-current-fresh-test-note{% if not current %} hidden{% endif %}>Fresh Test is unavailable: the existing reset cannot safely finish with a clean, selected retained profile.</p>{% endif %}
+  <p class="secondary" data-current-checked></p>
   <section class="current-screen" aria-labelledby="current-screen-heading"{% if not current %} hidden{% endif %} data-current-screen>
     <h2 id="current-screen-heading">Kodi screen</h2>
     <p data-session-viewer-status role="status">Viewing is off. Checking screen availability…</p>
@@ -25,23 +35,9 @@
     <p><a data-session-watch hidden>Watch Kodi in a separate page</a></p>
     <p><a data-current-fallback{% if current %} href="/instances/{{ current.target_id }}#visual-access"{% else %} hidden{% endif %}>Screenshots and JPEG fallback</a></p>
   </section>
-  <div class="actions current-lifecycle" aria-label="Kodi lifecycle">
-    <button type="button" data-session-action="prepare" hidden disabled>Prepare Kodi</button>
-    <button type="button" data-session-action="resume" hidden disabled>Start Kodi</button>
-    <button type="button" data-session-action="stop" hidden disabled>Stop Kodi</button>
-    <a class="button-link" href="{{ '/development-session/retained' if retained_profiles else '/development-session/replacement' }}" data-current-switch{% if not current %} hidden{% endif %}>Switch Kodi Version…</a>
-    <button type="button" data-session-refresh>Refresh status</button>
-  </div>
-  <p class="secondary" data-current-checked></p>
   <section data-current-development{% if not current %} hidden{% endif %} aria-labelledby="current-development-heading">
-    <h2 id="current-development-heading">Development</h2>
+    <h2 id="current-development-heading">Add-on workspace</h2>
     <p><strong data-current-workspace>{{ current_kodi.summary.workspace_name if current else '' }}</strong> <span data-current-addon>{{ current_kodi.summary.addon_id if current else '' }}</span> · <a data-session-workspace{% if current %} href="/agent-workspaces/{{ current.workspace_id }}"{% else %} hidden{% endif %}>Open workspace</a></p>
-    <dl class="current-development-status">
-      <dt>Native Kodi</dt><dd data-current-native>Not checked</dd>
-      <dt>Agent access</dt><dd>Not checked for a specific client · <a href="/mcp-clients">Review agent access</a></dd>
-      <dt>Development capabilities</dt><dd><a href="/development-session/preparation" data-current-preparation>Review development setup</a></dd>
-    </dl>
-    <p class="secondary">Native readiness, recorded development prerequisites and agent permissions are checked separately.</p>
   </section>
   <section data-current-choice{% if current %} hidden{% endif %} aria-labelledby="session-heading">
     <h2 id="session-heading">Choose Kodi</h2>
@@ -63,6 +59,13 @@
   </section>
   <details class="current-more">
     <summary>More options and Advanced</summary>
+    <p><a data-session-target{% if current %} href="/instances/{{ current.target_id }}"{% else %} hidden{% endif %}>Advanced management and recovery</a></p>
+    <dl class="current-development-status">
+      <dt>Native Kodi</dt><dd data-current-native>Not checked</dd>
+      <dt>Agent access</dt><dd>Not checked for a specific client · <a href="/mcp-clients">Review agent access</a></dd>
+      <dt>Development capabilities</dt><dd><a href="/development-session/preparation" data-current-preparation>Review development setup</a></dd>
+    </dl>
+    <p class="secondary">Native readiness, recorded development prerequisites and agent permissions are checked separately.</p>
     <p>{% if not retained_profiles %}<a href="/development-session/replacement">Fresh Test…</a> · {% endif %}<a href="/diagnostics">Saved diagnostics</a> · <a href="/#instances">Managed registrations</a> · <a href="/runtimes">Runtime installations</a> · <a href="/managed-resources">Resource and keep-awake controls</a></p>
     <p>{% if retained_profiles %}Version selection keeps all retained profiles.{% else %}Fresh Test and Switch use the existing evidence review and explicit profile-disposal confirmation.{% endif %} Stop keeps the same profile and workspace.</p>
     <p><a href="/development-session/retained">Retained Kodi versions</a></p>

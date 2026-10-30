@@ -4,6 +4,7 @@
   {% set selected_kodi = current_kodi.current if current_kodi is defined else none %}
   {% if selected_kodi %}
   <p class="current-kodi-version">{{ current_kodi.summary.name }}</p>
+  <p>{{ 'Retained profile' if current_kodi.summary.retained else 'Disposable profile' }}</p>
   <p>{{ current_kodi.summary.workspace_name }} · {{ current_kodi.summary.addon_id }}</p>
   <p>Selected development environment. Open Current Kodi for live status, viewing and Start / Stop controls.</p>
   {% elif current_kodi is not defined %}
