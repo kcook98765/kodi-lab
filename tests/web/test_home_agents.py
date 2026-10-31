@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -269,3 +271,50 @@ def development_admin_view(request: pytest.FixtureRequest) -> None:
     if "client" in request.fixturenames:
         client: TestClient = request.getfixturevalue("client")
         client.cookies.set("kodi_lab_admin_view", "development")
+
+
+@pytest.mark.parametrize("view", ["standard", "development"])
+@pytest.mark.parametrize("populated", [False, True])
+def test_agents_prioritize_existing_clients(
+    client: TestClient, view: str, populated: bool
+) -> None:
+    csrf = login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, view)
+    if populated:
+        preset = next(
+            p
+            for p in client.get("/api/mcp/presets").json()
+            if p["display_name"] == "Production Inspection"
+        )
+        created = client.post(
+            "/api/mcp/clients",
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+            json={"display_name": "My agent", "preset_id": preset["id"]},
+        )
+        assert created.status_code == 201
+        issued = client.post(
+            f"/api/mcp/clients/{created.json()['id']}/credentials",
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+            json={"expiration_seconds": 86400},
+        )
+        assert issued.status_code == 201
+    page = client.get("/mcp-clients").text
+    if populated:
+        assert page.index('id="agent-clients-heading"') < page.index(
+            "data-agent-onboarding"
+        )
+        assert "<details data-agent-onboarding>" in page
+        assert "<summary>Connect another agent</summary>" in page
+        assert "My agent" in page
+    else:
+        assert "<details data-agent-onboarding open>" in page
+        assert "<summary>Connect your first agent</summary>" in page
+    assert page.count('id="agent-clients-heading"') == 1
+    assert page.count('data-token-result tabindex="-1"') == 1
+    assert "Trusted LAN HTTP is unencrypted." in page
+    if destination := os.getenv("KODI_ADMIN_VIEW_EVIDENCE"):
+        root = Path(destination)
+        root.mkdir(parents=True, exist_ok=True)
+        (
+            root / f"agents-{view}-{'populated' if populated else 'empty'}.html"
+        ).write_text(page)

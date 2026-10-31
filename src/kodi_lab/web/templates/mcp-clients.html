@@ -7,12 +7,15 @@
 {% set lan_ready = mcp_lan is defined and mcp_lan.ready %}
 {% set http_ready = mcp_lan_http is defined and mcp_lan_http.ready %}
       <h1>Agents</h1>
-      <p>Connect one MCP-compatible agent to Kodi in five steps. A client holds that agent's permissions and tokens, separate from your Web administrator account.</p>
+      <p>Each agent has its own client, permissions and tokens.</p>
       <p class="error" data-error role="alert" hidden></p>
       <noscript><p>Enable JavaScript to create clients, issue tokens, change connection method and use copy controls. The configuration templates are available for manual copying; the selected example does not change without JavaScript.</p></noscript>
+      {% if clients %}{% include 'agent-clients.html' %}{% endif %}
+      <details data-agent-onboarding{% if not clients %} open{% endif %}>
+        <summary>{{ 'Connect another agent' if clients else 'Connect your first agent' }}</summary>
       <section aria-labelledby="agent-create-heading">
         <h2 id="agent-create-heading">1. Create or select a client and choose permissions</h2>
-        <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your clients</a> below.</p>
+        <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your agents</a>.</p>
         <form data-create-client>
           <label>Client name <input name="display_name" required maxlength="120" placeholder="My coding assistant"></label>
           <label>Permissions preset <select name="preset_id" required aria-describedby="agent-preset-help">
@@ -30,7 +33,7 @@
       </section>
       <section aria-labelledby="agent-config-heading">
         <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
-        <p>Open your client in <a href="#agent-clients-heading">Your clients</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong> for your Home Kodi, then <strong>Grant current inspect scope</strong>. For screenshots, also grant the current visual scope when available. These are explicit actions; creating a client does not grant access.</p>
+        <p>Open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong> for your Home Kodi, then <strong>Grant current inspect scope</strong>. For screenshots, also grant the current visual scope when available. These are explicit actions; creating a client does not grant access.</p>
       </section>
       <section aria-labelledby="agent-copy-heading">
         <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
@@ -105,41 +108,8 @@
         <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both Home inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
         <p class="secondary">If connection fails, check the selected transport, supported MCP version and token expiry. For either LAN method, check endpoint and network access; HTTPS also requires certificate trust. For stdio, check the installed command and local port. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
-      <section aria-labelledby="agent-clients-heading">
-      <h2 id="agent-clients-heading">Your clients</h2>
-      {% for client in clients %}
-      <article data-client-id="{{ client.id }}">
-        <details class="agent-client-details">
-        <summary><strong>{{ client.display_name }}</strong><span>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }}</span></summary>
-        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}{% if client.disabled_at %} · disabled since {{ client.disabled_at }}{% endif %}</p>
-        <form data-rename><label>Client name <input name="display_name" value="{{ client.display_name }}" required maxlength="120"></label><button type="submit">Rename</button></form>
-        <label>Preset <select data-client-preset>{% for preset in presets if preset.assignable and (development_view or preset.id == client.preset.id or preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}"{% if preset.id == client.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select></label>
-        <button type="button" data-action="toggle" data-enabled="{{ 'true' if client.enabled else 'false' }}">{{ 'Disable' if client.enabled else 'Enable' }}</button>
-        <label>Token lifetime <select data-token-lifetime><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="none">Non-expiring</option></select></label>
-        <button type="button" data-action="issue">Issue token</button>
-        <h3>Credentials</h3>
-        <ul>{% for credential in client.credentials %}<li data-credential-id="{{ credential.id }}">{{ credential.id }} · {{ credential.status }} · expires {{ credential.expires_at or 'never' }} · last used {{ credential.last_used_at or 'never' }} <button type="button" data-action="rotate">Rotate</button> <button type="button" data-action="revoke">Revoke</button></li>{% else %}<li>No credentials.</li>{% endfor %}</ul>
-        <h3>Kodi access</h3>
-        <p>Creating a client or issuing a token does not grant access to Kodi. The client preset and the Kodi policy must both allow the requested inspection.</p>
-        <p>For Home Kodi, use <strong>Grant</strong>, then <strong>Grant current inspect scope</strong> for that Kodi. For screenshots, also use <strong>Grant current visual scope</strong> when available. These are separate, explicit permissions. If the required control is missing, review this client's preset and the Kodi policy under Advanced administration.</p>
-        <h4>Exact target grants</h4>
-        <ul>{% for target in targets if development_view or target.target_class == 'external_production' %}{% set bridge = production_bridge_statuses.get(target.target_id) %}<li>{{ target.target_name }} · {{ target.target_class }} · policy {{ target.preset.display_name if target.preset else 'deny (unassigned)' }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %}{% if bridge and bridge.production_bridge_trust_revision %} · bridge revision {{ bridge.production_bridge_trust_revision }}{% endif %} <button type="button" data-action="grant" data-target-id="{{ target.target_id }}">Grant</button> <button type="button" data-action="remove-grant" data-target-id="{{ target.target_id }}">Remove grant</button>{% if target.target_class == 'external_production' %} <button type="button" data-action="grant-production-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}">Grant current inspect scope</button>{% if client.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and target.preset and target.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-visual-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current visual scope</button>{% endif %}{% if client.preset.display_name == 'Production Remote Kodi' and target.preset and target.preset.display_name == 'Production Remote Kodi' and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-navigate-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current navigate scope</button> <button type="button" data-action="grant-production-transient-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant transient approval-request scope</button>{% endif %}{% endif %}</li>{% endfor %}</ul>
-        <h3>Production inspection scopes</h3>
-        <ul>{% for scope in production_scopes if scope.client_id == client.id %}<li>{{ scope.target_id }} · {{ scope.scope }} · generation {{ scope.identity_generation }} (current {{ scope.current_identity_generation }}){% if scope.bridge_trust_revision %} · bridge revision {{ scope.bridge_trust_revision }} (current {{ scope.current_bridge_trust_revision }}){% endif %} · {{ scope.effective_state }} · created {{ scope.created_at }} by {{ scope.created_by }}{% if scope.revoked_at %} · revoked {{ scope.revoked_at }} by {{ scope.revoked_by }}{% endif %}{% if scope.state == 'active' %} <button type="button" data-action="revoke-production-scope" data-scope-id="{{ scope.scope_id }}">Revoke</button>{% endif %}</li>{% else %}<li>No production inspection scopes.</li>{% endfor %}</ul>
-        {% if development_view %}<details class="agent-development-details">
-        <summary>Development access and workspace bindings</summary>
-        <h3>Exact DevelopmentSource grants</h3>
-        <p class="secondary">A source grant is necessary but does not expose unbound workspaces.</p>
-        <ul>{% for source in development_sources %}<li>{{ source.logical_name }} · {{ source.addon_id }} · {{ 'granted' if source.id in client.development_source_grants else 'not granted' }} <button type="button" data-action="grant-source" data-source-id="{{ source.id }}">Grant</button> <button type="button" data-action="revoke-source" data-source-id="{{ source.id }}">Revoke</button></li>{% else %}<li>No registered DevelopmentSources.</li>{% endfor %}</ul>
-        <h3>Workspace bindings</h3>
-        <ul>{% for binding in client.workspace_bindings %}<li>{{ binding.workspace_id }} · source {{ binding.development_source_id }} · {{ binding.binding_origin }} · owner {{ 'enabled' if binding.owning_client_enabled else 'disabled' }} · retention {{ binding.retention_classification }}{% if binding.retention_deadline_at %} · deadline {{ binding.retention_deadline_at }}{% endif %}{% if binding.automatic_cleanup_blocked %} · automatic cleanup blocked; use existing workspace administration{% endif %}{% if binding.latest_deployment_id %} · deployment {{ binding.latest_deployment_state }} generation {{ binding.latest_deployment_generation }} target {{ binding.latest_deployment_target_id }}{% endif %}{% if binding.latest_execution_id %} · execution {{ binding.latest_execution_state }} generation {{ binding.latest_execution_generation }} target {{ binding.latest_execution_target_id }}{% endif %}</li>{% else %}<li>No bound workspaces.</li>{% endfor %}</ul>
-        <h3>Eligible unbound workspaces</h3>
-        <ul>{% for workspace in eligible_workspaces[client.id] %}<li>{{ workspace.workspace_id }} · {{ workspace.source_logical_name }} · generation {{ workspace.generation }} <button type="button" data-action="bind-workspace" data-workspace-id="{{ workspace.workspace_id }}">Bind</button></li>{% else %}<li>No eligible unbound workspaces for current grants.</li>{% endfor %}</ul>
-        </details>{% endif %}
-        </details>
-      </article>
-      {% else %}<p>No clients yet. Create one above to connect your first agent.</p>{% endfor %}
-      </section>
+      </details>
+      {% if not clients %}{% include 'agent-clients.html' %}{% endif %}
       {% if development_view %}<details data-agent-advanced class="agent-advanced">
         <summary>Advanced administration — custom presets and Kodi policies</summary>
       <section>

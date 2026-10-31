@@ -23,6 +23,8 @@
     const box = root.querySelector("[data-token-result]");
     box.querySelector("[data-token-client]").textContent = `For ${card.querySelector("summary strong").textContent}`;
     box.querySelector("[data-token]").textContent = payload.token;
+    const onboarding = box.closest("[data-agent-onboarding]");
+    if (onboarding) onboarding.open = true;
     box.hidden = false;
   };
   root.querySelector("[data-create-client]")?.addEventListener("submit", (event) => run(async () => {
