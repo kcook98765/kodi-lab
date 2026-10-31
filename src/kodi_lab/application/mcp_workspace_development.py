@@ -3133,7 +3133,10 @@ class McpWorkspaceDevelopmentService:
         from kodi_lab.application.workspace_noop import record_managed_verification
 
         record_managed_verification(
-            self, self._deployment_required(operation_id), measurement
+            self,
+            self._deployment_required(operation_id),
+            measurement,
+            destination_only_count=result.destination_only_count,
         )
         self._update_deployment(
             operation_id,

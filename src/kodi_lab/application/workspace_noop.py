@@ -45,6 +45,8 @@ def _context(
     service: McpWorkspaceDevelopmentService,
     operation: McpWorkspaceDeploymentOperationRow,
     measurement: DeploymentMeasurement,
+    *,
+    destination_only_count: int | None = None,
 ) -> ManagedDeploymentVerification:
     verify_bridge = service._managed_noop_bridge
     if verify_bridge is None:
@@ -117,6 +119,7 @@ def _context(
             + hashlib.sha256(trust.identity_json.encode()).hexdigest(),
             source_manifest_digest=operation.source_manifest_digest or "",
             destination_manifest_digest=operation.verified_destination_digest or "",
+            destination_only_count=destination_only_count,
             native_restart_count=1,
         )
 
@@ -125,12 +128,19 @@ def record_managed_verification(
     service: McpWorkspaceDevelopmentService,
     operation: McpWorkspaceDeploymentOperationRow,
     measurement: DeploymentMeasurement,
+    *,
+    destination_only_count: int | None = None,
 ) -> None:
     """Optional future reuse proof; absence never changes ordinary deployment."""
     if service._managed_noop_bridge is None:
         return
     try:
-        proof = _context(service, operation, measurement)
+        proof = _context(
+            service,
+            operation,
+            measurement,
+            destination_only_count=destination_only_count,
+        )
         service._update_deployment(
             UUID(operation.id), managed_verification_json=proof.model_dump_json()
         )
@@ -273,6 +283,9 @@ def try_verified_noop(
             return None
         proof = final.model_copy(
             update={
+                # Existing exact source/destination equality and fresh readback
+                # prove zero independently of any historical advisory.
+                "destination_only_count": 0,
                 "reused_deployment_id": UUID(prior.id),
                 "native_restart_count": 0,
                 "bytes_staged": 0,

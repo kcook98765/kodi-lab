@@ -39,6 +39,23 @@ execution is explicitly `not_performed`. File verification does not establish
 fresh code execution, GUI acceptance or functional smoke. Continue with the
 existing supported launch/smoke and observation tools when needed.
 
+The optional `managed_verification.destination_only_count` reports how many
+installed entries were absent from the workspace at this operation. Ordinary
+Copy/Sync reuses its existing verified delta count; entries can include both
+files and directories. A positive count means those entries were retained,
+including after a source removal or rename. They are not necessarily obsolete,
+and the receipt does not prove their individual ownership. Review the exact
+removal/import receipts and ask the Web administrator to review installation
+provenance when needed. No cleanup or deletion is performed.
+
+A known zero means no destination-only entries at verification time. Exact
+verified no-op equality proves zero after the existing fresh checks; retained
+extras prevent that no-op path. Missing counts in historical verification JSON
+remain unknown (`null`), and unavailable optional proof leaves
+`managed_verification` absent or `null`. Replay returns historical evidence
+without refreshing its count. The count uses the existing bounded verification
+JSON; it adds no database migration, scan or destination readback.
+
 Insufficient proof follows the ordinary deployment path, including its existing
 drift and reconciliation behavior. No-op verification never repairs drift.
 Stopped Kodi cannot establish eligibility. Container replacement, stop/resume,
