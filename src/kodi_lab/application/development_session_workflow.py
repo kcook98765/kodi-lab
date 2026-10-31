@@ -55,6 +55,7 @@ class CurrentKodiSummary(BaseModel):
     checked_at: datetime
     recovery_url: str
     native_status: str = "Not checked"
+    retained: bool = False
 
 
 SessionView.model_rebuild()

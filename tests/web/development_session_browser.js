@@ -18,7 +18,7 @@ function result(phase) {
 function boot(phase = null, rendered = {}, configuration = {}) {
   function element(dataset = {}) {return {dataset, disabled:true, hidden:true, textContent:'', removeAttribute(name) {delete this[name];}, addEventListener(_event, fn) {this.click=fn;}};}
   const nodes = new Map();
-  for (const name of ['session-selection','session-reserve','session-refresh','session-status','session-target','session-workspace','session-watch','session-viewer-status']) nodes.set(`[data-${name}]`,element());
+  for (const name of ['session-selection','session-reserve','session-refresh','session-status','session-target','session-workspace','session-watch','session-viewer-status','current-profile','current-state']) nodes.set(`[data-${name}]`,element());
   const actions=['prepare','resume','stop','close-absent'].map(sessionAction=>element({sessionAction}));
   const selectedWorkspace={value:workspace}, selectedTarget={value:target};
   const form=nodes.get('[data-session-selection]');
@@ -68,6 +68,12 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   await reserved.actions[0].click();
   assert.deepEqual(JSON.parse(reserved.requests.find(r=>r.url.endsWith('/prepare')).options.body),{expected_generation:1});
   const stopped=boot('bound');await flush();
+  assert.equal(stopped.get('current-profile').textContent,'Disposable profile');
+  stopped.scenario.view.summary.retained=true;
+  stopped.scenario.view.summary.status='Ready';
+  await stopped.get('session-refresh').click();
+  assert.equal(stopped.get('current-profile').textContent,'Retained profile · switching versions keeps this profile.');
+  assert.equal(stopped.get('current-state').textContent,'Running · Ready');
   assert.equal(stopped.actions[1].disabled,false);
   assert.equal(stopped.actions[2].hidden,true);
   stopped.scenario.view.summary.actions=['stop'];

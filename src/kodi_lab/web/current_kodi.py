@@ -23,6 +23,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import AgentWorkspaceRepository, TargetRepository
+from kodi_lab.storage.retained_development import retained_targets
 
 
 def friendly_kodi_name(version: str | None) -> str:
@@ -53,6 +54,7 @@ class CurrentKodiPresentation:
         with self.factory() as db:
             target = TargetRepository(db).get(current.target_id)
             workspace = AgentWorkspaceRepository(db).get(current.workspace_id)
+            retained = str(current.target_id) in retained_targets(db)
         view.summary = CurrentKodiSummary(
             name=friendly_kodi_name(None if target is None else target.kodi_version),
             workspace_name="Workspace needs review"
@@ -64,6 +66,7 @@ class CurrentKodiPresentation:
             actions=[],
             checked_at=datetime.now(UTC),
             recovery_url=f"/instances/{current.target_id}",
+            retained=retained,
         )
         return view
 
@@ -188,9 +191,17 @@ class CurrentKodiPresentation:
         # Reuse the same observation. The identity was fenced in observe().
         inventory = observation.inventory
         assert inventory is not None
-        container = inventory.containers[0]
+        container = next(
+            (
+                item
+                for item in inventory.containers
+                if item.managed_instance_id == str(current.target_id)
+            ),
+            None,
+        )
         if (
-            container.container_id != current.container_id
+            container is None
+            or container.container_id != current.container_id
             or container.runtime_revision_id != str(current.runtime_revision_id)
         ):
             raise DevelopmentSessionConflict("development_session_identity_changed")

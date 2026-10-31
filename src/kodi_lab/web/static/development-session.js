@@ -76,7 +76,7 @@
       const current = view.current, summary = view.summary;
       hideWatch();
       for (const name of ['current-choice']) show(name, !current);
-      for (const name of ['current-development', 'current-screen', 'current-switch']) show(name, !!current);
+      for (const name of ['current-development', 'current-screen', 'current-switch', 'current-profile']) show(name, !!current);
       if (!current) {
         status.textContent = 'No Kodi is selected. Choose a workspace and reviewed runtime.';
         setText('current-name', 'No Kodi selected');
@@ -85,7 +85,8 @@
         screen();
       } else {
         setText('current-name', summary.name);
-        setText('current-state', changed || uncertain ? 'Needs Attention' : summary.status);
+        setText('current-state', changed || uncertain ? 'Needs Attention' : summary.status === 'Ready' ? 'Running · Ready' : summary.status);
+        setText('current-profile', summary.retained ? 'Retained profile · switching versions keeps this profile.' : 'Disposable profile');
         setText('current-workspace', summary.workspace_name);
         setText('current-context', `Workspace: ${summary.workspace_name}`);
         setText('current-addon', summary.addon_id);

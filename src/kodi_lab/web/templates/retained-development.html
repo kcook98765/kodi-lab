@@ -1,9 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Retained Kodi versions · Kodi Lab{% endblock %}
+{% set nav_section = 'kodi' %}
+{% block title %}Switch Kodi Version · Kodi Lab{% endblock %}
 {% block content %}
-<h1>Retained Kodi versions</h1>
-<p>Keep a private profile for Matrix, Nexus, Omega and Piers RC1 where its reviewed runtime is available. Only one Kodi may run at a time. Stop Kodi and release use holds before choosing another version.</p>
-<p><a href="/development-session">Back to Current Kodi</a> · <a href="/runtimes">Reviewed runtime installations</a></p>
+{% set version_names = {'19.4': 'Matrix 19.4', '20.5': 'Nexus 20.5', '21.3': 'Omega 21.3', '22.0-rc.1': 'Piers 22 RC1'} %}
+<h1>Switch Kodi Version</h1>
+<p>Keep a separate profile for Matrix 19.4, Nexus 20.5, Omega 21.3 and Piers 22 RC1. Only one managed Kodi may run at a time. Stop Kodi and release use holds before confirming a switch.</p>
+<p>Switching keeps the previous profile and does not start, reset or delete Kodi, or transfer agent permissions.</p>
+<p><a href="/development-session">Back to Current Kodi</a></p>
 {% if not policy.enabled %}
 <section>
   <h2>Enable retained versions</h2>
@@ -21,21 +24,38 @@
 </section>
 {% else %}
 <section>
-  <h2>Choose a retained version</h2>
+  <h2>Retained Kodi versions</h2>
+  <table>
+    <caption>Approved versions · profile status is checked during selection review</caption>
+    <thead><tr><th scope="col">Kodi version</th><th scope="col">Selection</th><th scope="col">Profile</th></tr></thead>
+    <tbody>
+    {% for version, label in version_names.items() %}
+      {% set available = namespace(choice=none) %}
+      {% for choice in choices %}{% if choice.kodi_version == version %}{% set available.choice = choice %}{% endif %}{% endfor %}
+      <tr><th scope="row">{{ label }}</th>
+      {% if available.choice %}
+        <td>{{ 'Current selection' if current and current.target_id == available.choice.target_id else 'Available to select' }}</td>
+        <td>{% if preview and preview.target_id == available.choice.target_id %}{{ 'Existing retained profile' if preview.provisioned else 'Preparation required' }}{% elif current and current.target_id == available.choice.target_id and current.phase == 'bound' %}Retained profile selected{% else %}Review to check profile{% endif %}</td>
+      {% else %}<td colspan="2">Reviewed runtime unavailable · <a href="/runtimes">Review runtime installations</a></td>{% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <h2>Review your switch</h2>
   <form method="get" action="/development-session/retained">
     <label>Add-on workspace <select name="workspace_id" required>
     {% for workspace in workspaces %}{% if workspace.state.value == 'ready' and workspace.bytes_state.value == 'present' %}<option value="{{ workspace.id }}"{% if (preview and workspace.id == preview.workspace_id) or (not preview and current and workspace.id == current.workspace_id) %} selected{% endif %}>{{ workspace.source_logical_name }} — {{ workspace.source_addon_id }}</option>{% endif %}{% endfor %}
     </select></label>
     <label>Kodi version <select name="target_id" required>
-    {% for choice in choices %}<option value="{{ choice.target_id }}"{% if (preview and choice.target_id == preview.target_id) or (not preview and current and choice.target_id == current.target_id) %} selected{% endif %}>{{ choice.kodi_version }} · {{ choice.name }}</option>{% endfor %}
+    {% for choice in choices %}<option value="{{ choice.target_id }}"{% if (preview and choice.target_id == preview.target_id) or (not preview and current and choice.target_id == current.target_id) %} selected{% endif %}>{{ version_names.get(choice.kodi_version, choice.kodi_version) }}{{ ' · Current selection' if current and choice.target_id == current.target_id else '' }}</option>{% endfor %}
     </select></label>
     <button type="submit">Review selection</button>
   </form>
   {% if preview %}
   <h3>Confirm selection</h3>
   {% for workspace in workspaces %}{% if workspace.id == preview.workspace_id %}<p>Workspace: {{ workspace.source_logical_name }} · {{ workspace.source_addon_id }} · {{ workspace.id }}</p>{% endif %}{% endfor %}
-  <p>{% for choice in choices %}{% if choice.target_id == preview.target_id %}{{ choice.kodi_version }} · {{ choice.name }}{% endif %}{% endfor %}</p>
-  <p>{% if preview.provisioned %}Use this existing stopped profile.{% else %}Select this version for separate profile preparation.{% endif %} The previous profile stays retained. Source setup, native readiness, Bridge trust and agent permissions remain separate checks.</p>
+  <p>{% for choice in choices %}{% if choice.target_id == preview.target_id %}{{ version_names.get(choice.kodi_version, choice.kodi_version) }} · {{ choice.name }}{% endif %}{% endfor %}</p>
+  <p>{% if preview.provisioned %}Keep this existing profile. Kodi must be stopped before confirming.{% else %}Select this version for separate profile preparation.{% endif %} The previous profile stays retained. Source setup, native readiness, Bridge trust and agent permissions remain separate checks.</p>
   <form method="post" action="/development-session/retained/select">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="request_id" value="{{ request_id }}">
@@ -47,7 +67,9 @@
   </form>
   {% endif %}
 </section>
-<details><summary>Disposable workflow</summary>
+<details><summary>More options and Advanced</summary>
+<p><a href="/runtimes">Reviewed runtime installations</a></p>
+<h2>Disposable workflow</h2>
 <p>Returning to the disposable workflow requires its existing single-profile inventory conditions. This action never removes retained profiles. Review additional profiles through their explicit Advanced controls first.</p>
 <form method="post" action="/development-session/retained/policy">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="expected_generation" value="{{ policy.latest_generation }}"><input type="hidden" name="enabled" value="false"><button type="submit">Return to disposable workflow</button>

@@ -1,7 +1,12 @@
 # Current Kodi: one add-on, one development environment
 
 Use **Kodi → Current Kodi** (`/development-session`) for one persistent add-on workspace
-and one disposable Kodi profile. This guide describes the Current Kodi workflow.
+and one selected Kodi profile. Retained profiles are the intended normal model;
+existing installations must explicitly enable **Retained Kodi versions**. Switching
+retained versions preserves their profiles and only one managed Kodi may run.
+Fresh Test is deliberately excluded from the ordinary UI; a complete retained
+clean-profile rebuild is not a qualified everyday workflow. Existing advanced
+lifecycle and recovery services keep their eligibility and safety restrictions.
 Available actions depend on the installed application, broker, schema and approved
 runtime. Code review and source tests do not install updates into an existing Lab;
 matched application, broker and schema deployment and native/platform acceptance
@@ -47,11 +52,16 @@ does not establish native Kodi, authenticated MCP or physical-device acceptance.
 
 ## Everyday walkthrough
 
-1. **Choose the add-on and version.** Select a ready workspace and eligible
+1. **Choose the add-on and version.** In retained mode, open **Retained Kodi
+   versions**, select a ready workspace and reviewed version, review the selection
+   and choose **Select and keep profiles**. For the existing disposable policy,
+   select a ready workspace and eligible
    approved cached Kodi version, then **Choose Kodi**. If another
    managed profile or unresolved operation blocks reservation, review it through
    existing setup/history. The session does not adopt or remove it. Use **Advanced → Reviewed runtime installations** separately when an eligible cached runtime is unavailable.
-2. **Prepare the stopped profile.** Use **Prepare Kodi**, then open **Review development setup**. Preparation creates the clean
+2. **Prepare the stopped profile if absent.** Use **Prepare Kodi** only when
+   preparation is required, then open **Review development setup**. An existing
+   retained profile is reused. Preparation creates a new
    stopped profile; it does not install the add-on, confirm native readiness or
    establish reviewed Bridge trust. Review uncertain history before another
    action. An empty inventory after a lost create reply does not permit retry.
@@ -71,22 +81,19 @@ does not establish native Kodi, authenticated MCP or physical-device acceptance.
    deployment preflight, then deploy/test that exact generation through the
    existing authorized workflow. See the [agent development loop](MANAGED-AGENT-LOOP.md).
    Use **Stop Kodi** and **Start Kodi** to keep the same profile between iterations.
-   Source changes do not require Fresh Test or Kodi image rebuilds.
-6. **Fresh Test or Switch Version deliberately.** Stop the current test, save
-   diagnostics from that exact profile, then open **Switch Kodi Version…** or **More options → Fresh Test…**.
-   Select the cached version and 1–8 retained captures. Saving a review only holds
-   evidence and keeps the profile. The separate **Replace profile and prepare
-   selected test** confirmation names the exact profile and data loss. A confirmed
-   retirement is required before the next stopped profile can be prepared.
-   Reestablish its source baseline and independent native/Bridge setup.
-7. **Recover from saved state.** Refresh the original copy/replacement status
-   after a lost reply. If retirement is confirmed but preparation is blocked,
-   review **Continue preparation** or **Release retired reservation**. These do
-   not settle an unknown removal/create. **Release empty reservation** closes
+   Source changes do not require profile or Kodi image rebuilds.
+6. **Switch retained versions.** Stop Kodi, open **Switch Kodi Version…**, review
+   the desired version/workspace and confirm **Select and keep profiles**. The old
+   profile stays retained. Prepare the selected profile only if absent, then start
+   it. Each target keeps its own source baseline, Bridge trust and permissions.
+7. **Recover from saved state.** Refresh the original operation status after a
+   lost reply and use the linked Advanced recovery controls. Pending or uncertain
+   operations must be reviewed before continuing. **Release empty reservation** closes
    only an absent, idle ordinary reservation; it does not delete a profile.
 
 Persistent source, workspace, Git history and explicitly retained captures stay
-outside Kodi. Fresh/Switch permanently removes the displayed writable profile,
+outside Kodi. Retained version selection never resets or removes a profile.
+Advanced legacy replacement permanently removes the displayed writable profile,
 including settings, installed add-ons and unselected artifacts. Saved excerpts
 can be partial; referenced crash-report metadata does not collect report bodies
 or establish cause. Review the displayed evidence and loss before confirming.
@@ -170,14 +177,18 @@ responses disable resubmission and direct the operator to status/history review.
 No polling scheduler, image acquisition, new MCP tool or new grant is added.
 
 **Release empty reservation** only closes an absent, idle ordinary session; it
-never removes a profile or clears uncertain provision. Fresh Test/Switch uses the
-separate evidence review and final confirmation described below. Existing unrelated
+never removes a profile or clears uncertain provision. Legacy profile replacement
+uses the separate evidence review and final confirmation described below. Existing unrelated
 containers block reservation and are preserved. Native and Windows acceptance
 remain separate from the route/Node/fixture evidence for this page.
 
-## Save a Fresh Test / Switch review and hold evidence
+## Advanced legacy Fresh Test / Switch review and evidence
 
-The session page links to **Switch Kodi Version…** or **More options → Fresh Test…**. Stop the current
+These existing advanced disposable-profile services are preserved as historical
+and administration reference; they are not required retained development steps.
+No new reset/replacement architecture is planned under #51. In legacy mode,
+**More options and Advanced → Review profile replacement and disposal…** links
+to the existing review. Retained mode refuses replacement reviews. Stop the current
 session through the existing action, save diagnostics for that exact test, then
 select the approved cached version and 1–8 retained captures. The ordinary form
 displays the current session/container and next immutable runtime/image. It

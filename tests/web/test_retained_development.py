@@ -185,6 +185,110 @@ def test_four_profiles_sequential_selection_over_http_and_without_javascript(
     assert 'href="/development-session/retained"' in current.text
 
 
+@pytest.mark.parametrize("provisioned", [True, False])
+def test_retained_ui_identifies_profiles_without_fresh_test_controls(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    provisioned: bool,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    before = {t: p.read_bytes() for t, p in s.profiles.items()}
+    if not provisioned:
+        s.records[:] = [
+            r for r in s.records if r.managed_instance_id != str(s.ids["nexus"])
+        ]
+    login(client)
+    page = client.get("/development-session")
+    assert page.status_code == 200
+    assert "Retained profile · switching versions keeps this profile." in page.text
+    assert page.text.index('aria-label="Kodi lifecycle"') < page.text.index(
+        'id="current-screen-heading"'
+    )
+    advanced = page.text.split('<details class="current-more">', 1)[1]
+    assert "Advanced management and recovery" in advanced
+    assert 'href="/mcp-clients"' in advanced
+    assert 'href="/diagnostics"' in advanced
+    assert "Fresh Test" not in page.text
+    assert "data-current-fresh-test" not in page.text
+    assert 'href="/development-session/retained" data-current-switch' in page.text
+    assert "/development-session/replacement" not in page.text
+    assert f"/instances/{s.ids['omega']}/reset" not in page.text
+    assert "Retained profile" in client.get("/kodi").text
+    assert client.get("/api/development-session").json()["summary"]["retained"]
+    preview = client.get(
+        "/development-session/retained",
+        params={
+            "target_id": str(s.ids["nexus"]),
+            "workspace_id": str(s.env.workspace_id),
+        },
+    )
+    assert preview.status_code == 200
+    for version in ("Matrix 19.4", "Nexus 20.5", "Omega 21.3", "Piers 22 RC1"):
+        assert f'<th scope="row">{version}</th>' in preview.text
+    assert "Omega 21.3 · Current selection</option>" in preview.text
+    assert "Retained profile selected" in preview.text
+    assert (
+        "Existing retained profile" if provisioned else "Preparation required"
+    ) in preview.text
+    assert 'name="expected_generation" value="1"' in preview.text
+    assert 'name="identity"' in preview.text
+    assert 'name="csrf_token"' in preview.text
+    assert s.service.status().target_id == s.ids["omega"]
+    assert {t: p.read_bytes() for t, p in s.profiles.items()} == before
+    assert not broker.calls
+
+
+def test_unavailable_reviewed_version_is_named_without_offering_selection(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+
+    def runtime(_self: Any, _db: Any, target: Any, _revision: Any) -> None:
+        if target == s.ids["piers"]:
+            raise DevelopmentSessionConflict("development_session_runtime_ineligible")
+
+    monkeypatch.setattr(DevelopmentSessionService, "_runtime", runtime)
+    login(client)
+    page = client.get("/development-session/retained")
+    assert page.status_code == 200
+    assert '<th scope="row">Piers 22 RC1</th>' in page.text
+    assert "Reviewed runtime unavailable" in page.text
+    assert not re.search(r'<option value="' + str(s.ids["piers"]) + '"', page.text)
+    assert s.service.status().target_id == s.ids["omega"]
+    assert len(s.records) == 4
+
+
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
+def test_current_kodi_status_uses_selected_profile_in_four_profile_inventory(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    generation: str,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose(generation)
+    login(client)
+    view = client.get("/api/development-session").json()
+    assert view["current"]["target_id"] == str(s.ids[generation])
+    assert view["summary"]["retained"] is True
+    assert view["summary"]["status"] == "Stopped"
+    assert view["summary"]["actions"] == ["resume"]
+    assert len(s.records) == 4 and not broker.calls
+
+
 def test_authenticated_mcp_wire_selection_is_strict_and_does_not_start_kodi(
     client: TestClient,
     database: sessionmaker[Session],

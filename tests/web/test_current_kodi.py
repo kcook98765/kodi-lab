@@ -217,6 +217,7 @@ def test_selected_status_and_contextual_actions(
     assert view["summary"]["status"] == expected
     assert view["summary"]["actions"] == actions
     assert view["summary"]["workspace_name"] == "Session source"
+    assert view["summary"]["retained"] is False
     assert view["viewer_state"] == "unsupported"
     assert "agent_authority" not in view["summary"]
 
