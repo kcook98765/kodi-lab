@@ -16,7 +16,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.domain import InstanceType, ManagedInstanceMutationKind
-from kodi_lab.runtime.display_capabilities import EXPERIMENTAL_OMEGA_DISPLAY
+from kodi_lab.runtime.display_capabilities import (
+    EXPERIMENTAL_OMEGA_DISPLAY,
+    DisplayCapability,
+)
 from kodi_lab.storage.development_sessions import active_session
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -40,9 +43,12 @@ class CatalogViewAuthority:
         self,
         sessions: sessionmaker[Session],
         pins: Mapping[UUID, ViewBinding],
+        *,
+        capability: DisplayCapability = EXPERIMENTAL_OMEGA_DISPLAY,
     ) -> None:
         self.sessions = sessions
         self.pins = dict(pins)
+        self.capability = capability
 
     def resolve(
         self,
@@ -66,7 +72,7 @@ class CatalogViewAuthority:
             revision = UUID(instance.runtime_revision_id)
             artifact = RuntimeContainerArtifactRepository(db).get(revision)
             profile = RuntimeExecutionProfileRepository(db).get(revision)
-            capability = EXPERIMENTAL_OMEGA_DISPLAY
+            capability = self.capability
             if (
                 artifact is None
                 or artifact.image_id != pin.image
@@ -74,6 +80,9 @@ class CatalogViewAuthority:
                 or profile.expected_application_name
                 != capability.expected_application_name
                 or profile.expected_kodi_version != capability.expected_kodi_version
+                or profile.expected_version_tag != capability.expected_version_tag
+                or profile.expected_prerelease_ordinal
+                != capability.expected_prerelease_ordinal
                 or profile.runtime_uid != capability.runtime_uid
                 or profile.runtime_gid != capability.runtime_gid
             ):

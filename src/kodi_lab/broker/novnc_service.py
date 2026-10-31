@@ -23,7 +23,10 @@ from kodi_lab.broker.novnc import (
 from kodi_lab.broker.provisioning import SqliteProvisioningResolver
 from kodi_lab.broker.server import ProductionBrokerConfiguration
 from kodi_lab.config import Settings
-from kodi_lab.runtime.display_capabilities import installed_display_capability
+from kodi_lab.runtime.display_capabilities import (
+    DisplayCapability,
+    installed_display_capability,
+)
 from kodi_lab.storage.models import NovncSessionRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -48,7 +51,7 @@ class HumanDisplayService:
         self.broker_id = str(uuid4())
         self.provisioning = SqliteProvisioningResolver(sessions)
 
-    def qualified(self, instance: UUID) -> None:
+    def qualified(self, instance: UUID) -> DisplayCapability:
         if instance not in self.settings.experimental_novnc_instances:
             raise ValueError("experimental human viewer is not enabled")
         with self.sessions() as db:
@@ -65,9 +68,10 @@ class HumanDisplayService:
             )
             if capability is None or capability.qualification != "experimental":
                 raise ValueError("experimental runtime is not qualified")
+            return capability
 
     def resolve(self, instance: UUID) -> ViewBinding:
-        self.qualified(instance)
+        capability = self.qualified(instance)
         spec = self.provisioning.resolve(str(instance))
         client = docker.APIClient(version="auto", timeout=1)
         try:
@@ -94,9 +98,9 @@ class HumanDisplayService:
             binding = ViewBinding(
                 actual["Id"], actual["Image"], actual["State"]["StartedAt"], ()
             )
-            return CatalogViewAuthority(self.sessions, {instance: binding}).resolve(
-                instance
-            )
+            return CatalogViewAuthority(
+                self.sessions, {instance: binding}, capability=capability
+            ).resolve(instance)
         finally:
             client.close()
 
@@ -164,11 +168,13 @@ class HumanDisplayService:
 
         def valid() -> bool:
             try:
-                self.qualified(request.instance)
+                capability = self.qualified(request.instance)
                 if (
                     not self.ownership.valid(request.instance, attempt, self.broker_id)
                     or CatalogViewAuthority(
-                        self.sessions, {request.instance: selected}
+                        self.sessions,
+                        {request.instance: selected},
+                        capability=capability,
                     ).resolve(request.instance, mode=request.mode)
                     != selected
                 ):

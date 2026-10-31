@@ -40,7 +40,8 @@ class DisplayCapability:
 
 # Historical r3 parsing remains supported; it does not gain an admission entry.
 VIEWER_ASSET_RECIPES = frozenset(
-    ("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5)
+    {("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5)}
+    | {("ubuntu-noble-nexus-20.5", 3)}
 )
 EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     recipe_id="ubuntu-resolute-omega-21.3",
@@ -68,7 +69,24 @@ OMEGA_DISPLAY_CANDIDATE = DisplayCapability(
     expected_prerelease_ordinal=None,
     qualification="candidate",
 )
-_DISPLAY_RECIPES = (EXPERIMENTAL_OMEGA_DISPLAY, OMEGA_DISPLAY_CANDIDATE)
+NEXUS_DISPLAY_CANDIDATE = DisplayCapability(
+    recipe_id="ubuntu-noble-nexus-20.5",
+    recipe_revision=3,
+    recipe_digest="sha256:f609081072931548174a9bfdddffaaab4d5b4e8091e6df8b075bcf259ec0a6da",
+    width=640,
+    height=360,
+    helper_digest=EXPERIMENTAL_OMEGA_DISPLAY.helper_digest,
+    package=("tigervnc-scraping-server", "1.13.1+dfsg-2build2", "amd64"),
+    expected_kodi_version="20.5",
+    expected_version_tag="stable",
+    expected_prerelease_ordinal=None,
+    qualification="candidate",
+)
+_DISPLAY_RECIPES = (
+    EXPERIMENTAL_OMEGA_DISPLAY,
+    OMEGA_DISPLAY_CANDIDATE,
+    NEXUS_DISPLAY_CANDIDATE,
+)
 
 
 def display_capability_for_digest(digest: str) -> DisplayCapability | None:
