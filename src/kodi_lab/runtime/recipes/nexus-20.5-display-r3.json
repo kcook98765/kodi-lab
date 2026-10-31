@@ -85,7 +85,7 @@
     "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
     "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8",
     "xvfb_guard.py": "sha256:7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98",
-    "novnc_view_helper.py": "sha256:be90f0c00e36bcbe4e7d905c2a7c3d0ab6645cca42fa5b5ef830e67d338775db"
+    "novnc_view_helper.py": "sha256:1969df8a90b0e722f1b40bad9015a42d5a44debe29acc7c390b7f5fced089dcc"
   },
   "execution_profile": {
     "runtime_kind": "kodi",

@@ -47,10 +47,25 @@ def test_nexus_r3_preserves_kodi_pins_and_signed_distro_identity() -> None:
             assert candidate.assets[name] == payload
     assert b"640x360x24" in candidate.assets["entrypoint.sh"]
     assert b"LP_NUM_THREADS=1 dbus-run-session" in candidate.assets["entrypoint.sh"]
-    assert (
-        candidate.assets["novnc_view_helper.py"]
-        == load_display_candidate_recipe("omega").assets["novnc_view_helper.py"]
+    import runpy
+    from pathlib import Path
+
+    helper = runpy.run_path(
+        str(
+            Path(__file__).parents[2]
+            / "src/kodi_lab/runtime/assembly_assets"
+            / "nexus-20.5-display-r3/novnc_view_helper.py"
+        )
     )
+    for mode in ("view-only", "interactive"):
+        options = helper["command"]("/run/kodi/test.sock", 2, mode)
+        for flag in ("AcceptCutText", "SendCutText", "SetPrimary", "SendPrimary"):
+            assert not any(flag in option for option in options)
+        assert "-rfbport=-1" in options and "-FrameRate=2" in options
+        assert "-AcceptSetDesktopSize=0" in options
+        assert f"-AcceptKeyEvents={int(mode == 'interactive')}" in options
+        assert f"-AcceptPointerEvents={int(mode == 'interactive')}" in options
+    assert helper["CLIPBOARD_POLICY"] == "unimplemented"
     assert recipe_target_id(candidate) == recipe_target_id(old)
     capability = reviewed_display_capability(candidate)
     assert capability is not None and capability.qualification == "candidate"
@@ -82,7 +97,12 @@ def test_sealed_nexus_candidate_preserves_old_pin_and_stays_unactivated(
             result,
             report={
                 **result.report,
-                "display": {**proof(), "package": list(capability.package)},
+                "display": {
+                    **proof(),
+                    "package": list(capability.package),
+                    "clipboard_policy": "unimplemented",
+                    "helper_digest": capability.helper_digest,
+                },
             },
         )
 

@@ -23,6 +23,11 @@ import time
 from contextlib import suppress
 from pathlib import Path
 
+# TigerVNC 1.13.1 XDesktop::clientCutText is empty and has no X11 clipboard
+# implementation. These unsupported flags must not be passed to this exact
+# reviewed Noble package; newer Omega/Piers helpers retain explicit off flags.
+CLIPBOARD_POLICY = "unimplemented"
+
 CHUNK = 65536
 BACKLOG = 1024 * 1024
 LEASE_SECONDS = 3.0
@@ -42,11 +47,7 @@ def command(socket_path: str, rate: int, mode: str = "view-only") -> list[str]:
         "-SecurityTypes=None",
         f"-AcceptKeyEvents={int(mode == 'interactive')}",
         f"-AcceptPointerEvents={int(mode == 'interactive')}",
-        "-AcceptCutText=0",
-        "-SendCutText=0",
         "-AcceptSetDesktopSize=0",
-        "-SetPrimary=0",
-        "-SendPrimary=0",
         "-NeverShared=1",
         "-DisconnectClients=0",
         "-MaxDisconnectionTime=5",

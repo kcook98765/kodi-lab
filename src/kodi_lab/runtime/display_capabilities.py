@@ -31,6 +31,7 @@ class DisplayCapability:
     expected_version_tag: str
     expected_prerelease_ordinal: int | None
     qualification: Literal["experimental", "candidate", "standard"]
+    clipboard_policy: Literal["server-disabled", "unimplemented"] = "server-disabled"
     fps: int = 2
     absolute_seconds: int = 600
     runtime_uid: int = 1000
@@ -72,15 +73,16 @@ OMEGA_DISPLAY_CANDIDATE = DisplayCapability(
 NEXUS_DISPLAY_CANDIDATE = DisplayCapability(
     recipe_id="ubuntu-noble-nexus-20.5",
     recipe_revision=3,
-    recipe_digest="sha256:f609081072931548174a9bfdddffaaab4d5b4e8091e6df8b075bcf259ec0a6da",
+    recipe_digest="sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
     width=640,
     height=360,
-    helper_digest=EXPERIMENTAL_OMEGA_DISPLAY.helper_digest,
+    helper_digest="sha256:1969df8a90b0e722f1b40bad9015a42d5a44debe29acc7c390b7f5fced089dcc",
     package=("tigervnc-scraping-server", "1.13.1+dfsg-2build2", "amd64"),
     expected_kodi_version="20.5",
     expected_version_tag="stable",
     expected_prerelease_ordinal=None,
     qualification="candidate",
+    clipboard_policy="unimplemented",
 )
 _DISPLAY_RECIPES = (
     EXPERIMENTAL_OMEGA_DISPLAY,

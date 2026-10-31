@@ -432,7 +432,7 @@ def load_recorded_reviewed_recipe(
 _DISPLAY_CANDIDATES = {
     "nexus": (
         "nexus-20.5-display-r3.json",
-        "sha256:f609081072931548174a9bfdddffaaab4d5b4e8091e6df8b075bcf259ec0a6da",
+        "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
     ),
     "omega": (
         "omega-21.3-display-r5.json",
