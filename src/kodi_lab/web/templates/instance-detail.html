@@ -16,6 +16,7 @@
     <script src="{{ url_for('static', path='/live-display.js') }}" defer></script>
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
 {% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
 {% block content %}
       <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/managed-instances">Managed registrations</a></p>
       <h1>{{ detail.runtime.name }}</h1>
@@ -24,13 +25,50 @@
       {% if current_kodi is not defined %}
         <p>Open <a href="/development-session">Current Kodi</a> to confirm the selected environment. This Advanced page manages this exact registration.</p>
       {% elif selected_kodi and selected_kodi.target_id == detail.runtime.managed_instance_id %}
-        <p><strong>This is Current Kodi.</strong> Use <a href="/development-session">Current Kodi</a> for everyday viewing, Start and Stop.</p>
+        <p><strong>This is Current Kodi.</strong> Use <a class="button-link" href="/development-session">Current Kodi</a> for everyday viewing, Start and Stop.</p>
       {% else %}
         <p><strong>Not the currently selected Kodi.</strong> This page manages this exact registration and its retained history. <a href="/development-session">Open Current Kodi</a> to see the selected development environment.</p>
       {% endif %}
       </section>
-<details><summary>Raw stopped-runtime diagnostics</summary><p><a href="/api/instances/{{ detail.runtime.managed_instance_id }}/stopped-diagnostics">Stopped-runtime exit metadata (JSON)</a></p></details>
-      <details class="instance-maintenance"><summary>Advanced lifecycle and maintenance controls</summary>
+      <section aria-labelledby="instance-health-heading">
+        <h2 id="instance-health-heading">Health</h2>
+        <p>Status is a point-in-time observation. A running container alone does not prove Kodi is ready.</p>
+        <dl>
+          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
+          <dt>{{ label }}</dt><dd data-ui-state="{{ value }}">{{ value }}</dd>
+          {% endfor %}
+          {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
+        </dl>
+        {% if detail.runtime.failure_detail or detail.runtime.failure_code %}<p class="error" role="alert">{{ detail.runtime.failure_detail or detail.runtime.failure_code }}</p>{% endif %}
+        <details><summary>Technical state codes</summary><dl>
+          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
+          <dt>{{ label }}</dt><dd><code>{{ value }}</code></dd>
+          {% endfor %}
+          {% if detail.runtime.failure_code %}<dt>Failure code</dt><dd><code>{{ detail.runtime.failure_code }}</code></dd>{% endif %}
+        </dl></details>
+      </section>
+      {% if detail.reconciliation.required %}
+      <section class="reconciliation-warning" role="alert">
+        <h2>Operator reconciliation required</h2>
+        <p>{{ detail.reconciliation.safe_reason }} Observed state: {{ detail.reconciliation.observed_state or 'unknown' }}.</p>
+        {% if detail.reconciliation.blocking %}<p>Blocked actions: {{ detail.reconciliation.blocked_actions|join(', ') }}.</p>{% else %}<p>The current semantic state is unambiguous, so unrelated safe mutations are not blocked.</p>{% endif %}
+        {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
+        {% if detail.reconciliation.operation_kind == 'mcp_workspace_launch' and detail.reconciliation.operation_uuid %}
+        <div data-launch-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-launch-id="{{ detail.reconciliation.operation_uuid }}">
+          <button type="button" data-launch-recheck>Recheck exact launch receipt</button>
+          <p data-launch-reconcile-status role="status">This never launches or starts Kodi. If the result remains unknown, stop the original container through normal lifecycle controls, then recheck.</p>
+        </div>
+        {% endif %}
+        {% if detail.reconciliation.operation_kind == 'mcp_workspace_deployment' and detail.reconciliation.operation_uuid %}
+        <div data-deployment-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-deployment-id="{{ detail.reconciliation.operation_uuid }}">
+          <button type="button" data-deployment-recheck>Inspect stopped deployment</button>
+          <p data-deployment-reconcile-status role="status">Stop through normal lifecycle controls if running, then inspect the exact installed tree. This never copies, starts Kodi, or replays deployment. Unknown evidence remains blocked.</p>
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <details class="instance-maintenance"{% if detail.reconciliation.required or detail.runtime.failure_detail or detail.runtime.failure_code or detail.mutation_active %} open{% endif %}><summary>Advanced lifecycle and maintenance controls</summary>
       <section aria-labelledby="instance-controls-heading" data-instance-controls="{{ detail.runtime.managed_instance_id }}" data-mutation-active="{{ 'true' if detail.mutation_active else 'false' }}">
         <h2 id="instance-controls-heading">Manage this Kodi</h2>
         <p>Each action is a separate request. Provision creates the stopped runtime; Start runs Kodi; Stop preserves its profile. No action is retried automatically.</p>
@@ -60,6 +98,7 @@
       <p><a href="/managed-resources#instance-{{ detail.runtime.managed_instance_id }}">Resource and keep-awake settings</a></p>
       <details>
         <summary>Advanced instance identity and runtime pin</summary>
+        <p><a href="/api/instances/{{ detail.runtime.managed_instance_id }}/stopped-diagnostics">Stopped-runtime exit metadata (JSON)</a></p>
         <dl>
           <dt>Instance ID</dt><dd>{{ detail.runtime.managed_instance_id }}</dd>
           <dt>Exact runtime</dt><dd>Kodi {{ detail.runtime.kodi_version }} · revision {{ detail.runtime.runtime_revision_number }} ({{ detail.runtime.runtime_revision_id }})</dd>
@@ -67,26 +106,6 @@
           <dt>Fixture</dt><dd>{% if detail.fixture %}{{ detail.fixture.slug }} v{{ detail.fixture.fixture_version }} ({{ detail.fixture.size_category }}, {{ detail.fixture.content_category }}){% else %}None{% endif %}</dd>
         </dl>
       </details>
-      {% if detail.reconciliation.required %}
-      <section class="reconciliation-warning" role="alert">
-        <h2>Operator reconciliation required</h2>
-        <p>{{ detail.reconciliation.safe_reason }} Observed state: {{ detail.reconciliation.observed_state or 'unknown' }}.</p>
-        {% if detail.reconciliation.blocking %}<p>Blocked actions: {{ detail.reconciliation.blocked_actions|join(', ') }}.</p>{% else %}<p>The current semantic state is unambiguous, so unrelated safe mutations are not blocked.</p>{% endif %}
-        {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
-        {% if detail.reconciliation.operation_kind == 'mcp_workspace_launch' and detail.reconciliation.operation_uuid %}
-        <div data-launch-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-launch-id="{{ detail.reconciliation.operation_uuid }}">
-          <button type="button" data-launch-recheck>Recheck exact launch receipt</button>
-          <p data-launch-reconcile-status role="status">This never launches or starts Kodi. If the result remains unknown, stop the original container through normal lifecycle controls, then recheck.</p>
-        </div>
-        {% endif %}
-        {% if detail.reconciliation.operation_kind == 'mcp_workspace_deployment' and detail.reconciliation.operation_uuid %}
-        <div data-deployment-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-deployment-id="{{ detail.reconciliation.operation_uuid }}">
-          <button type="button" data-deployment-recheck>Inspect stopped deployment</button>
-          <p data-deployment-reconcile-status role="status">Stop through normal lifecycle controls if running, then inspect the exact installed tree. This never copies, starts Kodi, or replays deployment. Unknown evidence remains blocked.</p>
-        </div>
-        {% endif %}
-      </section>
-      {% endif %}
       {% if detail.runtime.kodi_version in ['19.4', '20.5', '21.3', '22.0-rc.1'] %}
       <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
         <h2>Reviewed Bridge</h2>
@@ -98,22 +117,9 @@
       {% endif %}
       <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/diagnostics">Save stopped test diagnostics</a></p>
       <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/capability-prerequisites">Review native and Bridge capability prerequisites</a></p>
+      <details class="instance-maintenance"><summary>Alternative viewers, screenshots and browser remote</summary>
       <section id="visual-access" data-instance-id="{{ detail.runtime.managed_instance_id }}">
-        <h2>Monitor Kodi and inspect its screen</h2>
-        <p>Status is a point-in-time observation. A running container alone does not prove Kodi is ready.</p>
-        <dl>
-          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
-          <dt>{{ label }}</dt><dd data-ui-state="{{ value }}">{{ value }}</dd>
-          {% endfor %}
-          {% if detail.runtime.stored_readiness_state != detail.runtime.readiness_state %}<dt>Historical readiness</dt><dd>{{ detail.runtime.stored_readiness_state }} (stored result; current usability is {{ detail.runtime.usability_state }})</dd>{% endif %}
-        </dl>
-        {% if detail.runtime.failure_detail %}<p class="error" role="alert">{{ detail.runtime.failure_detail }}</p>{% endif %}
-        <details><summary>Technical state codes</summary><dl>
-          {% for label, value in [('Provisioning', detail.runtime.provision_state), ('Container', detail.runtime.container_state), ('Kodi process', detail.runtime.process_state), ('JSON-RPC', detail.runtime.jsonrpc_state), ('Usability', detail.runtime.usability_state), ('Readiness', detail.runtime.readiness_state)] %}
-          <dt>{{ label }}</dt><dd><code>{{ value }}</code></dd>
-          {% endfor %}
-          {% if detail.runtime.failure_code %}<dt>Failure code</dt><dd><code>{{ detail.runtime.failure_code }}</code></dd>{% endif %}
-        </dl></details>
+        <h2>Alternative screen tools</h2>
         <div data-live-display data-display-available="{{ 'true' if visual.display_supported and visual.screenshot_available_now else 'false' }}">
           <h3>Live Preview</h3>
           <p class="secondary">Small view-only picture. Start checks this Kodi screen and enables preview for this browser session. Stop, hidden tabs and disconnection end it.</p>
@@ -172,6 +178,8 @@
         </section>
         {% endif %}
       </section>
+      </details>
+      <details class="instance-maintenance"><summary>Notes and snapshots</summary>
       <section>
         <h2>Notes</h2>
         {% if detail.notes is none %}<p>No notes.</p>{% elif detail.notes == '' %}<p>Notes are empty.</p>{% else %}<pre class="instance-notes">{{ detail.notes }}</pre>{% endif %}
@@ -180,6 +188,8 @@
         <h2>Snapshots</h2>
         <p>{{ detail.snapshots|length }} retained Snapshot{{ '' if detail.snapshots|length == 1 else 's' }}. <a href="/instances/{{ detail.runtime.managed_instance_id }}/snapshots">View Snapshots</a></p>
       </section>
+      </details>
+      <details class="instance-maintenance"><summary>Add-ons and ZIP installation records</summary>
       <section id="addons">
         <h2>Add-ons</h2>
         <p class="secondary">Live Kodi-recognized installed add-ons. Recognition and enabled state do not imply that an add-on works.</p>
@@ -237,6 +247,8 @@
         </article>
         {% else %}<p>No retained uploaded ZIP installations.</p>{% endfor %}
       </section>
+      </details>
+      <details class="instance-maintenance"><summary>Source attachments and copy records</summary>
       <section id="development-sources">
         <h2>Development Sources</h2>
         <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity. Smoke passed is bounded historical evidence that one fixed plugin-directory invocation completed and preserved deployed-source provenance. It is not a general working/health guarantee.</p>
@@ -294,6 +306,8 @@
         </article>
         {% else %}<p>No development sources are attached.</p>{% endfor %}
       </section>
+      </details>
+      <details class="instance-maintenance"{% if detail.reconciliation.required or detail.recent_activity|selectattr("reconciliation_required")|list or detail.recent_activity|selectattr("deployment_recovery_available")|list %} open{% endif %}><summary>Activity and recovery history</summary>
       <section>
         <h2>Recent activity</h2>
         {% for item in detail.recent_activity %}
@@ -306,5 +320,6 @@
         {% else %}<p>No retained activity.</p>{% endfor %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>
       </section>
+      </details>
       <p><a href="/managed-instances">Back to managed registrations</a></p>
     {% endblock %}

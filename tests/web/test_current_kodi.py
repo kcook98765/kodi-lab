@@ -137,6 +137,9 @@ def test_export_current_kodi_browser_fixtures(
             row.container_id = None if scenario == "reserved" else CONTAINER_ID
         pages[f"/scenario/{scenario}"] = client.get("/development-session").text
         if scenario == "empty":
+            pages["/scenario/instance-unselected"] = client.get(
+                f"/instances/{INSTANCE_ID}"
+            ).text
             pages["/scenario/expanded-unselected"] = client.get(
                 f"/instances/{INSTANCE_ID}/novnc-phase1"
             ).text
