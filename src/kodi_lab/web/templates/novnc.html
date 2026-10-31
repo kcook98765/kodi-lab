@@ -11,7 +11,7 @@
 </head>
 <body class="standalone-viewer">
   <main>
-    <p><a href="/development-session">Current Kodi</a> · <a href="/instances/{{ instance }}#visual-access">Screenshots and JPEG fallback</a></p>
+    <p><a href="/development-session">Current Kodi</a> · <a href="/instances/{{ instance }}#visual-access">Screenshot options</a></p>
     <h1>{{ viewer_name|default('Watch Kodi') }}</h1>
     <p data-viewer-current-status>{{ viewer_context|default('This viewer stays bound to this exact instance. Open Current Kodi to check the selected environment.') }}</p>
     {% if viewer_can_start|default(true) %}

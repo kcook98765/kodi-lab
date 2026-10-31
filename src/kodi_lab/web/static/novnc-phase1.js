@@ -132,7 +132,7 @@ start.onclick = async () => {
     } catch (_) {
         if (attempt === current) {
             const ended = await end(current);
-            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Viewer unavailable. JPEG and still screenshots remain available.';
+            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Viewer unavailable. Open the instance for supported screenshot options.';
         }
     }
 };

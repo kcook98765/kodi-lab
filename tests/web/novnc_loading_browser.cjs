@@ -23,5 +23,6 @@ function boot(){
  await page.nodes['#start'].onclick();assert.equal(page.clients(),1);assert.equal(page.loads(),1,'loaded module reused without repeated imports');
  const failed=boot();const attempt=failed.nodes['#start'].onclick();failed.reject();await attempt;
  assert.equal(failed.clients(),0);assert.equal(failed.requests.filter(r=>r.url.endsWith('-start')).length,0);assert.equal(failed.nodes['#start'].disabled,false);
+ assert.equal(failed.nodes['#status'].textContent,'Viewer unavailable. Open the instance for supported screenshot options.','failure must not promise JPEG on ineligible exact recipes');
  console.log('explicit module loading, pre-admission cancellation and load failure passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
