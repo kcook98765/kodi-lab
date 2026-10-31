@@ -31,3 +31,19 @@ def test_expanded_selection_polls_cannot_outlive_the_tab_or_rebind_identity() ->
         timeout=10,
         check=True,
     )
+
+
+def test_viewer_module_loads_only_after_explicit_request_and_respects_stop() -> None:
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            "node",
+            str(Path(__file__).with_name("novnc_loading_browser.cjs")),
+            str(root / "src/kodi_lab/web/static/novnc-phase1.js"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

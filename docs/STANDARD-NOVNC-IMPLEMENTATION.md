@@ -150,3 +150,8 @@ Existing stale JavaScript must reload to use the timed request protocol.
 A Stop for an unknown ID beyond the future tolerance returns409 rather than
 falsely confirming cancellation or reserving unbounded future replay state.
 Expired or untimed unknown IDs are permanently inadmissible and need no row.
+
+The pinned noVNC JavaScript module loads only after explicit Start Viewing.
+A cancelled or retired selection is checked again after module loading, before
+any server ticket is requested. This reduces idle viewer work; native browser
+memory and latency still require independent acceptance on the exact candidate.
