@@ -676,7 +676,10 @@ def install_routes(
             item = viewer.attachments.get(body.attempt)
             if item is not None and item.session.instance_id != instance:
                 raise HTTPException(409, "view_identity_changed")
-        viewer.stop(owner, body.attempt)
+        try:
+            viewer.stop(owner, body.attempt)
+        except ValueError:
+            raise HTTPException(409, "view_cancellation_unconfirmed") from None
         if viewer.ownership is not None and item is not None and item.owner == owner:
             try:
                 viewer.ownership.wait_released(instance)

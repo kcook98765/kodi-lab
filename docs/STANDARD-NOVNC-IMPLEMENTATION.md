@@ -146,3 +146,7 @@ use and bound to authenticated owner, exact runtime and selected development
 identity. Process-local replay state retains the existing restart boundary;
 durable native ownership still requires verified release after a Web crash.
 Existing stale JavaScript must reload to use the timed request protocol.
+
+A Stop for an unknown ID beyond the future tolerance returns409 rather than
+falsely confirming cancellation or reserving unbounded future replay state.
+Expired or untimed unknown IDs are permanently inadmissible and need no row.

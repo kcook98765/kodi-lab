@@ -66,8 +66,11 @@ class ViewAttempts:
     def cancel(self, owner: str, attempt: UUID) -> None:
         now = self.clock_ms()
         self._prune(now)
-        try:
-            expiry = self.expires(attempt, now)
-        except ValueError:
-            return  # Already impossible to admit; native Stop still runs.
+        created = attempt.int >> 80
+        if attempt.version != 7 or created + ATTEMPT_WINDOW_MS <= now:
+            return  # Permanently inadmissible; native Stop still runs.
+        # Future IDs can become admissible later. Refuse cancellation explicitly
+        # rather than acknowledging a forgotten Stop or quarantining arbitrarily
+        # far into the future.
+        expiry = self.expires(attempt, now)
         self._remember(owner, attempt, expiry, now)

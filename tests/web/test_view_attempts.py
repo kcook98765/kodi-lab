@@ -181,3 +181,24 @@ def test_invalid_handoff_does_not_retire_existing_view(clock: list[int]) -> None
         )
     assert not item.session.cancelled.is_set()
     service.end(item)
+
+
+@pytest.mark.parametrize("saturated", [False, True])
+def test_future_stop_is_refused_instead_of_falsely_confirmed(
+    clock: list[int], saturated: bool
+) -> None:
+    service = viewer()
+    if saturated:
+        for _ in range(ATTEMPT_CAPACITY):
+            service.stop("owner", view_attempt(clock[0]))
+    offset = ATTEMPT_WINDOW_MS + 1 if saturated else 5001
+    pending = view_attempt(clock[0] + offset)
+    with pytest.raises(ValueError, match="expired or invalid"):
+        service.stop("owner", pending)
+    assert service.attempts.blocked_until == 0  # No unbounded future quarantine.
+    clock[0] += offset
+    clock[1] += offset
+    # Cancellation was explicitly refused, never falsely acknowledged. A fresh
+    # later admission is possible once the original future ID is valid.
+    item = service.start(INSTANCE_ID, "owner", StartView(attempt=pending))
+    service.end(item)

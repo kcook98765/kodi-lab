@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from threading import Barrier, Event, Thread
 from typing import Any, cast
@@ -364,3 +365,19 @@ def test_websocket_rejects_missing_ticket_wrong_origin_and_query(
         ):
             pass
         assert error.value.code == 4403
+
+
+def test_future_stop_never_acknowledges_unrecorded_cancellation(
+    enabled_client: TestClient,
+) -> None:
+    from kodi_lab.web.view_attempts import ATTEMPT_WINDOW_MS
+
+    csrf = login(enabled_client)
+    future = view_attempt(time.time_ns() // 1_000_000 + ATTEMPT_WINDOW_MS)
+    result = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-stop",
+        json={"attempt": str(future)},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert result.status_code == 409
+    assert result.json() == {"detail": "view_cancellation_unconfirmed"}
