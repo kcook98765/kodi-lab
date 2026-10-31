@@ -23,8 +23,7 @@ from kodi_lab.broker.novnc import (
 from kodi_lab.broker.provisioning import SqliteProvisioningResolver
 from kodi_lab.broker.server import ProductionBrokerConfiguration
 from kodi_lab.config import Settings
-from kodi_lab.runtime.recipes import NOVNC_PHASE1_DIGEST
-from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
+from kodi_lab.runtime.display_capabilities import installed_display_capability
 from kodi_lab.storage.models import NovncSessionRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -61,13 +60,7 @@ class HumanDisplayService:
             )
             if (
                 revision is None
-                or revision.manifest_digest != NOVNC_PHASE1_DIGEST
-                or not supports_reviewed_recipe_capability(
-                    db, revision.id, "screenshot"
-                )
-                or not supports_reviewed_recipe_capability(
-                    db, revision.id, "navigation"
-                )
+                or installed_display_capability(db, revision.id) is None
             ):
                 raise ValueError("experimental runtime is not qualified")
 

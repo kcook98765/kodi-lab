@@ -30,6 +30,7 @@ from kodi_lab.kodi.screenshots import (
     is_supported_screenshot_runtime,
     raw_capture_path,
 )
+from kodi_lab.runtime.display_capabilities import EXPERIMENTAL_OMEGA_DISPLAY
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -139,7 +140,9 @@ FIXED_SCREENSHOT_COMMAND = (
 
 _EXPERIMENTAL_X11_CAPTURE_PROGRAM = (
     _FIXED_X11_CAPTURE_PROGRAM.replace(
-        "(width, height) != (1280, 720)", "(width, height) != (640, 360)"
+        "(width, height) != (1280, 720)",
+        f"(width, height) != ({EXPERIMENTAL_OMEGA_DISPLAY.width}, "
+        f"{EXPERIMENTAL_OMEGA_DISPLAY.height})",
     )
     .replace(
         "reply = exact(s, 32)\nkind, depth",
@@ -294,19 +297,20 @@ class SqliteScreenshotCaptureResolver:
                     )
                 # Geometry follows the sealed experimental runtime identity,
                 # never viewer availability, browser preference, or caller input.
-                from kodi_lab.runtime.recipes import NOVNC_PHASE1_DIGEST
+                from kodi_lab.runtime.display_capabilities import (
+                    display_capability_for_digest,
+                    installed_display_capability,
+                )
 
                 experimental_image_id = None
-                if revision.manifest_digest == NOVNC_PHASE1_DIGEST:
+                if display_capability_for_digest(revision.manifest_digest) is not None:
                     artifact = RuntimeContainerArtifactRepository(session).get(
                         revision_id
                     )
                     if (
                         instance.instance_type is not InstanceType.DISPOSABLE
                         or artifact is None
-                        or not supports_reviewed_recipe_capability(
-                            session, revision_id, "screenshot"
-                        )
+                        or installed_display_capability(session, revision_id) is None
                     ):
                         raise ScreenshotCaptureUnsupportedError(
                             "Experimental capture runtime is not qualified."
