@@ -68,9 +68,10 @@ class _LoginFormParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         if tag == "form":
+            # An omitted action submits to the known current /login URL.
             self.in_login_form = (
                 attributes.get("method") or ""
-            ).lower() == "post" and attributes.get("action") == "/login"
+            ).lower() == "post" and attributes.get("action", "/login") == "/login"
             self.login_form_seen = self.login_form_seen or self.in_login_form
         elif tag == "input" and self.in_login_form:
             if (
@@ -196,7 +197,7 @@ class ProductionProfileWebClient:
         if response.status_code == 401:
             self._evidence["login_succeeded"] = False
             raise AuthenticationRejected("login_rejected")
-        if response.status_code != 303 or response.headers.get("location") != "/":
+        if response.status_code != 303 or response.headers.get("location") != "/kodi":
             raise ProductionProfileWebClientError("login_contract_mismatch")
         self._validate_session_cookie(response)
         self._authenticated = True
@@ -228,7 +229,7 @@ class ProductionProfileWebClient:
 
         self._require_authenticated()
         if self._csrf_token is None:
-            self.get_authenticated("/")
+            self.get_authenticated("/kodi")
         if self._csrf_token is None:
             raise ProductionProfileWebClientError("csrf_token_missing")
         return self._csrf_token
