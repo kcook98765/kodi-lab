@@ -193,7 +193,7 @@ def test_future_stop_is_refused_instead_of_falsely_confirmed(
             service.stop("owner", view_attempt(clock[0]))
     offset = ATTEMPT_WINDOW_MS + 1 if saturated else 5001
     pending = view_attempt(clock[0] + offset)
-    with pytest.raises(ValueError, match="expired or invalid"):
+    with pytest.raises(ValueError, match="future view cancellation unconfirmed"):
         service.stop("owner", pending)
     assert service.attempts.blocked_until == 0  # No unbounded future quarantine.
     clock[0] += offset

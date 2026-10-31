@@ -381,3 +381,62 @@ def test_future_stop_never_acknowledges_unrecorded_cancellation(
     )
     assert result.status_code == 409
     assert result.json() == {"detail": "view_cancellation_unconfirmed"}
+
+
+@pytest.mark.parametrize("action", ["take-control", "release-control"])
+def test_future_handoff_successor_keeps_refusal_response(
+    enabled_client: TestClient, action: str
+) -> None:
+    from kodi_lab.web.view_attempts import ATTEMPT_WINDOW_MS
+
+    csrf = login(enabled_client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    old = view_attempt()
+    admitted = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-start",
+        json={"attempt": str(old)},
+        headers=headers,
+    )
+    assert admitted.status_code == 200
+    result = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-{action}",
+        json={
+            "attempt": str(old),
+            "next_attempt": str(
+                view_attempt(time.time_ns() // 1_000_000 + ATTEMPT_WINDOW_MS)
+            ),
+        },
+        headers=headers,
+    )
+    assert result.status_code == 409
+    assert result.json() == {"detail": "view_handoff_unavailable"}
+    stopped = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-stop",
+        json={"attempt": str(old)},
+        headers=headers,
+    )
+    assert stopped.status_code == 200 and stopped.json() == {"stopped": True}
+
+
+@pytest.mark.parametrize("action", ["start", "take-control", "release-control"])
+def test_future_request_never_enters_background_admission(
+    enabled_client: TestClient, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("invalid future ID reached background admission")
+
+    monkeypatch.setattr(PrototypeViewer, "start", forbidden)
+    monkeypatch.setattr(PrototypeViewer, "handoff", forbidden)
+    csrf = login(enabled_client)
+    future = str(view_attempt(time.time_ns() // 1_000_000 + 120_000))
+    body = (
+        {"attempt": future}
+        if action == "start"
+        else {"attempt": str(view_attempt()), "next_attempt": future}
+    )
+    result = enabled_client.post(
+        f"/api/instances/{INSTANCE_ID}/novnc-{action}",
+        json=body,
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert result.status_code == 409

@@ -39,7 +39,7 @@ from kodi_lab.application.novnc_control import (
 )
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
-from kodi_lab.web.view_attempts import ViewAttempts
+from kodi_lab.web.view_attempts import FutureViewCancellation, ViewAttempts
 
 
 class ExpectedSelection(BaseModel):
@@ -635,6 +635,12 @@ def install_routes(
             headers={"Cache-Control": "no-store"},
         )
 
+    async def cancel_failed_attempt(owner: str, attempt: UUID) -> None:
+        # A rejected future ID cannot have an admitted worker. Preserve the
+        # original refusal/disconnect; this is not a successful Stop response.
+        with suppress(FutureViewCancellation):
+            await viewer.mutate(lambda: viewer.stop(owner, attempt))
+
     @app.post("/api/instances/{instance}/novnc-start")
     async def start(
         instance: UUID,
@@ -643,13 +649,17 @@ def install_routes(
         authenticated: Any = mutation_dependency,
     ) -> dict[str, str]:
         owner = owner_of(authenticated)
+        try:
+            viewer.attempts.expires(body.attempt)
+        except ValueError:
+            raise HTTPException(409, "view_unavailable") from None
         task = asyncio.create_task(
             asyncio.to_thread(viewer.start, instance, owner, body)
         )
         try:
             item = await asyncio.shield(task)
         except asyncio.CancelledError:
-            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
+            await cancel_failed_attempt(owner, body.attempt)
             raise
         except Exception:
             raise HTTPException(409, "view_unavailable") from None
@@ -658,12 +668,12 @@ def install_routes(
                 lambda: auth.resolve(request.cookies.get(cookie_name))
             )
         except asyncio.CancelledError:
-            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
+            await cancel_failed_attempt(owner, body.attempt)
             raise
         except Exception:
             current_auth = None
         if current_auth is None:
-            await viewer.mutate(lambda: viewer.stop(owner, body.attempt))
+            await cancel_failed_attempt(owner, body.attempt)
             raise HTTPException(401, "view_session_expired")
         return {"ticket": item.ticket, "mode": item.mode}
 
@@ -678,7 +688,7 @@ def install_routes(
                 raise HTTPException(409, "view_identity_changed")
         try:
             viewer.stop(owner, body.attempt)
-        except ValueError:
+        except FutureViewCancellation:
             raise HTTPException(409, "view_cancellation_unconfirmed") from None
         if viewer.ownership is not None and item is not None and item.owner == owner:
             try:
@@ -695,6 +705,10 @@ def install_routes(
         mode: str,
     ) -> dict[str, str]:
         owner = owner_of(authenticated)
+        try:
+            viewer.attempts.expires(body.next_attempt)
+        except ValueError:
+            raise HTTPException(409, "view_handoff_unavailable") from None
         task = asyncio.create_task(
             asyncio.to_thread(viewer.handoff, instance, owner, body, mode)
         )
@@ -706,18 +720,18 @@ def install_routes(
                 )
                 is None
             ):
-                await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+                await cancel_failed_attempt(owner, body.next_attempt)
                 raise HTTPException(401, "view_session_expired")
             return {"ticket": item.ticket, "mode": item.mode}
         except asyncio.CancelledError:
-            await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+            await cancel_failed_attempt(owner, body.next_attempt)
             raise
         except HTTPException:
             raise
         except HumanControlBusyError:
             raise HTTPException(409, "agent_operation_active") from None
         except Exception:
-            await viewer.mutate(lambda: viewer.stop(owner, body.next_attempt))
+            await cancel_failed_attempt(owner, body.next_attempt)
             raise HTTPException(409, "view_handoff_unavailable") from None
 
     @app.post("/api/instances/{instance}/novnc-take-control")

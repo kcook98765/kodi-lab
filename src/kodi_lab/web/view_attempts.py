@@ -15,6 +15,10 @@ ATTEMPT_FUTURE_MS = 5_000
 ATTEMPT_CAPACITY = 256
 
 
+class FutureViewCancellation(ValueError):
+    """The request may become valid later; cancellation cannot be confirmed."""
+
+
 class ViewAttempts:
     def __init__(self) -> None:
         self.seen: dict[tuple[str, UUID], int] = {}
@@ -72,5 +76,6 @@ class ViewAttempts:
         # Future IDs can become admissible later. Refuse cancellation explicitly
         # rather than acknowledging a forgotten Stop or quarantining arbitrarily
         # far into the future.
-        expiry = self.expires(attempt, now)
-        self._remember(owner, attempt, expiry, now)
+        if created > now + ATTEMPT_FUTURE_MS:
+            raise FutureViewCancellation("future view cancellation unconfirmed")
+        self._remember(owner, attempt, created + ATTEMPT_WINDOW_MS, now)
