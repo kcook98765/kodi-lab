@@ -101,3 +101,15 @@ support-helper command, not caller packages, URLs, paths or general execution.
 Native inventory, attestation, image and sealed display v2 proofs bind the exact
 support/assembly revision. Standard viewer admission stays disabled pending actual
 clipboard, browser, control, ownership and resource/performance acceptance.
+
+Native Piers trial exposed a loader-specific process identity: the unchanged reviewed
+launcher executes Kodi through `/opt/fdo/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2`,
+so its native process name is `ld-linux-x86-64`. A fresh isolated probe from the
+verified cached RC1 image confirmed the executable and complete command line;
+no retained production container was started or changed. The shared packaging
+proof now uses the exact frozen loader path, library path, Kodi binary, argument
+list and UID1000 for Piers, then reads that unique process's LP_NUM_THREADS.
+Other versions retain their existing process check and receipt shape. Piers v2
+receipts additionally bind `process_probe=piers-loader`; an ordinary process proof
+cannot authorize Piers display capability. This corrects a process-identification
+assumption; no thread, geometry, package, resource or performance gate is removed.

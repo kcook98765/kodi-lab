@@ -136,7 +136,11 @@ def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
     result = fixture.validation(built.image_id)
     result = replace(
         result,
-        report={**result.report, "recipe_digest": reviewed.digest, "display": proof()},
+        report={
+            **result.report,
+            "recipe_digest": reviewed.digest,
+            "display": {**proof(), "process_probe": "piers-loader"},
+        },
     )
     for state in (
         RuntimeRecipeInstallationState.PENDING,
@@ -232,3 +236,66 @@ def test_cli_candidate_cannot_borrow_ordinary_preview_consent(
         install_reviewed_runtime(
             "piers", settings=Settings(), operation_id=uuid4(), display_candidate=True
         )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "uid",
+        "bool_uid",
+        "loader",
+        "library_path",
+        "binary",
+        "flags",
+        "extra",
+        "substring",
+    ],
+)
+def test_loader_process_match_refuses_substitution(change: str | None) -> None:
+    from kodi_lab.runtime.display_validation import _PIERS_PROCESS_SOURCE
+
+    namespace: dict[str, object] = {}
+    exec(_PIERS_PROCESS_SOURCE, namespace)
+    args = [
+        "/opt/fdo/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "--library-path",
+        "/app/lib:/opt/mesa/lib:/opt/fdo/lib/x86_64-linux-gnu:/opt/fdo/lib/x86_64-linux-gnu/pulseaudio:/opt/fdo/lib",
+        "/app/lib/kodi/kodi.bin",
+        "--standalone",
+        "--windowing=x11",
+        "--audio-backend=alsa",
+    ]
+    executable = args[0]
+    uid: object = 1000
+    if change == "uid":
+        uid = 0
+    if change == "bool_uid":
+        uid = True
+    if change == "loader":
+        executable = "/usr/bin/unreviewed-loader"
+    if change == "library_path":
+        args[2] += ":/tmp/substituted"
+    if change == "binary":
+        args[3] = "/tmp/kodi.bin"
+    if change == "flags":
+        args.remove("--windowing=x11")
+    if change == "extra":
+        args.append("--extra")
+    if change == "substring":
+        args = ["/bin/echo", *args]
+    from typing import Any, cast
+
+    match = cast(Any, namespace["matches_piers_process"])
+    assert match(("\0".join(args) + "\0").encode(), executable, uid) is (change is None)
+
+
+def test_piers_cannot_borrow_ordinary_process_proof() -> None:
+    from kodi_lab.runtime.display_validation import display_validation_matches
+
+    capability = reviewed_display_capability(load_display_candidate_recipe("piers"))
+    assert capability is not None
+    assert not display_validation_matches(proof(), capability)
+    assert display_validation_matches(
+        {**proof(), "process_probe": "piers-loader"}, capability
+    )

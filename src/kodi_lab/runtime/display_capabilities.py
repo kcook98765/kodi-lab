@@ -32,6 +32,7 @@ class DisplayCapability:
     expected_prerelease_ordinal: int | None
     qualification: Literal["experimental", "candidate", "standard"]
     clipboard_policy: Literal["server-disabled", "unimplemented"] = "server-disabled"
+    process_probe: Literal["kodi-bin", "piers-loader"] = "kodi-bin"
     fps: int = 2
     absolute_seconds: int = 600
     runtime_uid: int = 1000
@@ -110,6 +111,7 @@ PIERS_DISPLAY_CANDIDATE = DisplayCapability(
     expected_version_tag="rc",
     expected_prerelease_ordinal=1,
     qualification="candidate",
+    process_probe="piers-loader",
 )
 _DISPLAY_RECIPES = (
     EXPERIMENTAL_OMEGA_DISPLAY,
