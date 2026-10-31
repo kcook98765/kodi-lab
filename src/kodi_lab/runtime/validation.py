@@ -262,7 +262,9 @@ def validate_reviewed_image(
                 )
 
                 display = parse_display_validation(
-                    _exec(container, display_validation_command(), limit=8192),
+                    _exec(
+                        container, display_validation_command(capability), limit=8192
+                    ),
                     capability,
                 )
             container.stop(timeout=10)

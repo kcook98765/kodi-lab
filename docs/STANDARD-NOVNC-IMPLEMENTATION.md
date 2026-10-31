@@ -15,7 +15,8 @@ Omega r5 preserves the r4 frozen payload, TigerVNC package and helper hashes,
 640×360 startup, `LP_NUM_THREADS=1`, private Unix RFB and fixed helper policy.
 Its new recipe digest is
 `sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9`.
-It requires fresh sealed installation evidence, including exact helper/package,
+It requires fresh sealed v2 display packaging evidence, including pre-execution
+helper integrity and fixed Xlib geometry probes, plus exact helper/package,
 geometry, renderer-thread environment, supported options, native libraries and
 neutral-input/worker probes on both normal Kodi start/stop cycles. This packaging
 proof does not establish actual browser FPS, ownership handoff or performance.
