@@ -3,28 +3,28 @@
 {% block title %}Development · Kodi Lab{% endblock %}
 {% block content %}
 <h1>Development tools</h1>
-<p>Tools for developing and testing add-ons with Kodi.</p>
 <section class="navigation-group">
-  <h2>Develop with Current Kodi</h2>
-  <p><a class="button-link" href="/development-session">Current Kodi — Watch / Control / Develop</a></p>
-  <p>Your selected managed environment has its own screen and Start / Stop controls.</p>
-  <p><a href="/external-targets">External development Kodi</a> · <a href="/add-kodi?mode=development">Add external development Kodi</a></p>
-</section>
-<section class="navigation-group">
-  <h2>Sources and testing</h2>
+  <h2>Develop with Kodi</h2>
   <ul class="destination-list">
-    <li><a href="/development-sources">Development sources</a><p>Register and inspect add-on source trees.</p></li>
-    <li><a href="/agent-workspaces">Workspaces</a><p>Working copies, validation, execution results and promotion review.</p></li>
-    <li><a href="/addon-zips">Add-on ZIP testing</a><p>Existing ZIP upload and testing tools.</p></li>
-    <li><a href="/addon-repositories">Add-on repositories</a><p>Repository sources and add-on testing.</p></li>
-    <li><a href="/kodi-repository">Kodi Lab repository management</a><p>Development publication and installation review.</p></li>
+    <li><a href="/development-session">Current Kodi</a><p>Watch, control and develop with your selected installation.</p></li>
+    <li><a href="/development-sources">Sources</a><p>Register and inspect add-on source trees.</p></li>
+    <li><a href="/agent-workspaces">Workspaces</a><p>Capture source, validate and deploy working copies.</p></li>
   </ul>
 </section>
-<section class="navigation-group">
+<details class="navigation-group">
+  <summary>More options</summary>
+  <h2>Testing and repositories</h2>
+  <ul class="destination-list">
+    <li><a href="/addon-zips">Add-on ZIP testing</a></li>
+    <li><a href="/addon-repositories">Add-on repositories</a></li>
+    <li><a href="/kodi-repository">Kodi Lab repository management</a></li>
+    <li><a href="/external-targets">External development Kodi</a></li>
+    <li><a href="/add-kodi?mode=development">Add external development Kodi</a></li>
+  </ul>
   <h2>Snapshots and history</h2>
   <ul class="destination-list">
-    <li><a href="/snapshots/preserved">Preserved snapshots</a><p>Snapshots retained after an instance is deleted.</p></li>
-    <li><a href="/history/instances">Deleted instance history</a><p>Retained instance records and activity.</p></li>
+    <li><a href="/snapshots/preserved">Preserved snapshots</a></li>
+    <li><a href="/history/instances">Deleted instance history</a></li>
   </ul>
-</section>
+</details>
 {% endblock %}

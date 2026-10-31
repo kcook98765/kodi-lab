@@ -168,3 +168,30 @@ def development_admin_view(request: pytest.FixtureRequest) -> None:
     if "client" in request.fixturenames:
         client: TestClient = request.getfixturevalue("client")
         client.cookies.set("kodi_lab_admin_view", "development")
+
+
+def test_navigation_landing_priorities_and_unique_destinations(
+    client: TestClient,
+) -> None:
+    login(client)
+    for path in ["/development", "/settings"]:
+        content = client.get(path).text.split("<main ", 1)[1]
+        destinations = re.findall(r'<a[^>]+href="([^"]+)"', content)
+        assert len(destinations) == len(set(destinations))
+    development = client.get("/development").text
+    primary, secondary = development.split('<details class="navigation-group">', 1)
+    for destination in [
+        "/development-session",
+        "/development-sources",
+        "/agent-workspaces",
+    ]:
+        assert f'href="{destination}"' in primary
+    for destination in ["/addon-zips", "/snapshots/preserved", "/history/instances"]:
+        assert f'href="{destination}"' in secondary
+    settings = client.get("/settings").text
+    assert "Access &amp; Security" in settings
+    assert "Managed Kodi Maintenance" in settings
+    assert "Repositories &amp; Historical Records" in settings
+    assert settings.index(
+        'href="/production-targets#global-mutation-control"'
+    ) < settings.index('<details class="navigation-group">')
