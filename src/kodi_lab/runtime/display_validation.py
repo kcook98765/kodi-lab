@@ -8,8 +8,24 @@ from kodi_lab.runtime.display_capabilities import DisplayCapability
 
 # Executed only by the fixed image validator in its disposable native container.
 # No caller command, path, display or package is accepted.
-_PROGRAM = r"""
-import ctypes, hashlib, json, resource, runpy, stat, subprocess, tempfile
+_PIERS_PROCESS_SOURCE = r"""
+def matches_piers_process(cmdline, executable, uid):
+    expected = (
+        b'/opt/fdo/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2',
+        b'--library-path',
+        b'/app/lib:/opt/mesa/lib:/opt/fdo/lib/x86_64-linux-gnu:/opt/fdo/lib/x86_64-linux-gnu/pulseaudio:/opt/fdo/lib',
+        b'/app/lib/kodi/kodi.bin',
+        b'--standalone', b'--windowing=x11', b'--audio-backend=alsa',
+    )
+    return (type(cmdline) is bytes and cmdline == b'\0'.join(expected)+b'\0'
+            and executable == expected[0].decode() and type(uid) is int and uid == 1000)
+""".strip()
+
+_PROGRAM = (
+    _PIERS_PROCESS_SOURCE
+    + "\n"
+    + r"""
+import ctypes, hashlib, json, os, resource, runpy, stat, subprocess, tempfile
 from pathlib import Path
 def output(args):
     resource.setrlimit(resource.RLIMIT_FSIZE, (65536, 65536))
@@ -65,7 +81,25 @@ try:
     height = x11.XDisplayHeight(display, screen)
 finally:
     x11.XCloseDisplay(display)
-pids = output(['/usr/bin/pgrep', '-x', 'kodi.bin']).stdout.split()
+process_probe = EXPECTED_PROCESS_PROBE
+if process_probe == 'piers-loader':
+    pids = []
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            with process.joinpath('cmdline').open('rb') as stream:
+                cmdline = stream.read(8193)
+            if len(cmdline) > 8192:
+                continue
+            if matches_piers_process(
+                cmdline, os.readlink(process/'exe'), process.stat().st_uid
+            ):
+                pids.append(process.name.encode())
+        except (FileNotFoundError, ProcessLookupError):
+            pass
+else:
+    pids = output(['/usr/bin/pgrep', '-x', 'kodi.bin']).stdout.split()
 assert len(pids) == 1
 with open('/proc/'+pids[0].decode()+'/environ', 'rb') as stream:
     environment = stream.read(65537)
@@ -74,11 +108,13 @@ print(json.dumps({'schema':'reviewed-display-packaging-v2',
     'helper_integrity_before_execution':True, 'geometry_probe':'xlib',
     **({'clipboard_policy':clipboard_policy}
        if clipboard_policy == 'unimplemented' else {}),
+    **({'process_probe':process_probe} if process_probe == 'piers-loader' else {}),
     'helper_digest':helper_digest,
     'package':package, 'width':width, 'height':height,
     'lp_num_threads':1, 'helper_probe':True, 'neutral_input_probe':True,
     'options_supported':True, 'libraries':True}))
 """.strip()
+)
 
 
 def display_validation_command(capability: DisplayCapability) -> tuple[str, ...]:
@@ -87,6 +123,9 @@ def display_validation_command(capability: DisplayCapability) -> tuple[str, ...]
     )
     program = program.replace(
         "EXPECTED_CLIPBOARD_POLICY", json.dumps(capability.clipboard_policy)
+    )
+    program = program.replace(
+        "EXPECTED_PROCESS_PROBE", json.dumps(capability.process_probe)
     )
     return ("/usr/bin/python3", "-I", "-B", "-c", program)
 
@@ -109,6 +148,8 @@ def display_validation_matches(value: object, capability: DisplayCapability) -> 
     }
     if capability.clipboard_policy == "unimplemented":
         expected["clipboard_policy"] = "unimplemented"
+    if capability.process_probe == "piers-loader":
+        expected["process_probe"] = "piers-loader"
     return (
         isinstance(value, dict)
         and value == expected

@@ -99,7 +99,7 @@ def test_exact_deb_set_required(kind: str, monkeypatch: pytest.MonkeyPatch) -> N
         "index",
     )
     closure = support.SupportClosure(b"{}", (p,), (), ())
-    monkeypatch.setattr(support, "load_support_closure", lambda: closure)
+    monkeypatch.setattr(support, "load_support_closure", lambda **kwargs: closure)
     entries = {"support/" + p.archive_name: b"fixture"}
     if kind == "missing":
         entries.clear()
@@ -143,7 +143,7 @@ def test_bounded_download_failures(kind: str, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         support,
         "load_support_closure",
-        lambda: support.SupportClosure(b"{}", (p,), (), ()),
+        lambda **kwargs: support.SupportClosure(b"{}", (p,), (), ()),
     )
 
     class Opener:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -34,9 +34,11 @@ def test_old_worker_contract_rejects_preview(
     assert containers.created is None
 
 
+@pytest.mark.parametrize("display_candidate", [False, True])
 def test_durable_admission_before_offline_worker_launch(
     backend: tuple[Any, Any],
     factory: sessionmaker[Session],
+    display_candidate: bool,
 ) -> None:
     worker, containers = backend
     worker._session_factory = factory
@@ -49,9 +51,32 @@ def test_durable_admission_before_offline_worker_launch(
     operation = uuid4()
     from tests.runtime.test_piers_installation_pipeline import admitted
 
-    operation = admitted(factory)
-    assert worker.launch("piers", operation, preview_acknowledgement=acknowledgement())
-    assert recorded_acknowledgement(factory, operation) == acknowledgement()
+    ack = acknowledgement()
+    if display_candidate:
+        from kodi_lab.application.runtime_installations import (
+            RuntimeInstallationService,
+            preview_acknowledgement,
+        )
+        from kodi_lab.runtime.preview import PreviewAcknowledgement
+        from tests.application.test_piers_installation_admission import broker
+
+        ack = PreviewAcknowledgement.model_validate(
+            preview_acknowledgement(display_candidate=True)
+        )
+        result = RuntimeInstallationService(factory, broker()).start_preview(
+            development_mode=True, acknowledgement=ack, display_candidate=True
+        )
+        operation = UUID(result.operation_id)
+    else:
+        operation = admitted(factory)
+    assert worker.launch("piers", operation, preview_acknowledgement=ack)
+    assert recorded_acknowledgement(factory, operation) == ack
+    assert containers.created["command"] == [
+        "install",
+        "piers",
+        "--operation-id",
+        str(operation),
+    ]
     assert containers.created["network_mode"] == "none"
     assert containers.created["read_only"] is True
     assert containers.created["cap_drop"] == ["ALL"]
@@ -59,6 +84,4 @@ def test_durable_admission_before_offline_worker_launch(
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)
         assert row is not None and row.state.value == "pending"
-    assert not worker.launch(
-        "piers", operation, preview_acknowledgement=acknowledgement()
-    )
+    assert not worker.launch("piers", operation, preview_acknowledgement=ack)

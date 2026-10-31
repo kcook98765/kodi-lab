@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from kodi_lab.runtime.attestation_integrity import canonical_json
 from kodi_lab.runtime.ostree import OstreeVerificationEvidence
 from kodi_lab.runtime.ostree_assembly import (
-    ASSETS_SHA256,
-    HISTORICAL_ASSETS_SHA256,
     OstreeAssemblyEvidence,
+    assembly_assets_digest,
     load_assembly_assets,
 )
 from kodi_lab.runtime.preview import PreviewAcknowledgement
@@ -126,11 +125,7 @@ def ostree_attestation_matches(
                 revision=reviewed.recipe.recipe_revision
             ).digest,
             "assembly_assets_digest": "sha256:"
-            + (
-                ASSETS_SHA256
-                if reviewed.recipe.recipe_revision == 2
-                else HISTORICAL_ASSETS_SHA256
-            ),
+            + assembly_assets_digest(revision=reviewed.recipe.recipe_revision),
             "base_image": reviewed.recipe.base_image_reference,
             "asset_hashes": sorted(
                 [[k, hashlib.sha256(v).hexdigest()] for k, v in assets.items()]

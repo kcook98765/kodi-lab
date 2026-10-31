@@ -15,6 +15,11 @@ from uuid import UUID
 import docker  # type: ignore[import-untyped]
 
 from kodi_lab.config import Settings
+from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+from kodi_lab.runtime.display_validation import (
+    display_validation_command,
+    parse_display_validation,
+)
 from kodi_lab.runtime.recipes import ReviewedRecipe
 from kodi_lab.runtime.temporary_networks import (
     create_temporary_network,
@@ -143,6 +148,7 @@ def validate_ostree_image(
     on_resource: Callable[[str, str], None] | None = None,
     on_log: Callable[[bytes], None] | None = None,
 ) -> ValidationResult:
+    capability = reviewed_display_capability(reviewed)
     owned = client is None
     client = client or docker.from_env(timeout=15)
     started = datetime.now(UTC)
@@ -214,6 +220,13 @@ def validate_ostree_image(
                 )
             ):
                 raise RecipeValidationError("RC1 kernel restrictions differ")
+            if capability is not None:
+                report["display"] = parse_display_validation(
+                    _exec(
+                        container, display_validation_command(capability), limit=8192
+                    ),
+                    capability,
+                )
             identity = native_identity(
                 _rpc(
                     container,
@@ -272,7 +285,7 @@ def validate_ostree_image(
             if not isinstance(library, dict):
                 raise RecipeValidationError("RC1 library query failed")
             if number == 1:
-                home = _capture(container)
+                home = _capture(container, experimental=capability is not None)
                 _rpc(container, "GUI.ActivateWindow", {"window": "settings"})
                 time.sleep(1)
                 gui = _rpc(
@@ -283,7 +296,9 @@ def validate_ostree_image(
                     or gui.get("currentwindow", {}).get("id") != 10004
                 ):
                     raise RecipeValidationError("RC1 window navigation failed")
-                settings_frame = _capture(container)
+                settings_frame = _capture(
+                    container, experimental=capability is not None
+                )
                 if home["png_sha256"] == settings_frame["png_sha256"]:
                     raise RecipeValidationError("RC1 framebuffer unchanged")
                 _rpc(

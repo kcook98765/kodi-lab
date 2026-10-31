@@ -99,7 +99,7 @@ def test_historical_recipe_and_acknowledgement_do_not_authorize_new_install() ->
             PreviewAcknowledgement.model_validate(data)
 
 
-@pytest.mark.parametrize("revision", [0, 3, True])
+@pytest.mark.parametrize("revision", [0, 4, True])
 def test_support_and_assembly_revision_selection_remains_closed(revision: int) -> None:
     from kodi_lab.runtime.ostree_assembly import OstreeAssemblyError
 

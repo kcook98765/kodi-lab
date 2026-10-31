@@ -141,8 +141,10 @@ def client_for(acquired: Any, operation: UUID) -> FakeDocker:
 @pytest.fixture
 def support_double(monkeypatch: pytest.MonkeyPatch) -> None:
     # Only assembly flow is doubled; support integrity has its own real/live gate.
-    monkeypatch.setattr(assembly, "download_support", lambda *args: {})
-    monkeypatch.setattr(assembly, "validate_support_entries", lambda *args: None)
+    monkeypatch.setattr(assembly, "download_support", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        assembly, "validate_support_entries", lambda *args, **kwargs: None
+    )
 
 
 def test_offline_exact_assembly_evidence(acquirer: Any, support_double: None) -> None:

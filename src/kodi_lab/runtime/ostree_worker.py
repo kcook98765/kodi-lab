@@ -66,8 +66,11 @@ def require_support_success(result: CommandResult) -> None:
 
 
 class HelperRunner(BoundedCommandRunner):
-    def __init__(self, helper: Any) -> None:
+    def __init__(self, helper: Any, *, support_revision: int = 2) -> None:
+        if type(support_revision) is not int or support_revision not in (2, 3):
+            raise OstreeAcquisitionError("unsupported_support_revision")
         self.helper = helper
+        self.support_revision = support_revision
 
     def run(
         self, argv: tuple[str, ...], *, stage: Path, timeout: float
@@ -99,6 +102,7 @@ class HelperRunner(BoundedCommandRunner):
                 "-m",
                 "kodi_lab.runtime.ostree_worker",
                 str(UUID(operation)),
+                *(("3",) if self.support_revision == 3 else ()),
             )
         )
         if argv not in allowed or stage.parent != STAGING_ROOT:
@@ -162,7 +166,11 @@ def assemble_in_worker(
     operation_id: UUID,
     settings: Settings,
     on_acquired: Any,
+    *,
+    support_revision: int = 2,
 ) -> tuple[OstreeAssemblyEvidence, OstreeVerificationEvidence]:
+    if type(support_revision) is not int or support_revision not in (2, 3):
+        raise OstreeAcquisitionError("unsupported_support_revision")
     if settings.runtime_root != Path("/run/kodi-lab") or os.geteuid() != 0:
         raise OstreeAcquisitionError("installed_worker_contract_required")
     root_fd = _directory(settings.runtime_root)
@@ -237,7 +245,7 @@ def assemble_in_worker(
         ):
             raise OstreeAcquisitionError("acquisition_helper_contract_differs")
         helper.start()
-        runner = HelperRunner(helper)
+        runner = HelperRunner(helper, support_revision=support_revision)
         with OstreeAcquirer(STAGING_ROOT, runner=runner).acquire(
             operation_id
         ) as acquired:
@@ -247,6 +255,7 @@ def assemble_in_worker(
                     "-m",
                     "kodi_lab.runtime.ostree_worker",
                     str(operation_id),
+                    *(("3",) if support_revision == 3 else ()),
                 ),
                 stage=acquired.stage,
                 timeout=650,
@@ -256,9 +265,9 @@ def assemble_in_worker(
                 "support/" + p.archive_name: _read_file(
                     acquired.stage / "support" / p.archive_name, maximum=p.size
                 )
-                for p in load_support_closure().packages
+                for p in load_support_closure(revision=support_revision).packages
             }
-            validate_support_entries(entries)
+            validate_support_entries(entries, revision=support_revision)
             # Reap all network helper processes before immutable capture. No
             # concurrent writer retains the mounted staging volume.
             helper.stop(timeout=5)
@@ -272,6 +281,7 @@ def assemble_in_worker(
                 operation_id=operation_id,
                 client=client,
                 support_entries=entries,
+                support_revision=support_revision,
             )
             return assembly, acquired.evidence
     finally:
@@ -288,9 +298,12 @@ def assemble_in_worker(
 
 def main() -> int:
     """Socketless support fetch; UUID chooses only this fixed private operation."""
-    operation = UUID(sys.argv[1])
-    if len(sys.argv) != 2 or sys.argv[1] != str(operation):
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "3"):
         return 2
+    operation = UUID(sys.argv[1])
+    if sys.argv[1] != str(operation):
+        return 2
+    support_revision = 3 if len(sys.argv) == 3 else 2
     stage = STAGING_ROOT / ("ostree-" + operation.hex)
     fd = _directory(stage)
     try:
@@ -299,7 +312,7 @@ def main() -> int:
             raise OstreeAcquisitionError("unsafe_support_stage")
         os.mkdir("support", 0o700, dir_fd=fd)
         try:
-            entries = fetch_support_packages()
+            entries = fetch_support_packages(revision=support_revision)
         except SupportError as error:
             return next(
                 (

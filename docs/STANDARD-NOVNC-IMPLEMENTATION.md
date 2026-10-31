@@ -76,3 +76,40 @@ Controlled acquisition uses `kodi-lab-runtime install matrix --display-candidate
 Ordinary installation stays r2. The sealed v2 native packaging proof remains
 required, and all browser/clipboard/control/performance acceptance is separate.
 Standard viewing stays disabled. Existing managed profiles are never repinned.
+
+## Piers installation/support/assembly r3 candidate (disabled)
+
+The new candidate retains the exact signed Flathub app/platform/GL closure, RC1
+source, nonroot launcher/loader boundaries and all 97 r2 support package entries.
+Its reviewed Ubuntu support closure adds19 exact dependencies, including Resolute
+TigerVNC1.15.0+dfsg-2build1. The resulting116 DEBs total78,022,102bytes. Perl-base
+from the pinned base is explicitly updated5.40.1-7ubuntu0.1 →5.40.1-7ubuntu0.3,
+matching the exact added Perl libraries required by tigervnc-common. This applies
+only to new r3 assembly; r1/r2 assets, closures and images remain unchanged.
+Every added package is bound to a SHA256/length and Ubuntu-signed index; support
+acquisition remains closed, bounded and replacement-free. Kodi package/source
+pins are unchanged. New supervisor freezes640×360, Docker environment sets
+LP_NUM_THREADS=1 and the root-owned0444 helper is identical to Omega r5.
+
+Preview admission remains explicit development-only consent bound to the exact
+recipe and operation. The application service's closed display-candidate selector
+is available for isolated qualification, while normal Preview defaults stay r2.
+Broker installation keeps its fixed command; the worker selects r3 only from its
+already-validated application-owned operation acknowledgement. Direct CLI use
+without that admission is rejected. Socketless acquisition adds only a fixed r3
+support-helper command, not caller packages, URLs, paths or general execution.
+Native inventory, attestation, image and sealed display v2 proofs bind the exact
+support/assembly revision. Standard viewer admission stays disabled pending actual
+clipboard, browser, control, ownership and resource/performance acceptance.
+
+Native Piers trial exposed a loader-specific process identity: the unchanged reviewed
+launcher executes Kodi through `/opt/fdo/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2`,
+so its native process name is `ld-linux-x86-64`. A fresh isolated probe from the
+verified cached RC1 image confirmed the executable and complete command line;
+no retained production container was started or changed. The shared packaging
+proof now uses the exact frozen loader path, library path, Kodi binary, argument
+list and UID1000 for Piers, then reads that unique process's LP_NUM_THREADS.
+Other versions retain their existing process check and receipt shape. Piers v2
+receipts additionally bind `process_probe=piers-loader`; an ordinary process proof
+cannot authorize Piers display capability. This corrects a process-identification
+assumption; no thread, geometry, package, resource or performance gate is removed.

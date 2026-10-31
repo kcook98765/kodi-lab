@@ -23,6 +23,8 @@ from kodi_lab.config import Settings
 from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.runtime.recipes import (
     NOVNC_PHASE1_DIGEST,
+    ReviewedRecipe,
+    load_display_candidate_recipe,
     load_installation_recipe,
     load_recorded_reviewed_recipe,
     recipe_target_id,
@@ -107,8 +109,16 @@ class RuntimeInstallationActionConflict(RuntimeError):
     pass
 
 
-def preview_acknowledgement() -> dict[str, object]:
-    reviewed = load_installation_recipe("piers")
+def preview_acknowledgement(*, display_candidate: bool = False) -> dict[str, object]:
+    reviewed = (
+        load_display_candidate_recipe("piers")
+        if display_candidate
+        else load_installation_recipe("piers")
+    )
+    return _preview_acknowledgement_for_recipe(reviewed)
+
+
+def _preview_acknowledgement_for_recipe(reviewed: ReviewedRecipe) -> dict[str, object]:
     return PreviewAcknowledgement.model_validate(
         {
             "recipe_id": reviewed.recipe.recipe_id,
@@ -234,16 +244,24 @@ class RuntimeInstallationService:
         *,
         development_mode: bool,
         acknowledgement: PreviewAcknowledgement,
+        display_candidate: bool = False,
         action: Literal["install", "retry", "reacquire"] | None = None,
     ) -> ReviewedInstallationLaunchResult:
         """Admission retains exact consent and broker-owned operation semantics."""
         if development_mode is not True:
             raise RuntimeInstallationUnavailable("Development mode required")
         ack = PreviewAcknowledgement.model_validate(acknowledgement)
-        if ack.model_dump(mode="json") != preview_acknowledgement():
+        if ack.model_dump(mode="json") != preview_acknowledgement(
+            display_candidate=display_candidate
+        ):
             raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
         if action is not None:
-            current = self._view("piers", self._latest("piers"), capable=True)
+            current = self._view(
+                "piers",
+                self._latest("piers", display_candidate=display_candidate),
+                capable=True,
+                display_candidate=display_candidate,
+            )
             if current.action != action:
                 raise RuntimeInstallationActionConflict
         if not self._capable():
@@ -251,13 +269,10 @@ class RuntimeInstallationService:
         active = self._active_worker()
         if active.operation_id is not None or active.lock_held:
             raise RuntimeInstallationBusy
-        from kodi_lab.runtime.preview import admission_evidence
-        from kodi_lab.runtime.recipes import (
-            installation_generations,
-            load_installation_recipe,
-        )
+        from kodi_lab.runtime.preview import admission_evidence, reviewed_preview_recipe
+        from kodi_lab.runtime.recipes import installation_generations
 
-        reviewed = load_installation_recipe("piers")
+        reviewed = reviewed_preview_recipe(ack)
         operation = uuid4()
         with self._factory() as session:
             previous = RuntimeRecipeInstallationRepository(session).active("piers")
@@ -321,15 +336,26 @@ class RuntimeInstallationService:
         return self._capability_failure() is None
 
     def create_preview_instance(
-        self, *, development_mode: bool, acknowledgement: PreviewAcknowledgement
+        self,
+        *,
+        development_mode: bool,
+        acknowledgement: PreviewAcknowledgement,
+        display_candidate: bool = False,
     ) -> RuntimeInstallationView:
         """Create only the exact sealed Preview revision through normal selection."""
         if development_mode is not True:
             raise RuntimeInstallationUnavailable("Development mode required")
         ack = PreviewAcknowledgement.model_validate(acknowledgement)
-        if ack.model_dump(mode="json") != preview_acknowledgement():
+        if ack.model_dump(mode="json") != preview_acknowledgement(
+            display_candidate=display_candidate
+        ):
             raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
-        current = self._view("piers", self._latest("piers"), capable=self._capable())
+        current = self._view(
+            "piers",
+            self._latest("piers", display_candidate=display_candidate),
+            capable=self._capable(),
+            display_candidate=display_candidate,
+        )
         if current.action == "open":
             return current
         if current.action != "create":
@@ -348,8 +374,12 @@ class RuntimeInstallationService:
         )
         from kodi_lab.storage.repositories import TargetRepository
 
-        reviewed = load_installation_recipe("piers")
-        row = self._latest("piers")
+        reviewed = (
+            load_display_candidate_recipe("piers")
+            if display_candidate
+            else load_installation_recipe("piers")
+        )
+        row = self._latest("piers", display_candidate=display_candidate)
         if (
             row is None
             or row.runtime_revision_id is None
@@ -388,7 +418,9 @@ class RuntimeInstallationService:
             ),
             instance_type=InstanceType.DISPOSABLE,
         )
-        return self._view("piers", row, capable=True)
+        return self._view(
+            "piers", row, capable=True, display_candidate=display_candidate
+        )
 
     def _capability_failure(self) -> str | None:
         try:
@@ -457,8 +489,14 @@ class RuntimeInstallationService:
         except Exception as error:
             raise RuntimeInstallationUnavailable from error
 
-    def _latest(self, generation: Generation) -> RuntimeRecipeInstallationRow | None:
-        reviewed = load_installation_recipe(generation)
+    def _latest(
+        self, generation: Generation, *, display_candidate: bool = False
+    ) -> RuntimeRecipeInstallationRow | None:
+        reviewed = (
+            load_display_candidate_recipe(generation)
+            if display_candidate
+            else load_installation_recipe(generation)
+        )
         with self._factory() as session:
             return session.scalar(
                 select(RuntimeRecipeInstallationRow)
@@ -514,8 +552,13 @@ class RuntimeInstallationService:
         unavailable_code: str = "broker_unreachable",
         recorded: bool = False,
         reconcile: bool = True,
+        display_candidate: bool = False,
     ) -> RuntimeInstallationView:
-        reviewed = load_installation_recipe(generation)
+        reviewed = (
+            load_display_candidate_recipe(generation)
+            if display_candidate
+            else load_installation_recipe(generation)
+        )
         recorded_recipe_unavailable = False
         if recorded and row is not None:
             try:
@@ -547,7 +590,7 @@ class RuntimeInstallationService:
             status="not_installed",
             phase="Not installed",
             action="install",
-            preview_acknowledgement=preview_acknowledgement()
+            preview_acknowledgement=_preview_acknowledgement_for_recipe(reviewed)
             if generation == "piers"
             else None,
         )

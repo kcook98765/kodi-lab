@@ -12,16 +12,21 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.runtime.attestation_integrity import canonical_json
 from kodi_lab.runtime.recipes import (
     HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
+    PIERS_DISPLAY_INSTALLATION_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
+    ReviewedRecipe,
+    load_display_candidate_recipe,
+    load_installation_recipe,
 )
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 
 class PreviewAcknowledgement(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    recipe_id: Literal["piers-22.0-rc1-r1", "piers-22.0-rc1-r2"]
-    recipe_revision: Literal[1, 2]
+    recipe_id: Literal["piers-22.0-rc1-r1", "piers-22.0-rc1-r2", "piers-22.0-rc1-r3"]
+    recipe_revision: Literal[1, 2, 3]
     recipe_digest: Literal[
+        "sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8",
         "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793",
         "sha256:75d32434f6208efc051bc71ff0d501f07e91a1fcd666eed6f8806d49d43e3454",
     ]
@@ -41,14 +46,29 @@ class PreviewAcknowledgement(BaseModel):
         if (self.recipe_id, self.recipe_revision, self.recipe_digest) not in {
             ("piers-22.0-rc1-r1", 1, HISTORICAL_PREVIEW_INSTALLATION_DIGEST),
             ("piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST),
+            ("piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST),
         }:
             raise ValueError("Preview recipe identity differs")
         return self
 
 
+def reviewed_preview_recipe(ack: PreviewAcknowledgement) -> ReviewedRecipe:
+    """Only current ordinary or explicitly reviewed display-candidate consent."""
+    for reviewed in (
+        load_installation_recipe("piers"),
+        load_display_candidate_recipe("piers"),
+    ):
+        if (ack.recipe_id, ack.recipe_revision, ack.recipe_digest) == (
+            reviewed.recipe.recipe_id,
+            reviewed.recipe.recipe_revision,
+            reviewed.digest,
+        ):
+            return reviewed
+    raise ValueError("Preview recipe differs")
+
+
 def admission_evidence(ack: PreviewAcknowledgement, operation_id: UUID) -> str:
-    if ack.recipe_digest != PREVIEW_INSTALLATION_DIGEST:
-        raise ValueError("Preview recipe differs")
+    reviewed_preview_recipe(ack)
     return canonical_json(
         {
             "schema": "reviewed-preview-admission-v1",
@@ -67,7 +87,8 @@ def recorded_acknowledgement(
         if (
             row is None
             or row.generation != "piers"
-            or row.recipe_digest != PREVIEW_INSTALLATION_DIGEST
+            or row.recipe_digest
+            not in {PREVIEW_INSTALLATION_DIGEST, PIERS_DISPLAY_INSTALLATION_DIGEST}
         ):
             raise ValueError("Preview admission missing")
         raw = row.attestation_json or ""
@@ -76,4 +97,12 @@ def recorded_acknowledgement(
             operation_id
         ):
             raise ValueError("Preview operation admission differs")
-        return PreviewAcknowledgement.model_validate(value["preview_acknowledgement"])
+        ack = PreviewAcknowledgement.model_validate(value["preview_acknowledgement"])
+        reviewed = reviewed_preview_recipe(ack)
+        if (row.recipe_id, row.recipe_revision, row.recipe_digest) != (
+            reviewed.recipe.recipe_id,
+            reviewed.recipe.recipe_revision,
+            reviewed.digest,
+        ):
+            raise ValueError("Preview operation recipe differs")
+        return ack
