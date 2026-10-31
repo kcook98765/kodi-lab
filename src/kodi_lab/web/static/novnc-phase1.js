@@ -1,4 +1,5 @@
-import RFB from './vendor/novnc/core/rfb.js';
+// Load the pinned viewer only after the human requests viewing.
+let RFB = null;
 
 const main = document.querySelector('[data-novnc-viewer]');
 const element = selector => main.querySelector(selector);
@@ -118,6 +119,8 @@ start.onclick = async () => {
     buttons();
     status.textContent = 'Connecting';
     try {
+        if (!RFB) RFB = (await import('./vendor/novnc/core/rfb.js')).default;
+        if (attempt !== current || document.hidden || identityRetired || !permitted) { await end(current); return; }
         const expected = main.dataset.viewGeneration && main.dataset.viewRuntime ? {
             generation:Number(main.dataset.viewGeneration),
             runtime_revision_id:main.dataset.viewRuntime,container_id:main.dataset.viewContainer,

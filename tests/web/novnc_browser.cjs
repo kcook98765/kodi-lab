@@ -1,7 +1,7 @@
 const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert/strict');
-const source = fs.readFileSync(process.argv[2], 'utf8').replace(/^import RFB[^\n]+\n/, '');
+const source = fs.readFileSync(process.argv[2], 'utf8').replace("import('./vendor/novnc/core/rfb.js')", 'Promise.resolve({default:RFBFixture})');
 const nodes = Object.fromEntries(['main', '#start', '#stop', '#status', '#rate', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand', 'meta[name="kodi-lab-csrf"]'].map(x => [x, {}]));
 for (const node of Object.values(nodes)) node.addEventListener = () => {};
 nodes.main.dataset = {instance: 'fixture', viewerClockMs: String(Date.now())};
@@ -22,7 +22,7 @@ class RFB {
 }
 const context = {
     document: {querySelector: x => nodes[x], hidden: false, addEventListener(name, fn) {listeners[name] = fn;}},
-    window: {addEventListener() {}}, RFB, WebSocket: class {}, URL,
+    window: {addEventListener() {}}, RFBFixture:RFB, WebSocket: class {}, URL,
     location: {href: 'https://lab.test/', protocol: 'https:'},
     crypto: require('crypto').webcrypto, performance: {now: () => 1000},
     fetch: (url, options) => {
@@ -31,25 +31,28 @@ const context = {
     }
 };
 vm.runInNewContext(source, context);
-const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket', mode: 'view-only'})});
+const flush = async () => { for(let i=0;i<5;i++) await Promise.resolve(); };
+const grant = async () => { await flush(); pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket', mode: 'view-only'})}); };
 (async () => {
     let first = nodes['#start'].onclick();
+    await flush();
     const firstAttempt = pending[0].body.attempt;
     assert.match(firstAttempt, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(parseInt(firstAttempt.replaceAll('-', '').slice(0, 12), 16), Number(nodes.main.dataset.viewerClockMs), 'attempt uses server time, independent of client wall clock');
-    grant(); await first;
+    await grant(); await first;
     const old = clients[0];
     await nodes['#stop'].onclick();
-    let second = nodes['#start'].onclick(); grant(); await second;
+    let second = nodes['#start'].onclick(); await grant(); await second;
     const current = clients[1];
     old.emit('disconnect');
     assert.equal(current.closed, false, 'old disconnect cancelled newer attempt');
     assert.equal(nodes['#start'].disabled, true);
     await nodes['#stop'].onclick();
     const delayed = nodes['#start'].onclick();
+    await flush();
     const request = pending.shift();
     await nodes['#stop'].onclick();
-    second = nodes['#start'].onclick(); grant(); await second;
+    second = nodes['#start'].onclick(); await grant(); await second;
     const latest = clients[2];
     request.reject(new Error('old request failed'));
     await delayed;

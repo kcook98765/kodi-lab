@@ -1,6 +1,6 @@
 /* Expanded-viewer status polling must fence every await against tab lifecycle. */
 const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
-const source=fs.readFileSync(process.argv[2],'utf8').replace(/^import RFB[^\n]+\n/,'');
+const source=fs.readFileSync(process.argv[2],'utf8').replace("import('./vendor/novnc/core/rfb.js')",'Promise.resolve({default:RFBFixture})');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 function boot(){
  const nodes=Object.fromEntries(['#start','#stop','#status','#viewer','#take-control','#release-control','#keyboard','#back','#text-input','.typing','#expand'].map(key=>[key,{addEventListener(){},disconnect(){}}]));
@@ -8,7 +8,7 @@ function boot(){
  const events={},requests=[],clients=[],timers=new Map();let serial=0,reloads=0;
  const add=(name,fn)=>(events[name]||=[]).push(fn);
  const document={hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:key.startsWith('meta')?{content:'csrf'}:null,addEventListener:add};
- const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFB:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {},
+ const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {},
  setTimeout(fn,delay){timers.set(++serial,{fn,delay});return serial;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject})),};
  vm.runInNewContext(source,context);
@@ -35,7 +35,7 @@ function boot(){
  assert.equal(changed.nodes['#start'].disabled,true,'retired identity cannot silently return');
  changed.signal('pagehide');
  const stalled=boot();stalled.ready(stalled.requests.shift());await flush();
- const starting=stalled.nodes['#start'].onclick();
+ const starting=stalled.nodes['#start'].onclick();await flush();
  stalled.requests.shift().resolve({ok:true,json:async()=>({ticket:'ticket',mode:'view-only'})});
  await starting;stalled.clients[0].events.connect();
  function nextPoll(page){const entry=[...page.timers].find(([,t])=>t.delay===5000);assert.ok(entry,'polling must continue independently of stalled cleanup');page.timers.delete(entry[0]);entry[1].fn();}
