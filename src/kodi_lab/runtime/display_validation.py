@@ -92,7 +92,9 @@ if process_probe == 'piers-loader':
                 cmdline = stream.read(8193)
             if len(cmdline) > 8192:
                 continue
-            if matches_piers_process(cmdline, os.readlink(process/'exe'), process.stat().st_uid):
+            if matches_piers_process(
+                cmdline, os.readlink(process/'exe'), process.stat().st_uid
+            ):
                 pids.append(process.name.encode())
         except (FileNotFoundError, ProcessLookupError):
             pass
