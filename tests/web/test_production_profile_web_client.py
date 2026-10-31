@@ -6,8 +6,10 @@ import json
 from typing import Any, cast
 from uuid import UUID
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response as BrowserResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,6 +17,7 @@ from kodi_lab import production_profile_web_client as web_client_module
 from kodi_lab.production_profile_web_client import (
     AuthenticationRejected,
     ProductionProfileWebClient,
+    ProductionProfileWebClientError,
 )
 from kodi_lab.storage.models import WebSessionRow
 
@@ -47,7 +50,7 @@ def test_canonical_login_cookie_authenticated_pages_and_logout(
         assert len(rows) == 1
         assert rows[0].token_digest != raw_cookie
 
-    for path in ("/", "/production-targets", "/mcp-clients"):
+    for path in ("/", "/kodi", "/production-targets", "/mcp-clients"):
         assert harness.get_authenticated(path).status_code == 200
     csrf = harness.csrf_token()
     assert csrf
@@ -125,3 +128,63 @@ def test_client_is_test_only_relative_url_and_public_web_surface() -> None:
     assert client.__module__ == "kodi_lab.production_profile_web_client"
     with pytest.raises(ValueError, match="base URL is fixed"):
         ProductionProfileWebClient(base_url="http://127.0.0.1:8180")
+
+
+@pytest.mark.parametrize("action", ["", ' action="/login"'])
+def test_login_form_accepts_only_the_known_current_endpoint(action: str) -> None:
+    response = httpx.Response(
+        200,
+        text=f'<form method="post"{action}>'
+        '<input name="password" type="password"></form>',
+    )
+    ProductionProfileWebClient._require_login_form(response)
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        '<form method="get"><input name="password" type="password"></form>',
+        '<form method="post" action="/other">'
+        '<input name="password" type="password"></form>',
+        '<form method="post" action="//attacker.invalid/login">'
+        '<input name="password" type="password"></form>',
+        '<form method="post" action="https://attacker.invalid/login">'
+        '<input name="password" type="password"></form>',
+        '<form method="post"><input name="password" type="text"></form>',
+    ],
+)
+def test_login_form_rejects_unexpected_actions_methods_or_fields(markup: str) -> None:
+    with pytest.raises(
+        ProductionProfileWebClientError, match="login_form_contract_mismatch"
+    ):
+        ProductionProfileWebClient._require_login_form(httpx.Response(200, text=markup))
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "/",
+        "/settings",
+        "/kodi?return_to=other",
+        "//attacker.invalid/kodi",
+        "https://attacker.invalid/kodi",
+    ],
+)
+def test_login_rejects_every_redirect_except_exact_kodi_landing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, destination: str
+) -> None:
+    original = client.post
+
+    def redirected(*args: Any, **kwargs: Any) -> BrowserResponse:
+        response = original(*args, **kwargs)
+        response.headers["location"] = destination
+        return response
+
+    monkeypatch.setattr(client, "post", redirected)
+    harness = _harness(client)
+    with pytest.raises(
+        ProductionProfileWebClientError, match="login_contract_mismatch"
+    ):
+        harness.login(PASSWORD)
+    assert "login_succeeded" not in harness.evidence
+    harness.close()
