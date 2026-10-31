@@ -307,7 +307,7 @@
         {% else %}<p>No development sources are attached.</p>{% endfor %}
       </section>
       </details>
-      <details class="instance-maintenance"{% if detail.recent_activity|selectattr("reconciliation_required")|list or detail.recent_activity|selectattr("deployment_recovery_available")|list %} open{% endif %}><summary>Activity and recovery history</summary>
+      <details class="instance-maintenance"{% if detail.reconciliation.required or detail.recent_activity|selectattr("reconciliation_required")|list or detail.recent_activity|selectattr("deployment_recovery_available")|list %} open{% endif %}><summary>Activity and recovery history</summary>
       <section>
         <h2>Recent activity</h2>
         {% for item in detail.recent_activity %}
