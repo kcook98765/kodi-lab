@@ -1,18 +1,17 @@
 {% extends 'base.html' %}
 {% set nav_section = 'development' %}
 {% block title %}Agent Workspace · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
 {% block content %}
+    <p class="breadcrumb"><a href="/development">Development tools</a> / <a href="/agent-workspaces">Workspaces</a></p>
     <h1>{{ workspace.source_logical_name }}</h1>
+    <p><a class="button-link" href="/development-session">Open Current Kodi</a></p>
     <dl>
       <dt>Workspace</dt><dd>{{ workspace.id }}</dd>
       <dt>Add-on</dt><dd>{{ workspace.source_addon_id }} — {{ workspace.source_observed_name }} {{ workspace.source_observed_version }}</dd>
       <dt>State</dt><dd>{{ workspace.state.value }}</dd>
       <dt>Workspace files</dt><dd>{{ workspace.bytes_state.value }}</dd>
       <dt>Generation</dt><dd>{{ workspace.generation }}</dd>
-      <dt>Created</dt><dd>{{ workspace.created_at }}</dd>
-      {% if workspace.promoted_at %}<dt>Promoted</dt><dd>{{ workspace.promoted_at }}</dd>{% endif %}
-      {% if workspace.abandoned_at %}<dt>Abandoned</dt><dd>{{ workspace.abandoned_at }}</dd>{% endif %}
-      {% if workspace.cleaned_at %}<dt>Cleaned</dt><dd>{{ workspace.cleaned_at }}</dd>{% endif %}
       {% if workspace.promotion_outcome %}<dt>Source promotion</dt><dd>{{ workspace.promotion_outcome.value }}</dd>{% endif %}
       {% if workspace.verification_outcome %}<dt>Kodi verification</dt><dd>{{ workspace.verification_outcome.value }}</dd>{% endif %}
     </dl>
@@ -33,7 +32,7 @@
       <p>Latest validation: {{ capture_status.validation_state }}{% if capture_status.validation_generation is not none %} · generation {{ capture_status.validation_generation }} · <code>{{ capture_status.validation_digest or 'historical digest unavailable' }}</code>{% endif %}.</p>
       <p>Latest repository deployment: {% if capture_status.deployment_generation is not none %}generation {{ capture_status.deployment_generation }} · {{ capture_status.deployment_state }}{% else %}none{% endif %}.</p>
       <p>Exactly verified installation: {% if capture_status.verified_generation is not none %}{{ capture_status.verified_target_name or capture_status.verified_target_id }} · generation {{ capture_status.verified_generation }} · <span id="verified-source-state">{% if capture_status.verified_state == 'current' %}matches captured workspace{% elif capture_status.verified_state == 'older_than_workspace' %}older than workspace{% else %}older than freshly scanned source{% endif %}</span>{% else %}none{% endif %}.</p>
-      {% if capture_status.recovery_state %}<p>Capture recovery state: {{ capture_status.recovery_state }}. Ordinary capture is unavailable until this is resolved.</p>{% endif %}
+      {% if capture_status.recovery_state %}<p class="error" role="alert">Capture recovery state: {{ capture_status.recovery_state }}. Ordinary capture is unavailable until this is resolved.</p>{% endif %}
       {% if capture_status.recover_operation_id %}<button id="recover-source-capture" type="button" data-operation-id="{{ capture_status.recover_operation_id }}">Reconcile interrupted capture</button>{% endif %}
       <button id="scan-workspace-source" type="button">Scan current source</button>
       <button id="capture-workspace-source" type="button" {% if not capture_status.capture_available %}disabled{% endif %}>Capture current source</button>
@@ -57,9 +56,13 @@
       {% else %}<p>No managed disposable Kodi is registered. Review <a href="/development-session">Current Kodi</a> setup.</p>{% endif %}
     </section>
     {% endif %}
-    {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
+    {% if repository_deployments %}<details class="navigation-group"{% if repository_deployments|selectattr("failure_code")|list %} open{% endif %}><summary>Recorded repository deployments</summary>
     {% if repository_deployments %}<h2>Repository deployments</h2><ul>{% for item in repository_deployments %}<li><code>{{ item.addon_id }}</code> {{ item.addon_version }} → target <code>{{ item.target_id }}</code>: {{ item.state }} (operation <code>{{ item.operation_id }}</code>). {% if item.failure_code %}{{ item.failure_code }}.{% endif %} <a href="/kodi-repository">Review or recheck</a></li>{% endfor %}</ul>{% endif %}
+    </details>{% endif %}
     {% if workspace.state.value == "ready" %}
+    <details class="navigation-group"><summary>Text file editing and root directory</summary>
+    {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
+    <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, Git, MCP, and Kodi actions are not available.</p>
     <section id="workspace-editor" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}" data-csrf="{{ csrf_token }}">
       <h2>Text file editing</h2>
       <form data-action="create"><label>Relative path <input name="path" required maxlength="512"></label><label>New UTF-8 content <textarea name="content"></textarea></label><button>Create file</button></form>
@@ -67,11 +70,17 @@
       <form data-action="patch"><label>Relative path <input name="path" required maxlength="512"></label><label>Exact current text <textarea name="expected_text"></textarea></label><label>Replacement text <textarea name="replacement_text"></textarea></label><button>Apply exact patch</button></form>
       <p id="workspace-edit-result" role="status"></p>
     </section>
+    </details>
+    <details class="navigation-group"{% if changes.identity_status != "stable" %} open{% endif %}><summary>Detailed changes and previews</summary>
     <h2>Derived changes</h2>
     <p>Identity: {{ changes.identity_status }}. {{ changes.changes|length }} changed file(s).</p>
     {% for change in changes.changes %}<article><h3>{{ change.path }} — {{ change.change_kind }}</h3><p>{{ change.baseline_size if change.baseline_size is not none else "absent" }} → {{ change.current_size }} bytes</p>{% if change.before_preview is not none %}<h4>Before{% if change.before_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.before_preview }}</pre>{% endif %}<h4>After{% if change.after_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.after_preview }}</pre></article>{% endfor %}
+    </details>
+    <details class="navigation-group"><summary>Workspace edit history</summary>
     <h2>Workspace activity</h2>
     <ul>{% for item in activity %}<li>Generation {{ item.generation }}: {{ item.operation }} {{ item.path }}</li>{% else %}<li>No workspace mutations.</li>{% endfor %}</ul>
+    </details>
+    <details class="navigation-group"{% if promotion_plan %} open{% endif %}><summary>Promotion review</summary>
     <section id="workspace-promotion" data-workspace-id="{{ workspace.id }}" data-csrf="{{ csrf_token }}">
       <h2>Promote reviewed changes</h2>
       {% if promotion_plan %}
@@ -82,11 +91,21 @@
       <p id="promotion-result" role="status"></p>
       {% else %}<p>No eligible running target has an exact retained verified deployment of this source.</p>{% endif %}
     </section>
+    </details>
     {% endif %}
+    <details class="navigation-group"{% if lifecycle_activity|selectattr("failure_code")|list %} open{% endif %}><summary>Lifecycle history</summary>
     <h2>Lifecycle activity</h2>
     <ul>{% for item in lifecycle_activity %}<li>{{ item.occurred_at }}: {{ item.operation.value }}{% if item.failure_code %} ({{ item.failure_code }}){% endif %}</li>{% else %}<li>No abandonment or cleanup activity.</li>{% endfor %}</ul>
+    </details>
+    <details class="navigation-group"><summary>Retention and cleanup</summary>
     <section id="workspace-retention" data-workspace-id="{{ workspace.id }}" data-csrf="{{ csrf_token }}">
       <h2>Workspace retention</h2>
+      <dl>
+      <dt>Created</dt><dd>{{ workspace.created_at }}</dd>
+      {% if workspace.promoted_at %}<dt>Promoted</dt><dd>{{ workspace.promoted_at }}</dd>{% endif %}
+      {% if workspace.abandoned_at %}<dt>Abandoned</dt><dd>{{ workspace.abandoned_at }}</dd>{% endif %}
+      {% if workspace.cleaned_at %}<dt>Cleaned</dt><dd>{{ workspace.cleaned_at }}</dd>{% endif %}
+      </dl>
       {% if workspace.state.value == "ready" %}
       <p>Abandoning this workspace prevents further edits or promotion. Workspace files remain until explicitly cleaned.</p>
       <button id="abandon-workspace" type="button">Abandon workspace</button>
@@ -99,7 +118,7 @@
       {% endif %}
       <p id="workspace-retention-result" role="status"></p>
     </section>
-    <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, Git, MCP, and Kodi actions are not available.</p>
+    </details>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
     <script src="{{ url_for('static', path='/workspace-deployment-preflight.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
