@@ -9,6 +9,7 @@ from uuid import UUID
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response as BrowserResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -174,7 +175,7 @@ def test_login_rejects_every_redirect_except_exact_kodi_landing(
 ) -> None:
     original = client.post
 
-    def redirected(*args: Any, **kwargs: Any) -> httpx.Response:
+    def redirected(*args: Any, **kwargs: Any) -> BrowserResponse:
         response = original(*args, **kwargs)
         response.headers["location"] = destination
         return response
