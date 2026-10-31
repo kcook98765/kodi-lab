@@ -430,6 +430,10 @@ def load_recorded_reviewed_recipe(
 
 
 _DISPLAY_CANDIDATES = {
+    "matrix": (
+        "matrix-19.4-display-r3.json",
+        "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+    ),
     "nexus": (
         "nexus-20.5-display-r3.json",
         "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
