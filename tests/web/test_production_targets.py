@@ -111,6 +111,16 @@ def test_production_web_flow_is_separate_two_step_and_web_only(
         "pending_native_identity"
     )
 
+    page = client.get("/production-targets").text
+    assert (
+        "<details open><summary>Connection identity, trust and scopes</summary>" in page
+    )
+    assert f"observation {observation_id}" in page
+    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "production-pending-native.html").write_text(page)
+
     native = client.post(
         f"/api/production-targets/{target_id}/confirm-native",
         json={"confirmed": True, "observation_id": observation_id},

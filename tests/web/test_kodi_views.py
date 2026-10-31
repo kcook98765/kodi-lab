@@ -45,7 +45,12 @@ from kodi_lab.storage.models import (
     TargetRow,
 )
 from tests.application.test_production_bridges import _Verifier
-from tests.web.conftest import EXTERNAL_TARGET_ID, INSTANCE_ID, login
+from tests.web.conftest import (
+    EXTERNAL_TARGET_ID,
+    INSTANCE_ID,
+    login,
+    seed_external_target,
+)
 
 
 @pytest.fixture
@@ -495,9 +500,10 @@ def test_multiple_household_and_development_separation(
 
 
 def test_administration_priorities_and_pending_identity(
-    client: TestClient, household: UUID
+    client: TestClient, database: sessionmaker[Session], household: UUID
 ) -> None:
     login(client)
+    seed_external_target(database)
     production = client.get("/production-targets")
     external = client.get("/external-targets")
     assert production.status_code == external.status_code == 200
@@ -543,3 +549,28 @@ def test_administration_priorities_and_pending_identity(
             ("external-pending", pending),
         ]:
             (root / f"{name}.html").write_text(content)
+
+
+@pytest.mark.parametrize("verification", ["unverified", "identity_mismatch"])
+def test_development_native_identity_review_stays_visible(
+    client: TestClient, database: sessionmaker[Session], verification: str
+) -> None:
+    seed_external_target(database)
+    login(client)
+    observation = uuid4()
+    with database.begin() as session:
+        target = session.get(ExternalKodiTargetRow, str(EXTERNAL_TARGET_ID))
+        assert target is not None
+        target.verification_state = verification
+        target.pending_observation_id = str(observation)
+        target.observed_kodi_name = "New observed Kodi identity"
+    page = client.get("/external-targets").text
+    assert (
+        "<details open><summary>Connection identity and capabilities</summary>" in page
+    )
+    assert "Observed Kodi identity: New observed Kodi identity" in page
+    assert f'data-observation-id="{observation}"' in page
+    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"external-native-{verification}.html").write_text(page)

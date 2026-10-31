@@ -38,10 +38,11 @@
           <p>Kodi {{ target.kodi_version or 'not observed' }} · last recorded check {{ target.last_observed_at or 'never' }}</p>
           {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
           {% if target.verification_state.value in ['identity_mismatch','needs_reverification'] or (bridge and (bridge.pairing_state.value == 'needs_reverification' or bridge.reachability_state.value in ['identity_mismatch','authentication_failed','protocol_unsupported'])) %}<p class="error" role="alert">Connection trust needs review. Reconnect or review the recorded identity before confirming.</p>{% endif %}
-          <details><summary>Connection identity and capabilities</summary>
+          <details{% if target.pending_observation_id or target.verification_state.value in ["identity_mismatch","needs_reverification"] %} open{% endif %}><summary>Connection identity and capabilities</summary>
           <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/external-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}</p>
+          <p>Observed Kodi identity: {{ target.kodi_name or 'not observed' }} · Kodi {{ target.kodi_version or 'not observed' }} · JSON-RPC {{ target.protocol_version or 'not observed' }}</p>
           <p>Configured: {{ target.configured_capabilities | join(', ') }} · verified: {{ target.verified_capabilities | join(', ') if target.verified_capabilities else 'none' }}</p>
           </details>
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and bridge.pairing_state.value == 'paired' %}
