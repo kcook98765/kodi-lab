@@ -7391,3 +7391,17 @@ Migration 0089 defaults off, preserves legacy state and refuses to discard enabl
 policy or requester-bound selection history. No scheduler, broad permission,
 production authority, pin change or implicit profile retirement is introduced.
 See [policy](RETAINED-DEVELOPMENT-POLICY.md) for contract and evidence limits.
+
+## D-0472: Closed reviewed display metadata precedes standard viewer qualification
+
+Keep native display geometry and helper/package identity in one wheel-owned
+descriptor keyed by exact recipe ID, revision and digest. Consumers of installed
+capability also require the existing eligible, HMAC-sealed installation, image
+and native validation evidence. Version names and screenshot support cannot grant
+viewing. Recipe packaging and accepted standard qualification are separate facts.
+
+The first extraction admits only the existing experimental Omega r4, preserving
+its UUID opt-in, exact selected-profile admission and immutable assets. No standard
+recipe, default activation, profile transition or performance acceptance follows
+from this refactor. Existing worker, control, session and runtime identity fences
+remain independent and mandatory.

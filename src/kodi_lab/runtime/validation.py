@@ -18,6 +18,7 @@ from kodi_lab.broker.screenshots import (
 )
 from kodi_lab.config import Settings
 from kodi_lab.kodi.screenshots import png_pixel_statistics, x11_frame_to_png
+from kodi_lab.runtime.display_capabilities import reviewed_display_capability
 from kodi_lab.runtime.recipes import ReviewedRecipe
 from kodi_lab.runtime.temporary_networks import (
     TemporaryNetwork,
@@ -250,9 +251,7 @@ def validate_reviewed_image(
             if cycle == 0:
                 screenshot = _capture(
                     container,
-                    experimental=reviewed.recipe.recipe_id
-                    == "ubuntu-resolute-omega-21.3"
-                    and reviewed.recipe.recipe_revision == 4,
+                    experimental=reviewed_display_capability(reviewed) is not None,
                 )
             container.stop(timeout=10)
             container.reload()

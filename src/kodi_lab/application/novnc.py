@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.domain import InstanceType, ManagedInstanceMutationKind
+from kodi_lab.runtime.display_capabilities import EXPERIMENTAL_OMEGA_DISPLAY
 from kodi_lab.storage.development_sessions import active_session
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -65,14 +66,16 @@ class CatalogViewAuthority:
             revision = UUID(instance.runtime_revision_id)
             artifact = RuntimeContainerArtifactRepository(db).get(revision)
             profile = RuntimeExecutionProfileRepository(db).get(revision)
+            capability = EXPERIMENTAL_OMEGA_DISPLAY
             if (
                 artifact is None
                 or artifact.image_id != pin.image
                 or profile is None
-                or profile.expected_application_name != "Kodi"
-                or profile.expected_kodi_version != "21.3"
-                or profile.runtime_uid != 1000
-                or profile.runtime_gid != 1000
+                or profile.expected_application_name
+                != capability.expected_application_name
+                or profile.expected_kodi_version != capability.expected_kodi_version
+                or profile.runtime_uid != capability.runtime_uid
+                or profile.runtime_gid != capability.runtime_gid
             ):
                 raise ValueError("view runtime not admitted")
             current = active_session(db)

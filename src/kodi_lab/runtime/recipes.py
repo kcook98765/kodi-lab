@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from kodi_lab.domain import KodiReleaseIdentity, normalize_sha256_digest
+from kodi_lab.runtime.display_capabilities import EXPERIMENTAL_OMEGA_DISPLAY
 from kodi_lab.runtime.manifest import RuntimeProfileManifest
 
 _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
@@ -71,9 +72,7 @@ _ASSETS = (
 _DISPLAY_GUARD_ASSET = "xvfb_guard.py"
 REVIEWED_SIGNED_DISTRO_SOURCE_KIND = "reviewed-signed-distro-package"
 REVIEWED_OSTREE_SOURCE_KIND = "reviewed-flathub-ostree"
-NOVNC_PHASE1_DIGEST: Final = (
-    "sha256:44ff250db8587265c74ecf7114a74f51646f7f25ab4199c29c3181c02d9f2d15"
-)
+NOVNC_PHASE1_DIGEST: Final = EXPERIMENTAL_OMEGA_DISPLAY.recipe_digest
 HISTORICAL_PREVIEW_INSTALLATION_DIGEST: Final = (
     "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793"
 )
@@ -334,10 +333,9 @@ class RuntimeRecipe(_ClosedModel):
         expected_assets = set(_ASSETS)
         if self.recipe_revision >= 2:
             expected_assets.add(_DISPLAY_GUARD_ASSET)
-        if self.recipe_id == "ubuntu-resolute-omega-21.3" and self.recipe_revision in (
-            3,
-            4,
-        ):
+        from kodi_lab.runtime.display_capabilities import VIEWER_ASSET_RECIPES
+
+        if (self.recipe_id, self.recipe_revision) in VIEWER_ASSET_RECIPES:
             expected_assets.add("novnc_view_helper.py")
         if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
