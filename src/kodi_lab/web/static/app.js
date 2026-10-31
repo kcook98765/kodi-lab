@@ -25,15 +25,6 @@ function updateManagedAttention() {
   notice.hidden = !names.length;
 }
 
-function openManagedFragment() {
-  if (window.location.hash !== "#instances") return;
-  const details = document.getElementById("managed-details");
-  if (details) {
-    details.open = true;
-    document.getElementById("instances").scrollIntoView();
-  }
-}
-
 function updateCard(status) {
   const card = document.querySelector(`[data-instance-id="${CSS.escape(status.managed_instance_id)}"]`);
   if (!card) return;
@@ -150,6 +141,4 @@ async function refresh() {
   }
 }
 
-window.addEventListener("hashchange", openManagedFragment);
-openManagedFragment();
 window.setInterval(() => void refresh(), pollMs);

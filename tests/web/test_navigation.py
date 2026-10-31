@@ -3,13 +3,48 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import INSTANCE_ID, login
+
+
+def test_login_enters_kodi_and_legacy_entry_has_no_script_fallbacks(
+    client: TestClient,
+) -> None:
+    assert (
+        client.get("/managed-instances", follow_redirects=False).headers["location"]
+        == "/login"
+    )
+    login(client)
+    assert client.get("/login", follow_redirects=False).headers["location"] == "/kodi"
+    for fragment in ("", "#instances", "#managed-details"):
+        response = client.get(f"/{fragment}")
+        assert response.status_code == 200
+        links = Links()
+        links.feed(response.text)
+        assert {"/kodi", "/managed-instances"} <= links.destinations
+        assert {"instances", "managed-details"} <= links.ids
+        assert "app.js" not in response.text
+        assert "kodi-lab-poll-ms" not in response.text
+
+
+def test_navigation_compatibility_and_keyboard_dom() -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node is required for navigation behavior checks"
+    subprocess.run(
+        [node, str(Path(__file__).with_name("navigation_harness.cjs"))],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
 
 class Links(HTMLParser):
@@ -30,7 +65,10 @@ class Links(HTMLParser):
 def test_landing_pages_keep_existing_authentication(
     client: TestClient, path: str
 ) -> None:
-    assert client.get(path).status_code == 401
+    response = client.get(path, follow_redirects=False)
+    assert response.status_code == (303 if path == "/kodi" else 401)
+    if path == "/kodi":
+        assert response.headers["location"] == "/login"
     login(client)
     response = client.get(path)
     assert response.status_code == 200
@@ -42,7 +80,8 @@ def test_landing_pages_keep_existing_authentication(
 @pytest.mark.parametrize(
     ("path", "active"),
     [
-        ("/", "/"),
+        ("/", "/kodi"),
+        ("/managed-instances", "/settings"),
         ("/kodi", "/kodi"),
         ("/add-kodi", "/kodi"),
         ("/production-targets", "/kodi"),
@@ -74,7 +113,6 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     navigation = re.search(r'<nav id="admin-navigation".*?</nav>', html, re.S)
     assert navigation is not None
     assert re.findall(r'<a href="([^"]+)"', navigation.group()) == [
-        "/",
         "/kodi",
         "/mcp-clients",
         "/development",
@@ -99,6 +137,7 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
         destinations.update(links.destinations)
     assert {
         "/add-kodi",
+        "/managed-instances",
         "/production-targets",
         "/external-targets",
         "/mcp-clients",

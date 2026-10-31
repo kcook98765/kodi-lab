@@ -5,9 +5,13 @@
 {% block content %}
 <div class="kodi-page-heading">
   <div><h1>Kodi</h1><p>Open your managed development environment or a household Kodi.</p></div>
-  <a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>
+  <div class="actions">
+    <a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>
+    <a class="button-link" href="/mcp-clients">Connect an agent</a>
+  </div>
 </div>
 {% include 'components/current-kodi-summary.html' %}
+<noscript><p id="managed-details"><a id="instances" href="/managed-instances">Open managed registrations and recovery in Advanced</a></p></noscript>
 <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
 <section aria-labelledby="household-kodi-heading">
   <h2 id="household-kodi-heading">Kodi in your home</h2>

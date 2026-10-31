@@ -19,7 +19,7 @@ button?.addEventListener("click", async () => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error?.message || "Reconstruction request failed.");
-    window.location.assign("/");
+    window.location.assign("/managed-instances");
   } catch (error) {
     errorNode.textContent = error instanceof Error ? error.message : "Reconstruction request failed.";
     errorNode.hidden = false;
@@ -41,7 +41,7 @@ resolveButton?.addEventListener("click", async () => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error?.message || "Reconciliation could not be resolved.");
-    window.location.assign("/");
+    window.location.assign("/managed-instances");
   } catch (error) {
     errorNode.textContent = error instanceof Error ? error.message : "Reconciliation could not be resolved.";
     errorNode.hidden = false;

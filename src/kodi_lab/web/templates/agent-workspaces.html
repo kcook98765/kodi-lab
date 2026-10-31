@@ -18,5 +18,5 @@
     {% for workspace in workspaces %}
     <article><h2><a href="/agent-workspaces/{{ workspace.id }}">{{ workspace.source_logical_name }}</a></h2><p>{{ workspace.source_addon_id }} — {{ workspace.state.value }} — bytes {{ workspace.bytes_state.value }} — generation {{ workspace.generation }}</p></article>
     {% else %}<p>No workspaces.</p>{% endfor %}
-    <p><a href="/">Back to dashboard</a></p>
+    <p><a href="/kodi">Back to Kodi</a></p>
   {% endblock %}

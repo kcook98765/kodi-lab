@@ -89,27 +89,35 @@ and a one-year lifetime. It uses no local/session storage and no database table.
 Absent/invalid preferences select Standard. This is a browser-local preference
 for the existing single Web administrator, independent of the login session.
 
-Standard navigation is Home, Kodi, Agents and Settings. Home and Kodi emphasize
-external production household installations. Standard Add Kodi opens Home;
+Standard navigation is Kodi, Agents and Advanced. `/kodi` is the landing page
+after sign-in and from the Kodi Lab brand link. It shows Current Kodi, its selected
+development environment, household Kodi with last-recorded status, Add Kodi and
+Connect an agent. Viewing it does not check live availability or aggregate
+managed-instance status. Standard Add Kodi opens household onboarding;
 Development onboarding remains available by explicit deep link or recovery of
 an existing Development operation. Agents retains basic setup, client/token
 controls and household grants/scopes; advanced preset creation, workspace/source
 bindings and development target controls are omitted. Current client presets
-are displayed without changing them. Settings links to household connection and
+are displayed without changing them. Advanced links to household connection and
 screenshot settings, agents and Bridge setup instructions in Add Kodi.
 
-Development preserves the existing five navigation sections and all prior
+Development adds Development tools to those three sections and preserves all prior
 controls, including managed/runtime administration, external development,
 workspaces, add-ons, advanced MCP and full settings.
 
 The preference is never consulted by lifecycle, target classification, MCP
 authorization or endpoint-security code. Existing authorized routes remain
 available in Standard and Development. Development deep links display an
-explanation in Standard. Explicit Home `#instances` and `#managed-details`
-fragments reveal retained managed controls and load their existing polling
-script without changing the preference. With JavaScript disabled, the selector
-and navigation still work; choose Development for managed Home controls.
-Managed errors retain a visible attention summary on ordinary Standard Home.
+explanation in Standard. Advanced links to `/managed-instances` for exact
+registrations, failure warnings, recovery and the existing status polling.
+This page is directly available in both views; ordinary Kodi does not load its
+scripts. Historical `/#instances` and `/#managed-details` bookmarks use the thin
+`/` compatibility page to replace the URL with the matching managed-list fragment.
+Plain `/` continues to `/kodi`. Replacement avoids a redirect loop when using
+Back. With JavaScript disabled, `/` provides both destination links and useful
+legacy fragment anchors; the selector and navigation still work. Sign-in preserves
+the fragment, and `/kodi` also resolves these legacy fragments after authentication.
+With JavaScript disabled, the post-login page offers a manual Advanced link.
 
 ## Isolated verification and evidence
 

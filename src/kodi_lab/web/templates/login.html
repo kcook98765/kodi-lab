@@ -13,7 +13,8 @@
       <p class="notice">Administrator credentials are not configured. Run <code>kodi-lab-admin set-password</code> locally.</p>
       {% endif %}
       {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-      <form method="post" action="/login">
+      {# Submit to the current URL so legacy bookmark fragments survive sign-in. #}
+      <form method="post">
         <label for="password">Administrator password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
         <button type="submit">Sign in</button>

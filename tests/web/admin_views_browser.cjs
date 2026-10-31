@@ -19,7 +19,7 @@ const report = {baseURL, fixtureMethod:'Disposable database, real controllers; s
     const login = await auth.newPage();
     await login.goto('/login');
     await login.locator('[name=password]').fill(fs.readFileSync(`${root}/admin-password`,'utf8').trim());
-    await Promise.all([login.waitForURL(`${baseURL}/`), login.getByRole('button',{name:'Sign in',exact:true}).click()]);
+    await Promise.all([login.waitForURL(`${baseURL}/kodi`), login.getByRole('button',{name:'Sign in',exact:true}).click()]);
     const csrf = await login.locator('meta[name=kodi-lab-csrf]').getAttribute('content');
     const storageState = await auth.storageState();
     await auth.close();
@@ -68,7 +68,7 @@ const report = {baseURL, fixtureMethod:'Disposable database, real controllers; s
       assert.equal(await page.getByRole('button',{name:'Standard',exact:true}).getAttribute('aria-pressed'),'true');
       await choose('development');
       await page.reload();
-      assert.equal(await page.locator('#admin-navigation li').count(),5);
+      assert.equal(await page.locator('#admin-navigation li').count(),4);
       const second = await context.newPage();
       await second.goto('/kodi');
       assert.equal(await second.getByRole('button',{name:'Development',exact:true}).getAttribute('aria-pressed'),'true');
@@ -93,13 +93,11 @@ const report = {baseURL, fixtureMethod:'Disposable database, real controllers; s
         await page.goto('/');
         await choose(mode);
         for (const [scenario,url] of [
-          ['home','/'],['kodi','/kodi'],['add-kodi',mode==='development'?'/add-kodi?mode=development':'/add-kodi'],['agents','/mcp-clients'],['settings','/settings'],...(mode==='development'?[['runtime-installation','/runtimes']]:[]),
+          ['kodi','/kodi'],['managed','/managed-instances'],['add-kodi',mode==='development'?'/add-kodi?mode=development':'/add-kodi'],['agents','/mcp-clients'],['settings','/settings'],...(mode==='development'?[['runtime-installation','/runtimes']]:[]),
         ]) {
           await page.goto(url,{waitUntil:'load'});
           assert.equal(await page.getByRole('button',{name:mode==='standard'?'Standard':'Development',exact:true}).getAttribute('aria-pressed'),'true');
-          assert.equal(await page.locator('#admin-navigation li').count(),mode==='standard'?4:5);
-          if (scenario==='home' && mode==='development') await page.locator('#managed-details summary').click();
-          if (scenario==='home' && mode==='standard') assert.equal(await page.locator('#managed-details').isVisible(),false);
+          assert.equal(await page.locator('#admin-navigation li').count(),mode==='standard'?3:4);
           if (scenario==='kodi') assert.equal(await page.locator('#development-kodi-heading').count(),mode==='development'?1:0);
           if (scenario==='agents') assert.equal(await page.locator('[data-agent-advanced]').count(),mode==='development'?1:0);
           if (scenario==='add-kodi') {
@@ -122,11 +120,11 @@ const report = {baseURL, fixtureMethod:'Disposable database, real controllers; s
       await page.goto('/');
       await choose('standard');
       await page.goto('/#instances');
-      await page.waitForFunction(()=>document.querySelector('#managed-details').open);
+      await page.waitForURL('**/managed-instances#*');
       assert.equal(await page.locator('#instances').isVisible(),true);
       assert.equal(await page.getByRole('button',{name:'Standard',exact:true}).getAttribute('aria-pressed'),'true');
       await page.goto('/#managed-details');
-      await page.waitForFunction(()=>document.querySelector('#managed-details').open);
+      await page.waitForURL('**/managed-instances#*');
       await page.goto('/');
       await page.getByRole('button',{name:'Development',exact:true}).focus();
       assert.ok(parseFloat(await page.getByRole('button',{name:'Development',exact:true}).evaluate(el=>getComputedStyle(el).outlineWidth))>=3);
@@ -166,7 +164,7 @@ const report = {baseURL, fixtureMethod:'Disposable database, real controllers; s
     assert.equal(await page.locator('#admin-navigation').isVisible(),true);
     assert.equal(await page.getByRole('button',{name:'Development',exact:true}).getAttribute('aria-pressed'),'true');
     await Promise.all([page.waitForNavigation(),page.getByRole('button',{name:'Standard',exact:true}).click()]);
-    assert.equal(await page.locator('#managed-details').isVisible(),false);
+    assert.equal(await page.getByRole('link',{name:'Open managed registrations and recovery'}).isVisible(),true);
     report.checks.push({noJavaScript:'Both view switches and primary navigation work'});
     await noJS.close();
     assert.deepEqual(report.errors,[]);

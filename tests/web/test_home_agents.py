@@ -22,16 +22,18 @@ from tests.web.conftest import INSTANCE_ID, ORIGIN, login
 from tests.web.test_kodi_views import household as household
 
 
-def test_home_empty_keeps_next_actions_and_managed_controls(client: TestClient) -> None:
+def test_landing_empty_keeps_next_actions_and_advanced_controls(
+    client: TestClient,
+) -> None:
     assert client.get("/", follow_redirects=False).status_code == 303
     login(client)
-    page = client.get("/").text
-    primary, managed = page.split('<details id="managed-details"', 1)
-    assert "No Home Kodi added yet" in primary
-    assert 'href="/add-kodi"' in primary
-    assert 'href="/mcp-clients">Connect an agent' in primary
-    assert "Fixture and reset" not in primary
-    assert " open" not in managed.split(">", 1)[0]
+    page = client.get("/kodi").text
+    assert "No household Kodi added yet" in page
+    assert 'href="/add-kodi"' in page
+    assert 'href="/mcp-clients">Connect an agent' in page
+    assert "Fixture and reset" not in page
+    assert '<section id="managed-details"' not in page
+    managed = client.get("/managed-instances").text
     assert 'id="instances"' in managed
     assert f'href="/instances/{INSTANCE_ID}/snapshots"' in managed
     assert "Fixture and reset" in managed
@@ -52,15 +54,16 @@ def test_home_household_is_recorded_and_network_free(
             row.observation_state = ExternalObservationState.UNREACHABLE
     login(client)
     context = cast(FastAPI, client.app).state.kodi_lab
-    # Existing managed status refresh records runtime observations. Freeze that
-    # unchanged dashboard so the write guard isolates the new household view.
-    managed = context.status.list_statuses()
-    monkeypatch.setattr(context.status, "list_statuses", lambda: managed)
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        pytest.fail("Home attempted external Kodi I/O or changed authority")
+        pytest.fail("Landing attempted live Kodi I/O or changed authority")
 
     for service, names in [
+        (context.status, ["list_statuses", "get_observation"]),
+        (context.reset_status, ["list_statuses"]),
+        (context.reconciliation, ["status"]),
+        (context.reconstruction, ["latest_for_instance"]),
+        (context.managed_resources, ["status"]),
         (context.production_targets, ["probe", "set_enabled", "confirm"]),
         (
             context.external_bridges,
@@ -84,11 +87,15 @@ def test_home_household_is_recorded_and_network_free(
     bind = database.kw["bind"]
     event.listen(bind, "before_cursor_execute", record)
     try:
-        response = client.get("/")
+        response = client.get("/kodi")
+        assert client.get("/").status_code == 200
     finally:
         event.remove(bind, "before_cursor_execute", record)
     assert response.status_code == 200
-    primary = response.text.split('<details id="managed-details"', 1)[0]
+    primary = response.text
+    assert primary.count('class="kodi-card"') == 1
+    assert primary.count('class="current-kodi-card"') == 1
+    assert "app.js" not in primary and "managed-resources.js" not in primary
     assert "Living room" in primary
     assert f'href="/kodi/{household}"' in primary
     assert "Live availability is not checked" in primary
@@ -108,7 +115,7 @@ def test_home_household_is_recorded_and_network_free(
     ]
 
 
-def test_home_managed_failure_visible_before_disclosure(
+def test_managed_failure_visible_in_advanced(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     login(client)
@@ -120,8 +127,8 @@ def test_home_managed_failure_visible_before_disclosure(
         }
     )
     monkeypatch.setattr(service, "list_statuses", lambda: [status])
-    page = client.get("/").text
-    primary, managed = page.split('<details id="managed-details"', 1)
+    page = client.get("/managed-instances").text
+    primary, managed = page.split('<section id="managed-details"', 1)
     notice = re.search(r'<p id="managed-attention".*?</p>', primary, re.S)
     assert notice is not None
     assert " hidden" not in notice.group()

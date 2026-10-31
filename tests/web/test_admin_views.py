@@ -32,9 +32,10 @@ def test_first_use_standard_and_full_development(client: TestClient) -> None:
     assert ADMIN_VIEW_COOKIE not in client.cookies
     for path in ["/", "/kodi", "/mcp-clients", "/settings", "/add-kodi"]:
         page = client.get(path).text
-        assert navigation(page) == ["/", "/kodi", "/mcp-clients", "/settings"]
+        assert navigation(page) == ["/kodi", "/mcp-clients", "/settings"]
         assert 'value="standard" aria-pressed="true"' in page
-    assert "hidden data-managed-deep-link" in client.get("/").text
+    assert '<section id="managed-details"' not in client.get("/kodi").text
+    assert 'href="/managed-instances"' in client.get("/").text
     assert 'id="development-kodi-heading"' not in client.get("/kodi").text
     assert "Create custom preset" not in client.get("/mcp-clients").text
     assert 'href="/development"' in client.get("/settings").text
@@ -43,8 +44,8 @@ def test_first_use_standard_and_full_development(client: TestClient) -> None:
         client.get("/add-kodi").text
     )
     client.cookies.set(ADMIN_VIEW_COOKIE, "development")
-    assert len(navigation(client.get("/").text)) == 5
-    assert 'id="managed-details"' in client.get("/").text
+    assert len(navigation(client.get("/").text)) == 4
+    assert 'id="managed-details"' in client.get("/managed-instances").text
     assert 'id="development-kodi-heading"' in client.get("/kodi").text
     assert "Create custom preset" in client.get("/mcp-clients").text
     assert "Preserved snapshots" in client.get("/settings").text
@@ -123,7 +124,7 @@ def test_preference_auth_csrf_origin_persistence_and_no_state_writes(
     assert client.get("/api/runtime-installations").status_code == 200
     # An untrusted preference cannot grant any mode beyond presentation.
     client.cookies.set(ADMIN_VIEW_COOKIE, "invalid")
-    assert len(navigation(client.get("/kodi").text)) == 4
+    assert len(navigation(client.get("/kodi").text)) == 3
 
 
 @pytest.mark.parametrize(
@@ -180,6 +181,7 @@ def test_export_isolated_browser_fixtures(
             for path in [
                 "/",
                 "/kodi",
+                "/managed-instances",
                 "/add-kodi",
                 "/add-kodi?mode=development",
                 "/mcp-clients",
@@ -187,7 +189,7 @@ def test_export_isolated_browser_fixtures(
                 "/runtimes",
             ]
         }
-        assert "Living room" in routes[mode]["/"]
+        assert "Living room" in routes[mode]["/kodi"]
         assert str(household) in routes[mode]["/kodi"]
     installations = client.get("/api/runtime-installations").json()
     assert [i["action"] for i in installations["installations"]] == [

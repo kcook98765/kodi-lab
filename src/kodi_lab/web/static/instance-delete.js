@@ -28,7 +28,7 @@ button?.addEventListener("click", async () => {
       const document = await response.json();
       throw new Error(document?.error?.message || "Instance deletion request failed.");
     }
-    window.location.assign("/");
+    window.location.assign("/managed-instances");
   } catch (error) {
     errorBox.textContent = error.message || "Instance deletion request failed.";
     errorBox.hidden = false;

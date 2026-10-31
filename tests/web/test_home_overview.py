@@ -15,17 +15,14 @@ from kodi_lab.web.presentation import managed_next_step, state_label
 from tests.web.conftest import INSTANCE_ID, login
 
 
-def test_overview_visible_in_standard_view_and_details_remain(
-    client: TestClient,
-) -> None:
+def test_landing_has_one_summary_and_advanced_keeps_details(client: TestClient) -> None:
     login(client)
-    page = client.get("/").text
-    primary, details = page.split('<details id="managed-details"', 1)
-    assert "Current Kodi" in primary
+    primary = client.get("/kodi").text
+    details = client.get("/managed-instances").text
+    assert primary.count('class="current-kodi-card"') == 1
     assert "No development Kodi is selected" in primary
     assert 'href="/development-session"' in primary
     assert f'href="/instances/{INSTANCE_ID}"' not in primary
-    assert "Managed Kodi at a glance" not in primary
     assert "Advanced status and runtime details" in details
     assert "Advanced fixture and exact runtime pin" in details
     assert 'data-action="deprovision"' not in details
@@ -33,6 +30,8 @@ def test_overview_visible_in_standard_view_and_details_remain(
     assert 'data-action="start"' not in details
     assert 'href="/managed-resources"' in details
     assert 'href="/settings">Advanced</a>' in primary
+    assert 'class="current-kodi-card"' not in details
+    assert 'class="kodi-card"' not in details
 
 
 @pytest.mark.parametrize(
@@ -94,8 +93,8 @@ def test_home_failure_guidance_does_not_offer_retry(
         }
     )
     monkeypatch.setattr(context.status, "list_statuses", lambda: [instance])
-    page = client.get("/").text
-    primary, details = page.split('<details id="managed-details"', 1)
+    page = client.get("/managed-instances").text
+    primary, details = page.split('<section id="managed-details"', 1)
     assert "Advanced managed registrations need review" in primary
     assert "Retained failure code" not in primary
     assert "Retained failure code" in details
@@ -110,7 +109,9 @@ def test_stored_reset_failure_is_counted_and_visible(
         update={"failure_reason": "Retained reset failure"}
     )
     monkeypatch.setattr(context.reset_status, "list_statuses", lambda: [reset])
-    primary = client.get("/").text.split('<details id="managed-details"', 1)[0]
+    primary = client.get("/managed-instances").text.split(
+        '<section id="managed-details"', 1
+    )[0]
     assert "Advanced managed registrations need review" in primary
     assert "Retained reset failure" not in primary
 
@@ -132,11 +133,14 @@ def test_advanced_destinations_available_in_both_views(client: TestClient) -> No
 
 def test_export_isolated_home_browser_fixtures(client: TestClient) -> None:
     """Optional browser evidence uses real templates and exclusively fixture APIs."""
+    sign_in = client.get("/login").text
     login(client)
     routes = {
-        path: client.get(path).text for path in ("/", "/settings", "/development")
+        path: client.get(path).text
+        for path in ("/", "/kodi", "/managed-instances", "/settings", "/development")
     }
-    assert "Current Kodi" in routes["/"]
+    routes["/login"] = sign_in
+    assert "Current Kodi" in routes["/kodi"]
     if destination := os.getenv("KODI_LAB_CAMPAIGN_BROWSER_EVIDENCE"):
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)

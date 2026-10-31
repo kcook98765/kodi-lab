@@ -97,7 +97,7 @@
       </div>
       {% else %}<p>Development repository is unavailable{% if development_error %}: {{ development_error }}{% endif %}.</p>{% endif %}
       <p>Private-LAN HTTP does not authenticate the server or protect artifacts against a malicious LAN actor. Use only on a trusted private network.</p>
-      <p><a href="/">Back to dashboard</a></p>
+      <p><a href="/kodi">Back to Kodi</a></p>
     {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/kodi-repository.js') }}" defer></script>

@@ -1,7 +1,7 @@
 {% if shared_navigation_enabled %}
 <header class="admin-sidebar" data-admin-sidebar>
   <div class="admin-brand-row">
-    <a class="admin-brand" href="/">Kodi Lab</a>
+    <a class="admin-brand" href="/kodi">Kodi Lab</a>
     <button class="admin-menu-toggle" type="button" aria-expanded="false" aria-controls="admin-navigation" data-menu-toggle hidden><span aria-hidden="true">☰</span> Menu</button>
   </div>
   {% if admin_view_enabled %}
@@ -19,7 +19,7 @@
   {% endif %}
   <nav id="admin-navigation" class="admin-navigation" aria-label="Main navigation" data-admin-navigation>
     <ul>
-      {% for section, label, destination in [('home', 'Home', '/'), ('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development tools', '/development'), ('settings', 'Advanced', '/settings')] %}
+      {% for section, label, destination in [('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development tools', '/development'), ('settings', 'Advanced', '/settings')] %}
       {% if section != 'development' or development_view %}<li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>{% endif %}
       {% endfor %}
     </ul>
