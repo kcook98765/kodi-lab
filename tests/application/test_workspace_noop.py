@@ -1,14 +1,17 @@
 """Actual admission/receipts and private source verification with native doubles."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from kodi_lab.application.mcp_workspace_development import (
@@ -16,7 +19,14 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentError,
     WorkspaceDeploymentResult,
 )
-from kodi_lab.development.deployment import expected_destination_digest
+from kodi_lab.broker.operations import CopySyncAttachedDevelopmentSourceResult
+from kodi_lab.development.deployment import (
+    MAX_ENTRIES,
+    DevelopmentTreeEntry,
+    classify_delta,
+    expected_destination_digest,
+)
+from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.storage.models import (
     ManagedBridgeTrustRow,
     ManagedInstanceMutationLeaseRow,
@@ -84,6 +94,7 @@ def test_exact_existing_target_reuses_verified_bytes_and_durable_receipt(
     first = deploy(env)
     assert not first.deployment_work_skipped
     assert first.managed_verification is not None
+    assert first.managed_verification.destination_only_count == 0
     request = uuid4()
     second = deploy(env, request)
     assert second.deployment_work_skipped
@@ -91,6 +102,7 @@ def test_exact_existing_target_reuses_verified_bytes_and_durable_receipt(
     assert second.managed_verification is not None
     assert second.managed_verification.reused_deployment_id == first.deployment_id
     assert second.managed_verification.native_restart_count == 0
+    assert second.managed_verification.destination_only_count == 0
     assert (
         second.managed_verification.bytes_staged
         == second.managed_verification.bytes_transferred
@@ -105,6 +117,8 @@ def test_exact_existing_target_reuses_verified_bytes_and_durable_receipt(
     assert deploy(env, request) == second
     third = deploy(env)
     assert third.deployment_work_skipped
+    assert third.managed_verification is not None
+    assert third.managed_verification.destination_only_count == 0
     assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
         1,
         1,
@@ -114,6 +128,8 @@ def test_exact_existing_target_reuses_verified_bytes_and_durable_receipt(
     with env.sessions() as session:
         row = session.get(McpWorkspaceDeploymentOperationRow, str(second.deployment_id))
         assert row is not None
+        assert row.managed_verification_json is not None
+        assert json.loads(row.managed_verification_json)["destination_only_count"] == 0
         assert not any(
             [
                 row.mutation_started,
@@ -126,6 +142,151 @@ def test_exact_existing_target_reuses_verified_bytes_and_durable_receipt(
     executed = fixture._execute_workspace(env)
     assert executed.deployment_id == third.deployment_id
     assert executed.state == "succeeded" and env.smoke.count == 1
+
+
+def test_source_removal_count_reaches_receipt_storage_and_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = environment(tmp_path)
+    source = capture_workspace_deployment_tree(tmp_path / "data", env.workspace_id)
+    # Model an installed prior source whose directory and module were removed.
+    prior = replace(
+        source,
+        entries=(
+            *source.entries,
+            DevelopmentTreeEntry("old", "directory", 0o755, 0, None),
+            DevelopmentTreeEntry("old/module.py", "file", 0o644, 0, "0" * 64),
+        ),
+    )
+    count = classify_delta(source, prior).destination_only_count
+    assert count == 2
+    env.broker.sync_destination_digest = expected_destination_digest(
+        prior, runtime_uid=1000, runtime_gid=1000
+    )
+    original = env.broker.copy_sync_mcp_workspace
+
+    def sync(**kwargs: Any) -> CopySyncAttachedDevelopmentSourceResult:
+        return original(**kwargs).model_copy(update={"destination_only_count": count})
+
+    monkeypatch.setattr(env.broker, "copy_sync_mcp_workspace", sync)
+    request = uuid4()
+    result = deploy(env, request)
+    assert result.managed_verification is not None
+    assert result.managed_verification.destination_only_count == count
+    assert (
+        result.model_dump(mode="json")["managed_verification"]["destination_only_count"]
+        == count
+    )
+    with env.sessions() as session:
+        row = session.get(McpWorkspaceDeploymentOperationRow, str(result.deployment_id))
+        assert row is not None and row.managed_verification_json is not None
+        assert (
+            json.loads(row.managed_verification_json)["destination_only_count"] == count
+        )
+    assert deploy(env, request) == result
+    env.broker.sync_result_classification = "unchanged"
+    again = deploy(env)
+    assert not again.deployment_work_skipped  # Retained extras prevent exact equality.
+    assert again.result_classification == "unchanged"
+    assert again.managed_verification is not None
+    assert again.managed_verification.destination_only_count == count
+    assert (env.broker.sync_count, env.broker.verify_count) == (2, 0)
+
+
+def test_historical_count_stays_unknown_on_replay_until_fresh_verification(
+    tmp_path: Path,
+) -> None:
+    env = environment(tmp_path)
+    request = uuid4()
+    first = deploy(env, request)
+    assert first.managed_verification is not None
+    historical = first.managed_verification.model_dump(mode="json")
+    historical.pop("destination_only_count")
+    assert (
+        ManagedDeploymentVerification.model_validate(historical).destination_only_count
+        is None
+    )
+    with env.sessions.begin() as session:
+        row = session.get(McpWorkspaceDeploymentOperationRow, str(first.deployment_id))
+        assert row is not None
+        row.managed_verification_json = json.dumps(historical)
+    replay = deploy(env, request)
+    assert replay.managed_verification is not None
+    assert replay.managed_verification.destination_only_count is None
+    assert deploy(env, request) == replay
+    assert (env.broker.sync_count, env.broker.verify_count) == (1, 0)
+    fresh = deploy(env)
+    assert fresh.deployment_work_skipped and fresh.managed_verification is not None
+    assert fresh.managed_verification.destination_only_count == 0
+    assert env.broker.verify_count == 1
+
+
+def test_unavailable_optional_proof_does_not_invent_zero(tmp_path: Path) -> None:
+    env = environment(tmp_path)
+    env.development._managed_noop_bridge = None
+    result = deploy(env)
+    assert result.state == "succeeded" and result.managed_verification is None
+
+
+def test_destination_only_count_is_optional_and_bounded(tmp_path: Path) -> None:
+    proof = deploy(environment(tmp_path)).managed_verification
+    assert proof is not None
+    document = proof.model_dump()
+    document["destination_only_count"] = None
+    assert (
+        ManagedDeploymentVerification.model_validate(document).destination_only_count
+        is None
+    )
+    for invalid in (-1, MAX_ENTRIES + 1, 1.5, "0", True):
+        document["destination_only_count"] = invalid
+        with pytest.raises(ValidationError):
+            ManagedDeploymentVerification.model_validate(document)
+
+
+@pytest.mark.parametrize(
+    "field", ["container_id", "source_manifest_digest", "destination_manifest_digest"]
+)
+def test_mismatched_proof_cannot_carry_old_count(tmp_path: Path, field: str) -> None:
+    env = environment(tmp_path)
+    first = deploy(env)
+    with env.sessions.begin() as session:
+        row = session.get(McpWorkspaceDeploymentOperationRow, str(first.deployment_id))
+        assert row is not None and row.managed_verification_json is not None
+        proof = json.loads(row.managed_verification_json)
+        proof[field] = "f" * 64 if field == "container_id" else "sha256:" + "f" * 64
+        proof["destination_only_count"] = 7
+        row.managed_verification_json = json.dumps(proof)
+    result = deploy(env)
+    assert not result.deployment_work_skipped
+    assert result.managed_verification is not None
+    assert result.managed_verification.destination_only_count == 0
+    assert env.broker.sync_count == 2
+
+
+@pytest.mark.parametrize(
+    "phase", ["claim_before_target_mutation", "after_sync_before_readiness"]
+)
+def test_failed_or_ambiguous_deployment_does_not_publish_count(
+    tmp_path: Path, phase: str
+) -> None:
+    env = environment(tmp_path)
+
+    def fail(selected: str) -> None:
+        if selected == phase:
+            raise RuntimeError("injected failure")
+
+    env.development._failure = fail
+    request = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError):
+        deploy(env, request)
+    with env.sessions() as session:
+        row = session.query(McpWorkspaceDeploymentOperationRow).one()
+        assert row.state in {"failed", "reconciliation_required"}
+        assert row.managed_verification_json is None
+    counts = (env.broker.sync_count, env.broker.verify_count)
+    with pytest.raises(McpWorkspaceDevelopmentError):
+        deploy(env, request)
+    assert (env.broker.sync_count, env.broker.verify_count) == counts
 
 
 @pytest.mark.parametrize(

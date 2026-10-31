@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from kodi_lab.development.deployment import MAX_ENTRIES
+
 
 class ManagedDeploymentVerification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -17,6 +19,9 @@ class ManagedDeploymentVerification(BaseModel):
     bridge_identity_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     source_manifest_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     destination_manifest_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    destination_only_count: int | None = Field(
+        default=None, ge=0, le=MAX_ENTRIES, strict=True
+    )
     reused_deployment_id: UUID | None = None
     readiness_checked: Literal[True] = True
     activation: Literal["already_satisfied"] = "already_satisfied"
