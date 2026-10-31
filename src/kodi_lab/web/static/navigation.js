@@ -1,26 +1,21 @@
 "use strict";
 
 (() => {
+  // Fragments never reach the server. Replace the old entry in history so Back
+  // returns to the previous page instead of redirecting through Home again.
+  function redirectLegacyEntry() {
+    const managedFragment = ["#instances", "#managed-details"].includes(location.hash);
+    if (location.pathname === "/" || (location.pathname === "/kodi" && managedFragment)) {
+      const destination = managedFragment ? "/managed-instances" : "/kodi";
+      location.replace(destination + location.search + location.hash);
+      return true;
+    }
+    return false;
+  }
+  if (redirectLegacyEntry()) return;
+  window.addEventListener("hashchange", redirectLegacyEntry);
   const sidebar = document.querySelector("[data-admin-sidebar]");
   if (!sidebar) return;
-  const managed = document.querySelector("[data-managed-deep-link]");
-  let managedScriptLoaded = false;
-  function openManagedDeepLink() {
-    if (!managed || !["#instances", "#managed-details"].includes(location.hash)) return;
-    managed.hidden = false;
-    managed.open = true;
-    if (!managedScriptLoaded) {
-      for (const source of [managed.dataset.managedScript, managed.dataset.managedResourceScript].filter(Boolean)) {
-        const script = document.createElement("script");
-        script.src = source;
-        document.head.append(script);
-      }
-      managedScriptLoaded = true;
-    }
-    document.querySelector(location.hash).scrollIntoView();
-  }
-  openManagedDeepLink();
-  window.addEventListener("hashchange", openManagedDeepLink);
   sidebar.querySelector("[data-admin-view-form]")?.addEventListener("submit", event => {
     event.currentTarget.elements.return_to.value = location.pathname + location.search + location.hash;
   });

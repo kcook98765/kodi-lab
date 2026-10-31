@@ -19,7 +19,7 @@
       <p id="reset-error" class="error" role="alert" hidden></p>
       <div class="actions">
         <button id="confirm-reset" type="button" data-instance-id="{{ instance.managed_instance_id }}" {% if reset.eligibility != 'supported' %}disabled{% endif %}>Confirm reset</button>
-        <a href="/">Cancel</a>
+        <a href="/managed-instances">Cancel</a>
       </div>
     {% endblock %}
 {% block scripts %}

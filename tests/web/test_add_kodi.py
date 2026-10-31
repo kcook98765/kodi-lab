@@ -34,7 +34,7 @@ def test_add_kodi_requires_auth_and_preserves_legacy_page(client: TestClient) ->
     assert "frame-ancestors" in response.headers["content-security-policy"]
     assert response.headers["cache-control"] == "no-store"
     assert client.get("/pair-kodi").status_code == 200
-    assert 'href="/add-kodi"' in client.get("/").text
+    assert 'href="/add-kodi"' in client.get("/kodi").text
 
 
 def test_add_kodi_recovery_namespace_changes_on_new_sign_in(client: TestClient) -> None:
@@ -53,15 +53,15 @@ def test_add_kodi_recovery_namespace_changes_on_new_sign_in(client: TestClient) 
     assert namespace() != first
 
 
-def test_navigation_preserves_running_servers_without_new_route() -> None:
-    # The operational host serves templates from this checkout but still runs
-    # its pre-refactor Python process. It must not advertise an absent route.
+def test_legacy_entry_template_needs_no_dashboard_data() -> None:
     template = Environment(
         loader=FileSystemLoader(WEB_ROOT / "templates")
     ).get_template("index.html")
-    html = template.render(instances=[], url_for=lambda *_args, **_kwargs: "/static")
-    assert 'href="/add-kodi"' not in html
-    assert 'href="/pair-kodi">Pair Kodi</a>' in html
+    html = template.render(url_for=lambda *_args, **_kwargs: "/static")
+    assert 'href="/kodi"' in html
+    assert 'href="/managed-instances"' in html
+    assert 'id="instances"' in html and 'id="managed-details"' in html
+    assert "data-instance-id" not in html
 
 
 def test_add_kodi_browser_recovery_and_secret_handling() -> None:

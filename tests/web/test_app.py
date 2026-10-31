@@ -173,7 +173,7 @@ def test_read_only_reconciliation_warning_is_bounded_and_blocks_mutation(
     assert "/srv/private" not in serialized
     assert "lease" not in serialized
 
-    page = client.get("/")
+    page = client.get("/managed-instances")
     assert page.status_code == 200
     assert "Operator reconciliation required" in page.text
     assert "Automatic destructive work will not resume" in page.text
@@ -314,9 +314,11 @@ def test_login_rotates_existing_session(client: TestClient) -> None:
     assert first is not None and second is not None and first != second
 
 
-def test_main_page_autoescapes_and_has_local_assets(client: TestClient) -> None:
+def test_managed_registrations_autoescapes_and_has_local_assets(
+    client: TestClient,
+) -> None:
     login(client)
-    page = client.get("/")
+    page = client.get("/managed-instances")
     assert "&lt;script&gt;not markup&lt;/script&gt;" in page.text
     assert "https://" not in page.text
     assert "Content-Security-Policy" in page.headers
@@ -360,7 +362,7 @@ def test_authenticated_reset_status_presents_fixture_exact_pin_and_safe_state(
     serialized = response.text
     for forbidden in ("container_id", "image_id", "filesystem", "evidence_reference"):
         assert forbidden not in serialized
-    page = client.get("/")
+    page = client.get("/managed-instances")
     assert "Small Mixed v2 (small, mixed)" in page.text
     assert "Reset is available for this disposable instance." in page.text
     assert "does not upgrade Kodi" in page.text
@@ -376,7 +378,7 @@ def test_reset_activity_failure_and_reconciliation_are_read_only(
     current = client.get(f"/api/instances/{INSTANCE_ID}/reset-status").json()
     assert current["eligibility_reason"] == "reset_in_progress"
     assert current["activity_state"] == "provisioning"
-    assert "provisioning" in client.get("/").text
+    assert "provisioning" in client.get("/managed-instances").text
     registry.fail(
         INSTANCE_ID,
         active.generation,
@@ -388,7 +390,7 @@ def test_reset_activity_failure_and_reconciliation_are_read_only(
     assert failed["eligibility_reason"] == "reconciliation_required"
     assert failed["reconciliation_required"] is True
     assert failed["failure_phase"] == "final_stop"
-    failed_page = client.get("/").text
+    failed_page = client.get("/managed-instances").text
     assert "Reconciliation is required" in failed_page
     assert "The fresh container could not be safely stopped." in failed_page
 
@@ -562,7 +564,7 @@ def test_reconstruction_is_admin_confirmed_fenced_and_readable(
     assert accepted.status_code == 202
     status_url = accepted.json()["status_url"]
     assert client.get(status_url).json()["state"] == "queued"
-    dashboard = client.get("/")
+    dashboard = client.get("/managed-instances")
     assert dashboard.status_code == 200
     assert 'data-reconstruction-state="queued"' in dashboard.text
     assert "Runtime reconstruction" in dashboard.text
@@ -1467,7 +1469,7 @@ def test_matching_stopped_instance_keeps_delete_available(
 ) -> None:
     broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
     csrf = login(client)
-    dashboard = client.get("/").text
+    dashboard = client.get("/managed-instances").text
     card = dashboard.split(f'data-instance-id="{INSTANCE_ID}"', 1)[1].split(
         "</article>", 1
     )[0]
@@ -1498,7 +1500,7 @@ def test_known_stopped_revision_mismatch_blocks_delete_before_queue(
         update={"runtime_revision_id": str(uuid4())}
     )
     csrf = login(client)
-    dashboard = client.get("/").text
+    dashboard = client.get("/managed-instances").text
     card = dashboard.split(f'data-instance-id="{INSTANCE_ID}"', 1)[1].split(
         "</article>", 1
     )[0]
@@ -1570,7 +1572,7 @@ def test_delete_status_to_dispatch_revision_race_stays_fail_closed(
 ) -> None:
     broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
     csrf = login(client)
-    assert 'data-delete-action="link"' in client.get("/").text
+    assert 'data-delete-action="link"' in client.get("/managed-instances").text
     original_inventory = broker.managed_container_inventory
     inventory_calls = 0
 

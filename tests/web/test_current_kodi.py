@@ -291,7 +291,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
         advanced = client.get("/settings").text
         for destination in (
             "/runtimes",
-            "/#instances",
+            "/managed-instances",
             "/managed-resources",
             "/history/instances",
             "/snapshots/preserved",
@@ -300,6 +300,32 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
         page = client.get("/development-session").text
         assert 'href="/kodi" aria-current="page"' in page
         assert "This is a Development administration page" not in page
+
+
+@pytest.mark.parametrize("mode", ["standard", "development"])
+def test_landing_uses_selected_identity_without_live_observation(
+    client: TestClient,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    login(client)
+    selected(client, database, monkeypatch)
+    client.cookies.set("kodi_lab_admin_view", mode)
+    context = cast(FastAPI, client.app).state.kodi_lab
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("The landing page must not observe a managed runtime")
+
+    monkeypatch.setattr(context.status, "get_observation", forbidden)
+    monkeypatch.setattr(context.status, "list_statuses", forbidden)
+    page = client.get("/kodi").text
+    assert page.count('class="current-kodi-card"') == 1
+    assert "Selected development environment" in page
+    assert "Session source" in page
+    assert "Open Current Kodi" in page
+    assert "No development Kodi is selected" not in page
+    assert "app.js" not in page
 
 
 def test_inline_viewer_is_single_explicit_controller_with_narrow_csp(
@@ -730,9 +756,7 @@ def test_expanded_page_without_rendered_bound_selection_cannot_follow_future_pro
         )
 
 
-@pytest.mark.parametrize(
-    "path", ["/", "/kodi", "/runtimes", f"/instances/{INSTANCE_ID}"]
-)
+@pytest.mark.parametrize("path", ["/kodi", "/runtimes", f"/instances/{INSTANCE_ID}"])
 def test_shared_templates_tolerate_older_process_without_current_context(
     client: TestClient,
     database: sessionmaker[Session],

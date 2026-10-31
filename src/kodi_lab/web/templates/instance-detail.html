@@ -17,7 +17,7 @@
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-      <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/#instances">Managed registrations</a></p>
+      <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/managed-instances">Managed registrations</a></p>
       <h1>{{ detail.runtime.name }}</h1>
       <section class="notice" aria-label="Current Kodi selection">
       {% set selected_kodi = current_kodi.current if current_kodi is defined else none %}
@@ -306,5 +306,5 @@
         {% else %}<p>No retained activity.</p>{% endfor %}
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>
       </section>
-      <p><a href="/">Back to dashboard</a></p>
+      <p><a href="/managed-instances">Back to managed registrations</a></p>
     {% endblock %}

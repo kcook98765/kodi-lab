@@ -3260,7 +3260,7 @@ def create_app(
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
         if context.auth.resolve(token) is not None:
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse("/kodi", status_code=303)
         return templates.TemplateResponse(
             request,
             "login.html",
@@ -3285,7 +3285,7 @@ def create_app(
             return _login_failure(templates, request, context, status_code=401)
         context.throttler.record_success(source)
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
-        response = RedirectResponse("/", status_code=303)
+        response = RedirectResponse("/kodi", status_code=303)
         response.set_cookie(
             settings.web_session_cookie_name,
             created.token,
@@ -3362,6 +3362,18 @@ def create_app(
             authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"csrf_token": authenticated.csrf_token},
+        )
+
+    @app.get("/managed-instances", response_class=HTMLResponse)
+    async def managed_instances_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
         reset_statuses = {
             item.managed_instance_id: item
             for item in context.reset_status.list_statuses()
@@ -3385,12 +3397,9 @@ def create_app(
         }
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "managed-instances.html",
             {
-                "current_kodi": current_kodi.identity(),
                 "instances": instances,
-                "kodis": kodi_views.list(),
-                "add_kodi_enabled": True,
                 "reset_statuses": reset_statuses,
                 "reconciliation_statuses": reconciliation_statuses,
                 "reconstruction_statuses": reconstruction_statuses,
@@ -3413,17 +3422,17 @@ def create_app(
     )
 
     @app.get("/kodi", response_class=HTMLResponse)
-    async def kodi_page(
-        request: Request,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
+    async def kodi_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "kodi.html",
             {
                 "csrf_token": authenticated.csrf_token,
                 "kodis": kodi_views.list(),
-                "managed_names": kodi_views.managed_names(),
                 "current_kodi": current_kodi.identity(),
             },
         )

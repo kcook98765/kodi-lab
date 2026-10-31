@@ -814,6 +814,7 @@ def login(client: TestClient) -> str:
         follow_redirects=False,
     )
     assert response.status_code == 303
+    assert response.headers["location"] == "/kodi"
     page = client.get("/")
     assert page.status_code == 200
     match = re.search(r'name="kodi-lab-csrf" content="([^"]+)"', page.text)

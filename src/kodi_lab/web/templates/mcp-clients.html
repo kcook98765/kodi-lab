@@ -199,7 +199,7 @@
         {% for preset in presets %}<details class="agent-preset-details"><summary>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }}</summary><p>Exact permissions: {{ preset.permissions | join(', ') if preset.permissions else 'none' }}</p><p class="secondary">Preset ID: {{ preset.id }}</p></details>{% endfor %}
       </section>
       </details>{% else %}<p>Choose Development for advanced MCP policies, custom presets and workspace access. Existing permissions remain unchanged.</p>{% endif %}
-      <p><a href="/">Back to Home</a></p>
+      <p><a href="/kodi">Back to Kodi</a></p>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>

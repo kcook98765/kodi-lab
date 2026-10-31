@@ -23,7 +23,7 @@
       <p id="reconstruction-error" class="error" role="alert" hidden></p>
       <div class="actions">
         <button id="confirm-reconstruction" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-observation-token="{{ eligibility.observation_token or '' }}" {% if not eligibility.eligible %}disabled{% endif %}>Discard old container and reconstruct</button>
-        <a href="/">Cancel</a>
+        <a href="/managed-instances">Cancel</a>
       </div>
     {% endblock %}
 {% block scripts %}

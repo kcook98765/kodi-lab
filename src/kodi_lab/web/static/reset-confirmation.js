@@ -16,7 +16,7 @@ button?.addEventListener("click", async () => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error?.message || "Reset request failed.");
-    window.location.assign("/");
+    window.location.assign("/managed-instances");
   } catch (error) {
     errorNode.textContent = error instanceof Error ? error.message : "Reset request failed.";
     errorNode.hidden = false;
