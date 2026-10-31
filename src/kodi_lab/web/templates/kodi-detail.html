@@ -16,17 +16,17 @@
     {% if kodi.bridge and kodi.bridge.verified_at %}<dt>Bridge last verified</dt><dd><time datetime="{{ kodi.bridge.verified_at.isoformat() }}">{{ kodi.bridge.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
     {% if kodi.target.verified_at %}<dt>Kodi last verified</dt><dd><time datetime="{{ kodi.target.verified_at.isoformat() }}">{{ kodi.target.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
   </dl>
-</section>
-<section class="kodi-panel" aria-labelledby="access-heading">
-  <h2 id="access-heading">Access</h2>
+<section aria-labelledby="access-heading">
+  <h3 id="access-heading">Access</h3>
   <dl><dt>Access mode</dt><dd>{{ kodi.access_label }}</dd><dt>Remote control</dt><dd>{{ kodi.remote_label }}</dd></dl>
   <p>Read-only inspection is the normal baseline. These settings do not grant an agent access to Kodi.</p>
 </section>
-<section class="kodi-panel" aria-labelledby="screenshots-heading">
-  <h2 id="screenshots-heading">Screenshots</h2>
+<section aria-labelledby="screenshots-heading">
+  <h3 id="screenshots-heading">Screenshots</h3>
   <dl><dt>Capture preference</dt><dd>{% if kodi.preference %}{{ 'Enabled' if kodi.preference.enabled else 'Disabled' }}{% else %}Unavailable{% endif %}</dd></dl>
   <p>Screenshots are ordinary read-only inspection. This preference is independent of the access mode.</p>
   <p>Capture also requires authorization and a verified connection. This view does not capture an image or change your preference.</p>
+</section>
 </section>
 <section class="kodi-panel" aria-labelledby="connection-heading">
   <h2 id="connection-heading">Connection</h2>

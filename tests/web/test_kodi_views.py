@@ -45,7 +45,12 @@ from kodi_lab.storage.models import (
     TargetRow,
 )
 from tests.application.test_production_bridges import _Verifier
-from tests.web.conftest import EXTERNAL_TARGET_ID, INSTANCE_ID, login
+from tests.web.conftest import (
+    EXTERNAL_TARGET_ID,
+    INSTANCE_ID,
+    login,
+    seed_external_target,
+)
 
 
 @pytest.fixture
@@ -283,6 +288,14 @@ def test_authoritative_status(
     page = detail(client, household)
     assert f'data-status="{status}"' in page
     assert message in page
+    if value == "identity_mismatch" and (
+        evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE")
+    ):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"production-mismatch-{field}.html").write_text(
+            client.get("/production-targets").text
+        )
     assert 'data-status="connected"' not in page
     current = client.get("/kodi").text
     if field == "admin" and value == "deactivated":
@@ -370,6 +383,7 @@ def test_views_do_not_mutate_or_probe(
 
     for service, names in [
         (context.production_targets, ["probe", "set_enabled", "confirm"]),
+        (context.external_targets, ["probe", "set_enabled", "confirm"]),
         (
             context.external_bridges,
             ["reverify", "attempt_pairing", "capture_screenshot"],
@@ -395,6 +409,8 @@ def test_views_do_not_mutate_or_probe(
     try:
         assert client.get("/kodi").status_code == 200
         detail(client, household)
+        assert client.get("/production-targets").status_code == 200
+        assert client.get("/external-targets").status_code == 200
     finally:
         event.remove(bind, "before_cursor_execute", record)
     assert not [
@@ -481,3 +497,80 @@ def test_multiple_household_and_development_separation(
             preference.revision += 1
         routes["/fixture/screenshots-disabled"] = detail(client, household)
         (root / "fixture-routes.json").write_text(json.dumps(routes))
+
+
+def test_administration_priorities_and_pending_identity(
+    client: TestClient, database: sessionmaker[Session], household: UUID
+) -> None:
+    login(client)
+    seed_external_target(database)
+    production = client.get("/production-targets")
+    external = client.get("/external-targets")
+    assert production.status_code == external.status_code == 200
+    page = production.text
+    assert page.index("Current production connections") < page.index(
+        "Create production target"
+    )
+    assert page.index("Current production connections") < page.index(
+        'id="reviewed-bridge-builds"'
+    )
+    assert "<details><summary>Capability administration</summary>" in page
+    assert "<details><summary>Connection identity, trust and scopes</summary>" in page
+    assert (
+        "<details><summary>Connection identity and capabilities</summary>"
+        in external.text
+    )
+    assert external.text.count('<label>Protocol <select name="protocol_kind">') == 2
+    context = dict(cast(Any, external).context)
+    bridge = context["bridge_statuses"][EXTERNAL_TARGET_ID]
+    context["bridge_statuses"] = {
+        **context["bridge_statuses"],
+        EXTERNAL_TARGET_ID: bridge.model_copy(
+            update={
+                "pairing_state": ExternalBridgePairingState.PAIRING_PENDING,
+                "observed_bridge_id": uuid4(),
+            }
+        ),
+    }
+    pending = cast(Any, external).template.render(**context)
+    assert (
+        "<details open><summary>Bridge identity and capabilities</summary>" in pending
+    )
+    assert (
+        f"<details open><summary>Bridge {context['supported_bridge_version']} "
+        "OTP pairing</summary>" in pending
+    )
+    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        for name, content in [
+            ("production", page),
+            ("external", external.text),
+            ("external-pending", pending),
+        ]:
+            (root / f"{name}.html").write_text(content)
+
+
+@pytest.mark.parametrize("verification", ["unverified", "identity_mismatch"])
+def test_development_native_identity_review_stays_visible(
+    client: TestClient, database: sessionmaker[Session], verification: str
+) -> None:
+    seed_external_target(database)
+    login(client)
+    observation = uuid4()
+    with database.begin() as session:
+        target = session.get(ExternalKodiTargetRow, str(EXTERNAL_TARGET_ID))
+        assert target is not None
+        target.verification_state = ExternalVerificationState(verification)
+        target.pending_observation_id = str(observation)
+        target.observed_kodi_name = "New observed Kodi identity"
+    page = client.get("/external-targets").text
+    assert (
+        "<details open><summary>Connection identity and capabilities</summary>" in page
+    )
+    assert "Observed Kodi identity: New observed Kodi identity" in page
+    assert f'data-observation-id="{observation}"' in page
+    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"external-native-{verification}.html").write_text(page)
