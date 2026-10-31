@@ -25,8 +25,10 @@ from kodi_lab.runtime.ostree_assembly import (
     assembly_assets_digest,
     load_assembly_assets,
 )
+from kodi_lab.runtime.ostree_installation import OstreeInstallationAssembly
 from kodi_lab.runtime.preview import PreviewAcknowledgement, recorded_acknowledgement
 from kodi_lab.runtime.recipes import (
+    ReviewedRecipe,
     load_display_candidate_recipe,
     load_installation_recipe,
 )
@@ -106,10 +108,9 @@ def test_r3_admission_is_explicit_operation_bound_and_not_default(
         recorded_acknowledgement(factory, operation)
 
 
-def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
+def ready_display(
     factory: sessionmaker[Session],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> tuple[UUID, ReviewedRecipe, OstreeInstallationAssembly, UUID]:
     reviewed = load_display_candidate_recipe("piers")
     operation = uuid4()
     _create_operation(factory, reviewed, operation)
@@ -155,6 +156,15 @@ def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
         row = RuntimeRecipeInstallationRepository(db).get(operation)
         assert row is not None and row.runtime_revision_id is not None
         revision = UUID(row.runtime_revision_id)
+    return operation, reviewed, built, revision
+
+
+def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation, reviewed, _built, revision = ready_display(factory)
+    with factory() as db:
         capability = installed_display_capability(db, revision)
         assert capability == reviewed_display_capability(reviewed)
         assert ManagedInstanceRepository(db).list() == []

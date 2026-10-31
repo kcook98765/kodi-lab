@@ -17,7 +17,11 @@ from kodi_lab.application.development_sessions import (
 )
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.runtime.install import bootstrap_recipe_instance
-from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
+from kodi_lab.runtime.recipes import (
+    load_display_candidate_recipe,
+    load_novnc_phase1_recipe,
+    recipe_target_id,
+)
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
@@ -105,6 +109,7 @@ def test_only_approved_r4_is_selectable_with_viewer_disabled(
     assert development_target_ids() == {
         *(canonical_id(selector) for selector in KNOWN_SELECTORS),
         target,
+        recipe_target_id(load_display_candidate_recipe("piers")),
     }
     with (
         factory() as db,

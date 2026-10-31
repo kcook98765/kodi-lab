@@ -4479,7 +4479,21 @@ def create_app(
         from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
 
         current = view.current
-        if current.target_id != recipe_target_id(load_novnc_phase1_recipe()):
+        legacy_viewer = current.target_id == recipe_target_id(
+            load_novnc_phase1_recipe()
+        )
+        reviewed_viewer = False
+        if not legacy_viewer and novnc_viewer is not None:
+            from kodi_lab.runtime.display_capabilities import (
+                installed_display_capability,
+            )
+
+            with session_factory() as db:
+                reviewed_viewer = (
+                    installed_display_capability(db, current.runtime_revision_id)
+                    is not None
+                )
+        if not legacy_viewer and not reviewed_viewer:
             view.viewer_state = "unsupported"
         elif novnc_viewer is None or (
             novnc_viewer.enabled_instances is not None

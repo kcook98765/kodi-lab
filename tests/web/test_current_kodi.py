@@ -789,3 +789,51 @@ def test_shared_templates_tolerate_older_process_without_current_context(
         pages = json.loads(output.read_text()) if output.exists() else {}
         pages[path] = rendered
         output.write_text(json.dumps(pages))
+
+
+@pytest.mark.parametrize("generation", ["omega", "nexus", "matrix", "piers"])
+def test_injected_exact_candidate_viewer_is_reflected_in_current_kodi(
+    viewer_client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+    generation: str,
+) -> None:
+    from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+    from kodi_lab.runtime.recipes import load_display_candidate_recipe
+
+    client = viewer_client
+    login(client)
+    selected(client, database, monkeypatch)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    capability = reviewed_display_capability(load_display_candidate_recipe(generation))
+    assert capability is not None and capability.qualification == "candidate"
+    monkeypatch.setattr(
+        "kodi_lab.runtime.display_capabilities.installed_display_capability",
+        lambda *args: capability,
+    )
+    view = client.get("/api/development-session").json()
+    assert view["viewer_state"] == "ready"
+    # This is only the injected qualification viewer. Ordinary broker admission
+    # still requires a separately qualified standard capability or legacy opt-in.
+
+
+def test_ordinary_launcher_does_not_expose_unqualified_candidate_viewer(
+    client: TestClient,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+    from kodi_lab.runtime.recipes import load_display_candidate_recipe
+
+    login(client)
+    selected(client, database, monkeypatch)
+    capability = reviewed_display_capability(load_display_candidate_recipe("piers"))
+    monkeypatch.setattr(
+        "kodi_lab.runtime.display_capabilities.installed_display_capability",
+        lambda *args: capability,
+    )
+    assert (
+        client.get("/api/development-session").json()["viewer_state"] == "unsupported"
+    )
+    assert client.get(f"/instances/{INSTANCE_ID}/novnc-phase1").status_code == 404

@@ -56,11 +56,18 @@ APPROVED_OMEGA_VIEW_IMAGE = (
 
 def development_target_ids() -> frozenset[UUID]:
     from kodi_lab.runtime.lab import KNOWN_SELECTORS, canonical_id
-    from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
+    from kodi_lab.runtime.recipes import (
+        load_display_candidate_recipe,
+        load_novnc_phase1_recipe,
+        recipe_target_id,
+    )
 
     return frozenset(
         {canonical_id(selector) for selector in KNOWN_SELECTORS}
-        | {recipe_target_id(load_novnc_phase1_recipe())}
+        | {
+            recipe_target_id(load_novnc_phase1_recipe()),
+            recipe_target_id(load_display_candidate_recipe("piers")),
+        }
     )
 
 
@@ -154,6 +161,8 @@ class DevelopmentSessionService:
     def _runtime(self, session: Session, target_id: UUID, revision_id: UUID) -> None:
         from kodi_lab.domain import TargetType
         from kodi_lab.runtime.recipes import (
+            PIERS_DISPLAY_INSTALLATION_DIGEST,
+            load_display_candidate_recipe,
             load_installation_recipe,
             load_novnc_phase1_recipe,
             recipe_target_id,
@@ -195,6 +204,21 @@ class DevelopmentSessionService:
                 raise DevelopmentSessionConflict(
                     "development_session_runtime_ineligible"
                 )
+        preview_digest = (
+            load_installation_recipe("piers").digest
+            if retained and target.kodi_version == "22.0-rc.1"
+            else None
+        )
+        if revision.manifest_digest == PIERS_DISPLAY_INSTALLATION_DIGEST:
+            candidate = load_display_candidate_recipe("piers")
+            if (
+                target_id == recipe_target_id(candidate)
+                and definition.id == candidate.recipe.definition_id
+                and revision.manifest_reference == candidate.reference
+            ):
+                # Selection uses the same exact sealed Preview approval as its
+                # installer. It does not grant viewing or control qualification.
+                preview_digest = candidate.digest
         eligibility = RuntimeRevisionEligibilityPolicy(
             data_root=self._data_root
         ).evaluate(
@@ -205,12 +229,8 @@ class DevelopmentSessionService:
             policy=RuntimeSelectionPolicy(
                 include_legacy=True,
                 novnc_phase1=qualified_omega,
-                include_prerelease=retained and target.kodi_version == "22.0-rc.1",
-                preview_recipe_digest=(
-                    load_installation_recipe("piers").digest
-                    if retained and target.kodi_version == "22.0-rc.1"
-                    else None
-                ),
+                include_prerelease=preview_digest is not None,
+                preview_recipe_digest=preview_digest,
             ),
         )
         if not eligibility.eligible:
