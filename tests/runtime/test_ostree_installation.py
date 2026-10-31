@@ -80,6 +80,7 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     )
     raw = data["assembly"]
     raw["operation_id"] = operation.hex
+    raw["recipe_revision"] = 2
     # Derive current synthetic assembly from retained original evidence.
     # The historical evidence file remains unchanged.
     from kodi_lab.runtime.ostree_assembly import ASSETS_SHA256, load_assembly_assets

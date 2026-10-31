@@ -176,7 +176,7 @@ def test_support_helper_transfers_only_closed_failure_categories(
         ),
     )
 
-    def unavailable() -> dict[str, bytes]:
+    def unavailable(*, revision: int = 2) -> dict[str, bytes]:
         try:
             raise HTTPError(
                 "https://private.invalid/token", 404, "secret body", Message(), None
@@ -224,3 +224,34 @@ def test_support_classification_requires_type_and_follows_explicit_cause() -> No
     wrapped = RuntimeError("private wrapper")
     wrapped.__cause__ = cause
     assert _installation_failure_code(wrapped) == "pinned_support_unavailable"
+
+
+def test_display_support_helper_variant_is_exact_and_not_a_package_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = uuid4()
+    stage = STAGING_ROOT / ("ostree-" + operation.hex)
+    monkeypatch.setattr("kodi_lab.runtime.ostree_worker._stage_quota", lambda _: None)
+    command = (
+        "/usr/local/bin/python",
+        "-m",
+        "kodi_lab.runtime.ostree_worker",
+        str(operation),
+        "3",
+    )
+    h = helper()
+    assert (
+        HelperRunner(h, support_revision=3)
+        .execute(command, stage=stage, timeout=1)
+        .returncode
+        == 0
+    )
+    assert h.calls[0][0][1][-5:] == list(command)
+    with pytest.raises(OstreeAcquisitionError, match="unreviewed_helper_command"):
+        HelperRunner(h).execute(command, stage=stage, timeout=1)
+    with pytest.raises(OstreeAcquisitionError, match="unreviewed_helper_command"):
+        HelperRunner(h, support_revision=3).execute(
+            (*command[:-1], "arbitrary-package"), stage=stage, timeout=1
+        )
+    with pytest.raises(OstreeAcquisitionError, match="unsupported_support_revision"):
+        HelperRunner(h, support_revision=4)

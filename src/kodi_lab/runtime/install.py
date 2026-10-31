@@ -720,6 +720,14 @@ def install_reviewed_runtime(
         from kodi_lab.runtime.preview import PreviewAcknowledgement
 
         preview_ack = PreviewAcknowledgement.model_validate_json(result["ack"])
+        from kodi_lab.runtime.preview import reviewed_preview_recipe
+
+        admitted = reviewed_preview_recipe(preview_ack)
+        if display_candidate and admitted.digest != reviewed.digest:
+            raise RecipeInstallationError("Preview display candidate consent differs")
+        # The fixed broker command consumes its exact operation-owned consent.
+        # Ordinary installs remain r2; no unreviewed selector crosses the boundary.
+        reviewed = admitted
     with (
         _record_worker_start_failure(settings, reviewed, operation_id),
         _installation_lock(settings.runtime_root),
@@ -804,7 +812,14 @@ def install_reviewed_runtime(
                 from kodi_lab.runtime.ostree_worker import assemble_in_worker
 
                 built, acquired = assemble_in_worker(
-                    operation_id, settings, on_base_ready
+                    operation_id,
+                    settings,
+                    on_base_ready,
+                    **(
+                        {"support_revision": 3}
+                        if reviewed.recipe.recipe_revision == 3
+                        else {}
+                    ),
                 )
                 assert preview_ack is not None
                 assembly = OstreeInstallationAssembly(built, acquired, preview_ack)

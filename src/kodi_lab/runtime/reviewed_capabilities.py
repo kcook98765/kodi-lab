@@ -14,6 +14,7 @@ from kodi_lab.application.runtime_eligibility import (
 )
 from kodi_lab.runtime.recipes import (
     NOVNC_PHASE1_DIGEST,
+    PIERS_DISPLAY_INSTALLATION_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
@@ -55,7 +56,11 @@ def supports_reviewed_recipe_capability(
                 novnc_phase1=revision.manifest_digest == NOVNC_PHASE1_DIGEST,
                 include_legacy=True,
                 include_prerelease=revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND,
-                preview_recipe_digest=PREVIEW_INSTALLATION_DIGEST
+                preview_recipe_digest=(
+                    PIERS_DISPLAY_INSTALLATION_DIGEST
+                    if revision.manifest_digest == PIERS_DISPLAY_INSTALLATION_DIGEST
+                    else PREVIEW_INSTALLATION_DIGEST
+                )
                 if revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND
                 else None,
             ),

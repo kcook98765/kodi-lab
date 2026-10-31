@@ -98,11 +98,25 @@ MATRIX_DISPLAY_CANDIDATE = DisplayCapability(
     qualification="candidate",
     clipboard_policy="unimplemented",
 )
+PIERS_DISPLAY_CANDIDATE = DisplayCapability(
+    recipe_id="piers-22.0-rc1-r3",
+    recipe_revision=3,
+    recipe_digest="sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8",
+    width=640,
+    height=360,
+    helper_digest=OMEGA_DISPLAY_CANDIDATE.helper_digest,
+    package=OMEGA_DISPLAY_CANDIDATE.package,
+    expected_kodi_version="22.0",
+    expected_version_tag="rc",
+    expected_prerelease_ordinal=1,
+    qualification="candidate",
+)
 _DISPLAY_RECIPES = (
     EXPERIMENTAL_OMEGA_DISPLAY,
     OMEGA_DISPLAY_CANDIDATE,
     NEXUS_DISPLAY_CANDIDATE,
     MATRIX_DISPLAY_CANDIDATE,
+    PIERS_DISPLAY_CANDIDATE,
 )
 
 
@@ -138,10 +152,20 @@ def reviewed_display_capability(reviewed: ReviewedRecipe) -> DisplayCapability |
         or "sha256:" + hashlib.sha256(helper).hexdigest() != capability.helper_digest
     ):
         return None
-    if capability.package not in {
+    packages: set[tuple[str, str, str]] = {
         (package.name, package.version, package.architecture)
         for package in reviewed.recipe.critical_packages
-    }:
+    }
+    if reviewed.recipe.provider.type == "flathub_ostree":
+        from kodi_lab.runtime.ubuntu_support import load_support_closure
+
+        packages = {
+            (package.name, package.version, package.architecture)
+            for package in load_support_closure(
+                revision=capability.recipe_revision
+            ).packages
+        }
+    if capability.package not in packages:
         return None
     return capability
 

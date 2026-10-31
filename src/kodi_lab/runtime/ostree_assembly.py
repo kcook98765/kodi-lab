@@ -23,7 +23,6 @@ import docker  # type: ignore[import-untyped]
 from kodi_lab.runtime.ostree import AcquiredOstree
 from kodi_lab.runtime.ostree_context import verified_context
 from kodi_lab.runtime.ubuntu_support import (
-    ASSET_DIRECTORY,
     BASE_IMAGE,
     download_support,
     load_support_closure,
@@ -48,6 +47,9 @@ _ASSET_NAMES = frozenset(
 )
 _SHARED_PYTHON_ASSETS = frozenset(
     {"healthcheck.py", "profile_init.py", "supervisor.py", "xvfb_guard.py"}
+)
+DISPLAY_ASSETS_SHA256 = (
+    "6d8e034d94137b7b060c82c9cd131f5149f1ee22dfa5398fe87e46dfb426d873"
 )
 _MAX_LOG = 2 * 1024**2
 _MAX_BUILD_SECONDS = 900
@@ -74,14 +76,17 @@ class OstreeAssemblyEvidence:
     build_log_digest: str
     build_log_bytes: int
     installed_inventory_digest: str
+    recipe_revision: int = 2
 
     def canonical_bytes(self) -> bytes:
         from dataclasses import asdict
 
+        if type(self.recipe_revision) is not int or self.recipe_revision not in (2, 3):
+            raise OstreeAssemblyError("unsupported_assembly_revision")
         data = {
             "schema_version": "flathub-ostree-assembly-v1",
-            "recipe_id": "piers-22.0-rc1-r2",
-            "recipe_revision": 2,
+            "recipe_id": f"piers-22.0-rc1-r{self.recipe_revision}",
+            "recipe_revision": self.recipe_revision,
             "kodi_release": "22.0-rc.1",
             "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
             "platform": "linux/amd64",
@@ -103,19 +108,25 @@ class OstreeAssemblyEvidence:
         return encoded
 
 
-def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
-    if type(revision) is not int or revision not in (1, 2):
+def assembly_assets_digest(*, revision: int = 2) -> str:
+    if type(revision) is not int or revision not in (1, 2, 3):
         raise OstreeAssemblyError("unsupported_assembly_revision")
-    directory = (
-        ASSET_DIRECTORY if revision == 2 else "assembly_assets/piers-22.0-rc1-r1"
-    )
-    expected = ASSETS_SHA256 if revision == 2 else HISTORICAL_ASSETS_SHA256
+    return {1: HISTORICAL_ASSETS_SHA256, 2: ASSETS_SHA256, 3: DISPLAY_ASSETS_SHA256}[
+        revision
+    ]
+
+
+def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
+    expected = assembly_assets_digest(revision=revision)
+    directory = f"assembly_assets/piers-22.0-rc1-r{revision}"
     root = resources.files("kodi_lab.runtime").joinpath(directory)
     raw = root.joinpath("assembly-assets.json").read_bytes()
     if len(raw) > 8192 or hashlib.sha256(raw).hexdigest() != expected:
         raise OstreeAssemblyError("assembly_manifest_mismatch")
     manifest = json.loads(raw)
-    if set(manifest) != _ASSET_NAMES:
+    if set(manifest) != _ASSET_NAMES | (
+        {"novnc_view_helper.py"} if revision == 3 else set()
+    ):
         raise OstreeAssemblyError("unexpected_assembly_asset")
     entries = {}
     for name, expected in manifest.items():
@@ -125,7 +136,9 @@ def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
             resources.files("kodi_lab.runtime").joinpath(
                 "assembly_assets/piers-22.0-rc1-r1"
             )
-            if revision == 2 and name in _SHARED_PYTHON_ASSETS
+            if revision in (2, 3)
+            and name in _SHARED_PYTHON_ASSETS
+            and not (revision == 3 and name == "supervisor.py")
             else root
         )
         payload = source.joinpath(name).read_bytes()
@@ -139,22 +152,24 @@ def _entries(
     acquired: AcquiredOstree,
     operation_id: UUID,
     support_entries: dict[str, bytes] | None = None,
+    *,
+    revision: int = 2,
 ) -> dict[str, bytes]:
-    assets = load_assembly_assets()
-    closure = load_support_closure()
+    assets = load_assembly_assets(revision=revision)
+    closure = load_support_closure(revision=revision)
     support = (
-        download_support(acquired, operation_id)
+        download_support(acquired, operation_id, revision=revision)
         if support_entries is None
         else support_entries
     )
-    validate_support_entries(support)
+    validate_support_entries(support, revision=revision)
     tokens = {
         "@@OPERATION@@": operation_id.hex,
         "@@RECIPE_DIGEST@@": acquired.evidence.recipe_digest,
         "@@ACQUISITION_DIGEST@@": "sha256:"
         + hashlib.sha256(acquired.evidence.canonical_bytes()).hexdigest(),
         "@@SUPPORT_DIGEST@@": closure.digest,
-        "@@ASSET_DIGEST@@": "sha256:" + ASSETS_SHA256,
+        "@@ASSET_DIGEST@@": "sha256:" + assembly_assets_digest(revision=revision),
     }
     dockerfile = assets.pop("Dockerfile").decode()
     for token, value in tokens.items():
@@ -254,7 +269,7 @@ def _image_file(
         container.remove(force=False)
 
 
-def _validate_inventory(raw: bytes) -> None:
+def _validate_inventory(raw: bytes, *, revision: int = 2) -> None:
     inventory = []
     for line in raw.decode("utf-8").splitlines():
         fields = line.split("\t")
@@ -262,7 +277,10 @@ def _validate_inventory(raw: bytes) -> None:
             raise OstreeAssemblyError("invalid_image_inventory")
         name, version, architecture = fields
         inventory.append((name.removesuffix(":amd64"), version, architecture))
-    if tuple(sorted(inventory)) != load_support_closure().final_inventory:
+    if (
+        tuple(sorted(inventory))
+        != load_support_closure(revision=revision).final_inventory
+    ):
         raise OstreeAssemblyError("installed_dependency_closure_mismatch")
 
 
@@ -274,8 +292,10 @@ def assemble_ostree_image(
     on_log: Callable[[bytes], None] | None = None,
     on_resource: Callable[[str, str], None] | None = None,
     support_entries: dict[str, bytes] | None = None,
+    support_revision: int = 2,
 ) -> OstreeAssemblyEvidence:
     """Local, offline Docker assembly only. Acquirer owns staging until return."""
+    assets_digest = assembly_assets_digest(revision=support_revision)
     acquired.claim_assembly(operation_id)
     owned = client is None
     client = client or docker.from_env(timeout=600)
@@ -306,7 +326,9 @@ def assemble_ostree_image(
         with verified_context(
             acquired,
             operation_id,
-            entries=_entries(acquired, operation_id, support_entries),
+            entries=_entries(
+                acquired, operation_id, support_entries, revision=support_revision
+            ),
         ) as context:
             context.assert_sealed(operation_id)
             deadline = time.monotonic() + _MAX_BUILD_SECONDS
@@ -344,8 +366,10 @@ def assemble_ostree_image(
             labels = {
                 "io.kodi-lab.recipe-digest": acquired.evidence.recipe_digest,
                 "io.kodi-lab.acquisition-digest": context.acquisition_digest,
-                "io.kodi-lab.support-digest": load_support_closure().digest,
-                "io.kodi-lab.assets-digest": "sha256:" + ASSETS_SHA256,
+                "io.kodi-lab.support-digest": load_support_closure(
+                    revision=support_revision
+                ).digest,
+                "io.kodi-lab.assets-digest": "sha256:" + assets_digest,
                 "io.kodi-lab.installation-status": "inactive",
                 "org.opencontainers.image.revision": (
                     acquired.evidence.kodi_source_revision
@@ -360,19 +384,23 @@ def assemble_ostree_image(
                 operation_id,
                 on_resource,
             )
-            _validate_inventory(inventory)
+            _validate_inventory(inventory, revision=support_revision)
             result = OstreeAssemblyEvidence(
                 image_id=inspected["Id"],
                 image_size=inspected["Size"],
                 operation_id=operation_id.hex,
                 recipe_digest=context.recipe_digest,
                 acquisition_digest=context.acquisition_digest,
-                supporting_closure_digest=load_support_closure().digest,
-                assembly_assets_digest="sha256:" + ASSETS_SHA256,
+                supporting_closure_digest=load_support_closure(
+                    revision=support_revision
+                ).digest,
+                assembly_assets_digest="sha256:" + assets_digest,
                 asset_hashes=tuple(
                     sorted(
                         (k, hashlib.sha256(v).hexdigest())
-                        for k, v in load_assembly_assets().items()
+                        for k, v in load_assembly_assets(
+                            revision=support_revision
+                        ).items()
                     )
                 ),
                 context_digest=context.digest,
@@ -383,6 +411,7 @@ def assemble_ostree_image(
                 ),
                 build_log_digest="sha256:" + log.hexdigest(),
                 build_log_bytes=log_bytes,
+                recipe_revision=support_revision,
                 installed_inventory_digest="sha256:"
                 + hashlib.sha256(inventory).hexdigest(),
             )

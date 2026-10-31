@@ -19,10 +19,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
+from kodi_lab.runtime.preview import (
+    PreviewAcknowledgement,
+    admission_evidence,
+    reviewed_preview_recipe,
+)
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
-    load_installation_recipe,
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
@@ -251,7 +254,7 @@ class DockerReviewedInstallationWorker:
             raise ReviewedWorkerError("worker inventory is unavailable") from error
 
     def _admit_preview(self, operation_id: UUID, ack: PreviewAcknowledgement) -> None:
-        reviewed = load_installation_recipe("piers")
+        reviewed = reviewed_preview_recipe(ack)
         expected = admission_evidence(ack, operation_id)
         factory = self._session_factory
         engine = None

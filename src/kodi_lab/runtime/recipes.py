@@ -284,7 +284,11 @@ class RuntimeRecipe(_ClosedModel):
             if (
                 self.schema_version != 3
                 or (self.recipe_id, self.recipe_revision)
-                not in {("piers-22.0-rc1-r1", 1), ("piers-22.0-rc1-r2", 2)}
+                not in {
+                    ("piers-22.0-rc1-r1", 1),
+                    ("piers-22.0-rc1-r2", 2),
+                    ("piers-22.0-rc1-r3", 3),
+                }
                 or self.generation != "piers"
                 or self.kodi_version != "22.0-rc.1"
                 or self.base_image_reference != BASE_IMAGE
@@ -429,7 +433,12 @@ def load_recorded_reviewed_recipe(
     raise ValueError("recorded runtime recipe is no longer reviewed")
 
 
+PIERS_DISPLAY_INSTALLATION_DIGEST: Final = (
+    "sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8"
+)
+
 _DISPLAY_CANDIDATES = {
+    "piers": ("piers-22.0-rc1-installation-r3.json", PIERS_DISPLAY_INSTALLATION_DIGEST),
     "matrix": (
         "matrix-19.4-display-r3.json",
         "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",

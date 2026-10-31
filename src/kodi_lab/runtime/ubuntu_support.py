@@ -156,13 +156,20 @@ def _parse(raw: bytes) -> SupportClosure:
     return SupportClosure(raw, packages, base, final)
 
 
+DISPLAY_SUPPORT_SHA256 = (
+    "5d3420c98fa9826078459c187b2f3a3d34cf3628a55d78cd6346a071578e58df"
+)
+
+
 def load_support_closure(*, revision: int = 2) -> SupportClosure:
-    if type(revision) is not int or revision not in (1, 2):
+    if type(revision) is not int or revision not in (1, 2, 3):
         raise SupportError("unsupported_support_revision")
-    directory = (
-        ASSET_DIRECTORY if revision == 2 else "assembly_assets/piers-22.0-rc1-r1"
-    )
-    expected = SUPPORT_SHA256 if revision == 2 else HISTORICAL_SUPPORT_SHA256
+    directory = f"assembly_assets/piers-22.0-rc1-r{revision}"
+    expected = {
+        1: HISTORICAL_SUPPORT_SHA256,
+        2: SUPPORT_SHA256,
+        3: DISPLAY_SUPPORT_SHA256,
+    }[revision]
     raw = (
         resources.files("kodi_lab.runtime")
         .joinpath(directory, "ubuntu-support.json")
@@ -183,17 +190,19 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise SupportError("support_redirect_rejected")
 
 
-def download_support(acquired: AcquiredOstree, operation_id: UUID) -> dict[str, bytes]:
+def download_support(
+    acquired: AcquiredOstree, operation_id: UUID, *, revision: int = 2
+) -> dict[str, bytes]:
     """Only the fixed reviewed closure; nothing is cached on disk or persisted."""
     acquired.assert_handoff(operation_id)
-    result = fetch_support_packages()
+    result = fetch_support_packages(revision=revision)
     acquired.assert_handoff(operation_id)
     return result
 
 
-def fetch_support_packages() -> dict[str, bytes]:
+def fetch_support_packages(*, revision: int = 2) -> dict[str, bytes]:
     """Fixed wheel-owned inputs only; usable in the socketless network helper."""
-    closure = load_support_closure()
+    closure = load_support_closure(revision=revision)
     deadline = time.monotonic() + 600
 
     def obtain(p: SupportPackage) -> tuple[str, bytes]:
@@ -232,8 +241,8 @@ def fetch_support_packages() -> dict[str, bytes]:
     return result
 
 
-def validate_support_entries(entries: dict[str, bytes]) -> None:
-    closure = load_support_closure()
+def validate_support_entries(entries: dict[str, bytes], *, revision: int = 2) -> None:
+    closure = load_support_closure(revision=revision)
     if set(entries) != {"support/" + p.archive_name for p in closure.packages}:
         raise SupportError("support_closure_mismatch")
     for p in closure.packages:
