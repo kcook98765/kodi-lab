@@ -1,7 +1,10 @@
 """Stored deployment guidance is explicit, authenticated and independent of liveness."""
 
+import json
 import os
+import re
 import subprocess
+from html import unescape
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -17,6 +20,83 @@ from kodi_lab.domain import InstanceType
 from kodi_lab.storage.models import ManagedInstanceRow
 from tests.web.conftest import INSTANCE_ID, login
 from tests.web.test_agent_workspaces import SOURCE_ID, _seed_source
+
+
+@pytest.mark.parametrize("view", ["standard", "development"])
+@pytest.mark.parametrize("warning", [False, True])
+def test_long_workspace_previews_preserve_text_and_editor_bindings(
+    client: TestClient,
+    database: sessionmaker[Session],
+    data_root: Path,
+    view: str,
+    warning: bool,
+) -> None:
+    _seed_source(database, data_root)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    creation = context.agent_workspaces.queue_creation(SOURCE_ID)
+    lease = context.agent_workspaces.acquire(creation.operation_id)
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    csrf = login(client)
+    client.cookies.set("kodi_lab_admin_view", view)
+    page = client.get(f"/agent-workspaces/{creation.workspace_id}")
+    assert page.status_code == 200
+    values = dict(cast(Any, page).context)
+    filename = "resources/" + "long_filename_" * 16 + ".py"
+    before = (
+        "# source with whitespace\n\tif value < 3 and name == '<&>':\n    " + "x" * 2048
+    )
+    after = "# " + "words with spaces " * 128 + "\n" + "sha256=" + "a" * 64
+    values["entries"] = [SimpleNamespace(name=filename, entry_type="file")]
+    values["changes"] = SimpleNamespace(
+        identity_status="identity_changed" if warning else "stable",
+        changes=[
+            SimpleNamespace(
+                path=filename,
+                change_kind="modified",
+                baseline_size=len(before),
+                current_size=len(after),
+                before_preview=before,
+                after_preview=after,
+                before_truncated=False,
+                after_truncated=False,
+            )
+        ],
+    )
+    values["capture_status"] = values["capture_status"].model_copy(
+        update={
+            "active_capture_digest": "a" * 64,
+            "workspace_tree_digest": "b" * 64,
+            "private_edits": warning,
+            "recovery_state": "staging" if warning else None,
+            "capture_available": not warning,
+        }
+    )
+    html = cast(Any, page).template.render(**values)
+    assert [unescape(v) for v in re.findall(r"<pre>(.*?)</pre>", html, re.S)] == [
+        before,
+        after,
+    ]
+    assert filename in html and "b" * 64 in html
+    assert f'data-workspace-id="{creation.workspace_id}"' in html
+    assert f'data-csrf="{csrf}"' in html
+    assert 'id="workspace-editor"' in html and 'data-generation="0"' in html
+    for action in ("create", "replace", "patch"):
+        assert f'data-action="{action}"' in html
+    if warning:
+        assert 'role="alert">Capture recovery state: staging.' in html
+        assert (
+            '<details class="navigation-group" open>'
+            "<summary>Detailed changes and previews" in html
+        )
+    if evidence := os.getenv("KODI_UI_OVERFLOW_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        name = f"workspace-{view}-{warning}"
+        (root / f"{name}.html").write_text(html)
+        (root / f"{name}.json").write_text(
+            json.dumps({"previews": [before, after], "filename": filename})
+        )
 
 
 @pytest.mark.parametrize("view", ["standard", "development"])

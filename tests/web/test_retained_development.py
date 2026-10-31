@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -26,6 +27,67 @@ from tests.application.test_retained_bridge_lifecycle import Broker
 from tests.application.test_retained_development import environment
 from tests.web.conftest import ORIGIN, FakeBroker, login
 from tests.web.test_mcp import _post
+
+
+@pytest.mark.parametrize("view", ["standard", "development"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_long_retained_choices_preserve_labels_selection_and_confirmation(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    view: str,
+    enabled: bool,
+) -> None:
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    csrf = login(client)
+    client.cookies.set("kodi_lab_admin_view", view)
+    page = client.get(
+        "/development-session/retained",
+        params={
+            "target_id": str(s.ids["nexus"]),
+            "workspace_id": str(s.env.workspace_id),
+        },
+    )
+    assert page.status_code == 200
+    context = dict(cast(Any, page).context)
+    label = "Retained workspace " + "unbroken" * 14
+    addon = "plugin.video." + "long_identifier" * 7
+    context["workspaces"] = [
+        SimpleNamespace(
+            id=s.env.workspace_id,
+            state=SimpleNamespace(value="ready"),
+            bytes_state=SimpleNamespace(value="present"),
+            source_logical_name=label,
+            source_addon_id=addon,
+        )
+    ]
+    context["policy"] = SimpleNamespace(enabled=enabled, latest_generation=1)
+    context["omega_choices"] = [
+        SimpleNamespace(target_id=s.ids["omega"], name=label + " — " + addon)
+    ]
+    html = cast(Any, page).template.render(**context)
+    assert label + " — " + addon in html
+    assert f'name="csrf_token" value="{csrf}"' in html
+    assert 'name="expected_generation" value="1"' in html
+    if enabled:
+        for version in ("Matrix 19.4", "Nexus 20.5", "Omega 21.3", "Piers 22 RC1"):
+            assert f'<th scope="row">{version}</th>' in html
+        assert f'value="{s.env.workspace_id}" selected' in html
+        assert f'value="{s.ids["nexus"]}" selected' in html
+        assert 'action="/development-session/retained/select"' in html
+        assert f'name="identity" value="{context["preview"].identity}"' in html
+    else:
+        assert 'action="/development-session/retained/policy"' in html
+        assert 'name="omega_target_id"' in html
+    assert s.service.status().target_id == s.ids["omega"]
+    assert not broker.calls
+    if evidence := os.getenv("KODI_UI_OVERFLOW_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"retained-{view}-{enabled}.html").write_text(html)
 
 
 @pytest.fixture(autouse=True)

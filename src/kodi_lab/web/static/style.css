@@ -298,6 +298,8 @@ dd { margin: 0; }
 .agents-page [data-permission-choice] input,
 .responsive-forms .check-label input { flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; min-height: 1.25rem; margin: .15rem 0 0; }
 .responsive-forms summary { min-height: 2.75rem; padding: .65rem 0; cursor: pointer; }
+/* Preserve source whitespace while wrapping long previews within the workspace. */
+.workspace-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .repository-table-scroll { max-width: 100%; overflow-x: auto; }
 .admin-content .repository-table-scroll table { display: table; width: 100%; }
 @media (max-width: 600px) {
