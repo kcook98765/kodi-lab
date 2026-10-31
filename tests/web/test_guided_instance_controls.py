@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 import subprocess
 from pathlib import Path
 from typing import cast
@@ -74,14 +75,18 @@ def test_monitoring_keeps_screenshot_controls_and_separate_ui_inspection(
     page = client.get(f"/instances/{INSTANCE_ID}").text
     monitoring = re.search(r'<section id="visual-access".*?</section>', page, re.S)
     assert monitoring is not None
-    for label in [
-        "Monitor Kodi",
-        "Kodi process",
-        "JSON-RPC",
-        "Readiness",
-        "Saved screenshot",
-    ]:
-        assert label in monitoring.group()
+    health = re.search(
+        r'<section aria-labelledby="instance-health-heading".*?</section>', page, re.S
+    )
+    assert health is not None
+    for label in ["Kodi process", "JSON-RPC", "Readiness"]:
+        assert label in health.group()
+    assert "Alternative screen tools" in monitoring.group()
+    assert "Saved screenshot" in monitoring.group()
+    assert (
+        '<details class="instance-maintenance"><summary>Alternative viewers, screenshots and browser remote</summary>'
+        in page
+    )
     for hook in [
         "data-ui-state-inspect",
         "data-preview-pause",
@@ -116,3 +121,55 @@ def test_monitoring_inspection_browser_contract() -> None:
         ],
         check=True,
     )
+
+
+@pytest.mark.parametrize("warning", [False, True])
+def test_maintenance_keeps_failure_and_reconciliation_visible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, warning: bool
+) -> None:
+    login(client)
+    service = cast(FastAPI, client.app).state.kodi_lab.instance_detail
+    original = service.get(INSTANCE_ID)
+    if warning:
+        original = original.model_copy(
+            update={
+                "runtime": original.runtime.model_copy(
+                    update={
+                        "failure_detail": "Runtime needs review",
+                        "failure_code": "runtime_revision_mismatch",
+                    }
+                ),
+                "reconciliation": original.reconciliation.model_copy(
+                    update={
+                        "required": True,
+                        "blocking": True,
+                        "safe_reason": "Review the original operation",
+                    }
+                ),
+            }
+        )
+    monkeypatch.setattr(service, "get", lambda _id: original)
+    page = client.get(f"/instances/{INSTANCE_ID}").text
+    if warning:
+        before_maintenance = page.split('<details class="instance-maintenance"', 1)[0]
+        assert "Runtime needs review" in before_maintenance
+        assert "Operator reconciliation required" in before_maintenance
+        assert (
+            '<details class="instance-maintenance" open><summary>Advanced lifecycle'
+            in page
+        )
+    else:
+        assert (
+            '<details class="instance-maintenance"><summary>Advanced lifecycle' in page
+        )
+    for label in [
+        "Notes and snapshots",
+        "Add-ons and ZIP installation records",
+        "Source attachments and copy records",
+        "Activity and recovery history",
+    ]:
+        assert f"<summary>{label}</summary>" in page
+    if destination := os.getenv("KODI_LAB_CURRENT_UI_EVIDENCE"):
+        root = Path(destination)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"instance-{'warning' if warning else 'normal'}.html").write_text(page)
