@@ -22,11 +22,9 @@
     <button type="button" data-session-action="prepare" hidden disabled>Prepare Kodi</button>
     <button type="button" data-session-action="resume" hidden disabled>Start Kodi</button>
     <button type="button" data-session-action="stop" hidden disabled>Stop Kodi</button>
-    <a class="button-link" href="{{ '/development-session/retained' if retained_profiles else '/development-session/replacement' }}" data-current-switch{% if not current %} hidden{% endif %}>Switch Kodi Version…</a>
-    {% if retained_profiles %}<button type="button" data-current-fresh-test aria-describedby="fresh-test-unavailable"{% if not current %} hidden{% endif %} disabled>Fresh Test…</button>{% endif %}
+    {% if retained_profiles %}<a class="button-link" href="/development-session/retained" data-current-switch{% if not current %} hidden{% endif %}>Switch Kodi Version…</a>{% endif %}
     <button type="button" data-session-refresh>Refresh status</button>
   </div>
-  {% if retained_profiles %}<p id="fresh-test-unavailable" data-current-fresh-test-note{% if not current %} hidden{% endif %}>Fresh Test is unavailable: the existing reset cannot safely finish with a clean, selected retained profile.</p>{% endif %}
   <p class="secondary" data-current-checked></p>
   <section class="current-screen" aria-labelledby="current-screen-heading"{% if not current %} hidden{% endif %} data-current-screen>
     <h2 id="current-screen-heading">Kodi screen</h2>
@@ -66,8 +64,9 @@
       <dt>Development capabilities</dt><dd><a href="/development-session/preparation" data-current-preparation>Review development setup</a></dd>
     </dl>
     <p class="secondary">Native readiness, recorded development prerequisites and agent permissions are checked separately.</p>
-    <p>{% if not retained_profiles %}<a href="/development-session/replacement">Fresh Test…</a> · {% endif %}<a href="/diagnostics">Saved diagnostics</a> · <a href="/#instances">Managed registrations</a> · <a href="/runtimes">Runtime installations</a> · <a href="/managed-resources">Resource and keep-awake controls</a></p>
-    <p>{% if retained_profiles %}Version selection keeps all retained profiles.{% else %}Fresh Test and Switch use the existing evidence review and explicit profile-disposal confirmation.{% endif %} Stop keeps the same profile and workspace.</p>
+    <p><a href="/diagnostics">Saved diagnostics</a> · <a href="/#instances">Managed registrations</a> · <a href="/runtimes">Runtime installations</a> · <a href="/managed-resources">Resource and keep-awake controls</a></p>
+    {% if not retained_profiles %}<p><a href="/development-session/replacement">Review profile replacement and disposal…</a> requires the existing evidence review and explicit profile-disposal confirmation.</p>{% endif %}
+    <p>{% if retained_profiles %}Version selection keeps all retained profiles. {% endif %}Stop keeps the same profile and workspace.</p>
     <p><a href="/development-session/retained">Retained Kodi versions</a></p>
     <button type="button" data-session-action="close-absent" hidden disabled>Release empty reservation</button>
   </details>

@@ -186,7 +186,7 @@ def test_four_profiles_sequential_selection_over_http_and_without_javascript(
 
 
 @pytest.mark.parametrize("provisioned", [True, False])
-def test_retained_ui_identifies_profiles_and_keeps_fresh_test_unavailable(
+def test_retained_ui_identifies_profiles_without_fresh_test_controls(
     client: TestClient,
     database: sessionmaker[Session],
     broker: FakeBroker,
@@ -212,8 +212,9 @@ def test_retained_ui_identifies_profiles_and_keeps_fresh_test_unavailable(
     assert "Advanced management and recovery" in advanced
     assert 'href="/mcp-clients"' in advanced
     assert 'href="/diagnostics"' in advanced
-    assert re.search(r"<button[^>]*data-current-fresh-test[^>]* disabled>", page.text)
-    assert "Fresh Test is unavailable" in page.text
+    assert "Fresh Test" not in page.text
+    assert "data-current-fresh-test" not in page.text
+    assert 'href="/development-session/retained" data-current-switch' in page.text
     assert "/development-session/replacement" not in page.text
     assert f"/instances/{s.ids['omega']}/reset" not in page.text
     assert "Retained profile" in client.get("/kodi").text

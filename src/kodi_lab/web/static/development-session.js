@@ -76,7 +76,7 @@
       const current = view.current, summary = view.summary;
       hideWatch();
       for (const name of ['current-choice']) show(name, !current);
-      for (const name of ['current-development', 'current-screen', 'current-switch', 'current-profile', 'current-fresh-test', 'current-fresh-test-note']) show(name, !!current);
+      for (const name of ['current-development', 'current-screen', 'current-switch', 'current-profile']) show(name, !!current);
       if (!current) {
         status.textContent = 'No Kodi is selected. Choose a workspace and reviewed runtime.';
         setText('current-name', 'No Kodi selected');

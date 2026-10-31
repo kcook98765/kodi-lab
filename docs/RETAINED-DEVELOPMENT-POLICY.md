@@ -1,7 +1,11 @@
 # Four retained development profiles, one selected runtime
 
-This is an explicit administrator opt-in refinement of issue #51. The existing
-single disposable environment and Fresh Test workflow remain the default.
+Retained profiles are the intended ordinary development model for issue #51.
+Current installations still require explicit administrator opt-in; the existing
+single disposable environment remains the installation default. Fresh Test is
+deliberately excluded from the ordinary Current Kodi UI. Existing advanced
+replacement/recovery services remain available under their current restrictions;
+a complete retained clean-profile rebuild is not a qualified everyday workflow.
 Migration `0089_retained_development` defaults `retain_profiles` to false and
 preserves the existing selected generation, container, runtime, workspace, trust
 and history. Applying the migration does not enable retained mode or create Kodi.

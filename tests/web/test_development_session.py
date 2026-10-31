@@ -56,6 +56,11 @@ def test_session_page_and_actions_require_authentication(client: TestClient) -> 
     assert 'href="/development-session"' in client.get("/development").text
     assert "No approved cached development runtime" in page.text
     assert "Kodi screen" in page.text
+    assert "Fresh Test" not in page.text
+    ordinary, advanced = page.text.split('<details class="current-more">', 1)
+    assert "/development-session/replacement" not in ordinary
+    assert 'href="/development-session/replacement"' in advanced
+    assert "Review profile replacement and disposal" in advanced
 
 
 def test_reserve_prepare_replay_and_absence_only_close_have_closed_inputs(
