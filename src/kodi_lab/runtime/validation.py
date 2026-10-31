@@ -172,6 +172,8 @@ def validate_reviewed_image(
     network: TemporaryNetwork | None = None
     cycles: list[dict[str, object]] = []
     screenshot: dict[str, object] | None = None
+    display: dict[str, object] | None = None
+    capability = reviewed_display_capability(reviewed)
     try:
         network = create_temporary_network(
             client,
@@ -253,6 +255,16 @@ def validate_reviewed_image(
                     container,
                     experimental=reviewed_display_capability(reviewed) is not None,
                 )
+            if capability is not None and capability.qualification != "experimental":
+                from kodi_lab.runtime.display_validation import (
+                    display_validation_command,
+                    parse_display_validation,
+                )
+
+                display = parse_display_validation(
+                    _exec(container, display_validation_command(), limit=8192),
+                    capability,
+                )
             container.stop(timeout=10)
             container.reload()
             state = container.attrs.get("State")
@@ -284,6 +296,7 @@ def validate_reviewed_image(
                 "library_query": True,
                 "screenshot": screenshot,
                 "cycles": cycles,
+                **({"display": display} if display is not None else {}),
             },
         )
     except RecipeValidationError:

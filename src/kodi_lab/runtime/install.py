@@ -61,6 +61,7 @@ from kodi_lab.runtime.recipes import (
     FlathubOstreeProvider,
     ReviewedRecipe,
     SignedDistroAptProvider,
+    load_display_candidate_recipe,
     load_inactive_ostree_recipe,
     load_installation_recipe,
     load_novnc_phase1_recipe,
@@ -686,14 +687,19 @@ def install_reviewed_runtime(
     report: Callable[[str], None] = print,
     operation_id: UUID | None = None,
     novnc_phase1: bool = False,
+    display_candidate: bool = False,
 ) -> InstallOutcome:
     """Install or ensure one reviewed generation through exact local evidence."""
 
+    if novnc_phase1 and display_candidate:
+        raise RecipeInstallationError("display recipe selectors conflict")
     if novnc_phase1 and generation != "omega":
         raise RecipeInstallationError("Phase 1 is limited to Omega")
     reviewed = (
         load_novnc_phase1_recipe()
         if novnc_phase1
+        else load_display_candidate_recipe(generation)
+        if display_candidate
         else load_installation_recipe(generation)
     )
     preview_ack = None

@@ -447,6 +447,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="explicit Ubuntu Omega human viewer runtime; never the default recipe",
     )
+    install_command.add_argument(
+        "--display-candidate",
+        action="store_true",
+        help=(
+            "explicit reviewed display packaging candidate; "
+            "standard viewing remains disabled"
+        ),
+    )
     commands.add_parser("verify", help="verify all exact local Docker images")
     load_command = commands.add_parser("load", help="verify and load one archive")
     load_command.add_argument("name", choices=RUNTIME_NAMES)
@@ -480,6 +488,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             return 0
         if arguments.command == "install":
+            if arguments.experimental_novnc and arguments.display_candidate:
+                parser.error("display recipe selectors conflict")
             if arguments.experimental_novnc and arguments.generation != "omega":
                 parser.error("experimental noVNC is restricted to Ubuntu Omega")
             from kodi_lab.runtime.install import (
@@ -503,6 +513,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     settings=settings,
                     operation_id=arguments.operation_id,
                     **({"novnc_phase1": True} if arguments.experimental_novnc else {}),
+                    **(
+                        {"display_candidate": True}
+                        if arguments.display_candidate
+                        else {}
+                    ),
                     report=lambda state: print(
                         f"{arguments.generation}: {state}", flush=True
                     ),

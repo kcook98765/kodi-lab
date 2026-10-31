@@ -58,10 +58,12 @@ class HumanDisplayService:
                 if managed is not None
                 else None
             )
-            if (
-                revision is None
-                or installed_display_capability(db, revision.id) is None
-            ):
+            capability = (
+                None
+                if revision is None
+                else installed_display_capability(db, revision.id)
+            )
+            if capability is None or capability.qualification != "experimental":
                 raise ValueError("experimental runtime is not qualified")
 
     def resolve(self, instance: UUID) -> ViewBinding:
