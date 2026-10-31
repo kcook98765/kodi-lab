@@ -7,7 +7,7 @@ standard-qualified runtime is activated by the initial packaging work.
 | Version | Display candidate | Standard viewing |
 | --- | --- | --- |
 | Omega 21.3 | Reviewed immutable r5, explicit candidate installation | Disabled pending native qualification |
-| Nexus 20.5 | Pending | Disabled |
+| Nexus 20.5 | Reviewed immutable r3, explicit candidate installation | Disabled pending native qualification |
 | Matrix 19.4 | Pending | Disabled |
 | Piers 22 RC1 | Pending | Disabled |
 
@@ -39,3 +39,23 @@ acceptance and final integrated release qualification remain required. Keep the
 existing ten-minute bound, approximately 2 FPS, view-only default, optional control,
 input exclusion, HTTPS/WSS and independent MCP/X11/fallback paths. Experimental
 memory or latency exceptions are not standard acceptance.
+
+Nexus r3 retains r2 unchanged and pins Noble TigerVNC 1.13.1+dfsg-2build2 with
+archive SHA-256 `f3844df856a95e4b306a61c03fa75433599d247ed2f9551df15003b191a8d054`.
+Its frozen startup uses 640×360 and `LP_NUM_THREADS=1`, a Noble-specific frozen helper,
+and the v2 native packaging proof. Controlled acquisition uses
+`kodi-lab-runtime install nexus --display-candidate`; ordinary installation stays
+r2. Qualification uses the existing exact-runtime entrypoint, now consuming sealed
+display metadata for profile identity and enforcing HTTPS/Secure authentication.
+This does not activate the ordinary launcher or qualify the standard Web workflow.
+
+The first Nexus native trial rejected `AcceptCutText`, `SendCutText`, `SetPrimary`
+and `SendPrimary`: they are absent in pinned TigerVNC 1.13.1. Its XDesktop clipboard
+handler is empty and its inherited clipboard callbacks are no-ops. The candidate
+therefore records `clipboard_policy=unimplemented`, requires that exact package and
+helper hash, and excludes only these unsupported switches. Newer Omega's explicit
+off switches are unchanged. Input/resize/TCP/lifetime safeguards remain. Source:
+https://github.com/TigerVNC/tigervnc/blob/v1.13.1/unix/x0vncserver/XDesktop.cxx
+and https://github.com/TigerVNC/tigervnc/blob/v1.13.1/common/rfb/SDesktop.h .
+Actual native clipboard refusal in both directions remains required before standard
+promotion; option absence alone is not browser/security qualification.

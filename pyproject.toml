@@ -117,4 +117,5 @@ exclude = [
   '^src/kodi_lab/runtime/assembly_assets/omega-21\.3-novnc-phase1-r3/',
   '^src/kodi_lab/runtime/assembly_assets/omega-21\.3-novnc-phase2-r4/',
   '^src/kodi_lab/runtime/assembly_assets/omega-21\.3-display-r5/',
+  '^src/kodi_lab/runtime/assembly_assets/nexus-20\.5-display-r3/',
 ]

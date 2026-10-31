@@ -30,6 +30,15 @@ helper_digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
 assert helper_digest == EXPECTED_HELPER_DIGEST
 helper = runpy.run_path(str(path), run_name='kodi_lab_display_validation')
 help_text = output(['/usr/bin/X0tigervnc', '-help']).stdout.decode().lower()
+clipboard_policy = EXPECTED_CLIPBOARD_POLICY
+clipboard_flags = ('AcceptCutText', 'SendCutText', 'SetPrimary', 'SendPrimary')
+if clipboard_policy == 'unimplemented':
+    assert helper.get('CLIPBOARD_POLICY') == 'unimplemented'
+    assert all(flag.lower() not in help_text for flag in clipboard_flags)
+else:
+    for mode in ('view-only', 'interactive'):
+        options = helper['command']('/run/kodi/probe-unused.sock', 2, mode)
+        assert all('-'+flag+'=0' in options for flag in clipboard_flags)
 for mode in ('view-only', 'interactive'):
     for option in helper['command']('/run/kodi/probe-unused.sock', 2, mode)[1:]:
         assert option.lstrip('-').split('=')[0].lower() in help_text
@@ -63,6 +72,8 @@ with open('/proc/'+pids[0].decode()+'/environ', 'rb') as stream:
 assert len(environment) <= 65536 and b'LP_NUM_THREADS=1' in environment.split(b'\0')
 print(json.dumps({'schema':'reviewed-display-packaging-v2',
     'helper_integrity_before_execution':True, 'geometry_probe':'xlib',
+    **({'clipboard_policy':clipboard_policy}
+       if clipboard_policy == 'unimplemented' else {}),
     'helper_digest':helper_digest,
     'package':package, 'width':width, 'height':height,
     'lp_num_threads':1, 'helper_probe':True, 'neutral_input_probe':True,
@@ -73,6 +84,9 @@ print(json.dumps({'schema':'reviewed-display-packaging-v2',
 def display_validation_command(capability: DisplayCapability) -> tuple[str, ...]:
     program = _PROGRAM.replace(
         "EXPECTED_HELPER_DIGEST", json.dumps(capability.helper_digest)
+    )
+    program = program.replace(
+        "EXPECTED_CLIPBOARD_POLICY", json.dumps(capability.clipboard_policy)
     )
     return ("/usr/bin/python3", "-I", "-B", "-c", program)
 
@@ -93,6 +107,8 @@ def display_validation_matches(value: object, capability: DisplayCapability) -> 
         "options_supported": True,
         "libraries": True,
     }
+    if capability.clipboard_policy == "unimplemented":
+        expected["clipboard_policy"] = "unimplemented"
     return (
         isinstance(value, dict)
         and value == expected

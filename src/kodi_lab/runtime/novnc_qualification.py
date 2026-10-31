@@ -32,6 +32,7 @@ from kodi_lab.broker.novnc import (
 from kodi_lab.broker.provisioning import SqliteProvisioningResolver
 from kodi_lab.broker.server import BrokerServer, ProductionBrokerConfiguration
 from kodi_lab.config import Settings
+from kodi_lab.runtime.display_capabilities import installed_display_capability
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.web.app import create_app
 from kodi_lab.web.novnc import PrototypeViewer
@@ -63,7 +64,14 @@ def main() -> None:
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
     engine = create_database_engine(settings.database_url)
     sessions = create_session_factory(engine)
-    catalog = CatalogViewAuthority(sessions, {instance: binding})
+    with sessions() as db:
+        capability = installed_display_capability(db, UUID(str(binding.identity[0])))
+    if capability is None:
+        raise ValueError("qualification requires sealed native display packaging")
+    catalog = CatalogViewAuthority(sessions, {instance: binding}, capability=capability)
+    # Use the existing strict HTTPS/authentication/cookie protections in this
+    # isolated entrypoint too. Ordinary launchers still reject candidates.
+    settings.experimental_novnc_instances = (instance,)
     ownership = HumanViewerOwnership(sessions)
     broker_id = str(uuid4())
 
@@ -219,7 +227,11 @@ def main() -> None:
             )
     else:
         viewer = PrototypeViewer(
-            settings.runtime_root / "display.sock", authority, ownership=ownership
+            settings.runtime_root / "display.sock",
+            authority,
+            ownership=ownership,
+            enabled_instances=frozenset({instance}),
+            require_https=True,
         )
         app = create_app(
             settings=settings,
