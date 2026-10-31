@@ -99,7 +99,8 @@ function connect(current, result) {
     client.resizeSession = false;
     client.focusOnClick = mode === 'interactive';
     client.qualityLevel = 6;
-    client.compressionLevel = 2;
+    // Keep image quality while avoiding extra native compression work.
+    client.compressionLevel = 0;
     client.addEventListener('connect', () => {
         if (attempt !== current) return;
         rfbConnected = true;
