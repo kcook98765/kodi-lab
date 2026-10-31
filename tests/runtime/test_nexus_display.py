@@ -120,6 +120,11 @@ def test_sealed_nexus_candidate_preserves_old_pin_and_stays_unactivated(
     with factory() as db:
         instance = ManagedInstanceRepository(db).get(target)
         assert instance is not None and instance.runtime_revision_id == old_revision
+    # Admission must see the sealed candidate, not the deliberately retained r2.
+    monkeypatch.setattr(
+        "kodi_lab.broker.novnc_service.installed_display_capability",
+        lambda *args: capability,
+    )
     monkeypatch.setattr(
         "docker.APIClient",
         lambda **kwargs: pytest.fail("candidate must remain unactivated"),

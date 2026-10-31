@@ -42,7 +42,7 @@ class DisplayCapability:
 # Historical r3 parsing remains supported; it does not gain an admission entry.
 VIEWER_ASSET_RECIPES = frozenset(
     {("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5)}
-    | {("ubuntu-noble-nexus-20.5", 3)}
+    | {("ubuntu-noble-nexus-20.5", 3), ("ubuntu-jammy-matrix-19.4", 3)}
 )
 EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     recipe_id="ubuntu-resolute-omega-21.3",
@@ -84,10 +84,25 @@ NEXUS_DISPLAY_CANDIDATE = DisplayCapability(
     qualification="candidate",
     clipboard_policy="unimplemented",
 )
+MATRIX_DISPLAY_CANDIDATE = DisplayCapability(
+    recipe_id="ubuntu-jammy-matrix-19.4",
+    recipe_revision=3,
+    recipe_digest="sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+    width=640,
+    height=360,
+    helper_digest="sha256:c986d0f23698153c261a12068025977ee4e8a2685ad2cc92fec6b1d559eed4b3",
+    package=("tigervnc-scraping-server", "1.12.0+dfsg-4ubuntu0.22.04.1", "amd64"),
+    expected_kodi_version="19.4",
+    expected_version_tag="stable",
+    expected_prerelease_ordinal=None,
+    qualification="candidate",
+    clipboard_policy="unimplemented",
+)
 _DISPLAY_RECIPES = (
     EXPERIMENTAL_OMEGA_DISPLAY,
     OMEGA_DISPLAY_CANDIDATE,
     NEXUS_DISPLAY_CANDIDATE,
+    MATRIX_DISPLAY_CANDIDATE,
 )
 
 

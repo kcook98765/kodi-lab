@@ -59,3 +59,20 @@ https://github.com/TigerVNC/tigervnc/blob/v1.13.1/unix/x0vncserver/XDesktop.cxx
 and https://github.com/TigerVNC/tigervnc/blob/v1.13.1/common/rfb/SDesktop.h .
 Actual native clipboard refusal in both directions remains required before standard
 promotion; option absence alone is not browser/security qualification.
+
+## Matrix r3 candidate (disabled)
+
+Jammy r3 preserves r2 and all Kodi19.4 package pins. It adds reviewed
+TigerVNC1.12.0+dfsg-4ubuntu0.22.04.1 (SHA256
+`eb8928727ce07aae043211e9f35390e2aafabf89b16168d43d3c608322e5a852`),
+full Python support, frozen640×360 startup with LP_NUM_THREADS=1 and the
+exact native helper. Like Nexus, this pinned X0 implementation has an empty
+clipboard handler and inherited no-op callbacks; it uses the exact-recipe
+`unimplemented` policy rather than unsupported switches. Upstream source:
+https://github.com/TigerVNC/tigervnc/blob/v1.12.0/unix/x0vncserver/XDesktop.cxx
+and https://github.com/TigerVNC/tigervnc/blob/v1.12.0/common/rfb/SDesktop.h .
+
+Controlled acquisition uses `kodi-lab-runtime install matrix --display-candidate`.
+Ordinary installation stays r2. The sealed v2 native packaging proof remains
+required, and all browser/clipboard/control/performance acceptance is separate.
+Standard viewing stays disabled. Existing managed profiles are never repinned.
