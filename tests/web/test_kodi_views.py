@@ -561,7 +561,7 @@ def test_development_native_identity_review_stays_visible(
     with database.begin() as session:
         target = session.get(ExternalKodiTargetRow, str(EXTERNAL_TARGET_ID))
         assert target is not None
-        target.verification_state = verification
+        target.verification_state = ExternalVerificationState(verification)
         target.pending_observation_id = str(observation)
         target.observed_kodi_name = "New observed Kodi identity"
     page = client.get("/external-targets").text
