@@ -426,74 +426,26 @@ def test_bound_absent_profile_can_be_explicitly_released(
         assert db.get(DevelopmentSessionRow, 1) is not None
 
 
-@pytest.mark.parametrize("release_fails", [False, True])
-def test_stop_kodi_waits_for_verified_human_release_before_lifecycle_dispatch(
-    viewer_client: TestClient,
-    database: sessionmaker[Session],
-    monkeypatch: pytest.MonkeyPatch,
-    release_fails: bool,
-) -> None:
-    from types import SimpleNamespace
-
-    from kodi_lab.application.development_session_workflow import (
-        DevelopmentSessionWorkflow,
-    )
-    from kodi_lab.web.novnc import PrototypeViewer
-    from tests.web.conftest import ORIGIN
-
-    client = viewer_client
-    csrf = login(client)
-    selected(client, database, monkeypatch)
-    calls: list[str] = []
-
-    def revoke(service: PrototypeViewer, _target: Any) -> None:
-        calls.append("revoke")
-
-        def released(_target: Any) -> None:
-            calls.append("release-proof")
-            if release_fails:
-                raise ValueError("unproven")
-
-        service.ownership = cast(Any, SimpleNamespace(wait_released=released))
-
-    def act(_self: Any, _action: str, _generation: int, *, before_stop: Any) -> Any:
-        before_stop()
-        assert calls == ["revoke", "release-proof"]
-        calls.append("dispatch")
-        return cast(FastAPI, client.app).state.kodi_lab.status.get(INSTANCE_ID)
-
-    monkeypatch.setattr(PrototypeViewer, "revoke_instance", revoke)
-    monkeypatch.setattr(DevelopmentSessionWorkflow, "act", act)
-    response = client.post(
-        "/api/development-session/stop",
-        json={"expected_generation": 1},
-        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
-    )
-    assert response.status_code == (409 if release_fails else 200)
-    assert calls == (
-        ["revoke", "release-proof"]
-        if release_fails
-        else ["revoke", "release-proof", "dispatch"]
-    )
-    if release_fails:
-        assert response.json()["error"]["code"] == "input_release_unproven"
-
-
 @pytest.mark.parametrize("route", ["session", "advanced"])
-@pytest.mark.parametrize("proven", [True, False])
-def test_stop_composes_real_ownership_exclusion_and_existing_lifecycle(
+@pytest.mark.parametrize("blocked", [False, True])
+@pytest.mark.parametrize(
+    "receipt",
+    ["exact", "transport-error", "wrong-container", "wrong-target", "still-running"],
+)
+def test_stop_keeps_human_exclusion_until_exact_native_stop_receipt(
     viewer_client: TestClient,
     database: sessionmaker[Session],
     broker: FakeBroker,
     monkeypatch: pytest.MonkeyPatch,
     route: str,
-    proven: bool,
+    blocked: bool,
+    receipt: str,
 ) -> None:
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-
     from kodi_lab.application.novnc_control import HumanViewerOwnership
+    from kodi_lab.broker.errors import ClientTransportError
     from kodi_lab.broker.novnc import ViewBinding
+    from kodi_lab.broker.operations import StopManagedContainerResult
+    from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow
     from tests.web.conftest import IMAGE_ID, ORIGIN
 
     client = viewer_client
@@ -509,44 +461,112 @@ def test_stop_composes_real_ownership_exclusion_and_existing_lifecycle(
     )
     ownership.create(INSTANCE_ID, attempt, "c" * 64, binding, "interactive")
     ownership.claim(INSTANCE_ID, attempt, "c" * 64, binding, "interactive", broker_id)
-    reached = Event()
-    wait_released = ownership.wait_released
+    if blocked:
+        ownership.finish(INSTANCE_ID, attempt, broker_id, False)
+    original_stop = broker.stop_managed_container
+    observed: list[str] = []
 
-    def wait(target: Any) -> None:
-        reached.set()
-        wait_released(target, timeout=2 if proven else 0.02)
-        from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow
-
+    def stopped(**params: Any) -> StopManagedContainerResult:
+        status = ownership.status(INSTANCE_ID)
+        assert status is not None and status.attempt == attempt
+        observed.append("owned-before-stop-receipt")
         with database() as db:
-            assert db.get(ManagedInstanceMutationLeaseRow, str(target)) is not None
-        # A successor with authority resolved before Stop must still be denied
-        # atomically after the old worker's release, for both viewer modes.
+            assert db.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is not None
+        # Authority resolved before the lifecycle claim cannot create either
+        # kind of successor while exact native Stop is in flight.
         for mode in ("view-only", "interactive"):
             with pytest.raises(ValueError, match="lifecycle operation conflict"):
-                ownership.create(target, uuid4(), "d" * 64, binding, mode)
+                ownership.create(INSTANCE_ID, uuid4(), "d" * 64, binding, mode)
+        if receipt == "transport-error":
+            raise ClientTransportError("Stop result unknown")
+        result = original_stop(**params)
+        if receipt == "wrong-container":
+            return result.model_copy(update={"container_id": "f" * 64})
+        if receipt == "wrong-target":
+            return result.model_copy(update={"managed_instance_id": str(uuid4())})
+        if receipt == "still-running":
+            return result.model_copy(
+                update={"runtime_state": ContainerRuntimeState.RUNNING}
+            )
+        return result
 
-    monkeypatch.setattr(ownership, "wait_released", wait)
+    monkeypatch.setattr(broker, "stop_managed_container", stopped)
     endpoint = (
         "/api/development-session/stop"
         if route == "session"
         else f"/api/instances/{INSTANCE_ID}/stop"
     )
-    body = {"expected_generation": 1} if route == "session" else {}
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        request = pool.submit(
-            client.post,
+
+    def dispatch() -> Any:
+        return client.post(
             endpoint,
-            json=body,
+            json={"expected_generation": 1} if route == "session" else {},
             headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
         )
-        assert reached.wait(2)
-        assert not any(kind == "stop" for kind, _ in broker.calls)
-        assert ownership.status(INSTANCE_ID) is not None
-        if proven:
-            ownership.finish(INSTANCE_ID, attempt, broker_id, True)
-        response = request.result(timeout=5)
-    assert response.status_code == (200 if proven else 409)
-    assert any(kind == "stop" for kind, _ in broker.calls) is proven
+
+    if receipt == "exact":
+        response = dispatch()
+        assert response.status_code == 200, response.text
+        assert ownership.status(INSTANCE_ID) is None
+        assert (
+            broker.container is not None
+            and broker.container.runtime_state is ContainerRuntimeState.STOPPED
+        )
+    else:
+        from kodi_lab.application.runtime_lifecycle import (
+            LifecycleDispatchUnconfirmedError,
+        )
+
+        # TestClient deliberately surfaces the server's existing unconfirmed
+        # dispatch exception; it must not be mistaken for a recovery receipt.
+        with pytest.raises(LifecycleDispatchUnconfirmedError):
+            dispatch()
+        status = ownership.status(INSTANCE_ID)
+        assert status is not None and status.attempt == attempt
+    assert observed == ["owned-before-stop-receipt"]
+
+
+@pytest.mark.parametrize("route", ["session", "advanced"])
+def test_stop_does_not_retire_a_different_native_input_incarnation(
+    viewer_client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+    route: str,
+) -> None:
+    from kodi_lab.application.novnc_control import HumanViewerOwnership
+    from kodi_lab.broker.novnc import ViewBinding
+    from tests.web.conftest import IMAGE_ID, ORIGIN
+
+    client = viewer_client
+    csrf = login(client)
+    selected(client, database, monkeypatch)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    service = cast(FastAPI, client.app).state.current_kodi_viewer_fixture
+    ownership = HumanViewerOwnership(database)
+    service.ownership = ownership
+    attempt, broker_id = uuid4(), str(uuid4())
+    old_binding = ViewBinding(
+        "e" * 64, IMAGE_ID, "old-incarnation", (str(REVISION_ID), 1)
+    )
+    ownership.create(INSTANCE_ID, attempt, "c" * 64, old_binding, "interactive")
+    ownership.claim(
+        INSTANCE_ID, attempt, "c" * 64, old_binding, "interactive", broker_id
+    )
+    ownership.finish(INSTANCE_ID, attempt, broker_id, False)
+    endpoint = (
+        "/api/development-session/stop"
+        if route == "session"
+        else f"/api/instances/{INSTANCE_ID}/stop"
+    )
+    response = client.post(
+        endpoint,
+        json={"expected_generation": 1} if route == "session" else {},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 200, response.text
+    status = ownership.status(INSTANCE_ID)
+    assert status is not None and status.attempt == attempt
 
 
 def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(

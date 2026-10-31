@@ -7429,3 +7429,18 @@ for active sessions beyond request expiry. Native ownership, single-use tickets,
 identity fencing and the 600-second absolute viewing limit remain independent.
 The existing Web process restart boundary remains; no durable replay table or
 new service is added. See STANDARD-NOVNC-IMPLEMENTATION.md for protocol behavior.
+
+## D-0475: Exact native Stop recovers unproven viewer input
+
+A viewing helper crash can leave pointer state nonneutral after the native worker
+exits. Release Control and viewer Stop must retain exclusion until termination and
+neutral input are proven. Kodi Stop has a different postcondition: the exact native
+container and its input incarnation are dead. Its existing lifecycle claim blocks
+successor viewers and input dispatch, revokes viewing, and obtains the broker's
+identity-checked stopped-container receipt before retiring durable ownership.
+Requiring helper-neutral proof before dispatching that containment made recovery
+unreachable (native #163 crash trial: 409 input_release_unproven). Both Current Kodi
+and advanced Stop now use the existing verified native boundary. An uncertain,
+wrong-target or wrong-container receipt cannot clear ownership; stopping a
+replacement cannot retire a different old input incarnation. No database schema,
+permission, runtime recipe or control-handoff requirement changes.
