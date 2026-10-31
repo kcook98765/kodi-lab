@@ -161,6 +161,7 @@ dd { margin: 0; }
 .admin-content #instances { display: grid; gap: 1rem; }
 .navigation-group { border-top: 1px solid var(--admin-border); margin-top: 1.5rem; }
 .navigation-group h2 { font-size: 1.15rem; }
+.navigation-group > summary { min-height: 2.75rem; padding: .65rem 0; cursor: pointer; font-weight: 600; }
 .destination-list { list-style: none; padding: 0; }
 .destination-list li { margin: .75rem 0; }
 .destination-list a { display: inline-block; min-height: 2.75rem; padding: .5rem 0; font-weight: 600; }

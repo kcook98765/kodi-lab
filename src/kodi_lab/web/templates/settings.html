@@ -3,42 +3,30 @@
 {% block title %}Advanced · Kodi Lab{% endblock %}
 {% block content %}
 <h1>Advanced</h1>
-
-<p>Open existing access, security and administrative settings.</p>
 <section class="navigation-group">
-  <h2>Access and security</h2>
+  <h2>Access &amp; Security</h2>
   <ul class="destination-list">
-    <li><a href="/mcp-clients">MCP clients and permission presets</a><p>Agent credentials, exact grants and target policies.</p></li>
-    <li><a href="/production-targets#global-mutation-control">Production mutation emergency control</a><p>Existing global deny control and one-shot approval queue.</p></li>
-    <li><a href="/production-targets#reviewed-bridge-builds">Reviewed Bridge builds</a><p>Existing reviewed build registration and retirement.</p></li>
+    <li><a href="/mcp-clients">Agents and permissions</a></li>
+    <li><a href="/production-targets#global-mutation-control">Production mutation emergency control</a><p>Global deny control and pending one-shot approvals.</p></li>
+    <li><a href="/production-targets#reviewed-bridge-builds">Reviewed Bridge builds</a></li>
   </ul>
 </section>
 <section class="navigation-group">
-  <h2>Repositories</h2>
+  <h2>Managed Kodi Maintenance</h2>
   <ul class="destination-list">
-    <li><a href="/kodi-repository">Kodi Lab repository configuration and status</a><p>Stable and development repository information and administration.</p></li>
-    <li><a href="/addon-repositories">Add-on repository administration</a><p>Registered repositories and their existing settings.</p></li>
+    <li><a href="/managed-instances">Managed registrations and recovery</a><p>Instance health, diagnostics, Bridge and maintenance.</p></li>
+    <li><a href="/runtimes">Reviewed runtime installations</a></li>
+    <li><a href="/managed-resources">Managed Kodi resource policy</a><p>Running limit, idle stop and keep-awake.</p></li>
   </ul>
 </section>
-<section class="navigation-group">
-  <h2>Managed Kodi and recovery</h2>
-  <ul class="destination-list"><li><a href="/development-session">Current Kodi</a></li><li><a href="/runtimes">Reviewed runtime installations</a><p>Canonical installation, separately reviewed runtime variants and recorded history.</p></li><li><a href="/managed-instances">Historical and current managed registrations</a><p>Exact runtime identities, Bridge, sources, ZIP records, screenshots, recovery and maintenance.</p></li></ul>
-  <h2>Diagnostics and records</h2>
+<details class="navigation-group">
+  <summary>Repositories &amp; Historical Records</summary>
   <ul class="destination-list">
-    <li><a href="/production-targets">External Kodi status and recovery</a><p>Existing trust, connection and recovery details.</p></li>
-    <li><a href="/managed-instances">Managed Kodi status and diagnostics</a><p>Open an instance for its status, failure details and activity history.</p></li>
-    <li><a href="/managed-resources">Managed Kodi resource policy</a><p>Running limit, idle stop, enrollment and keep-awake.</p></li>
-    <li><a href="/history/instances">Deleted instance history</a><p>Retained administrative records.</p></li>
-    <li><a href="/snapshots/preserved">Preserved snapshots</a><p>Retained snapshot records and administration.</p></li>
+    <li><a href="/kodi-repository">Kodi Lab repository configuration and status</a></li>
+    <li><a href="/addon-repositories">Add-on repository administration</a></li>
+    <li><a href="/history/instances">Deleted instance history</a></li>
+    <li><a href="/snapshots/preserved">Preserved snapshots</a></li>
   </ul>
-</section>
-<!-- Common connection shortcuts -->
-<p>Manage your household Kodi and agent connections.</p>
-<ul class="destination-list">
-  <li><a href="/kodi">Kodi connection and screenshot settings</a></li>
-  <li><a href="/mcp-clients">Agent connections and access</a></li>
-  <li><a href="/add-kodi">Kodi Lab Bridge setup</a></li>
-</ul>
-<p><a href="/development">All development tools, sources and workspaces</a>. The administrator view changes presentation only; it never grants access.</p>
-
+</details>
+<p><a href="/development">Development tools, sources and workspaces</a></p>
 {% endblock %}

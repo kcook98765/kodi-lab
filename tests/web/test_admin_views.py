@@ -185,6 +185,7 @@ def test_export_isolated_browser_fixtures(
                 "/add-kodi",
                 "/add-kodi?mode=development",
                 "/mcp-clients",
+                "/development",
                 "/settings",
                 "/runtimes",
             ]
