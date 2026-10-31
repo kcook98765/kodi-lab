@@ -23,6 +23,7 @@ from kodi_lab.config import Settings
 from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.runtime.recipes import (
     NOVNC_PHASE1_DIGEST,
+    ReviewedRecipe,
     load_display_candidate_recipe,
     load_installation_recipe,
     load_recorded_reviewed_recipe,
@@ -114,6 +115,10 @@ def preview_acknowledgement(*, display_candidate: bool = False) -> dict[str, obj
         if display_candidate
         else load_installation_recipe("piers")
     )
+    return _preview_acknowledgement_for_recipe(reviewed)
+
+
+def _preview_acknowledgement_for_recipe(reviewed: ReviewedRecipe) -> dict[str, object]:
     return PreviewAcknowledgement.model_validate(
         {
             "recipe_id": reviewed.recipe.recipe_id,
@@ -585,7 +590,7 @@ class RuntimeInstallationService:
             status="not_installed",
             phase="Not installed",
             action="install",
-            preview_acknowledgement=preview_acknowledgement()
+            preview_acknowledgement=_preview_acknowledgement_for_recipe(reviewed)
             if generation == "piers"
             else None,
         )

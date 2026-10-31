@@ -159,9 +159,27 @@ def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
 
     backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
     service = RuntimeInstallationService(factory, backend)
+    candidate_view = service.get(operation)
+    assert candidate_view is not None
+    assert candidate_view.preview_acknowledgement == preview_acknowledgement(
+        display_candidate=True
+    )
+    assert (
+        service._view(
+            "piers", None, capable=True, display_candidate=True
+        ).preview_acknowledgement
+        == candidate_view.preview_acknowledgement
+    )
+    assert (
+        service._view("piers", None, capable=True).preview_acknowledgement
+        == preview_acknowledgement()
+    )
+    roundtrip_ack = PreviewAcknowledgement.model_validate(
+        candidate_view.preview_acknowledgement
+    )
     created = service.create_preview_instance(
         development_mode=True,
-        acknowledgement=built.acknowledgement,
+        acknowledgement=roundtrip_ack,
         display_candidate=True,
     )
     assert created.action == "open"
