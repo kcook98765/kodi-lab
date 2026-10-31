@@ -1,5 +1,6 @@
 """Stored deployment guidance is explicit, authenticated and independent of liveness."""
 
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from tests.web.conftest import INSTANCE_ID, login
 from tests.web.test_agent_workspaces import SOURCE_ID, _seed_source
 
 
+@pytest.mark.parametrize("view", ["standard", "development"])
 @pytest.mark.parametrize("selected", [False, True])
 def test_workspace_offers_catalog_preflight_without_requesting_assessment_or_runtime(
     client: TestClient,
@@ -25,6 +27,7 @@ def test_workspace_offers_catalog_preflight_without_requesting_assessment_or_run
     data_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     selected: bool,
+    view: str,
 ) -> None:
     _seed_source(database, data_root)
     context = cast(FastAPI, client.app).state.kodi_lab
@@ -36,6 +39,7 @@ def test_workspace_offers_catalog_preflight_without_requesting_assessment_or_run
     url = f"/agent-workspaces/{workspace}"
     assert client.get(url, follow_redirects=False).status_code == 303
     login(client)
+    client.cookies.set("kodi_lab_admin_view", view)
 
     def forbidden(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("rendering preflight must not probe runtime")
@@ -65,6 +69,80 @@ def test_workspace_offers_catalog_preflight_without_requesting_assessment_or_run
     assert "does not deploy, start, stop or repair" in page.text
     assert "check an agent's permissions" in page.text
     assert str(data_root) not in page.text
+    primary = page.text.split('<details class="navigation-group"', 1)[0]
+    assert 'id="workspace-source-capture"' in primary
+    assert 'id="workspace-deployment-preflight"' in primary
+    assert 'href="/development-session"' in primary
+    for label in [
+        "Text file editing and root directory",
+        "Detailed changes and previews",
+        "Workspace edit history",
+        "Promotion review",
+        "Lifecycle history",
+        "Retention and cleanup",
+    ]:
+        assert f"<summary>{label}</summary>" in page.text
+    context = dict(cast(Any, page).context)
+    context["capture_status"] = context["capture_status"].model_copy(
+        update={
+            "private_edits": True,
+            "recovery_state": "staging",
+            "recover_operation_id": uuid4(),
+            "capture_available": False,
+            "capture_unavailable_reason": "reconciliation_required",
+        }
+    )
+    context["changes"] = context["changes"].model_copy(
+        update={"identity_status": "identity_changed"}
+    )
+    context["lifecycle_activity"] = [
+        SimpleNamespace(
+            occurred_at="recorded",
+            operation=SimpleNamespace(value="cleanup"),
+            failure_code="reconciliation_required",
+        )
+    ]
+    context["promotion_plan"] = SimpleNamespace(
+        workspace_generation=0,
+        state=SimpleNamespace(value="reviewable"),
+        verification_target_id=INSTANCE_ID,
+        plan_id=uuid4(),
+    )
+    context["repository_deployments"] = [
+        SimpleNamespace(
+            addon_id="plugin.video.workspace",
+            addon_version="1.0.0",
+            target_id=INSTANCE_ID,
+            state="failed",
+            operation_id=uuid4(),
+            failure_code="deployment_ambiguous",
+        )
+    ]
+    warning = cast(Any, page).template.render(**context)
+    before_optional = warning.split('<details class="navigation-group"', 1)[0]
+    assert "Reconcile interrupted capture" in before_optional
+    assert "Capture is blocked to preserve" in before_optional
+    assert (
+        '<details class="navigation-group" open>'
+        "<summary>Detailed changes and previews</summary>" in warning
+    )
+    assert (
+        '<details class="navigation-group" open><summary>Lifecycle history</summary>'
+        in warning
+    )
+    assert (
+        '<details class="navigation-group" open><summary>Promotion review</summary>'
+        in warning
+    )
+    assert (
+        '<details class="navigation-group" open>'
+        "<summary>Recorded repository deployments</summary>" in warning
+    )
+    if evidence := os.getenv("KODI_WORKSPACE_UI_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"workspace-{view}-{selected}.html").write_text(page.text)
+        (root / f"workspace-warning-{view}-{selected}.html").write_text(warning)
     # A persistent managed target must not become a disposable deployment choice.
     with database.begin() as session:
         instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
