@@ -4655,18 +4655,13 @@ def create_app(
     ) -> DevelopmentSessionStatus:
         return session_service.close_absent(body.expected_generation)
 
-    class ViewerReleaseUnproven(ValueError):
-        pass
-
-    def stop_human_viewing(instance_id: UUID) -> None:
+    def revoke_human_viewing_for_stop(instance_id: UUID) -> None:
         if novnc_viewer is None:
             return
+        # The lifecycle claim already excludes successor viewers and input.
+        # Keep durable ownership until the exact broker stopped-container receipt;
+        # a crashed helper cannot prove neutral input while Kodi keeps running.
         novnc_viewer.revoke_instance(instance_id)
-        if novnc_viewer.ownership is not None:
-            try:
-                novnc_viewer.ownership.wait_released(instance_id)
-            except ValueError as error:
-                raise ViewerReleaseUnproven from error
 
     @app.post("/api/development-session/{action}", response_model=ManagedRuntimeStatus)
     def development_session_action(
@@ -4679,18 +4674,11 @@ def create_app(
         current = session_service.status()
         if current is None or current.generation != body.expected_generation:
             raise DevelopmentSessionConflict("development_session_generation_conflict")
-        try:
-            return session_workflow.act(
-                action,
-                body.expected_generation,
-                before_stop=lambda: stop_human_viewing(current.target_id),
-            )
-        except ViewerReleaseUnproven:
-            return _json_error(
-                409,
-                "input_release_unproven",
-                "Viewing could not be safely released. No Kodi action was dispatched.",
-            )
+        return session_workflow.act(
+            action,
+            body.expected_generation,
+            before_stop=lambda: revoke_human_viewing_for_stop(current.target_id),
+        )
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
     async def agent_workspace_list_page(request: Request) -> Response:
@@ -8617,12 +8605,10 @@ def create_app(
         _body: EmptyActionRequest = Body(),
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
-        try:
-            return context.lifecycle.stop(
-                instance_id, before_dispatch=lambda: stop_human_viewing(instance_id)
-            )
-        except ViewerReleaseUnproven:
-            raise HTTPException(409, "input_release_unproven") from None
+        return context.lifecycle.stop(
+            instance_id,
+            before_dispatch=lambda: revoke_human_viewing_for_stop(instance_id),
+        )
 
     @app.post(
         "/api/instances/{instance_id}/workspace-executions/"
