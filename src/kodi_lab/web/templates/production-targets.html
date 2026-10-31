@@ -5,8 +5,7 @@
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>Production Kodi targets</h1>
-      <p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
-      <p>{% if include_retired %}<a href="/production-targets">Show current connections</a> · Showing current and retired connections.{% else %}<a href="/production-targets?include_retired=true">Connection history (including retired)</a>{% endif %}</p>
+      <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
       <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
       <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
@@ -32,36 +31,6 @@
         {% else %}<p>No live pending or approved operations.</p>{% endfor %}
       </section>
       <section>
-        <h2 id="reviewed-bridge-builds">Reviewed production bridge builds</h2>
-        <p>A source fingerprint is not approved until an administrator explicitly registers the exact reviewed ZIP provenance here. Kodi Lab never updates bridges automatically.</p>
-        <form data-reviewed-build>
-          <label>Semantic fingerprint <input name="semantic_fingerprint" minlength="64" maxlength="64" required></label>
-          <label>ZIP SHA-256 <input name="zip_sha256" minlength="64" maxlength="64" required></label>
-          <label>Add-on ID <input name="addon_id" value="service.kodi_lab_bridge" maxlength="128" required></label>
-          <label>Add-on version <input name="addon_version" maxlength="64" required></label>
-          <label>Protocol <input name="protocol_version" value="1" maxlength="16" required></label>
-          <label>Declared capabilities <select name="capabilities"><option value="screenshot">screenshot</option><option value="screenshot,workspace_deployment">screenshot + workspace_deployment (production still denies deployment)</option><option value="screenshot,workspace_deployment,ui_observation,log_read">Current Bridge: screenshots, UI inspection, logs and development deployment (production still denies deployment)</option></select></label>
-          <label>Supported Kodi versions (comma separated) <input name="supported_kodi_versions" value="19.5,20.5,21.3,22.0" maxlength="256" required></label>
-          <label>Source/release reference <input name="source_reference" maxlength="512" required></label>
-          <button type="submit">Register active reviewed build</button>
-        </form>
-        {% for build in reviewed_builds %}<p>{{ build.addon_id }} {{ build.addon_version }} · {{ build.semantic_fingerprint }} · <strong>{{ build.state }}</strong>{% if build.state == 'active' %} <button type="button" data-retire-build="{{ build.build_id }}">Retire</button>{% endif %}</p>{% else %}<p>No reviewed builds. Migration does not pre-approve bridge 1.1.7.</p>{% endfor %}
-      </section>
-      <section>
-        <h2>Create production target</h2>
-        <form data-register>
-          <label>Name <input name="logical_name" maxlength="120" required></label>
-          <label>Protocol <select name="protocol_kind"><option value="jsonrpc_http">HTTP</option><option value="jsonrpc_https">HTTPS with normal CA validation</option></select></label>
-          <label>IP literal <input name="host" maxlength="64" required></label>
-          <label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label>
-          <label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label>
-          <label>Username <input name="username" maxlength="256" autocomplete="off"></label>
-          <label>Password <input name="password" type="password" maxlength="1024" autocomplete="new-password"></label>
-          <fieldset><legend>Configured semantic maximum</legend><label class="check-label"><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label class="check-label"><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label class="check-label"><input type="checkbox" name="capability" value="screenshot"> screenshot</label><label class="check-label"><input type="checkbox" name="capability" value="semantic_remote"> semantic_remote (seven-action navigation only after independent authority)</label></fieldset>
-          <button type="submit">Create disabled, unverified production target</button>
-        </form>
-      </section>
-      <section>
         <h2>{{ 'Connection history' if include_retired else 'Current production connections' }}</h2>
         {% for target in targets %}
         {% set policy = target.production_policy %}
@@ -70,12 +39,28 @@
         <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
           {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
+          <p>Production Kodi · {{ target.host }}:{{ target.port }} · Kodi {{ target.kodi_version or 'not observed' }}</p>
+          <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong></p>
+          <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
+          <p>Last recorded check: {{ target.last_observed_at or 'never' }}</p>
+          {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
+          <p>Per-target production mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
+          <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · reachability {{ bridge.reachability_state.value if bridge else 'unknown' }}</p>
+          <p>Native HTTP production control acknowledgement: <strong>{{ 'recorded' if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
+          {% if target.verification_state.value in ['identity_mismatch','needs_reverification'] or (bridge and (bridge.pairing_state.value == 'needs_reverification' or bridge.reachability_state.value in ['identity_mismatch','authentication_failed','protocol_unsupported'])) %}<p class="error" role="alert">Connection trust needs review. Reconnect or review the recorded identity before confirming.</p>{% endif %}
+          <details{% if target.verification_state.value in ['identity_mismatch','needs_reverification'] or policy.designation_state.value == 'pending_confirmation' or (bridge and bridge.pairing_state.value in ['pairing_pending','needs_reverification']) %} open{% endif %}><summary>Connection identity, trust and scopes</summary>
           <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/production-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
-          <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong> · generation {{ policy.identity_generation }} · policy revision {{ policy.policy_revision }}</p>
-          <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
-          <p>Authentication: {{ target.authentication_mode.value }}{% if target.http_password_warning %} · <strong>Password authentication over HTTP is not confidential.</strong>{% endif %}</p>
+          <p>Identity generation {{ policy.identity_generation }} · policy revision {{ policy.policy_revision }}</p>
+          <p>Authentication: {{ target.authentication_mode.value }}</p>
           <p>Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · observation {{ target.pending_observation_id or 'none' }}</p>
+          <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
+          <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
+          <p>Navigation scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'navigate' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Inspect is an independent prerequisite; visual is not required.</p>
+          <p>Transient request scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'request_transient_control' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Every transient action still requires one-shot Web approval.</p>
+          {% if bridge and bridge.observed_bridge_id %}<p>Observed bridge identity: UUID {{ bridge.observed_bridge_id }} · protocol {{ bridge.observed_protocol_version }} · add-on {{ bridge.observed_addon_id }} {{ bridge.observed_addon_version }} · Kodi {{ bridge.observed_kodi_version }} · semantic fingerprint {{ bridge.observed_build_fingerprint }} · capabilities {{ bridge.observed_capabilities | join(', ') }}</p>{% endif %}
+          </details>
+          <details><summary>Capability administration</summary>
           <section data-capability-amendment>
             <h4>Screenshot capability maximum amendment</h4>
             <p>Current operator-approved maximum: <strong>{{ target.configured_capabilities | join(', ') }}</strong>. Native verified evidence remains separately: <strong>{{ target.verified_capabilities | join(', ') }}</strong>.</p>
@@ -89,12 +74,7 @@
             <button type="button" data-capability-operation="remove" class="destructive">Remove screenshot from approved maximum</button>
             {% endif %}
           </section>
-          <p>Per-target production mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
-          <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
-          <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
-          <p>Navigation scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'navigate' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Inspect is an independent prerequisite; visual is not required.</p>
-          <p>Transient request scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'request_transient_control' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Every transient action still requires one-shot Web approval.</p>
-          {% if bridge and bridge.observed_bridge_id %}<p>Observed bridge identity: UUID {{ bridge.observed_bridge_id }} · protocol {{ bridge.observed_protocol_version }} · add-on {{ bridge.observed_addon_id }} {{ bridge.observed_addon_version }} · Kodi {{ bridge.observed_kodi_version }} · semantic fingerprint {{ bridge.observed_build_fingerprint }} · capabilities {{ bridge.observed_capabilities | join(', ') }}</p>{% endif %}
+          </details>
           {% if target.administrative_state.value != 'deactivated' %}
           <button type="button" data-action="probe">Run native read-only probe</button>
           {% if target.pending_observation_id and target.verification_state.value != 'verified' %}<button type="button" data-action="confirm-native" data-observation-id="{{ target.pending_observation_id }}">Confirm native identity</button>{% endif %}
@@ -110,13 +90,53 @@
           <button type="button" data-action="bridge-reverify">Reverify bridge</button>
           <button type="button" data-action="bridge-revoke" class="destructive">Revoke bridge</button>
           {% endif %}
+          <details><summary>Connection settings</summary>
           <details><summary>Edit disabled endpoint</summary><form data-endpoint><label>Protocol <select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select></label><label>IP literal <input name="host" value="{{ target.host }}" maxlength="64" required></label><label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Change endpoint and invalidate trust</button></form></details>
           <details><summary>Rotate credentials</summary><form data-credentials><label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label><label>Username <input name="username" maxlength="256" autocomplete="off" placeholder="Username"></label><label>New password <input name="password" type="password" maxlength="1024" autocomplete="new-password" placeholder="New password"></label><button type="submit">Rotate and invalidate trust</button></form></details>
+          </details>
           {% endif %}
+          <details{% if target.administrative_state.value == "deactivated" %} open{% endif %}><summary>Retire connection</summary>
+<p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
           <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
+          </details>
         </article>
         {% else %}<p>No production targets.</p>{% endfor %}
       </section>
+      <details class="navigation-group"{% if not targets %} open{% endif %}><summary>Add a production connection</summary>
+      <section>
+        <h2>Create production target</h2>
+        <form data-register>
+          <label>Name <input name="logical_name" maxlength="120" required></label>
+          <label>Protocol <select name="protocol_kind"><option value="jsonrpc_http">HTTP</option><option value="jsonrpc_https">HTTPS with normal CA validation</option></select></label>
+          <label>IP literal <input name="host" maxlength="64" required></label>
+          <label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label>
+          <label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label>
+          <label>Username <input name="username" maxlength="256" autocomplete="off"></label>
+          <label>Password <input name="password" type="password" maxlength="1024" autocomplete="new-password"></label>
+          <fieldset><legend>Configured semantic maximum</legend><label class="check-label"><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label class="check-label"><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label class="check-label"><input type="checkbox" name="capability" value="screenshot"> screenshot</label><label class="check-label"><input type="checkbox" name="capability" value="semantic_remote"> semantic_remote (seven-action navigation only after independent authority)</label></fieldset>
+          <button type="submit">Create disabled, unverified production target</button>
+        </form>
+      </section>
+      </details>
+      <details class="navigation-group"><summary>Reviewed Bridge builds</summary>
+      <section>
+        <h2 id="reviewed-bridge-builds">Reviewed production bridge builds</h2>
+        <p>A source fingerprint is not approved until an administrator explicitly registers the exact reviewed ZIP provenance here. Kodi Lab never updates bridges automatically.</p>
+        <form data-reviewed-build>
+          <label>Semantic fingerprint <input name="semantic_fingerprint" minlength="64" maxlength="64" required></label>
+          <label>ZIP SHA-256 <input name="zip_sha256" minlength="64" maxlength="64" required></label>
+          <label>Add-on ID <input name="addon_id" value="service.kodi_lab_bridge" maxlength="128" required></label>
+          <label>Add-on version <input name="addon_version" maxlength="64" required></label>
+          <label>Protocol <input name="protocol_version" value="1" maxlength="16" required></label>
+          <label>Declared capabilities <select name="capabilities"><option value="screenshot">screenshot</option><option value="screenshot,workspace_deployment">screenshot + workspace_deployment (production still denies deployment)</option><option value="screenshot,workspace_deployment,ui_observation,log_read">Current Bridge: screenshots, UI inspection, logs and development deployment (production still denies deployment)</option></select></label>
+          <label>Supported Kodi versions (comma separated) <input name="supported_kodi_versions" value="19.5,20.5,21.3,22.0" maxlength="256" required></label>
+          <label>Source/release reference <input name="source_reference" maxlength="512" required></label>
+          <button type="submit">Register active reviewed build</button>
+        </form>
+        {% for build in reviewed_builds %}<p>{{ build.addon_id }} {{ build.addon_version }} · {{ build.semantic_fingerprint }} · <strong>{{ build.state }}</strong>{% if build.state == 'active' %} <button type="button" data-retire-build="{{ build.build_id }}">Retire</button>{% endif %}</p>{% else %}<p>No reviewed builds. Migration does not pre-approve bridge 1.1.7.</p>{% endfor %}
+      </section>
+      </details>
+      {% if include_retired %}<p><a href="/production-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/production-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
       <p><a href="/kodi">Back to Kodi</a></p>
     {% endblock %}
 {% block scripts %}

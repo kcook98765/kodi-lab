@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -447,6 +449,15 @@ def test_production_approval_queue_and_decisions_are_web_only_and_protected(
     queue = client.get(queue_url)
     assert queue.status_code == 200
     assert queue.json()[0]["action"] == "play_pause"
+    page = client.get("/production-targets").text
+    primary = page.split('<details class="navigation-group"', 1)[0]
+    assert f'data-approval-id="{approval_id}"' in primary
+    assert 'data-approval-action-kind="approve"' in primary
+    assert "data-global-block" in primary
+    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
+        root = Path(evidence)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "production-pending-approval.html").write_text(page)
     assert (
         client.post(
             f"{decision_url}/approve",
