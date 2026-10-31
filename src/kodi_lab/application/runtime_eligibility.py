@@ -164,6 +164,16 @@ def _reviewed_validation_matches(
 
         if not validation_matches(validation):
             return False
+    from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+    from kodi_lab.runtime.display_validation import display_validation_matches
+
+    capability = reviewed_display_capability(reviewed)
+    if (
+        capability is not None
+        and capability.qualification != "experimental"
+        and not display_validation_matches(validation.get("display"), capability)
+    ):
+        return False
     screenshot = validation.get("screenshot")
     cycles = validation.get("cycles")
     return (

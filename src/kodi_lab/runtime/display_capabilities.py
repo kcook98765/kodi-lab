@@ -40,7 +40,7 @@ class DisplayCapability:
 
 # Historical r3 parsing remains supported; it does not gain an admission entry.
 VIEWER_ASSET_RECIPES = frozenset(
-    ("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4)
+    ("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5)
 )
 EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     recipe_id="ubuntu-resolute-omega-21.3",
@@ -55,7 +55,20 @@ EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     expected_prerelease_ordinal=None,
     qualification="experimental",
 )
-_DISPLAY_RECIPES = (EXPERIMENTAL_OMEGA_DISPLAY,)
+OMEGA_DISPLAY_CANDIDATE = DisplayCapability(
+    recipe_id="ubuntu-resolute-omega-21.3",
+    recipe_revision=5,
+    recipe_digest="sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
+    width=640,
+    height=360,
+    helper_digest=EXPERIMENTAL_OMEGA_DISPLAY.helper_digest,
+    package=EXPERIMENTAL_OMEGA_DISPLAY.package,
+    expected_kodi_version="21.3",
+    expected_version_tag="stable",
+    expected_prerelease_ordinal=None,
+    qualification="candidate",
+)
+_DISPLAY_RECIPES = (EXPERIMENTAL_OMEGA_DISPLAY, OMEGA_DISPLAY_CANDIDATE)
 
 
 def display_capability_for_digest(digest: str) -> DisplayCapability | None:
@@ -127,6 +140,15 @@ def installed_display_capability(
             installation.recipe_revision,
             installation.recipe_digest,
         )
-        return reviewed_display_capability(reviewed)
+        capability = reviewed_display_capability(reviewed)
+        if capability is not None and capability.qualification != "experimental":
+            import json
+
+            from kodi_lab.runtime.display_validation import display_validation_matches
+
+            report = json.loads(installation.validation_json or "")
+            if not display_validation_matches(report.get("display"), capability):
+                return None
+        return capability
     except ValueError:
         return None

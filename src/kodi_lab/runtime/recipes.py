@@ -403,7 +403,7 @@ def load_recorded_reviewed_recipe(
 ) -> ReviewedRecipe:
     """Resolve only a wheel-owned historical recipe matching a durable install."""
 
-    entries = (
+    entries: tuple[ReviewedRecipe, ...] = (
         (
             _load_recipe_file(
                 "piers",
@@ -417,6 +417,8 @@ def load_recorded_reviewed_recipe(
     )
     if generation == "omega" and recipe_revision == 4 and digest == NOVNC_PHASE1_DIGEST:
         entries = (*entries, load_novnc_phase1_recipe())
+    if generation in _DISPLAY_CANDIDATES:
+        entries = (*entries, load_display_candidate_recipe(generation))
     for reviewed in entries:
         if (
             reviewed.recipe.recipe_id == recipe_id
@@ -425,6 +427,23 @@ def load_recorded_reviewed_recipe(
         ):
             return reviewed
     raise ValueError("recorded runtime recipe is no longer reviewed")
+
+
+_DISPLAY_CANDIDATES = {
+    "omega": (
+        "omega-21.3-display-r5.json",
+        "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
+    ),
+}
+
+
+def load_display_candidate_recipe(generation: str) -> ReviewedRecipe:
+    """Explicit reviewed packaging candidate; ordinary install defaults stay put."""
+    try:
+        filename, digest = _DISPLAY_CANDIDATES[generation]
+    except KeyError as error:
+        raise ValueError("generation has no reviewed display candidate") from error
+    return _load_recipe_file(generation, filename, digest)
 
 
 def load_novnc_phase1_recipe() -> ReviewedAptRecipe:

@@ -7405,3 +7405,15 @@ its UUID opt-in, exact selected-profile admission and immutable assets. No stand
 recipe, default activation, profile transition or performance acceptance follows
 from this refactor. Existing worker, control, session and runtime identity fences
 remain independent and mandatory.
+
+## D-0473: Explicit immutable display packaging candidates stay unactivated
+
+Use the existing sealed runtime installer with a closed explicit candidate
+selector. Keep ordinary installation defaults and historical exact recipes;
+candidate acquisition does not repin existing managed registrations. New display
+recipes require native packaging proof in their existing HMAC-sealed validation
+JSON, with no new database schema or caller-selected command/image/package.
+The legacy viewer opt-in admits experimental qualification only, preventing a
+packaging candidate from inheriting viewer activation. Standard promotion needs
+separate exact-runtime browser, lifecycle, security and resource/performance
+acceptance. See [implementation status](STANDARD-NOVNC-IMPLEMENTATION.md).

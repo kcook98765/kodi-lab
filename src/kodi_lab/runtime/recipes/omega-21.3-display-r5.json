@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "recipe_id": "ubuntu-resolute-omega-21.3",
+  "recipe_revision": 5,
+  "generation": "omega",
+  "display_generation": "Omega 21",
+  "kodi_version": "21.3",
+  "platform": "linux/amd64",
+  "definition_id": "52130000-0000-4000-8000-000000000001",
+  "definition_slug": "kodi-omega-21.3",
+  "base_image_reference": "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",
+  "base_image_digest": "sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",
+  "provider": {
+    "type": "signed_distro_apt",
+    "distribution": "Ubuntu",
+    "suite": "resolute",
+    "repository_url": "http://archive.ubuntu.com/ubuntu",
+    "security_repository_url": "http://security.ubuntu.com/ubuntu",
+    "components": [
+      "main",
+      "universe"
+    ],
+    "pockets": [
+      "resolute",
+      "resolute-updates",
+      "resolute-security"
+    ],
+    "keyring_path": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+    "keyring_sha256": "sha256:80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+    "verification_policy": "apt-signed-metadata-and-critical-sha256-v1"
+  },
+  "critical_packages": [
+    {
+      "name": "kodi",
+      "version": "2:21.3+dfsg-1ubuntu1",
+      "architecture": "amd64",
+      "archive_name": "kodi_21.3+dfsg-1ubuntu1_amd64.deb",
+      "sha256": "sha256:d7e6d9763765e8c37888ce54519e9aaa208f136303b3e0a55222e087daa0bf77"
+    },
+    {
+      "name": "kodi-bin",
+      "version": "2:21.3+dfsg-1ubuntu1",
+      "architecture": "amd64",
+      "archive_name": "kodi-bin_21.3+dfsg-1ubuntu1_amd64.deb",
+      "sha256": "sha256:04081a6eda59cbb247932d59cf4149cf5ed6dd1f75fe82f3f80c8eb330004e33"
+    },
+    {
+      "name": "kodi-data",
+      "version": "2:21.3+dfsg-1ubuntu1",
+      "architecture": "all",
+      "archive_name": "kodi-data_21.3+dfsg-1ubuntu1_all.deb",
+      "sha256": "sha256:2c6ffd487fc83399bc8304401f31bef3779c7744a9e2c1aaf4505c19c2d08eff"
+    },
+    {
+      "name": "kodi-repository-kodi",
+      "version": "2:21.3+dfsg-1ubuntu1",
+      "architecture": "all",
+      "archive_name": "kodi-repository-kodi_21.3+dfsg-1ubuntu1_all.deb",
+      "sha256": "sha256:a53f3a178dd3e2eafed14ef42153fb2335b089152356495713995c3c06880927"
+    },
+    {
+      "name": "tigervnc-scraping-server",
+      "version": "1.15.0+dfsg-2build1",
+      "architecture": "amd64",
+      "archive_name": "tigervnc-scraping-server_1.15.0+dfsg-2build1_amd64.deb",
+      "sha256": "sha256:60ab12afa52627f27465dc1dc99382f1f3932a486032408b03aa9e6e527c869b"
+    }
+  ],
+  "support_packages": [
+    "ca-certificates",
+    "dbus-x11",
+    "fonts-noto-core",
+    "fonts-roboto-unhinted",
+    "libgl1-mesa-dri",
+    "procps",
+    "python3-minimal",
+    "tzdata",
+    "x11-utils",
+    "xauth",
+    "xvfb",
+    "python3"
+  ],
+  "asset_hashes": {
+    "entrypoint.sh": "sha256:e2e58cb64bbc531e88a758316749d7814342a9c3bbfde9f2bc33b7114cb4f360",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8",
+    "xvfb_guard.py": "sha256:7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98",
+    "novnc_view_helper.py": "sha256:be90f0c00e36bcbe4e7d905c2a7c3d0ab6645cca42fa5b5ef830e67d338775db"
+  },
+  "execution_profile": {
+    "runtime_kind": "kodi",
+    "runtime_uid": 1000,
+    "runtime_gid": 1000,
+    "python_bytecode_policy": "suppress",
+    "expected_application_name": "Kodi",
+    "expected_kodi_version": "21.3",
+    "expected_version_tag": "stable",
+    "expected_prerelease_ordinal": null,
+    "jsonrpc_port": 8080,
+    "jsonrpc_path": "/jsonrpc",
+    "process_observation": "docker_healthcheck",
+    "readiness_probe": "kodi_jsonrpc",
+    "readiness_timeout_seconds": 90,
+    "poll_interval_seconds": 1.0,
+    "http_timeout_seconds": 3.0
+  },
+  "validation_contract": "kodi-runtime-v1",
+  "source_references": [
+    "https://packages.ubuntu.com/resolute-updates/kodi",
+    "https://packages.ubuntu.com/resolute-updates/kodi-bin",
+    "https://packages.ubuntu.com/resolute-updates/kodi-data",
+    "https://packages.ubuntu.com/resolute-updates/kodi-repository-kodi",
+    "https://packages.ubuntu.com/resolute/tigervnc-scraping-server"
+  ],
+  "license_references": [
+    "https://packages.ubuntu.com/resolute-updates/kodi",
+    "https://kodi.wiki/view/License",
+    "https://tigervnc.org/"
+  ]
+}
