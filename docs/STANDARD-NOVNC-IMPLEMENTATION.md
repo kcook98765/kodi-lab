@@ -113,3 +113,17 @@ Other versions retain their existing process check and receipt shape. Piers v2
 receipts additionally bind `process_probe=piers-loader`; an ordinary process proof
 cannot authorize Piers display capability. This corrects a process-identification
 assumption; no thread, geometry, package, resource or performance gate is removed.
+
+## Current Kodi candidate qualification composition
+
+Current Kodi can select the canonical Piers r3 disposable profile only with the
+exact reviewed manifest/reference and existing sealed Preview approval. Ordinary
+r2 retains its previous retained-profile selection behavior; a version string,
+substituted artifact or unapproved revision cannot grant selection. Existing
+source/workspace, generation, empty-inventory and lifecycle reservations remain.
+
+An injected exact-runtime qualification viewer now reports availability through
+Current Kodi for each installed display descriptor, retaining the legacy r4 path.
+Ordinary broker admission still rejects all candidates, so this composition does
+not activate standard viewing. It lets isolated native acceptance exercise the
+same selected-environment workflow before any standard promotion.
