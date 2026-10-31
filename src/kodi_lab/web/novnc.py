@@ -39,6 +39,7 @@ from kodi_lab.application.novnc_control import (
 )
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
+from kodi_lab.web.view_attempts import ViewAttempts
 
 
 class ExpectedSelection(BaseModel):
@@ -191,7 +192,7 @@ class PrototypeViewer:
         self.registry = registry
         self.lock = Lock()
         self.attachments: dict[UUID, Attachment] = {}
-        self.attempts: set[tuple[str, UUID]] = set()
+        self.attempts = ViewAttempts()
         self.closed = False
         self.admissions = BoundedSemaphore(2)
         self.checks = BoundedSemaphore(2)
@@ -274,6 +275,7 @@ class PrototypeViewer:
         mode: str,
         deadline: str | None,
     ) -> Attachment:
+        self.attempts.expires(body.attempt)
         binding = self.binding(instance, mode)
         if body.expected_selection is not None and not body.expected_selection.matches(
             binding
@@ -281,10 +283,11 @@ class PrototypeViewer:
             raise ValueError("view selection changed")
         with self.lock:
             self._expire()
-            key = (owner, body.attempt)
-            if self.closed or key in self.attempts or len(self.attempts) >= 256:
+            if self.closed:
                 raise ValueError("view attempt unavailable")
-            self.attempts.add(key)
+            self.attempts.claim(owner, body.attempt)
+            if body.attempt in self.attachments:
+                raise ValueError("view attempt unavailable")
             session = LiveDisplaySession(
                 session_id=uuid4(),
                 instance_id=instance,
@@ -350,8 +353,7 @@ class PrototypeViewer:
 
     def stop(self, owner: str, attempt: UUID) -> None:
         with self.lock:
-            if len(self.attempts) < 256:
-                self.attempts.add((owner, attempt))
+            self.attempts.cancel(owner, attempt)
             item = self.attachments.get(attempt)
             if item is not None and item.owner == owner:
                 item.session.cancelled.set()
@@ -393,6 +395,7 @@ class PrototypeViewer:
         if self.ownership is None or not self.handoffs.acquire(blocking=False):
             raise ValueError("mode change unavailable")
         try:
+            self.attempts.expires(body.next_attempt)
             if mode == "interactive":
                 self.ownership.require_control_available(instance)
             with self.lock:
@@ -582,6 +585,7 @@ def install_routes(
     page_context: Callable[[UUID], dict[str, Any]] | None = None,
 ) -> None:
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+    templates.env.globals["viewer_clock_ms"] = viewer.attempts.clock_ms
     login_dependency = Depends(current_session)
     mutation_dependency = Depends(mutation_session)
     app.add_middleware(AdmissionBodyLimit)

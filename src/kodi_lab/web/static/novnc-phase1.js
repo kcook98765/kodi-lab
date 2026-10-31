@@ -21,6 +21,22 @@ let mode = 'view-only';
 let switching = false;
 let rfbConnected = false;
 let cleanupEpoch = 0;
+// UUIDv7 gives replay IDs an immutable creation time. Use the server's clock
+// plus elapsed page time, so a user's wall-clock setting cannot age requests.
+const viewerClock = Number(main.dataset.viewerClockMs);
+const viewerClockStarted = performance.now();
+function viewAttempt() {
+    const stamp = Math.floor(viewerClock + performance.now() - viewerClockStarted);
+    if (!Number.isSafeInteger(stamp) || viewerClock <= 0 || stamp >= 2 ** 48) throw new Error('Reload Current Kodi');
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    let remaining = stamp;
+    for (let i = 5; i >= 0; i--) { bytes[i] = remaining % 256; remaining = Math.floor(remaining / 256); }
+    bytes[6] = (bytes[6] & 15) | 112;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 
 function buttons(connected = false) {
     start.disabled = !permitted || identityRetired || attempt !== null;
@@ -95,7 +111,9 @@ function connect(current, result) {
 }
 start.onclick = async () => {
     if (start.disabled || identityRetired || !permitted) return;
-    const current = crypto.randomUUID();
+    let current;
+    try { current = viewAttempt(); }
+    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
     attempt = current;
     buttons();
     status.textContent = 'Connecting';
@@ -117,7 +135,9 @@ start.onclick = async () => {
 async function change(action) {
     if (switching || !attempt) return;
     const old = attempt;
-    const current = crypto.randomUUID();
+    let current;
+    try { current = viewAttempt(); }
+    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
     attempt = current;
     switching = true;
     buttons();

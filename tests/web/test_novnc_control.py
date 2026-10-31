@@ -31,6 +31,7 @@ from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
 from kodi_lab.web.novnc import ChangeMode, PrototypeViewer, StartView
 
 from .conftest import INSTANCE_ID, REVISION_ID
+from .view_attempt_fixture import view_attempt
 
 OWNER = "c" * 64
 BINDING = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", (str(REVISION_ID), 1))
@@ -46,7 +47,7 @@ def test_late_busy_control_refusal_cannot_promise_an_untouched_attachment(
         ownership=ownership,
         registry=LiveDisplaySessionRegistry(),
     )
-    item = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=uuid4()))
+    item = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=view_attempt()))
 
     def released_then_busy(_instance: object) -> None:
         assert ownership.status(INSTANCE_ID) is None
@@ -57,7 +58,7 @@ def test_late_busy_control_refusal_cannot_promise_an_untouched_attachment(
         viewer.handoff(
             INSTANCE_ID,
             OWNER,
-            ChangeMode(attempt=item.attempt, next_attempt=uuid4()),
+            ChangeMode(attempt=item.attempt, next_attempt=view_attempt()),
             "interactive",
         )
     assert not isinstance(error.value, HumanControlBusyError)
@@ -66,7 +67,7 @@ def test_late_busy_control_refusal_cannot_promise_an_untouched_attachment(
 
 
 def create(ownership: HumanViewerOwnership, mode: str = "interactive") -> object:
-    attempt = uuid4()
+    attempt = view_attempt()
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, mode)
     return attempt
 
@@ -86,7 +87,7 @@ def test_control_excludes_existing_web_mcp_remote_and_all_mutations_until_proof(
     database: sessionmaker[Session],
 ) -> None:
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     broker = str(uuid4())
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker)
@@ -128,7 +129,7 @@ def test_view_only_allows_remote_and_cancellation_cannot_be_claimed(
     database: sessionmaker[Session],
 ) -> None:
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "view-only")
     handle = acquire_browser_remote(database, INSTANCE_ID)
     release_browser_remote(handle)
@@ -142,7 +143,7 @@ def test_expiry_and_wrong_owner_never_renew_or_free_claimed_fence(
     database: sessionmaker[Session],
 ) -> None:
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     broker = str(uuid4())
     deadline = ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     for owner, binding, mode in [
@@ -221,11 +222,11 @@ def test_verified_handoff_carries_hard_deadline_and_invalidates_old_ticket(
         registry=LiveDisplaySessionRegistry(),
         ownership=ownership,
     )
-    first = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=uuid4()))
+    first = viewer.start(INSTANCE_ID, OWNER, StartView(attempt=view_attempt()))
     second = viewer.handoff(
         INSTANCE_ID,
         OWNER,
-        ChangeMode(attempt=first.attempt, next_attempt=uuid4()),
+        ChangeMode(attempt=first.attempt, next_attempt=view_attempt()),
         "interactive",
     )
     assert second.mode == "interactive" and second.deadline == first.deadline
@@ -240,7 +241,7 @@ def test_recovery_retains_unknown_workers_and_clears_only_proven_exact_binding(
     database: sessionmaker[Session],
 ) -> None:
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     broker = str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker)
@@ -258,7 +259,7 @@ def test_recovery_retains_unknown_workers_and_clears_only_proven_exact_binding(
 
 def test_real_release_waits_for_broker_proof(database: sessionmaker[Session]) -> None:
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     broker = str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker)
@@ -279,7 +280,7 @@ def test_revoke_racing_with_broker_claim_retains_claimed_fence(
     from sqlalchemy import event
 
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     broker = str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     entered = Event()
@@ -367,7 +368,7 @@ def test_default_app_native_stop_recovers_orphan_human_ownership(
     assert isinstance(client, TestClient) and isinstance(broker, FakeBroker)
     broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
     ownership = HumanViewerOwnership(database)
-    attempt = uuid4()
+    attempt = view_attempt()
     broker_id = str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker_id)

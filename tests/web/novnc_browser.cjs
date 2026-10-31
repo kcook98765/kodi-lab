@@ -4,7 +4,7 @@ const assert = require('assert/strict');
 const source = fs.readFileSync(process.argv[2], 'utf8').replace(/^import RFB[^\n]+\n/, '');
 const nodes = Object.fromEntries(['main', '#start', '#stop', '#status', '#rate', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand', 'meta[name="kodi-lab-csrf"]'].map(x => [x, {}]));
 for (const node of Object.values(nodes)) node.addEventListener = () => {};
-nodes.main.dataset = {instance: 'fixture'};
+nodes.main.dataset = {instance: 'fixture', viewerClockMs: String(Date.now())};
 nodes.main.querySelector = selector => nodes[selector] || null;
 nodes['[data-novnc-viewer]'] = nodes.main;
 const listeners = {};
@@ -12,7 +12,7 @@ const listeners = {};
 nodes['#rate'].value = '10';
 nodes['meta[name="kodi-lab-csrf"]'].content = 'csrf';
 const pending = [], clients = [];
-let sequence = 0;
+
 class RFB {
     constructor() { this.listeners = {}; this.closed = false; clients.push(this); }
     addEventListener(type, callback) { this.listeners[type] = callback; }
@@ -24,7 +24,7 @@ const context = {
     document: {querySelector: x => nodes[x], hidden: false, addEventListener(name, fn) {listeners[name] = fn;}},
     window: {addEventListener() {}}, RFB, WebSocket: class {}, URL,
     location: {href: 'https://lab.test/', protocol: 'https:'},
-    crypto: {randomUUID: () => `attempt-${++sequence}`},
+    crypto: require('crypto').webcrypto, performance: {now: () => 1000},
     fetch: (url, options) => {
         if (url.endsWith('-stop')) return Promise.resolve({ok: true, json: async () => ({})});
         return new Promise((resolve, reject) => pending.push({resolve, reject, body: JSON.parse(options.body)}));
@@ -33,7 +33,11 @@ const context = {
 vm.runInNewContext(source, context);
 const grant = () => pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket', mode: 'view-only'})});
 (async () => {
-    let first = nodes['#start'].onclick(); grant(); await first;
+    let first = nodes['#start'].onclick();
+    const firstAttempt = pending[0].body.attempt;
+    assert.match(firstAttempt, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(parseInt(firstAttempt.replaceAll('-', '').slice(0, 12), 16), Number(nodes.main.dataset.viewerClockMs), 'attempt uses server time, independent of client wall clock');
+    grant(); await first;
     const old = clients[0];
     await nodes['#stop'].onclick();
     let second = nodes['#start'].onclick(); grant(); await second;

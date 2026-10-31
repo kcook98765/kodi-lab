@@ -127,3 +127,22 @@ Current Kodi for each installed display descriptor, retaining the legacy r4 path
 Ordinary broker admission still rejects all candidates, so this composition does
 not activate standard viewing. It lets isolated native acceptance exercise the
 same selected-environment workflow before any standard promotion.
+
+### Bounded viewer admission replay window
+
+The previous 256 attempts per Web-process lifetime is replaced by at most 256
+replay entries covering 120 seconds. Viewer request IDs use UUIDv7 creation times
+(RFC 9562), seeded from server time plus monotonic elapsed page time. The server
+rejects untimed IDs, timestamps over 5 seconds ahead and requests 120 seconds old,
+and rechecks after authority lookup. Its clock advances monotonically across
+wall-clock adjustments, so evicted requests cannot become valid again.
+
+Cache saturation refuses admission through the latest expiry of every rejected
+or cancelled ID. This constant-size quarantine preserves Stop-before-Start even
+when no tombstone slot remains. Busy periods can temporarily prevent new viewers;
+Stop and verified ownership cleanup continue. Replay metadata expiry never ends
+native ownership or the separate ten-minute session. Attach tickets remain single
+use and bound to authenticated owner, exact runtime and selected development
+identity. Process-local replay state retains the existing restart boundary;
+durable native ownership still requires verified release after a Web crash.
+Existing stale JavaScript must reload to use the timed request protocol.
