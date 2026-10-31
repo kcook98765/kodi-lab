@@ -32,6 +32,7 @@ from tests.web.conftest import (
 )
 from tests.web.test_development_session import source_and_workspace
 from tests.web.test_novnc import viewer
+from tests.web.view_attempt_fixture import view_attempt
 
 
 @pytest.fixture
@@ -663,7 +664,7 @@ def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(
             "source_id",
         )
     }
-    first = uuid4()
+    first = view_attempt()
     assert (
         client.post(
             prefix + "start",
@@ -673,7 +674,7 @@ def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(
         == "view-only"
     )
     deadline = service.attachments[first].deadline
-    second = uuid4()
+    second = view_attempt()
     assert (
         client.post(
             prefix + "take-control",
@@ -683,7 +684,7 @@ def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(
         == "interactive"
     )
     assert service.attachments[second].deadline == deadline
-    third = uuid4()
+    third = view_attempt()
     assert (
         client.post(
             prefix + "release-control",

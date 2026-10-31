@@ -7417,3 +7417,15 @@ The legacy viewer opt-in admits experimental qualification only, preventing a
 packaging candidate from inheriting viewer activation. Standard promotion needs
 separate exact-runtime browser, lifecycle, security and resource/performance
 acceptance. See [implementation status](STANDARD-NOVNC-IMPLEMENTATION.md).
+
+## D-0474: Bounded viewer request identity lifetime
+
+Issue #163 replaces the experimental 256-attempt Web-process lifetime limit with
+UUIDv7 request identities valid for 120 seconds, a nonrewinding server clock,
+at most 256 replay/cancellation entries and constant-size saturation quarantine.
+An evicted ID is intrinsically expired; a rejected or cancelled ID encountered
+at capacity prevents all admission through its expiry. Stop remains available
+for active sessions beyond request expiry. Native ownership, single-use tickets,
+identity fencing and the 600-second absolute viewing limit remain independent.
+The existing Web process restart boundary remains; no durable replay table or
+new service is added. See STANDARD-NOVNC-IMPLEMENTATION.md for protocol behavior.

@@ -32,6 +32,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.web.novnc import ChangeMode, PrototypeViewer, StartView
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_workspace_launch import environment, launch
+from tests.web.view_attempt_fixture import view_attempt
 
 
 def selected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -91,7 +92,7 @@ def selected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         registry=registry,
         ownership=HumanViewerOwnership(env.sessions),
     )
-    item = viewer.start(fixture.TARGET_ID, "c" * 64, StartView(attempt=uuid4()))
+    item = viewer.start(fixture.TARGET_ID, "c" * 64, StartView(attempt=view_attempt()))
     authority.pins[fixture.TARGET_ID] = item.binding
     return env, bridge, service, authority, viewer, item
 
@@ -113,7 +114,7 @@ def test_selected_view_only_survives_real_coordinator_and_refused_take_control(
             viewer.handoff(
                 fixture.TARGET_ID,
                 item.owner,
-                ChangeMode(attempt=item.attempt, next_attempt=uuid4()),
+                ChangeMode(attempt=item.attempt, next_attempt=view_attempt()),
                 "interactive",
             )
         assert not item.session.cancelled.is_set()
@@ -290,7 +291,9 @@ def test_recognized_launch_recovery_allows_fresh_view_with_old_ticket_retired(
     with pytest.raises(ValueError):
         viewer.consume(fixture.TARGET_ID, item.owner, item.ticket)
     viewer.end(item)
-    fresh = viewer.start(fixture.TARGET_ID, item.owner, StartView(attempt=uuid4()))
+    fresh = viewer.start(
+        fixture.TARGET_ID, item.owner, StartView(attempt=view_attempt())
+    )
     assert fresh.mode == "view-only" and not fresh.session.cancelled.is_set()
     with pytest.raises(ValueError):
         viewer.consume(fixture.TARGET_ID, item.owner, item.ticket)

@@ -2420,6 +2420,9 @@ def create_app(
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
     templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
+    templates.env.globals["viewer_clock_ms"] = (
+        novnc_viewer.attempts.clock_ms if novnc_viewer is not None else lambda: 0
+    )
     templates.env.globals["novnc_instance_enabled"] = lambda instance: (
         novnc_viewer is not None
         and (
