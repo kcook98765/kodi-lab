@@ -155,3 +155,23 @@ The pinned noVNC JavaScript module loads only after explicit Start Viewing.
 A cancelled or retired selection is checked again after module loading, before
 any server ticket is requested. This reduces idle viewer work; native browser
 memory and latency still require independent acceptance on the exact candidate.
+
+### Fixed compression preference; qualification remains separate
+
+The viewer requests noVNC1.7.0 compression level0 instead of2, retaining image
+quality level6,640×360, approximately2FPS, fixed runtime workers and all transport,
+input and session bounds. This uses the existing RFB encoding preference; it adds
+no configuration surface or replacement transport. Lower compression trades
+native encoding work for potentially more bytes under the existing bounded
+stream/backpressure safeguards.
+
+An isolated Matrix Chromium configuration experiment at level0 maintained2.00
+rendered FPS with550ms longest gap and passed the unchanged compound p95 checks:
+overall agent866.50→963.31ms; screenshot capture882.89→1013.10ms (14.75 percent
+increase, so the compound rule passes despite the130.22ms delta). The earlier
+level2 trial failed its agent check. These are finite matched observations within
+each trial, not a controlled cross-trial causal estimate or long-term guarantee.
+Interactive browser RSS still failed:129.742MiB above its steady viewing-off
+baseline (below its earlier blank baseline); the original128MiB limit was retained.
+Firefox failures also remain. No runtime becomes standard-qualified through this
+preference change, and native browser/lifecycle qualification remains required.
