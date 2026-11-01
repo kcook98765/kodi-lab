@@ -104,8 +104,11 @@ also verifies that the login page responds and anonymous MCP access returns
 
 ## First run and authorized inspection
 
-Open <http://127.0.0.1:18100/login> and use your chosen password. Substitute your
-Web port if changed. In **Development → Managed Kodi runtimes**, install Omega
+The installer provides the loopback HTTP backend, not TLS. Complete the
+[Web HTTPS prerequisite](../README.md#web-https-prerequisite), then open `/login`
+at your site's trusted HTTPS origin and use your chosen password. Direct HTTP
+sign-in is rejected, even if the login page responds. In
+**Development → Managed Kodi runtimes**, install Omega
 21.3, wait for **Ready**, create one managed instance, then **Provision** and
 **Start** it. Check healthy status, **View screen** and UI inspection. Runtime
 acquisition happens on demand and can take several minutes.

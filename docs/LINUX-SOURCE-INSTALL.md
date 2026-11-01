@@ -85,9 +85,11 @@ bundle, its trusted `BUNDLE.json` hash and generated private configuration.
 The ordinary startup command refuses an uninitialized or mismatched database;
 initialization/upgrade are explicit administrator operations.
 
-Open `http://127.0.0.1:18100/login` on the new host and sign in. For access from
-another computer, use a deliberate authenticated/tunneled Web configuration;
-the default loopback binding is intentional. No test credentials are provided.
+Before signing in, complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite).
+Open `/login` at your site's trusted HTTPS origin. The loopback HTTP backend does
+not provide TLS and rejects HTTP sign-in; an HTTP SSH tunnel does not satisfy the
+requirement. Keep the backend's intentional loopback binding and restrict proxy
+trust. No test credentials are provided.
 
 ## Install, create and inspect managed Kodi
 

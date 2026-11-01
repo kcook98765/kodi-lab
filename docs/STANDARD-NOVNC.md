@@ -36,7 +36,7 @@ There is no new public port, service, MCP viewer tool or permission.
 
 The standard configuration is pinned noVNC 1.7.0, native 640×360, approximately
 2 displayed FPS, compression 0, quality 6 and LP_NUM_THREADS=1. Audio is not
-required. Do not tune these values as part of standard activation.
+provided. These are the settings used for completed standard acceptance.
 
 ## Resource qualification contract
 
@@ -65,24 +65,52 @@ The original 128 MiB comparisons, their failures and incomplete campaigns remain
 historical evidence in [the implementation ledger](STANDARD-NOVNC-IMPLEMENTATION.md)
 and the issue #163 deployment reports. This owner decision changes the standard
 acceptance budget, not their original verdicts. Prior exact-image native evidence
-covers all four recipes; activation still requires focused admission acceptance
-and the complete release gate on final merged source.
+covers all four recipes. Standard implementation, production deployment and
+installed acceptance are complete as recorded below; the earlier failed and
+incomplete attempts retain their original verdicts.
 
 ## Older profiles and later production rollout
 
 Installing a standard recipe preserves an existing registration's exact pin.
 Older profiles remain ineligible for standard viewing and keep their eligible
 screenshot/JPEG paths. Historical Omega r4 remains separately experimental.
-The owner accepts fresh profiles: use existing explicit Fresh Test/replacement
-and supported lifecycle operations when replacing an old profile. No automatic
-repin, in-place migration, compatibility framework or profile reconstruction is
-provided or needed.
+Replacement requires an explicit supported lifecycle operation and fresh profile;
+installing the recipe alone does not replace a profile. Advanced legacy Fresh
+Test/replacement retains its existing restrictions, including refusal in retained
+mode; it is not an ordinary retained-profile rebuild workflow. No automatic repin,
+in-place migration, compatibility framework or profile reconstruction is provided.
 
-Production deployment is a separate owner-authorized phase. Take a fresh supported
-backup and rehearse supported recovery, deploy the exact qualified application
-commit, then create/setup the four standard profiles sequentially with one Kodi
-running at a time. Retire obsolete profiles only by explicit supported lifecycle
-operations. Confirm standard admission with no experimental configuration and
-preserve external registrations, credentials, grants, workspaces, add-on sources,
-backups and unrelated workloads. Source qualification does not establish installed
-production acceptance or close issue #163.
+## Completed production deployment (2026-11-01)
+
+[PR #179](https://github.com/kcook98765/kodi-lab/pull/179) enabled standard viewing;
+[PR #180](https://github.com/kcook98765/kodi-lab/pull/180) corrected a release test
+fixture. The eight-stage release gate passed on `4c8bbec`: **6,927 tests passed,
+38 expected skips**. [PR #181](https://github.com/kcook98765/kodi-lab/pull/181)
+then corrected release bundle recipe packaging. Its packaging-only successor,
+`e218daf92b8c30ad0535454257cb0bb55ba18092`, passed separate focused qualification
+(66 tests plus static and real bundle checks); the complete suite was not repeated.
+
+The November 1 Ubuntu/Claw production deployment of that exact successor and
+four-version installed viewing acceptance are **PASS**. Production schema stayed
+`0090_verified_noop_deployment`. A fresh supported backup and isolated recovery
+rehearsal passed before deployment. The four obsolete profiles were explicitly
+retired through supported lifecycle operations and replaced with fresh standard
+profiles, one Kodi running at a time. Existing profiles were not migrated.
+
+Installed Current Kodi acceptance covered ordinary Start Viewing without
+experimental configuration, approximately 2 distinct displayed FPS at 640×360,
+default view-only, independent existing-agent MCP navigation, Take/Release Control,
+input ownership exclusion, Stop, cleanup and screenshot fallback on all four
+versions. Installed Start verified the 600-second deadline across handoffs;
+completed four-version real-time expiry evidence was reused from prior native
+qualification, without a new installed ten-minute expiry trial. Acceptance used
+headless Firefox and does not establish physical desktop, touch or IME acceptance,
+or Windows/WSL2 fresh-host qualification.
+
+[Issue #163](https://github.com/kcook98765/kodi-lab/issues/163) is closed with
+[published final acceptance evidence](https://github.com/kcook98765/kodi-lab/issues/163#issuecomment-6562870677).
+The full deployment report is retained on Claw at
+`/home/kyle/kodi-lab-deployment/issue163-production-activation/REPORT.md`, with
+component receipts and failed/incomplete trials preserved. Production deployment
+and installed acceptance are distinct from the earlier source/native qualification;
+completion does not waive runtime eligibility, permissions or lifecycle safeguards.
