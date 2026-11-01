@@ -66,7 +66,10 @@ def dependencies(
         "kodi_lab.runtime.install.preflight_temporary_networks", lambda *args: None
     )
 
-    def build(op: UUID, settings: Settings, on_acquired: Any) -> Any:
+    def build(
+        op: UUID, settings: Settings, on_acquired: Any, *, support_revision: int
+    ) -> Any:
+        assert support_revision == 3
         on_acquired()
         return built.assembly, built.acquisition
 
@@ -191,7 +194,8 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
     operation = admitted(factory)
     _client, phases = dependencies(factory, monkeypatch, operation)
 
-    def unavailable(*args: Any) -> Any:
+    def unavailable(*args: Any, **kwargs: Any) -> Any:
+        assert kwargs == {"support_revision": 3}
         require_support_success(CommandResult(status, b"untrusted diagnostic text"))
 
     monkeypatch.setattr(
