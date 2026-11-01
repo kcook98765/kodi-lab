@@ -83,7 +83,7 @@ def client_for(
             coordinator_factory=coordinator_factory,
             addon_zip_enablement_service=cast(AddonZipEnablementService, service),
         ),
-        base_url="http://127.0.0.1",
+        base_url="https://127.0.0.1",
     )
 
 

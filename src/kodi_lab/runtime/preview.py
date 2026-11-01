@@ -15,8 +15,8 @@ from kodi_lab.runtime.recipes import (
     PIERS_DISPLAY_INSTALLATION_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
     ReviewedRecipe,
-    load_display_candidate_recipe,
     load_installation_recipe,
+    load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
@@ -53,10 +53,12 @@ class PreviewAcknowledgement(BaseModel):
 
 
 def reviewed_preview_recipe(ack: PreviewAcknowledgement) -> ReviewedRecipe:
-    """Only current ordinary or explicitly reviewed display-candidate consent."""
+    """Resolve current consent or the exact recorded r2 installation evidence."""
     for reviewed in (
         load_installation_recipe("piers"),
-        load_display_candidate_recipe("piers"),
+        load_recorded_reviewed_recipe(
+            "piers", "piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST
+        ),
     ):
         if (ack.recipe_id, ack.recipe_revision, ack.recipe_digest) == (
             reviewed.recipe.recipe_id,

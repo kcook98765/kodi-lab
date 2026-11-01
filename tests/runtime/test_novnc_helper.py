@@ -28,11 +28,11 @@ def test_server_itself_refuses_input_clipboard_resize_and_tcp() -> None:
         command("/run/kodi/private/rfb.sock", 30)
 
 
-def test_candidate_recipe_is_pinned_and_does_not_replace_default() -> None:
+def test_historical_experimental_recipe_is_pinned_and_separate_from_standard() -> None:
     import io
     import tarfile
 
-    assert load_reviewed_recipe("omega").recipe.recipe_revision == 2
+    assert load_reviewed_recipe("omega").recipe.recipe_revision == 5
     candidate = load_novnc_phase1_recipe()
     assert candidate.recipe.recipe_revision == 4
     assert "novnc_view_helper.py" in candidate.assets

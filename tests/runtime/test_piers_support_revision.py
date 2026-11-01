@@ -74,9 +74,9 @@ def test_historical_recipe_and_acknowledgement_do_not_authorize_new_install() ->
         "piers", "piers-22.0-rc1-r1", 1, HISTORICAL_PREVIEW_INSTALLATION_DIGEST
     )
     new = load_installation_recipe("piers")
-    assert (old.recipe.recipe_revision, new.recipe.recipe_revision) == (1, 2)
+    assert (old.recipe.recipe_revision, new.recipe.recipe_revision) == (1, 3)
     assert old.recipe.recipe_id == "piers-22.0-rc1-r1"
-    assert new.recipe.recipe_id == "piers-22.0-rc1-r2"
+    assert new.recipe.recipe_id == "piers-22.0-rc1-r3"
     assert old.recipe.provider == new.recipe.provider
     ack = PreviewAcknowledgement(
         recipe_id=old.recipe.recipe_id,  # type: ignore[arg-type]
@@ -90,7 +90,7 @@ def test_historical_recipe_and_acknowledgement_do_not_authorize_new_install() ->
         admission_evidence(ack, uuid4())
     for field, value in [
         ("recipe_id", new.recipe.recipe_id),
-        ("recipe_revision", 2),
+        ("recipe_revision", 3),
         ("recipe_digest", new.digest),
     ]:
         data = ack.model_dump()

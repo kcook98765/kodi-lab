@@ -7444,3 +7444,25 @@ and advanced Stop now use the existing verified native boundary. An uncertain,
 wrong-target or wrong-container receipt cannot clear ownership; stopping a
 replacement cannot retire a different old input incarnation. No database schema,
 permission, runtime recipe or control-handoff requirement changes.
+
+
+## D-0476: Standard viewing follows exact sealed installations
+
+Issue #163 promotes the independently native-qualified Matrix r3, Nexus r3, Omega
+r5 and Piers RC1 r3 display descriptors to standard and selects them for fresh
+installations. Web and broker compose the existing human display lane normally,
+without experimental environment flags. Both require exact installed capability
+and retain image/incarnation, provenance, selected-session, exclusion, HTTPS/CSRF,
+worker and cleanup checks. Authentication writes require HTTPS and cookies are
+Secure without the experimental switch. noVNC still loads on explicit Start,
+view-only by default, with explicit Take/Release and a 600-second maximum.
+
+The owner accepts 512 MiB viewer-relative Firefox-tree RSS above a fixed stable
+Current Kodi page baseline, with the existing 2 GiB emergency ceiling and host/
+server guards. PSS stays diagnostic; historical 128 MiB failures remain failures.
+Native configuration is unchanged. See [the acceptance contract](STANDARD-NOVNC.md).
+
+The owner accepts fresh profiles. Existing pins remain unchanged and older images
+remain unsupported for standard viewing until explicit supported replacement.
+No legacy-profile migration or compatibility system is added. Production rollout,
+profile retirement and issue closure remain separately authorized steps.

@@ -130,10 +130,31 @@ def _assembly(image_id: str = IMAGE, generation: str = "matrix") -> AssemblyResu
 def _validation(image_id: str = IMAGE, generation: str = "matrix") -> ValidationResult:
     reviewed = load_reviewed_recipe(generation)
     now = datetime.now(UTC)
+    from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+    from tests.runtime.test_display_candidate import proof
+
+    capability = reviewed_display_capability(reviewed)
+    display = (
+        {}
+        if capability is None or capability.qualification == "experimental"
+        else {
+            "display": {
+                **proof(),
+                "helper_digest": capability.helper_digest,
+                "package": list(capability.package),
+                **(
+                    {"clipboard_policy": "unimplemented"}
+                    if capability.clipboard_policy == "unimplemented"
+                    else {}
+                ),
+            }
+        }
+    )
     return ValidationResult(
         started_at=now,
         completed_at=now,
         report={
+            **display,
             "schema": reviewed.recipe.validation_contract,
             "result": "passed",
             "recipe_digest": reviewed.digest,

@@ -726,7 +726,7 @@ def install_reviewed_runtime(
         if display_candidate and admitted.digest != reviewed.digest:
             raise RecipeInstallationError("Preview display candidate consent differs")
         # The fixed broker command consumes its exact operation-owned consent.
-        # Ordinary installs remain r2; no unreviewed selector crosses the boundary.
+        # Fresh installs select r3; recorded operations retain their exact consent.
         reviewed = admitted
     with (
         _record_worker_start_failure(settings, reviewed, operation_id),

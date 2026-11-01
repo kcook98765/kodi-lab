@@ -274,7 +274,7 @@ def test_login_cookie_is_opaque_and_hardened(
     assert "HttpOnly" in cookie
     assert "SameSite=strict" in cookie
     assert "Path=/" in cookie
-    assert "Secure" not in cookie
+    assert "Secure" in cookie
     raw_token = client.cookies.get("kodi_lab_session")
     assert raw_token is not None
     with database() as session:
@@ -293,7 +293,7 @@ def test_invalid_login_is_generic_and_origin_is_required(client: TestClient) -> 
         client.post(
             "/login",
             data={"password": PASSWORD},
-            headers={"Referer": "http://127.0.0.1/login"},
+            headers={"Referer": "https://127.0.0.1/login"},
             follow_redirects=False,
         ).status_code
         == 303
@@ -320,7 +320,8 @@ def test_managed_registrations_autoescapes_and_has_local_assets(
     login(client)
     page = client.get("/managed-instances")
     assert "&lt;script&gt;not markup&lt;/script&gt;" in page.text
-    assert "https://" not in page.text
+    assets = re.findall(r'(?:src|href)="([^"]*/static/[^"]+)"', page.text)
+    assert assets and all(url.startswith("https://127.0.0.1/static/") for url in assets)
     assert "Content-Security-Policy" in page.headers
     assert "Fixture" in page.text
     assert "None" in page.text
@@ -609,7 +610,7 @@ def test_duplicate_reset_returns_existing_and_lifecycle_is_blocked(
             observer, started, release, calls
         ),
     )
-    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+    with TestClient(app, base_url="https://127.0.0.1") as test_client:
         csrf = login(test_client)
         headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
         route = f"/api/instances/{INSTANCE_ID}/reset"
@@ -1035,7 +1036,7 @@ def test_remote_container_host_origin_and_mcp_policy(
         coordinator_factory=coordinator_factory,
         auth=auth,
     )
-    with TestClient(app, base_url="http://lab.example:18100") as test_client:
+    with TestClient(app, base_url="https://lab.example:18100") as test_client:
         assert test_client.get("/login").status_code == 200
         assert (
             test_client.get("/login", headers={"Host": "attacker.invalid"}).status_code
@@ -1053,7 +1054,7 @@ def test_remote_container_host_origin_and_mcp_policy(
             test_client.post(
                 "/login",
                 data={"password": PASSWORD},
-                headers={"Origin": "http://lab.example:18100"},
+                headers={"Origin": "https://lab.example:18100"},
                 follow_redirects=False,
             ).status_code
             == 303
@@ -1082,7 +1083,7 @@ def test_unconfigured_credentials_have_no_browser_bootstrap_route(
         broker=broker,
         coordinator_factory=coordinator_factory,
     )
-    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+    with TestClient(app, base_url="https://127.0.0.1") as test_client:
         page = test_client.get("/login")
         assert page.status_code == 200
         assert "kodi-lab-admin set-password" in page.text

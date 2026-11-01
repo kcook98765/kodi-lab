@@ -42,6 +42,10 @@ _RECIPES = {
             "matrix-19.4-r2.json",
             "sha256:2f962f50580c53e9aa98447975617b2bc18552f6d8a7e645f07d90fa19641e70",
         ),
+        (
+            "matrix-19.4-display-r3.json",
+            "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+        ),
     ),
     "nexus": (
         (
@@ -52,6 +56,10 @@ _RECIPES = {
             "nexus-20.5-r2.json",
             "sha256:9845a930212f91c20e1313f03cc289882b8555f6067a5bf22e11e724b9821631",
         ),
+        (
+            "nexus-20.5-display-r3.json",
+            "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
+        ),
     ),
     "omega": (
         (
@@ -61,6 +69,10 @@ _RECIPES = {
         (
             "omega-21.3-r2.json",
             "sha256:4cb4a003da6d119018738db06aed6789c0acaee2b5ed89b210b93db5526d7140",
+        ),
+        (
+            "omega-21.3-display-r5.json",
+            "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
         ),
     ),
 }
@@ -414,6 +426,11 @@ def load_recorded_reviewed_recipe(
                 "piers-22.0-rc1-installation-r1.json",
                 HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
             ),
+            _load_recipe_file(
+                "piers",
+                "piers-22.0-rc1-installation-r2.json",
+                PREVIEW_INSTALLATION_DIGEST,
+            ),
             load_installation_recipe(generation),
         )
         if generation == "piers"
@@ -455,7 +472,7 @@ _DISPLAY_CANDIDATES = {
 
 
 def load_display_candidate_recipe(generation: str) -> ReviewedRecipe:
-    """Explicit reviewed packaging candidate; ordinary install defaults stay put."""
+    """Resolve the exact qualified display recipe (also the fresh install default)."""
     try:
         filename, digest = _DISPLAY_CANDIDATES[generation]
     except KeyError as error:
@@ -464,7 +481,7 @@ def load_display_candidate_recipe(generation: str) -> ReviewedRecipe:
 
 
 def load_novnc_phase1_recipe() -> ReviewedAptRecipe:
-    """Explicit candidate only; ordinary Omega installation remains revision 2."""
+    """Historical Omega r4; still requires its explicit experimental opt-in."""
     reviewed = _load_recipe_file(
         "omega", "omega-21.3-novnc-phase2-r4.json", NOVNC_PHASE1_DIGEST
     )
@@ -483,8 +500,8 @@ def load_installation_recipe(generation: str) -> ReviewedRecipe:
         return load_reviewed_recipe(generation)
     return _load_recipe_file(
         generation,
-        "piers-22.0-rc1-installation-r2.json",
-        PREVIEW_INSTALLATION_DIGEST,
+        "piers-22.0-rc1-installation-r3.json",
+        PIERS_DISPLAY_INSTALLATION_DIGEST,
     )
 
 

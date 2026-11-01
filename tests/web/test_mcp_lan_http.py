@@ -107,7 +107,7 @@ def test_http_opt_in_adds_only_exact_http_authority_and_preserves_https(
     enabled: bool,
 ) -> None:
     app = _http_app(client, database, broker, external_kodi, enabled=enabled)
-    with TestClient(app, base_url="http://127.0.0.1") as authority:
+    with TestClient(app, base_url="https://127.0.0.1") as authority:
         _, token = _authority(authority)
         for endpoint, expected in [(LAN_URL, 200), (HTTP_URL, 200 if enabled else 421)]:
             authority.base_url = endpoint.removesuffix("/mcp")
@@ -239,7 +239,7 @@ def test_agents_separates_http_internal_health_from_https_and_lan_acceptance(
 
     monkeypatch.setattr(app_module, "check_lan_endpoint", https)
     monkeypatch.setattr(app_module, "check_http_proxy", internal)
-    with TestClient(app, base_url="http://127.0.0.1") as authority:
+    with TestClient(app, base_url="https://127.0.0.1") as authority:
         login(authority)
         page = authority.get("/mcp-clients")
         assert page.status_code == 200 and checks == ["https", "internal"]
@@ -274,7 +274,7 @@ def test_real_http_and_https_sdk_with_direct_ryzen_and_disposable_credentials(
     tls_root = tmp_path / "tls"
     tls_root.mkdir()
     with (
-        TestClient(app, base_url="http://127.0.0.1") as authority,
+        TestClient(app, base_url="https://127.0.0.1") as authority,
         _live_loopback_server(app) as (upstream, _),
         _http_proxy(tmp_path / "http", settings, upstream),
         _tls_proxy(

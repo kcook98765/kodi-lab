@@ -175,7 +175,7 @@ def test_agents_prefers_only_verified_lan_and_never_recovers_credentials(
 
     monkeypatch.setattr(app_module, "check_lan_endpoint", checked)
     _, token = _authority(lan_client)
-    page = lan_client.get("http://127.0.0.1/mcp-clients").text
+    page = lan_client.get("https://127.0.0.1/mcp-clients").text
     configuration = re.search(r'<pre id="agent-config"[^>]*>(.*?)</pre>', page, re.S)
     assert configuration is not None
     payload = json.loads(configuration.group(1))
@@ -327,7 +327,7 @@ def test_real_sdk_through_private_tls_proxy_has_auth_and_home_scope_parity(
     remote_enabled = os.environ.get("KODI_LAB_TEST_RYZEN") == "1"
     app = _lan_app(client, database, broker, external_kodi, url)
     with (
-        TestClient(app, base_url="http://127.0.0.1") as authority,
+        TestClient(app, base_url="https://127.0.0.1") as authority,
         _live_loopback_server(app) as (upstream, _),
         _tls_proxy(
             tmp_path,

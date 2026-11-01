@@ -43,8 +43,13 @@ def test_matrix_recipe_is_exact_reviewed_binary_package_input() -> None:
         "kodi-bin",
         "kodi-data",
         "kodi-repository-kodi",
+        "tigervnc-scraping-server",
     }
-    assert all(item.version == "2:19.4+dfsg1-2" for item in recipe.critical_packages)
+    assert all(
+        item.version == "2:19.4+dfsg1-2"
+        for item in recipe.critical_packages
+        if item.name.startswith("kodi")
+    )
 
 
 @pytest.mark.parametrize(
@@ -158,14 +163,20 @@ def test_historical_recipe_resolution_requires_exact_reviewed_identity() -> None
     )
     with pytest.raises(ValueError, match="no longer reviewed"):
         load_recorded_reviewed_recipe(
-            "matrix", reviewed.recipe.recipe_id, 3, reviewed.digest
+            "matrix",
+            reviewed.recipe.recipe_id,
+            reviewed.recipe.recipe_revision + 1,
+            reviewed.digest,
         )
 
 
 @pytest.mark.parametrize("generation", ("matrix", "nexus", "omega"))
 def test_historical_runtime_asset_identity_is_preserved(generation: str) -> None:
     current = load_reviewed_recipe(generation)
-    assert current.recipe.recipe_revision == 2
+    assert (
+        current.recipe.recipe_revision
+        == {"matrix": 3, "nexus": 3, "omega": 5}[generation]
+    )
     assert "xvfb_guard.py" in current.assets
     assert build_context(current) == build_context(current)
     assert "kodi-lab-xvfb-guard" in current.assets["entrypoint.sh"].decode()

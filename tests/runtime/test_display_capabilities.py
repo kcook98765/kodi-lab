@@ -24,7 +24,7 @@ from tests.runtime import test_recipe_installation as fixture
 factory = fixture.factory
 
 
-def test_only_exact_experimental_recipe_has_display_packaging() -> None:
+def test_exact_standard_defaults_and_separate_experimental_packaging() -> None:
     reviewed = load_novnc_phase1_recipe()
     capability = reviewed_display_capability(reviewed)
     assert capability == EXPERIMENTAL_OMEGA_DISPLAY
@@ -36,7 +36,8 @@ def test_only_exact_experimental_recipe_has_display_packaging() -> None:
     ) == (640, 360, 2, 600)
     assert capability.qualification == "experimental"
     for generation in ("matrix", "nexus", "omega"):
-        assert reviewed_display_capability(load_reviewed_recipe(generation)) is None
+        standard = reviewed_display_capability(load_reviewed_recipe(generation))
+        assert standard is not None and standard.qualification == "standard"
 
 
 @pytest.mark.parametrize(

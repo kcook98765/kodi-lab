@@ -51,7 +51,7 @@ def login(client: TestClient) -> None:
     response = client.post(
         "/login",
         data={"password": PASSWORD},
-        headers={"Origin": "http://127.0.0.1"},
+        headers={"Origin": "https://127.0.0.1"},
         follow_redirects=False,
     )
     assert response.status_code == 303

@@ -169,7 +169,7 @@ def _client(
                 DevelopmentSourceEnablementService, service
             ),
         ),
-        base_url="http://127.0.0.1",
+        base_url="https://127.0.0.1",
     )
 
 

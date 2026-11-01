@@ -114,7 +114,7 @@ def test_repository_api_is_closed_private_and_keeps_uploaded_zip_authority_separ
         addon_repository_refresh_coordinator=refreshes,
         addon_repository_fetch_coordinator=fetches,
     )
-    with TestClient(app, base_url="http://127.0.0.1") as client:
+    with TestClient(app, base_url="https://127.0.0.1") as client:
         csrf = login(client)
         headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
         create = client.post(

@@ -104,7 +104,7 @@
         const messages = {
           ready:'Watch your agent’s Kodi. Viewing starts explicitly and does not start Kodi.',
           stopped:'Start Kodi to view its screen.',
-          unsupported:'Live screen is not qualified for this runtime. Screenshots and JPEG preview may be available.',
+          unsupported:'Live viewing needs a qualified runtime. Use Fresh Test to replace an older profile when ready. Screenshots and JPEG preview may be available.',
           disabled:'Live viewing is disabled for this environment. Screenshots remain available.',
           unavailable:'The live screen is unavailable. Review this exact environment before starting a viewer.',
         };

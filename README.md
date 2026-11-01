@@ -9,6 +9,7 @@ instances for experiments or connect to Kodi installations you already use.
 - Run multiple Kodi versions side by side.
 - Connect existing Kodi installations without replacing them.
 - Inspect the Kodi UI and capture screenshots.
+- [View Current Kodi with noVNC](docs/STANDARD-NOVNC.md), with optional human control.
 - Test and debug add-ons in disposable development instances.
 - Give MCP-compatible AI assistants access to the Kodi targets you choose.
 - Manage runtimes, instances and agent permissions from a Web interface.

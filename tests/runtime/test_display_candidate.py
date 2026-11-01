@@ -58,8 +58,8 @@ def test_omega_candidate_preserves_payload_defaults_and_historical_target() -> N
     assert candidate.recipe.execution_profile == historical.recipe.execution_profile
     assert candidate.digest != historical.digest
     capability = reviewed_display_capability(candidate)
-    assert capability is not None and capability.qualification == "candidate"
-    assert load_reviewed_recipe("omega").recipe.recipe_revision == 2
+    assert capability is not None and capability.qualification == "standard"
+    assert load_reviewed_recipe("omega").recipe.recipe_revision == 5
     assert recipe_target_id(candidate) == recipe_target_id(
         load_reviewed_recipe("omega")
     )
@@ -106,11 +106,17 @@ def test_native_packaging_substitutions_are_rejected(field: str, value: object) 
         )
 
 
-def test_sealed_candidate_does_not_replace_old_pin_or_gain_viewer_admission(
+def test_sealed_candidate_does_not_replace_old_pin_or_activate_old_pin(
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    old = load_reviewed_recipe("omega")
+    old = load_recorded_reviewed_recipe(
+        "omega",
+        "ubuntu-resolute-omega-21.3",
+        2,
+        "sha256:4cb4a003da6d119018738db06aed6789c0acaee2b5ed89b210b93db5526d7140",
+    )
+    monkeypatch.setattr(fixture, "load_reviewed_recipe", lambda _: old)
     old_operation = fixture._ready(factory, generation="omega")
     with factory() as db:
         row = db.get(RuntimeRecipeInstallationRow, str(old_operation))
@@ -143,18 +149,12 @@ def test_sealed_candidate_does_not_replace_old_pin_or_gain_viewer_admission(
     with factory() as db:
         instance = ManagedInstanceRepository(db).get(target)
         assert instance is not None and instance.runtime_revision_id == old_revision
-    # Even a fully sealed candidate must not be activated by the legacy opt-in.
+    # The retained r2 pin remains ineligible even after a standard install.
     monkeypatch.setattr(
-        "kodi_lab.broker.novnc_service.installed_display_capability",
-        lambda *args: reviewed_display_capability(candidate),
-    )
-    monkeypatch.setattr(
-        "docker.APIClient", lambda **kwargs: pytest.fail("unqualified native access")
+        "docker.APIClient", lambda **kw: pytest.fail("old pin reached Docker")
     )
     with pytest.raises(ValueError, match="not qualified"):
-        HumanDisplayService(
-            Settings(experimental_novnc_instances=(target,)), factory
-        ).resolve(target)
+        HumanDisplayService(Settings(), factory).resolve(target)
 
 
 def test_conflicting_candidate_install_selectors_fail_before_state_access() -> None:
