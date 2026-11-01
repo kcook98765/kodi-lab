@@ -877,3 +877,42 @@ def test_ordinary_launcher_does_not_expose_unqualified_candidate_viewer(
         client.get("/api/development-session").json()["viewer_state"] == "unsupported"
     )
     assert client.get(f"/instances/{INSTANCE_ID}/novnc-phase1").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [FileNotFoundError, ConnectionRefusedError, TimeoutError, ConnectionResetError],
+)
+def test_normal_viewer_transport_failure_preserves_current_kodi_status(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: type[OSError],
+) -> None:
+    from kodi_lab.runtime.display_capabilities import OMEGA_DISPLAY_CANDIDATE
+
+    login(client)
+    selected(client, database, monkeypatch)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    monkeypatch.setattr(
+        "kodi_lab.runtime.display_capabilities.installed_display_capability",
+        lambda *args: OMEGA_DISPLAY_CANDIDATE,
+    )
+    lookups = []
+
+    def unavailable(path: Path, instance: UUID) -> Any:
+        lookups.append(instance)
+        raise failure("isolated display lane unavailable")
+
+    monkeypatch.setattr("kodi_lab.web.novnc_optin.resolve_binding", unavailable)
+    response = client.get("/api/development-session")
+    assert response.status_code == 200
+    view = response.json()
+    assert lookups == [INSTANCE_ID]
+    assert view["viewer_state"] == "unavailable"
+    assert view["current"]["target_id"] == str(INSTANCE_ID)
+    assert view["current"]["container_id"] == CONTAINER_ID
+    assert view["runtime"]["runtime_revision_id"] == str(REVISION_ID)
+    assert view["runtime"]["container_state"] == "running"
+    assert "stop" in view["summary"]["actions"]

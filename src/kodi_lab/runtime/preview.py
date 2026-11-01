@@ -15,8 +15,8 @@ from kodi_lab.runtime.recipes import (
     PIERS_DISPLAY_INSTALLATION_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
     ReviewedRecipe,
-    load_recorded_reviewed_recipe,
     load_installation_recipe,
+    load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 

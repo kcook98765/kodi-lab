@@ -33,7 +33,9 @@ def test_omega_recipe_binds_reviewed_resolute_inputs() -> None:
         "sha256:80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
     )
     assert {item.name: item.sha256 for item in recipe.critical_packages} == {
-        "tigervnc-scraping-server": "sha256:60ab12afa52627f27465dc1dc99382f1f3932a486032408b03aa9e6e527c869b",
+        "tigervnc-scraping-server": (
+            "sha256:60ab12afa52627f27465dc1dc99382f1f3932a486032408b03aa9e6e527c869b"
+        ),
         "kodi": "sha256:d7e6d9763765e8c37888ce54519e9aaa208f136303b3e0a55222"
         "e087daa0bf77",
         "kodi-bin": "sha256:04081a6eda59cbb247932d59cf4149cf5ed6dd1f75fe82f3f80c8"

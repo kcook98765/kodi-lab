@@ -99,7 +99,10 @@ def build_viewer(
 
     def authority(instance: UUID) -> ViewBinding:
         capability = capability_for(instance)
-        binding = resolve_binding(path, instance)
+        try:
+            binding = resolve_binding(path, instance)
+        except OSError as error:
+            raise ValueError("display binding unavailable") from error
         # Resolve again on the unprivileged side to fence concurrent catalog writes.
         if capability_for(instance) != capability:
             raise ValueError("view capability changed")

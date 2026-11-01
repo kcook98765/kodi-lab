@@ -31,7 +31,9 @@ def test_nexus_recipe_binds_signed_noble_packages_and_assets() -> None:
         "sha256:80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
     )
     assert {item.name: item.sha256 for item in recipe.critical_packages} == {
-        "tigervnc-scraping-server": "sha256:f3844df856a95e4b306a61c03fa75433599d247ed2f9551df15003b191a8d054",
+        "tigervnc-scraping-server": (
+            "sha256:f3844df856a95e4b306a61c03fa75433599d247ed2f9551df15003b191a8d054"
+        ),
         "kodi": "sha256:49a33fde1cde10521c7db8746bfe785381a3498a53f162"
         "a2c6b4a863cb007893",
         "kodi-bin": "sha256:8c696a01b924ac83761b9dd02d37e30419c413f0cd7949"
