@@ -23,7 +23,7 @@ from kodi_lab.storage.models import WebSessionRow
 
 from .conftest import PASSWORD, FakeBroker
 
-BASE_URL = "http://127.0.0.1"
+BASE_URL = "https://127.0.0.1"
 SAFE_MISSING_INSTANCE = UUID("00000000-0000-4000-8000-000000000001")
 
 

@@ -174,12 +174,17 @@ def test_expired_pending_ticket_releases_capacity_and_cannot_attach() -> None:
     assert service.registry.active_count() == 0
 
 
-def test_existing_default_application_has_no_novnc_routes(client: TestClient) -> None:
-    assert client.get(f"/instances/{INSTANCE_ID}/novnc-phase1").status_code == 404
+def test_default_viewer_routes_require_auth_and_deny_unqualified_runtime(
+    client: TestClient,
+) -> None:
+    page = f"/instances/{INSTANCE_ID}/novnc-phase1"
+    assert client.get(page).status_code == 401
     assert (
         client.post(f"/api/instances/{INSTANCE_ID}/novnc-start", json={}).status_code
-        == 404
+        == 401
     )
+    login(client)
+    assert client.get(page).status_code == 404
 
 
 def test_wire_limits_do_not_expand_jpeg_or_other_websockets() -> None:
@@ -202,6 +207,7 @@ def enabled_client(
 
     def configured(**kwargs: Any) -> Any:
         kwargs["novnc_viewer"] = viewer()
+        kwargs["novnc_viewer"].enabled_instances = frozenset({INSTANCE_ID})
         return create(**kwargs)
 
     monkeypatch.setattr(conftest, "create_app", configured)

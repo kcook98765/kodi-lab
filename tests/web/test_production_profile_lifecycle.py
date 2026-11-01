@@ -29,7 +29,7 @@ from kodi_lab.storage.models import ExternalKodiTargetRow
 
 from .conftest import PASSWORD, FakeExternalKodi
 
-BASE_URL = "http://127.0.0.1"
+BASE_URL = "https://127.0.0.1"
 KODI_USERNAME = "fixture-kodi-user"
 KODI_PASSWORD = "fixture-kodi-password"
 

@@ -28,12 +28,12 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   const add=(name,fn)=>{const prior=listeners[name];listeners[name]=event=>{prior?.(event);fn(event);};};
   const viewerNodes=Object.fromEntries(['#start','#stop','#status','#viewer','#take-control','#release-control','#keyboard','#back','#text-input','.typing','#expand'].map(key=>[key,element()]));
   const binding=current('bound');
-  const viewerRoot={dataset:{instance:target,admissionRequired:'true',viewGeneration:'1',viewRuntime:binding.runtime_revision_id,viewContainer:binding.container_id,viewWorkspace:workspace,viewSource:binding.source_id},querySelector:key=>viewerNodes[key]||null};
+  const viewerRoot={dataset:{instance:target,admissionRequired:'true',viewerClockMs:'1793500000000',viewGeneration:'1',viewRuntime:binding.runtime_revision_id,viewContainer:binding.container_id,viewWorkspace:workspace,viewSource:binding.source_id},querySelector:key=>viewerNodes[key]||null};
   if(configuration.viewer) nodes.set('[data-novnc-viewer]',viewerRoot);
   let next=0,reloads=0;
   const root={dataset:rendered,querySelector(selector) {return nodes.get(selector)||null;}, querySelectorAll:()=>actions};
   const document={hidden:false,querySelector:selector=>selector.startsWith('meta')?{content:'csrf'}:selector==='[data-novnc-viewer]'?viewerRoot:selector==='[data-viewer-current-status]'?null:root,addEventListener:add, dispatchEvent:event=>{events.push(event);listeners[event.type]?.(event);}};
-  const context={document,URL,location:{href:'https://lab.test/',protocol:'https:'},RFB:class {constructor(){clients.push(this);}addEventListener(){}disconnect(){}},WebSocket:class {},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{randomUUID:()=> '30000000-0000-4000-8000-000000000001'},AbortController,Set,Error,console,
+  const context={document,URL,location:{href:'https://lab.test/',protocol:'https:'},RFB:class {constructor(){clients.push(this);}addEventListener(){}disconnect(){}},WebSocket:class {},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{randomUUID:()=> '30000000-0000-4000-8000-000000000001',getRandomValues:array=>require('node:crypto').webcrypto.getRandomValues(array)},performance:require('node:perf_hooks').performance,AbortController,Set,Error,console,
     setTimeout(fn,delay) {timers.set(++next,{fn,delay});return next;}, clearTimeout:id=>timers.delete(id),
     fetch:async(url,options)=>{
       requests.push({url,options});

@@ -34,8 +34,8 @@ from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 from .test_managed_screenshots import make_visual_ready
 
 JPEG_SIGNATURE = b"\xff\xd8"
-DISPLAY_URL = f"/api/instances/{INSTANCE_ID}/display"
-WS_HEADERS = {"Origin": "http://127.0.0.1", "Host": "127.0.0.1"}
+DISPLAY_URL = f"wss://127.0.0.1/api/instances/{INSTANCE_ID}/display"
+WS_HEADERS = {"Origin": "https://127.0.0.1", "Host": "127.0.0.1"}
 
 
 def authenticated_headers(client: TestClient) -> dict[str, str]:
@@ -152,7 +152,9 @@ def test_websocket_requires_auth_exact_origin_and_no_query(client: TestClient) -
     ):
         pass
     assert denied.value.status_code == 400
-    missing = "/api/instances/00000000-0000-4000-8000-000000000999/display"
+    missing = (
+        "wss://127.0.0.1/api/instances/00000000-0000-4000-8000-000000000999/display"
+    )
     with (
         pytest.raises(WebSocketDisconnect) as not_found,
         client.websocket_connect(missing, headers=authenticated_headers(client)),

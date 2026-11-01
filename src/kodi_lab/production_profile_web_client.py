@@ -115,7 +115,7 @@ class ProductionProfileWebClient:
     ) -> None:
         parsed = urlsplit(base_url)
         if (
-            parsed.scheme != "http"
+            parsed.scheme not in {"http", "https"}
             or not parsed.hostname
             or parsed.path not in {"", "/"}
             or parsed.query
@@ -124,6 +124,7 @@ class ProductionProfileWebClient:
             raise ValueError("production-profile Web base URL is invalid")
         if client is None and base_url != PRODUCTION_PROFILE_BASE_URL:
             raise ValueError("live production-profile Web base URL is fixed")
+        self._secure_cookie = parsed.scheme == "https"
         self._base_url = base_url.rstrip("/")
         self._host = parsed.netloc
         self._origin = self._base_url
@@ -369,7 +370,7 @@ class ProductionProfileWebClient:
         if (
             morsel["path"] != "/"
             or morsel["domain"]
-            or morsel["secure"]
+            or bool(morsel["secure"]) != self._secure_cookie
             or not morsel["httponly"]
             or morsel["samesite"].lower() != "strict"
             or morsel["max-age"] != "604800"
@@ -383,7 +384,7 @@ class ProductionProfileWebClient:
         if (
             len(cookies) != 1
             or cookies[0].path != "/"
-            or cookies[0].secure
+            or cookies[0].secure != self._secure_cookie
             or not cookies[0].value
         ):
             raise ProductionProfileWebClientError("session_cookie_not_retained")

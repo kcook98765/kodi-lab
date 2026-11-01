@@ -137,7 +137,7 @@ def test_authenticated_import_review_and_explicit_approval(
         url,
         content=body,
         headers={
-            "Origin": "http://127.0.0.1",
+            "Origin": "https://127.0.0.1",
             "X-Kodi-Lab-CSRF": token,
             "X-Kodi-Lab-Compatibility": "matrix,nexus,omega",
             "Content-Type": "application/zip",
@@ -153,7 +153,7 @@ def test_authenticated_import_review_and_explicit_approval(
     approval_url = (
         f"/api/kodi-repository/development/{prepared['publication_id']}/approve"
     )
-    headers = {"Origin": "http://127.0.0.1", "X-Kodi-Lab-CSRF": token}
+    headers = {"Origin": "https://127.0.0.1", "X-Kodi-Lab-CSRF": token}
     payload = {
         "addon_id": prepared["addon_id"],
         "version": prepared["version"],
@@ -198,7 +198,7 @@ def test_workspace_repository_approval_route_requires_exact_authenticated_values
     assert client.post(endpoint, json=payload).status_code == 401
     token = login(client)
     assert client.post(endpoint, json=payload).status_code == 403
-    headers = {"Origin": "http://127.0.0.1", "X-Kodi-Lab-CSRF": token}
+    headers = {"Origin": "https://127.0.0.1", "X-Kodi-Lab-CSRF": token}
     assert (
         client.post(
             endpoint, json={**payload, "generation": "2"}, headers=headers
@@ -255,7 +255,7 @@ def test_existing_install_verification_requires_login_csrf_and_exact_confirmatio
     assert client.post(endpoint, json=payload).status_code == 401
     token = login(client)
     assert client.post(endpoint, json=payload).status_code == 403
-    headers = {"Origin": "http://127.0.0.1", "X-Kodi-Lab-CSRF": token}
+    headers = {"Origin": "https://127.0.0.1", "X-Kodi-Lab-CSRF": token}
     for stale in (
         {**payload, "target_id": str(uuid4())},
         {**payload, "publication_id": str(uuid4())},

@@ -175,7 +175,7 @@ def test_agents_prefers_only_verified_lan_and_never_recovers_credentials(
 
     monkeypatch.setattr(app_module, "check_lan_endpoint", checked)
     _, token = _authority(lan_client)
-    page = lan_client.get("http://127.0.0.1/mcp-clients").text
+    page = lan_client.get("https://127.0.0.1/mcp-clients").text
     configuration = re.search(r'<pre id="agent-config"[^>]*>(.*?)</pre>', page, re.S)
     assert configuration is not None
     payload = json.loads(configuration.group(1))

@@ -37,7 +37,7 @@ from tests.kodi.fake_external_bridge import fake_png
 
 from .conftest import PASSWORD, FakeExternalKodi
 
-BASE_URL = "http://127.0.0.1"
+BASE_URL = "https://127.0.0.1"
 
 
 class _RecordHandler(logging.Handler):
