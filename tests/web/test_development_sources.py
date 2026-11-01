@@ -89,7 +89,7 @@ def _register(
             "relative_locator": relative_locator,
         },
         headers={
-            "Origin": "http://127.0.0.1",
+            "Origin": "https://127.0.0.1",
             "X-Kodi-Lab-CSRF": csrf,
         },
     )
@@ -239,7 +239,7 @@ def test_unconfigured_source_root_keeps_web_and_zip_available(
         broker=broker,
         auth=context.auth,
     )
-    with TestClient(app, base_url="http://127.0.0.1") as unconfigured:
+    with TestClient(app, base_url="https://127.0.0.1") as unconfigured:
         csrf = login(unconfigured)
         page = unconfigured.get("/development-sources")
         assert page.status_code == 200

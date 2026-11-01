@@ -2,7 +2,12 @@
 
 This testing method separates ordinary browser/page overhead from viewer cost.
 It does not approve a revised threshold. Preserve every original failed trial.
-The standard 128 MiB RSS gate and incomplete native qualification remain visible.
+The historical 128 MiB RSS comparisons and their failures remain visible.
+The owner has since approved the [standard resource contract](../STANDARD-NOVNC.md#resource-qualification-contract):
+512 MiB RSS above the fixed stable Current Kodi page, with the unchanged 2 GiB
+absolute emergency ceiling and existing host/native guards. The historical staged
+study below remains a method record; it does not require repeating completed
+exact-image native campaigns when standard admission changes alone.
 No runtime, permission, lifetime, production Web or schema change is part of it.
 
 Use `scripts.browser_memory_qualification.TreeSampler` with the Firefox root PID

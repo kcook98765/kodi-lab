@@ -1,5 +1,9 @@
 # Experimental human Web viewer
 
+For fresh managed installations use [standard viewing](STANDARD-NOVNC.md).
+This document retains the historical Omega r4 opt-in and its original evidence;
+its experimental UUID setting is unnecessary for the four standard recipes.
+
 The noVNC viewer belongs exclusively to authenticated human administrators in
 Kodi Lab's Web UI. Agents use the existing independent X11 screenshots, Bridge
 inspection and MCP/JSON-RPC operations. There is no agent viewer tool, credential,

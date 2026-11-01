@@ -486,7 +486,7 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
         transport = httpx2.ASGITransport(app=client.app)
         async with httpx2.AsyncClient(
             transport=transport,
-            base_url="http://127.0.0.1",
+            base_url="https://127.0.0.1",
             headers={"Authorization": f"Bearer {token}"},
             event_hooks={"request": [capture]},
         ) as http:
@@ -563,7 +563,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
         transport = httpx2.ASGITransport(app=client.app)
         async with httpx2.AsyncClient(
             transport=transport,
-            base_url="http://127.0.0.1",
+            base_url="https://127.0.0.1",
             headers={"Authorization": f"Bearer {issued.token}"},
             event_hooks={"request": [capture]},
         ) as http:
@@ -1565,7 +1565,7 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
         additional_allowed_origins=("http://lab.example", "http://lab.example:*"),
     )
     sdk_app = cast(Any, transport.app)._app
-    with TestClient(sdk_app, base_url="http://127.0.0.1") as direct:
+    with TestClient(sdk_app, base_url="https://127.0.0.1") as direct:
         for index, host in enumerate(
             (
                 "127.0.0.1",

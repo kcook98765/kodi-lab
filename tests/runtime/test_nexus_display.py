@@ -15,7 +15,7 @@ from kodi_lab.runtime.display_capabilities import (
 from kodi_lab.runtime.install import bootstrap_recipe_instance
 from kodi_lab.runtime.recipes import (
     load_display_candidate_recipe,
-    load_reviewed_recipe,
+    load_recorded_reviewed_recipe,
     recipe_target_id,
 )
 from kodi_lab.runtime.validation import ValidationResult
@@ -28,7 +28,12 @@ factory = fixture.factory
 
 
 def test_nexus_r3_preserves_kodi_pins_and_signed_distro_identity() -> None:
-    old = load_reviewed_recipe("nexus")
+    old = load_recorded_reviewed_recipe(
+        "nexus",
+        "ubuntu-noble-nexus-20.5",
+        2,
+        "sha256:9845a930212f91c20e1313f03cc289882b8555f6067a5bf22e11e724b9821631",
+    )
     candidate = load_display_candidate_recipe("nexus")
     assert old.recipe.recipe_revision == 2
     assert candidate.recipe.recipe_revision == 3
@@ -68,15 +73,21 @@ def test_nexus_r3_preserves_kodi_pins_and_signed_distro_identity() -> None:
     assert helper["CLIPBOARD_POLICY"] == "unimplemented"
     assert recipe_target_id(candidate) == recipe_target_id(old)
     capability = reviewed_display_capability(candidate)
-    assert capability is not None and capability.qualification == "candidate"
+    assert capability is not None and capability.qualification == "standard"
     assert reviewed_display_capability(replace(candidate, recipe=old.recipe)) is None
 
 
-def test_sealed_nexus_candidate_preserves_old_pin_and_stays_unactivated(
+def test_sealed_nexus_candidate_preserves_old_pin_and_stays_ineligible(
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    old = load_reviewed_recipe("nexus")
+    old = load_recorded_reviewed_recipe(
+        "nexus",
+        "ubuntu-noble-nexus-20.5",
+        2,
+        "sha256:9845a930212f91c20e1313f03cc289882b8555f6067a5bf22e11e724b9821631",
+    )
+    monkeypatch.setattr(fixture, "load_reviewed_recipe", lambda _: old)
     operation = fixture._ready(factory, generation="nexus")
     with factory() as db:
         row = db.get(RuntimeRecipeInstallationRow, str(operation))
@@ -120,16 +131,9 @@ def test_sealed_nexus_candidate_preserves_old_pin_and_stays_unactivated(
     with factory() as db:
         instance = ManagedInstanceRepository(db).get(target)
         assert instance is not None and instance.runtime_revision_id == old_revision
-    # Admission must see the sealed candidate, not the deliberately retained r2.
+    # The retained r2 pin remains ineligible even after a standard install.
     monkeypatch.setattr(
-        "kodi_lab.broker.novnc_service.installed_display_capability",
-        lambda *args: capability,
-    )
-    monkeypatch.setattr(
-        "docker.APIClient",
-        lambda **kwargs: pytest.fail("candidate must remain unactivated"),
+        "docker.APIClient", lambda **kw: pytest.fail("old pin reached Docker")
     )
     with pytest.raises(ValueError, match="not qualified"):
-        HumanDisplayService(
-            Settings(experimental_novnc_instances=(target,)), factory
-        ).resolve(target)
+        HumanDisplayService(Settings(), factory).resolve(target)

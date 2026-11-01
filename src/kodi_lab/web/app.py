@@ -1486,7 +1486,7 @@ def create_app(
     managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
-    if novnc_viewer is None and settings.experimental_novnc_instances:
+    if novnc_viewer is None:
         from kodi_lab.web.novnc_optin import build_viewer
 
         novnc_viewer = build_viewer(settings, session_factory)
@@ -2423,13 +2423,28 @@ def create_app(
     templates.env.globals["viewer_clock_ms"] = (
         novnc_viewer.attempts.clock_ms if novnc_viewer is not None else lambda: 0
     )
-    templates.env.globals["novnc_instance_enabled"] = lambda instance: (
-        novnc_viewer is not None
-        and (
-            novnc_viewer.enabled_instances is None
-            or UUID(str(instance)) in novnc_viewer.enabled_instances
-        )
-    )
+
+    def novnc_instance_enabled(instance: object) -> bool:
+        if novnc_viewer is None:
+            return False
+        identity = UUID(str(instance))
+        if novnc_viewer.enabled_instances is not None:
+            return identity in novnc_viewer.enabled_instances
+        from kodi_lab.runtime.display_capabilities import admitted_display_capability
+
+        with session_factory() as db:
+            managed = ManagedInstanceRepository(db).get(identity)
+            return (
+                managed is not None
+                and admitted_display_capability(
+                    db,
+                    managed.runtime_revision_id,
+                    experimental=identity in settings.experimental_novnc_instances,
+                )
+                is not None
+            )
+
+    templates.env.globals["novnc_instance_enabled"] = novnc_instance_enabled
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
@@ -2459,9 +2474,14 @@ def create_app(
             "img-src 'self' blob:; connect-src 'self'; object-src 'none'; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
-        if novnc_viewer is not None and getattr(
-            request.scope.get("route"), "name", None
-        ) in {"novnc_phase1_page", "development_session_page"}:
+        route_name = getattr(request.scope.get("route"), "name", None)
+        viewer_page = route_name == "novnc_phase1_page" and response.status_code == 200
+        if route_name == "development_session_page" and response.status_code == 200:
+            selected_view = current_kodi.identity().current
+            viewer_page = selected_view is not None and novnc_instance_enabled(
+                selected_view.target_id
+            )
+        if novnc_viewer is not None and viewer_page:
             response.headers["Content-Security-Policy"] = response.headers[
                 "Content-Security-Policy"
             ].replace("img-src 'self' blob:", "img-src 'self' blob: data:")
@@ -3295,7 +3315,7 @@ def create_app(
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
             secure=settings.web_cookie_secure
-            or bool(settings.experimental_novnc_instances),
+            or (novnc_viewer is not None and novnc_viewer.require_https),
             samesite="strict",
             path="/",
         )
@@ -3326,7 +3346,7 @@ def create_app(
             max_age=31536000,
             httponly=True,
             secure=settings.web_cookie_secure
-            or bool(settings.experimental_novnc_instances),
+            or (novnc_viewer is not None and novnc_viewer.require_https),
             samesite="strict",
             path="/",
         )
@@ -3353,7 +3373,7 @@ def create_app(
             settings.web_session_cookie_name,
             path="/",
             secure=settings.web_cookie_secure
-            or bool(settings.experimental_novnc_instances),
+            or (novnc_viewer is not None and novnc_viewer.require_https),
             httponly=True,
             samesite="strict",
         )
@@ -4479,24 +4499,16 @@ def create_app(
         view = current_kodi.observe()
         if view.current is None:
             return view
-        from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, recipe_target_id
+        from kodi_lab.runtime.display_capabilities import admitted_display_capability
 
         current = view.current
-        legacy_viewer = current.target_id == recipe_target_id(
-            load_novnc_phase1_recipe()
-        )
-        reviewed_viewer = False
-        if not legacy_viewer and novnc_viewer is not None:
-            from kodi_lab.runtime.display_capabilities import (
-                installed_display_capability,
+        with session_factory() as db:
+            capability = admitted_display_capability(
+                db,
+                current.runtime_revision_id,
+                experimental=current.target_id in settings.experimental_novnc_instances,
             )
-
-            with session_factory() as db:
-                reviewed_viewer = (
-                    installed_display_capability(db, current.runtime_revision_id)
-                    is not None
-                )
-        if not legacy_viewer and not reviewed_viewer:
+        if capability is None:
             view.viewer_state = "unsupported"
         elif novnc_viewer is None or (
             novnc_viewer.enabled_instances is not None
@@ -7431,6 +7443,8 @@ def create_app(
         return context.screenshots.get_status(instance_id)
 
     def viewer_page_context(instance: UUID) -> dict[str, Any]:
+        if not novnc_instance_enabled(instance):
+            raise HTTPException(status_code=404)
         view = current_kodi.identity()
         selected = view.current is not None and view.current.target_id == instance
         with session_factory() as db:

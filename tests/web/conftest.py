@@ -82,7 +82,7 @@ REVISION_ID = UUID("3a000000-0000-4000-8000-000000000006")
 CONTAINER_ID = "a" * 64
 IMAGE_ID = "sha256:" + ("b" * 64)
 PASSWORD = "correct horse battery staple"
-ORIGIN = {"Origin": "http://127.0.0.1"}
+ORIGIN = {"Origin": "https://127.0.0.1"}
 
 
 @dataclass
@@ -802,7 +802,7 @@ def client(
     # Lifecycle preparation has a separate native transport from external
     # targets and the readiness coordinator. All three must stay inside fixtures.
     app.state.kodi_lab.managed_bridge_trust.transport = managed_native
-    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+    with TestClient(app, base_url="https://127.0.0.1") as test_client:
         yield test_client
 
 

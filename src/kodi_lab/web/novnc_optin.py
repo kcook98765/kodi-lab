@@ -15,6 +15,11 @@ from kodi_lab.application.novnc import CatalogViewAuthority
 from kodi_lab.application.novnc_control import HumanViewerOwnership
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.config import Settings
+from kodi_lab.runtime.display_capabilities import (
+    DisplayCapability,
+    admitted_display_capability,
+)
+from kodi_lab.storage.repositories import ManagedInstanceRepository
 from kodi_lab.web.novnc import PrototypeViewer
 
 
@@ -78,17 +83,33 @@ def build_viewer(
     path = settings.runtime_root / "display.sock"
     allowed = frozenset(settings.experimental_novnc_instances)
 
+    def capability_for(instance: UUID) -> DisplayCapability:
+        with sessions() as db:
+            managed = ManagedInstanceRepository(db).get(instance)
+            capability = (
+                None
+                if managed is None
+                else admitted_display_capability(
+                    db, managed.runtime_revision_id, experimental=instance in allowed
+                )
+            )
+            if capability is None:
+                raise ValueError("runtime is not qualified for human viewing")
+            return capability
+
     def authority(instance: UUID) -> ViewBinding:
-        if instance not in allowed:
-            raise ValueError("experimental viewer is not enabled")
+        capability = capability_for(instance)
         binding = resolve_binding(path, instance)
         # Resolve again on the unprivileged side to fence concurrent catalog writes.
-        return CatalogViewAuthority(sessions, {instance: binding}).resolve(instance)
+        if capability_for(instance) != capability:
+            raise ValueError("view capability changed")
+        return CatalogViewAuthority(
+            sessions, {instance: binding}, capability=capability
+        ).resolve(instance)
 
     return PrototypeViewer(
         path,
         authority,
         ownership=HumanViewerOwnership(sessions),
-        enabled_instances=allowed,
         require_https=True,
     )

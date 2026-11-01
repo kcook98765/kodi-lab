@@ -143,7 +143,7 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
         auth=auth,
     )
     try:
-        with TestClient(app, base_url="http://127.0.0.1") as client:
+        with TestClient(app, base_url="https://127.0.0.1") as client:
             token = login(client)
             accepted = client.post(
                 "/api/runtime-installations/omega",

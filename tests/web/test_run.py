@@ -52,7 +52,7 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
     assert observed["port"] == 8180
     from kodi_lab.web.novnc_protocol import BoundedWebSocketProtocol
 
-    assert observed["ws"] == (BoundedWebSocketProtocol if enabled else "auto")
+    assert observed["ws"] is BoundedWebSocketProtocol
     assert observed["ws_max_size"] == 256 and observed["ws_max_queue"] == 1
 
 

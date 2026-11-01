@@ -47,7 +47,7 @@ from kodi_lab.runtime.ostree_installation import (
 from kodi_lab.runtime.ostree_validation import native_identity
 from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
 from kodi_lab.runtime.recipes import (
-    PREVIEW_INSTALLATION_DIGEST,
+    PIERS_DISPLAY_INSTALLATION_DIGEST,
     load_installation_recipe,
     load_recorded_reviewed_recipe,
     load_reviewed_recipe,
@@ -65,9 +65,9 @@ from tests.runtime.test_recipe_installation import factory as factory
 
 def acknowledgement() -> PreviewAcknowledgement:
     return PreviewAcknowledgement(
-        recipe_id="piers-22.0-rc1-r2",
-        recipe_revision=2,
-        recipe_digest=PREVIEW_INSTALLATION_DIGEST,
+        recipe_id="piers-22.0-rc1-r3",
+        recipe_revision=3,
+        recipe_digest=PIERS_DISPLAY_INSTALLATION_DIGEST,
         release="22.0-rc.1",
         support_tier="preview",
         acknowledgement="development-only-prerelease",
@@ -80,17 +80,20 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     )
     raw = data["assembly"]
     raw["operation_id"] = operation.hex
-    raw["recipe_revision"] = 2
+    raw["recipe_revision"] = 3
     # Derive current synthetic assembly from retained original evidence.
     # The historical evidence file remains unchanged.
-    from kodi_lab.runtime.ostree_assembly import ASSETS_SHA256, load_assembly_assets
+    from kodi_lab.runtime.ostree_assembly import (
+        assembly_assets_digest,
+        load_assembly_assets,
+    )
     from kodi_lab.runtime.ubuntu_support import load_support_closure
 
-    raw["supporting_closure_digest"] = load_support_closure().digest
-    raw["assembly_assets_digest"] = "sha256:" + ASSETS_SHA256
+    raw["supporting_closure_digest"] = load_support_closure(revision=3).digest
+    raw["assembly_assets_digest"] = "sha256:" + assembly_assets_digest(revision=3)
     raw["asset_hashes"] = sorted(
         (name, hashlib.sha256(payload).hexdigest())
-        for name, payload in load_assembly_assets().items()
+        for name, payload in load_assembly_assets(revision=3).items()
     )
     names = {f.name for f in fields(OstreeAssemblyEvidence)}
     for key in ("asset_hashes", "input_components"):
@@ -108,7 +111,10 @@ def validation(image_id: str) -> ValidationResult:
     reviewed = load_installation_recipe("piers")
     base = _validation(image_id)
     report = deepcopy(base.report)
+    from tests.runtime.test_display_candidate import proof
+
     report.update(
+        display={**proof(), "process_probe": "piers-loader"},
         recipe_digest=reviewed.digest,
         release="22.0-rc.1",
         native_identity={
@@ -161,13 +167,13 @@ def ready(factory: sessionmaker[Session]) -> UUID:
 
 def test_exact_backend_recipe_does_not_change_web_stable_registry() -> None:
     reviewed = load_installation_recipe("piers")
-    assert reviewed.digest == PREVIEW_INSTALLATION_DIGEST
+    assert reviewed.digest == PIERS_DISPLAY_INSTALLATION_DIGEST
     assert reviewed.recipe.kodi_version == "22.0-rc.1"
     assert supported_generations() == ("matrix", "nexus", "omega")
     with pytest.raises(ValueError):
         load_reviewed_recipe("piers")
     assert (
-        load_recorded_reviewed_recipe("piers", "piers-22.0-rc1-r2", 2, reviewed.digest)
+        load_recorded_reviewed_recipe("piers", "piers-22.0-rc1-r3", 3, reviewed.digest)
         == reviewed
     )
 

@@ -1,6 +1,12 @@
 # Standard managed noVNC implementation status
 
-Issue #163 is in progress. New display packaging is separate from accepted
+Current activation and owner-approved fresh-profile/resource policy are documented
+in [Standard managed Kodi viewing](STANDARD-NOVNC.md). The observations below
+retain their original campaign dates, limits and determinations.
+
+## Historical packaging campaign through PR #175
+
+Issue #163 was in progress at this checkpoint. New display packaging is separate from accepted
 standard browser, security, control, latency and resource qualification. No
 standard-qualified runtime is activated by the initial packaging work.
 
@@ -336,25 +342,11 @@ Nexus trial also had a reused-profile limitation discovered later; it stays fail
 Backend ten-minute evidence cannot replace complete browser lifetime, resource or
 control qualification. No partial observation activates standard viewing.
 
-## Future transition of retained profiles
+## Transition of retained profiles
 
-Runtime target identities are release-based. A newer recipe for the same release
-therefore uses the existing canonical target identity; installation deliberately
-preserves an existing registration's pin. Installing a candidate does not upgrade
-that profile. Standard Omega r5 uses ordinary Omega's identity, while the retained
-experimental r4 remains distinct and retains its current selection behavior.
-
-The existing explicit repin procedure requires Stop and deprovision. It is a
-profile replacement operation, not an in-place preservation mechanism. Fresh Test
-and Switch must not be used to make viewing available on retained profiles.
-Until a supported preservation procedure is reviewed and approved, retained
-profiles keep their current recipes and eligible screenshot/JPEG fallbacks.
-
-A separate production rollout needs explicit owner approval of a concrete plan:
-a fresh supported backup and isolated recovery rehearsal; exact old/new runtime
-and profile identities; Kodi profile, schema, add-on and Bridge compatibility;
-a reversible profile restore/reconstruction procedure; and verified selection
-and rollback. No arbitrary clone target, direct database edit or silent repin may
-bypass the existing canonical target and retained-selection fences. If profile
-replacement is necessary, that decision must be presented explicitly before any
-production action. This campaign leaves all retained profiles unchanged.
+The later owner-approved standard activation uses fresh managed profiles. See
+[the current policy](STANDARD-NOVNC.md#older-profiles-and-later-production-rollout).
+Older registrations retain exact pins and remain ineligible until explicitly
+replaced through supported Fresh Test/replacement and lifecycle operations.
+No legacy migration, preservation reconstruction or automatic repinning is needed.
+Actual production retirement and deployment require separate owner authorization.

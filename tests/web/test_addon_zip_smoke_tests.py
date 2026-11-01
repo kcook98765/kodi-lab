@@ -162,7 +162,7 @@ def smoke_client(
             ),
             addon_zip_smoke_test_service_factory=factory,
         ),
-        base_url="http://127.0.0.1",
+        base_url="https://127.0.0.1",
     )
 
 

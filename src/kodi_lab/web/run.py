@@ -115,9 +115,7 @@ def main() -> None:
         host=settings.effective_web_bind_host,
         port=settings.web_port,
         access_log=True,
-        ws=BoundedWebSocketProtocol
-        if settings.experimental_novnc_instances
-        else "auto",
+        ws=BoundedWebSocketProtocol,
         ws_max_size=256,
         ws_max_queue=1,
         log_config=application_logging_config(),

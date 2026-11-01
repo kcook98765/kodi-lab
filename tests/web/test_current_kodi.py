@@ -18,6 +18,9 @@ from kodi_lab.application.development_sessions import DevelopmentSessionService
 from kodi_lab.application.runtime_status import ManagedStatusObservation
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
+from kodi_lab.runtime.display_capabilities import (
+    installed_display_capability as sealed_display_capability,
+)
 from kodi_lab.runtime.install import bootstrap_recipe_instance
 from kodi_lab.storage.models import DevelopmentSessionPolicyRow, DevelopmentSessionRow
 from kodi_lab.web.app import create_app
@@ -39,6 +42,14 @@ from tests.web.view_attempt_fixture import view_attempt
 def viewer_client(
     monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 ) -> TestClient:
+    from kodi_lab.runtime.display_capabilities import OMEGA_DISPLAY_CANDIDATE
+
+    monkeypatch.setattr(
+        "kodi_lab.runtime.display_capabilities.installed_display_capability",
+        lambda db, revision: (
+            OMEGA_DISPLAY_CANDIDATE if revision == REVISION_ID else None
+        ),
+    )
     create = create_app
 
     def configured(**kwargs: Any) -> Any:
@@ -607,6 +618,11 @@ def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(
         canonical_revision = UUID(record.runtime_revision_id)
     bootstrap_recipe_instance(database, canonical, canonical_revision)
     _sessions, target = installed(database, tmp_path, monkeypatch)
+    context.settings.experimental_novnc_instances = (target,)
+    monkeypatch.setattr(
+        "kodi_lab.runtime.display_capabilities.installed_display_capability",
+        sealed_display_capability,
+    )
     _source, creation = source_and_workspace(client)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     reserved = client.post(
@@ -828,7 +844,7 @@ def test_injected_exact_candidate_viewer_is_reflected_in_current_kodi(
     selected(client, database, monkeypatch)
     broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
     capability = reviewed_display_capability(load_display_candidate_recipe(generation))
-    assert capability is not None and capability.qualification == "candidate"
+    assert capability is not None and capability.qualification == "standard"
     monkeypatch.setattr(
         "kodi_lab.runtime.display_capabilities.installed_display_capability",
         lambda *args: capability,
@@ -844,15 +860,18 @@ def test_ordinary_launcher_does_not_expose_unqualified_candidate_viewer(
     database: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from dataclasses import replace
+
     from kodi_lab.runtime.display_capabilities import reviewed_display_capability
     from kodi_lab.runtime.recipes import load_display_candidate_recipe
 
     login(client)
     selected(client, database, monkeypatch)
     capability = reviewed_display_capability(load_display_candidate_recipe("piers"))
+    assert capability is not None
     monkeypatch.setattr(
         "kodi_lab.runtime.display_capabilities.installed_display_capability",
-        lambda *args: capability,
+        lambda *args: replace(capability, qualification="candidate"),
     )
     assert (
         client.get("/api/development-session").json()["viewer_state"] == "unsupported"

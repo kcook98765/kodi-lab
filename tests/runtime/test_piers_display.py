@@ -5,7 +5,6 @@ from dataclasses import asdict, replace
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import (
@@ -28,9 +27,10 @@ from kodi_lab.runtime.ostree_assembly import (
 from kodi_lab.runtime.ostree_installation import OstreeInstallationAssembly
 from kodi_lab.runtime.preview import PreviewAcknowledgement, recorded_acknowledgement
 from kodi_lab.runtime.recipes import (
+    PREVIEW_INSTALLATION_DIGEST,
     ReviewedRecipe,
     load_display_candidate_recipe,
-    load_installation_recipe,
+    load_recorded_reviewed_recipe,
 )
 from kodi_lab.runtime.ubuntu_support import load_support_closure
 from kodi_lab.storage.repositories import (
@@ -45,7 +45,12 @@ factory = fixture.factory
 
 
 def test_exact_r3_preserves_rc1_and_all_97_support_pins() -> None:
-    old, new = load_installation_recipe("piers"), load_display_candidate_recipe("piers")
+    old, new = (
+        load_recorded_reviewed_recipe(
+            "piers", "piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST
+        ),
+        load_display_candidate_recipe("piers"),
+    )
     assert old.recipe.recipe_revision == 2 and new.recipe.recipe_revision == 3
     assert old.recipe.provider == new.recipe.provider
     assert old.recipe.base_image_reference == new.recipe.base_image_reference
@@ -57,7 +62,7 @@ def test_exact_r3_preserves_rc1_and_all_97_support_pins() -> None:
     assert before.base_inventory == after.base_inventory
     assert by_name["perl-base"].version == "5.40.1-7ubuntu0.3"
     capability = reviewed_display_capability(new)
-    assert capability is not None and capability.qualification == "candidate"
+    assert capability is not None and capability.qualification == "standard"
     assert capability.package == (
         "tigervnc-scraping-server",
         "1.15.0+dfsg-2build1",
@@ -75,29 +80,22 @@ def test_exact_r3_preserves_rc1_and_all_97_support_pins() -> None:
     assert reviewed_display_capability(replace(new, recipe=old.recipe)) is None
 
 
-@pytest.mark.parametrize("field", ["recipe_id", "recipe_revision", "recipe_digest"])
-def test_mixed_preview_consent_never_selects_r3(field: str) -> None:
-    old, new = (
-        preview_acknowledgement(),
-        preview_acknowledgement(display_candidate=True),
-    )
-    old[field] = new[field]
-    with pytest.raises(ValidationError):
-        PreviewAcknowledgement.model_validate(old)
-
-
-def test_r3_admission_is_explicit_operation_bound_and_not_default(
+def test_r3_is_default_but_historical_consent_cannot_authorize_install(
     factory: sessionmaker[Session],
 ) -> None:
     service = RuntimeInstallationService(factory, broker())
-    ack = PreviewAcknowledgement.model_validate(
-        preview_acknowledgement(display_candidate=True)
+    ack = PreviewAcknowledgement.model_validate(preview_acknowledgement())
+    assert ack.recipe_revision == 3
+    old = ack.model_copy(
+        update={
+            "recipe_id": "piers-22.0-rc1-r2",
+            "recipe_revision": 2,
+            "recipe_digest": PREVIEW_INSTALLATION_DIGEST,
+        }
     )
     with pytest.raises(RuntimeInstallationActionConflict):
-        service.start_preview(development_mode=True, acknowledgement=ack)
-    result = service.start_preview(
-        development_mode=True, acknowledgement=ack, display_candidate=True
-    )
+        service.start_preview(development_mode=True, acknowledgement=old)
+    result = service.start_preview(development_mode=True, acknowledgement=ack)
     operation = UUID(result.operation_id)
     assert recorded_acknowledgement(factory, operation) == ack
     with factory.begin() as db:
@@ -200,14 +198,10 @@ def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
     with factory() as db:
         instance = ManagedInstanceRepository(db).list()[0]
         assert instance.runtime_revision_id == revision
-    monkeypatch.setattr(
-        "docker.APIClient",
-        lambda **kw: pytest.fail("candidate must not start a viewer"),
+    assert (
+        HumanDisplayService(Settings(), factory).qualified(instance.target_id)
+        == capability
     )
-    with pytest.raises(ValueError, match="not qualified"):
-        HumanDisplayService(
-            Settings(experimental_novnc_instances=(instance.target_id,)), factory
-        ).resolve(instance.target_id)
 
 
 def test_old_assembly_cannot_be_relabelled_as_display_candidate() -> None:
@@ -216,6 +210,7 @@ def test_old_assembly_cannot_be_relabelled_as_display_candidate() -> None:
     reviewed = load_display_candidate_recipe("piers")
     borrowed = replace(
         fixture.assembly(uuid4()),
+        assembly=replace(fixture.assembly(uuid4()).assembly, recipe_revision=2),
         acknowledgement=PreviewAcknowledgement.model_validate(
             preview_acknowledgement(display_candidate=True)
         ),
@@ -234,9 +229,15 @@ def test_cli_candidate_cannot_borrow_ordinary_preview_consent(
         install_reviewed_runtime,
     )
 
+    stale = {
+        **preview_acknowledgement(),
+        "recipe_id": "piers-22.0-rc1-r2",
+        "recipe_revision": 2,
+        "recipe_digest": PREVIEW_INSTALLATION_DIGEST,
+    }
     monkeypatch.setattr(
         "kodi_lab.runtime.install._database_call",
-        lambda *args: {"ack": json.dumps(preview_acknowledgement())},
+        lambda *args: {"ack": json.dumps(stale)},
     )
     monkeypatch.setattr(
         "docker.from_env",

@@ -67,7 +67,7 @@ def deployment_client(
         auth=auth,
         coordinator_factory=coordinator_factory,
     )
-    with TestClient(app, base_url="http://127.0.0.1") as client:
+    with TestClient(app, base_url="https://127.0.0.1") as client:
         yield client
 
 

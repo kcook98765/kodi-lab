@@ -1,4 +1,4 @@
-"""Administrator opt-in for the existing human display lane, never an MCP API."""
+"""Exact installed-runtime admission for the human display lane, never an MCP API."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from kodi_lab.broker.server import ProductionBrokerConfiguration
 from kodi_lab.config import Settings
 from kodi_lab.runtime.display_capabilities import (
     DisplayCapability,
-    installed_display_capability,
+    admitted_display_capability,
 )
 from kodi_lab.storage.models import NovncSessionRow
 from kodi_lab.storage.repositories import (
@@ -35,7 +35,7 @@ from kodi_lab.storage.repositories import (
 
 
 class HumanDisplayService:
-    """Resolve only explicitly enabled, sealed, validated Ubuntu Omega r4 pins."""
+    """Resolve sealed standard pins and explicitly enabled historical Omega r4."""
 
     def __init__(self, settings: Settings, sessions: sessionmaker[Session]) -> None:
         self.settings = settings
@@ -52,8 +52,6 @@ class HumanDisplayService:
         self.provisioning = SqliteProvisioningResolver(sessions)
 
     def qualified(self, instance: UUID) -> DisplayCapability:
-        if instance not in self.settings.experimental_novnc_instances:
-            raise ValueError("experimental human viewer is not enabled")
         with self.sessions() as db:
             managed = ManagedInstanceRepository(db).get(instance)
             revision = (
@@ -64,10 +62,14 @@ class HumanDisplayService:
             capability = (
                 None
                 if revision is None
-                else installed_display_capability(db, revision.id)
+                else admitted_display_capability(
+                    db,
+                    revision.id,
+                    experimental=instance in self.settings.experimental_novnc_instances,
+                )
             )
-            if capability is None or capability.qualification != "experimental":
-                raise ValueError("experimental runtime is not qualified")
+            if capability is None:
+                raise ValueError("runtime is not qualified for human viewing")
             return capability
 
     def resolve(self, instance: UUID) -> ViewBinding:

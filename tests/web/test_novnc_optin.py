@@ -18,7 +18,7 @@ from kodi_lab.web.app import create_app
 from kodi_lab.web.novnc_optin import build_viewer, resolve_binding
 
 from . import conftest
-from .conftest import INSTANCE_ID, ORIGIN
+from .conftest import INSTANCE_ID
 
 
 def test_optin_defaults_to_disabled_and_allows_only_one_instance() -> None:
@@ -82,8 +82,8 @@ def test_web_allowlist_rejects_another_target_before_private_broker_lookup(
         ),
         database,
     )
-    assert viewer.require_https and viewer.enabled_instances == frozenset({INSTANCE_ID})
-    with pytest.raises(ValueError, match="not enabled"):
+    assert viewer.require_https and viewer.enabled_instances is None
+    with pytest.raises(ValueError, match="not qualified"):
         viewer.authority(uuid4())
     viewer.close()
 
@@ -107,13 +107,17 @@ def test_normal_app_optin_requires_https_admin_and_instance_allowlist(
 ) -> None:
     client = opted_client
     page = f"/instances/{INSTANCE_ID}/novnc-phase1"
-    assert client.get(page).status_code == 403
+    assert client.get("http://127.0.0.1" + page).status_code == 403
     assert (
         client.get("https://127.0.0.1" + page, follow_redirects=False).status_code
         == 401
     )
     assert (
-        client.post("/login", data={"password": "wrong"}, headers=ORIGIN).status_code
+        client.post(
+            "http://127.0.0.1/login",
+            data={"password": "wrong"},
+            headers={"Origin": "http://127.0.0.1"},
+        ).status_code
         == 403
     )
     response = client.post(
@@ -124,7 +128,8 @@ def test_normal_app_optin_requires_https_admin_and_instance_allowlist(
     )
     assert response.status_code == 303
     assert "secure" in response.headers["set-cookie"].lower()
-    assert client.get("https://127.0.0.1" + page).status_code == 200
+    assert client.get("https://127.0.0.1" + page).status_code == 404
+    assert client.get("https://127.0.0.1/development-session").status_code == 200
     assert (
         client.get(
             "https://127.0.0.1/instances/" + str(uuid4()) + "/novnc-phase1"
@@ -140,9 +145,9 @@ def test_normal_app_optin_requires_https_admin_and_instance_allowlist(
     )
     assert (
         client.post(
-            f"/api/instances/{INSTANCE_ID}/novnc-start",
+            f"http://127.0.0.1/api/instances/{INSTANCE_ID}/novnc-start",
             json={"attempt": str(uuid4()), "rate": 2},
-            headers=ORIGIN,
+            headers={"Origin": "http://127.0.0.1"},
         ).status_code
         == 403
     )
@@ -159,7 +164,7 @@ def test_broker_rejects_unlisted_or_unqualified_catalog_before_docker(
     service = HumanDisplayService(
         Settings(experimental_novnc_instances=(INSTANCE_ID,)), database
     )
-    with pytest.raises(ValueError, match="not enabled"):
+    with pytest.raises(ValueError, match="not qualified"):
         service.resolve(uuid4())
     with pytest.raises(ValueError, match="not qualified"):
         service.resolve(INSTANCE_ID)
@@ -203,3 +208,33 @@ def test_unconfirmed_admission_is_reaped_only_after_native_proof(
     lane.active.clear()
     service.reconcile(lane)
     assert service.ownership.status(INSTANCE_ID) is None
+
+
+def test_standard_app_secures_authentication_without_experimental_settings(
+    client: TestClient,
+) -> None:
+    assert (
+        client.post(
+            "http://127.0.0.1/login",
+            data={"password": conftest.PASSWORD},
+            headers={"Origin": "http://127.0.0.1"},
+        ).status_code
+        == 403
+    )
+    response = client.post(
+        "/login",
+        data={"password": conftest.PASSWORD},
+        headers={"Origin": "https://127.0.0.1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    cookie = response.headers["set-cookie"].lower()
+    assert all(flag in cookie for flag in ("secure", "httponly", "samesite=strict"))
+    assert (
+        client.post(
+            f"http://127.0.0.1/api/instances/{INSTANCE_ID}/novnc-start",
+            json={"attempt": str(uuid4()), "rate": 2},
+            headers={"Origin": "http://127.0.0.1"},
+        ).status_code
+        == 403
+    )

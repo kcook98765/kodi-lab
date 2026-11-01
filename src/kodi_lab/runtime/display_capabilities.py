@@ -69,7 +69,7 @@ OMEGA_DISPLAY_CANDIDATE = DisplayCapability(
     expected_kodi_version="21.3",
     expected_version_tag="stable",
     expected_prerelease_ordinal=None,
-    qualification="candidate",
+    qualification="standard",
 )
 NEXUS_DISPLAY_CANDIDATE = DisplayCapability(
     recipe_id="ubuntu-noble-nexus-20.5",
@@ -82,7 +82,7 @@ NEXUS_DISPLAY_CANDIDATE = DisplayCapability(
     expected_kodi_version="20.5",
     expected_version_tag="stable",
     expected_prerelease_ordinal=None,
-    qualification="candidate",
+    qualification="standard",
     clipboard_policy="unimplemented",
 )
 MATRIX_DISPLAY_CANDIDATE = DisplayCapability(
@@ -96,7 +96,7 @@ MATRIX_DISPLAY_CANDIDATE = DisplayCapability(
     expected_kodi_version="19.4",
     expected_version_tag="stable",
     expected_prerelease_ordinal=None,
-    qualification="candidate",
+    qualification="standard",
     clipboard_policy="unimplemented",
 )
 PIERS_DISPLAY_CANDIDATE = DisplayCapability(
@@ -110,7 +110,7 @@ PIERS_DISPLAY_CANDIDATE = DisplayCapability(
     expected_kodi_version="22.0",
     expected_version_tag="rc",
     expected_prerelease_ordinal=1,
-    qualification="candidate",
+    qualification="standard",
     process_probe="piers-loader",
 )
 _DISPLAY_RECIPES = (
@@ -213,3 +213,16 @@ def installed_display_capability(
         return capability
     except ValueError:
         return None
+
+
+def admitted_display_capability(
+    session: Session, revision_id: UUID, *, experimental: bool = False
+) -> DisplayCapability | None:
+    """Admit sealed standards automatically; old r4 retains explicit opt-in."""
+    capability = installed_display_capability(session, revision_id)
+    if capability is not None and (
+        capability.qualification == "standard"
+        or (experimental and capability.qualification == "experimental")
+    ):
+        return capability
+    return None
