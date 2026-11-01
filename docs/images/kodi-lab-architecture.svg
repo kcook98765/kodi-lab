@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="970" viewBox="0 0 1536 970" role="img" aria-labelledby="title desc">
+<title id="title">Kodi Lab architecture and data flow</title>
+<desc id="desc">A high-level architecture diagram. A user browser connects to the Kodi Lab Web UI, and MCP-compatible AI clients connect to its MCP service. Shared orchestration and permissions manage existing external Kodi targets via JSON-RPC and optional Narrow Bridge, or four on-demand managed Kodi version profiles via a restricted broker. Managed instances feed noVNC and screen preview for browser viewing. Arrows indicate API/control flows and dashed display flows.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#334155"/></marker><marker id="darrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#16839b"/></marker></defs>
+<rect x="0" y="0" width="1536" height="970" rx="0" fill="#fff" stroke="#fff" stroke-width="0"/>
+<text x="768" y="51" fill="#122339" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="39" font-weight="750" text-anchor="middle">Kodi Lab — Architecture and Data Flow</text>
+<text x="768" y="82" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="450" text-anchor="middle">Web UI • MCP agents • external Kodi • managed runtimes • noVNC and previews</text>
+<rect x="24" y="132" width="249" height="656" rx="16" fill="#f0f7ff" stroke="#9bc3f3" stroke-width="1.5"/>
+<rect x="298" y="132" width="519" height="656" rx="16" fill="#f8f4ff" stroke="#b8a2e6" stroke-width="1.5"/>
+<rect x="844" y="132" width="378" height="656" rx="16" fill="#f8fcf7" stroke="#a3d8b0" stroke-width="1.5"/>
+<rect x="1247" y="132" width="265" height="656" rx="16" fill="#effbfc" stroke="#8bd1d8" stroke-width="1.5"/>
+<rect x="24" y="132" width="249" height="52" rx="16" fill="#245a9c" stroke="#245a9c" stroke-width="1.5"/>
+<rect x="298" y="132" width="519" height="52" rx="16" fill="#6741a5" stroke="#6741a5" stroke-width="1.5"/>
+<rect x="844" y="132" width="378" height="52" rx="16" fill="#2d7b50" stroke="#2d7b50" stroke-width="1.5"/>
+<rect x="1247" y="132" width="265" height="52" rx="16" fill="#0c7887" stroke="#0c7887" stroke-width="1.5"/>
+<text x="148" y="165" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Users and agents</text>
+<text x="557" y="165" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Kodi Lab core</text>
+<text x="1033" y="165" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Kodi targets</text>
+<text x="1379" y="165" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Viewing</text>
+<rect x="46" y="214" width="204" height="203" rx="14" fill="#ffffff" stroke="#8eb6e8" stroke-width="1.5"/>
+<text x="148" y="255" fill="#163e6b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="22" font-weight="750" text-anchor="middle">User browser</text>
+<text x="64" y="290" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="500" text-anchor="start">Web administration</text>
+<text x="64" y="319" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="500" text-anchor="start">Status and actions</text>
+<text x="64" y="348" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="500" text-anchor="start">Screenshots</text>
+<text x="64" y="377" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="500" text-anchor="start">noVNC session</text>
+<rect x="46" y="478" width="204" height="203" rx="14" fill="#ffffff" stroke="#8eb6e8" stroke-width="1.5"/>
+<text x="148" y="519" fill="#163e6b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="750" text-anchor="middle">AI agent</text>
+<text x="148" y="546" fill="#284865" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="650" text-anchor="middle">MCP client</text>
+<text x="64" y="583" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="start">Codex / OpenCode</text>
+<text x="64" y="610" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="start">Other MCP clients</text>
+<text x="64" y="637" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="start">User-selected AI</text>
+<text x="64" y="664" fill="#37526e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="start">No cloud AI key needed</text>
+<rect x="323" y="219" width="192" height="108" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="419" y="259" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="750" text-anchor="middle">Web UI</text>
+<text x="419" y="288" fill="#4b5375" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Browser sessions</text>
+<text x="419" y="310" fill="#4b5375" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Admin controls</text>
+<rect x="323" y="457" width="192" height="107" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="419" y="497" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="750" text-anchor="middle">MCP server</text>
+<text x="419" y="523" fill="#4b5375" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Agent tools</text>
+<text x="419" y="544" fill="#4b5375" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Scoped target grants</text>
+<rect x="552" y="295" width="240" height="149" rx="14" fill="#ede5fc" stroke="#8166c2" stroke-width="1.5"/>
+<text x="672" y="332" fill="#422777" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="750" text-anchor="middle">Application</text>
+<text x="672" y="359" fill="#422777" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="750" text-anchor="middle">orchestration</text>
+<text x="672" y="388" fill="#4b426c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Targets / sessions</text>
+<text x="672" y="413" fill="#4b426c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Actions / inspection</text>
+<rect x="552" y="469" width="240" height="84" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="672" y="506" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Permissions</text>
+<text x="672" y="531" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="600" text-anchor="middle">and policy</text>
+<rect x="552" y="584" width="240" height="85" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="672" y="623" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Restricted broker</text>
+<text x="672" y="649" fill="#4b5375" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Managed lifecycle</text>
+<rect x="323" y="704" width="192" height="62" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="419" y="733" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="650" text-anchor="middle">Repository /</text>
+<text x="419" y="754" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="650" text-anchor="middle">install helpers</text>
+<rect x="552" y="704" width="240" height="62" rx="14" fill="#ffffff" stroke="#9b84cf" stroke-width="1.5"/>
+<text x="672" y="731" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="650" text-anchor="middle">Inspection / screenshots</text>
+<text x="672" y="750" fill="#4d337f" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="650" text-anchor="middle">preview services</text>
+<path d="M250 316 H287 V273 H323" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M250 578 H287 V510 H323" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M515 274 H535 V338 H552" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M515 511 H535 V396 H552" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M672 444 V469" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<path d="M672 553 V584" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="861" y="204" width="344" height="251" rx="14" fill="#e9f7ed" stroke="#91c9a0" stroke-width="1.5"/>
+<text x="1033" y="232" fill="#25633e" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="800" text-anchor="middle">EXTERNAL KODI</text>
+<rect x="877" y="248" width="151" height="145" rx="11" fill="#ffffff" stroke="#83b994" stroke-width="1.5"/>
+<rect x="1039" y="248" width="151" height="145" rx="11" fill="#ffffff" stroke="#83b994" stroke-width="1.5"/>
+<text x="952" y="278" fill="#21513a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="750" text-anchor="middle">Production</text>
+<text x="952" y="301" fill="#21513a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="750" text-anchor="middle">Kodi</text>
+<text x="1114" y="278" fill="#21513a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="750" text-anchor="middle">Development</text>
+<text x="1114" y="301" fill="#21513a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="750" text-anchor="middle">Kodi</text>
+<text x="952" y="345" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">JSON-RPC</text>
+<text x="952" y="366" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">Optional Narrow</text>
+<text x="952" y="387" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">Bridge add-on</text>
+<text x="1114" y="345" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">JSON-RPC</text>
+<text x="1114" y="366" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">Optional Narrow</text>
+<text x="1114" y="387" fill="#335d46" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="middle">Bridge add-on</text>
+<text x="1033" y="427" fill="#245b38" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">No Kodi host OS access</text>
+<rect x="861" y="488" width="344" height="265" rx="14" fill="#fff7eb" stroke="#f0b770" stroke-width="1.5"/>
+<text x="1033" y="516" fill="#9a520c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="800" text-anchor="middle">MANAGED KODI</text>
+<rect x="877" y="538" width="151" height="79" rx="10" fill="#ffffff" stroke="#eba65b" stroke-width="1.5"/>
+<text x="952.5" y="572" fill="#874509" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="750" text-anchor="middle">Matrix 19.4</text>
+<text x="952.5" y="595" fill="#765a3c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Installed on demand</text>
+<rect x="1039" y="538" width="151" height="79" rx="10" fill="#ffffff" stroke="#eba65b" stroke-width="1.5"/>
+<text x="1114.5" y="572" fill="#874509" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="750" text-anchor="middle">Nexus 20.5</text>
+<text x="1114.5" y="595" fill="#765a3c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Installed on demand</text>
+<rect x="877" y="637" width="151" height="79" rx="10" fill="#ffffff" stroke="#eba65b" stroke-width="1.5"/>
+<text x="952.5" y="671" fill="#874509" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="750" text-anchor="middle">Omega 21.3</text>
+<text x="952.5" y="694" fill="#765a3c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Installed on demand</text>
+<rect x="1039" y="637" width="151" height="79" rx="10" fill="#ffffff" stroke="#eba65b" stroke-width="1.5"/>
+<text x="1114.5" y="671" fill="#874509" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="750" text-anchor="middle">Piers 22 RC1</text>
+<text x="1114.5" y="694" fill="#765a3c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="middle">Installed on demand</text>
+<text x="1033" y="742" fill="#8a531d" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="middle">One active managed Kodi at a time</text>
+<path d="M792 362 H861" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="825" y="300" fill="#334155" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle">JSON-RPC</text>
+<text x="825" y="319" fill="#334155" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="middle">+ Bridge</text>
+<path d="M792 625 H841 V594 H861" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="827" y="548" fill="#334155" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="middle">Lifecycle</text>
+<text x="827" y="566" fill="#334155" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="middle">and deploy</text>
+<rect x="1264" y="210" width="230" height="211" rx="14" fill="#ffffff" stroke="#67bcca" stroke-width="1.5"/>
+<text x="1379" y="250" fill="#086878" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="middle">noVNC</text>
+<text x="1379" y="289" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Live managed display</text>
+<text x="1379" y="318" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Browser-based viewer</text>
+<text x="1379" y="347" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Optional human control</text>
+<text x="1379" y="376" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">View-only policy</text>
+<rect x="1264" y="463" width="230" height="221" rx="14" fill="#ffffff" stroke="#67bcca" stroke-width="1.5"/>
+<text x="1379" y="502" fill="#086878" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="750" text-anchor="middle">Screen preview</text>
+<text x="1379" y="544" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Periodic JPEG / PNG</text>
+<text x="1379" y="573" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Lightweight inspection</text>
+<text x="1379" y="602" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Agent screenshots</text>
+<text x="1379" y="631" fill="#32626b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17" font-weight="500" text-anchor="middle">Viewer through Web UI</text>
+<text x="1379" y="736" fill="#086878" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">Display data returns</text>
+<text x="1379" y="757" fill="#086878" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">to the browser</text>
+<path d="M1205 577 H1235 V313 H1264" fill="none" stroke="#16839b" stroke-width="2.7" stroke-dasharray="8 7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#darrow)"/>
+<path d="M1205 668 H1264" fill="none" stroke="#16839b" stroke-width="2.7" stroke-dasharray="8 7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#darrow)"/>
+<path d="M1379 210 V110 H148 V213" fill="none" stroke="#16839b" stroke-width="2.7" stroke-dasharray="8 7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#darrow)"/>
+<rect x="24" y="806" width="1488" height="133" rx="13" fill="#f7f9fc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="47" y="841" fill="#21374c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="750" text-anchor="start">Flow key</text>
+<path d="M48 871 H113" fill="none" stroke="#334155" stroke-width="3"  stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="129" y="878" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" text-anchor="start">Control / API calls</text>
+<path d="M352 871 H417" fill="none" stroke="#16839b" stroke-width="2.7" stroke-dasharray="8 7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#darrow)"/>
+<text x="432" y="878" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" text-anchor="start">Display / monitoring</text>
+<text x="755" y="841" fill="#21374c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="750" text-anchor="start">Architecture notes</text>
+<text x="755" y="871" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="450" text-anchor="start">External Kodi: native JSON-RPC and optional narrow Bridge; no OS-level host management.</text>
+<text x="755" y="899" fill="#475569" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="450" text-anchor="start">Managed Kodi: on-demand local containers, broker-mediated lifecycle, retained or fresh profiles.</text>
+</svg>
