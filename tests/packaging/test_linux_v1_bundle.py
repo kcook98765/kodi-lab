@@ -6,6 +6,8 @@ import hashlib
 import io
 import json
 import runpy
+import subprocess
+import sys
 import tarfile
 import zipfile
 from collections.abc import Mapping
@@ -14,6 +16,13 @@ from unittest.mock import patch
 
 import pytest
 
+from kodi_lab.application.runtime_installations import preview_acknowledgement
+from kodi_lab.runtime.recipes import (
+    FlathubOstreeProvider,
+    load_installation_recipe,
+    load_reviewed_recipe,
+    supported_generations,
+)
 from scripts.build_narrow_bridge import (
     BUILDER_ID,
     RELEASE_INVENTORY,
@@ -218,6 +227,126 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
     (bundle / "INSTALL.md").write_bytes(b"altered")
     with pytest.raises(ValueError, match="artifact differs"):
         verify(bundle)
+
+
+def test_supported_recipe_staging_matches_application_defaults(tmp_path: Path) -> None:
+    root = Path(__file__).parents[2]
+    staged = tmp_path / "bundle"
+    staged.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/linux-v1-bundle"),
+            "stage-recipes",
+            str(staged),
+            str(root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert {p.name for p in (staged / "runtime-recipes").iterdir()} == {
+        "matrix-19.4-display-r3.json",
+        "nexus-20.5-display-r3.json",
+        "omega-21.3-display-r5.json",
+    }
+    records = bundle_tool["_recipes"](staged)
+    assert {r["generation"]: r["recipe_digest"] for r in records} == {
+        g: load_reviewed_recipe(g).digest for g in supported_generations()
+    }
+    assert [r["recipe_revision"] for r in records] == [3, 3, 5]
+    stage_script = (root / "scripts/stage-linux-v1-bundle").read_text()
+    assert (
+        '"$output/linux-v1-bundle" stage-recipes "$output" "$repository"'
+        in stage_script
+    )
+
+
+def test_correct_bundle_recipes_are_verified_exactly(bundle: Path) -> None:
+    records = verify(bundle)["runtimes"]
+    assert [(r["generation"], r["recipe_revision"]) for r in records] == [
+        ("matrix", 3),
+        ("nexus", 3),
+        ("omega", 5),
+    ]
+    assert {r["file"] for r in records} == {
+        "runtime-recipes/" + name for name, _ in bundle_tool["RECIPES"].values()
+    }
+
+
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega"])
+@pytest.mark.parametrize("substitution", ["old-r2", "altered"])
+def test_bundle_rejects_recipe_substitution_even_when_rehashed(
+    bundle: Path,
+    generation: str,
+    substitution: str,
+) -> None:
+    root = Path(__file__).parents[2]
+    filename, _ = bundle_tool["RECIPES"][generation]
+    path = bundle / "runtime-recipes" / filename
+    if substitution == "old-r2":
+        historical = {
+            "matrix": "matrix-19.4-r2.json",
+            "nexus": "nexus-20.5-r2.json",
+            "omega": "omega-21.3-r2.json",
+        }[generation]
+        path.write_bytes(
+            (root / "src/kodi_lab/runtime/recipes" / historical).read_bytes()
+        )
+    else:
+        path.write_bytes(path.read_bytes() + b"\n")
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    relative = path.relative_to(bundle).as_posix()
+    document["files"][relative] = {"sha256": digest(path), "size": path.stat().st_size}
+    record = next(r for r in document["runtimes"] if r["generation"] == generation)
+    record["recipe_digest"] = digest(path)
+    record["recipe_revision"] = json.loads(path.read_bytes())["recipe_revision"]
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="release recipe identity differs"):
+        verify(bundle)
+
+
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega"])
+def test_bundle_rejects_missing_recipe(bundle: Path, generation: str) -> None:
+    filename, _ = bundle_tool["RECIPES"][generation]
+    (bundle / "runtime-recipes" / filename).unlink()
+    with pytest.raises(ValueError, match="bundle file inventory differs"):
+        verify(bundle)
+
+
+def test_recipe_staging_rejects_substituted_source(tmp_path: Path) -> None:
+    root = Path(__file__).parents[2]
+    repository = tmp_path / "source"
+    recipes = repository / "src/kodi_lab/runtime/recipes"
+    recipes.mkdir(parents=True)
+    filename, _ = bundle_tool["RECIPES"]["matrix"]
+    (recipes / filename).write_bytes(
+        (root / "src/kodi_lab/runtime/recipes/matrix-19.4-r2.json").read_bytes()
+    )
+    staged = tmp_path / "bundle"
+    staged.mkdir()
+    with pytest.raises(ValueError, match="release recipe identity differs"):
+        bundle_tool["stage_recipes"](staged, repository)
+    assert not list((staged / "runtime-recipes").iterdir())
+
+
+def test_piers_stays_in_exact_wheel_preview_path(bundle: Path) -> None:
+    recipe = load_installation_recipe("piers")
+    assert recipe.recipe.recipe_revision == 3
+    assert (
+        recipe.digest
+        == "sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8"
+    )
+    assert isinstance(recipe.recipe.provider, FlathubOstreeProvider)
+    acknowledgement = preview_acknowledgement()
+    assert acknowledgement["recipe_digest"] == recipe.digest
+    assert acknowledgement["recipe_revision"] == 3
+    assert acknowledgement["support_tier"] == "preview"
+    assert acknowledgement["acknowledgement"] == "development-only-prerelease"
+    assert "piers" not in bundle_tool["RECIPES"]
+    assert all(r["generation"] != "piers" for r in verify(bundle)["runtimes"])
 
 
 def test_release_broker_binds_host_route_inventory_read_only() -> None:

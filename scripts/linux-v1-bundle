@@ -40,9 +40,18 @@ BRIDGE_FILES = (
     "service.py",
 )
 RECIPES = {
-    "matrix": "matrix-19.4-r2.json",
-    "nexus": "nexus-20.5-r2.json",
-    "omega": "omega-21.3-r2.json",
+    "matrix": (
+        "matrix-19.4-display-r3.json",
+        "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+    ),
+    "nexus": (
+        "nexus-20.5-display-r3.json",
+        "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
+    ),
+    "omega": (
+        "omega-21.3-display-r5.json",
+        "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
+    ),
 }
 RELEASE_FILES = {
     APP_ARCHIVE,
@@ -62,7 +71,7 @@ RELEASE_FILES = {
     "MANAGED-STATE-RECOVERY.md",
     "PRODUCTION-OPERATIONS.md",
     "linux-v1-bundle",
-} | {f"runtime-recipes/{name}" for name in RECIPES.values()}
+} | {f"runtime-recipes/{name}" for name, _ in RECIPES.values()}
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
 TREE = re.compile(r"[0-9a-f]{40}\Z")
 DEVELOPMENT_SOURCE_KEY = "KODI_LAB_DEVELOPMENT_SOURCE"
@@ -75,7 +84,7 @@ REPOSITORY_KEYS = {
     "KODI_LAB_REPOSITORY_BUNDLE_SHA256",
 }
 PRIVATE_LAN_NETWORKS = tuple(
-    ipaddress.ip_network(value)
+    cast(ipaddress.IPv4Network, ipaddress.ip_network(value))
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 
@@ -627,7 +636,8 @@ def _recipe_record(path: pathlib.Path) -> dict[str, str | int]:
         recipe.get("generation") not in RECIPES
         or recipe.get("platform") != "linux/amd64"
         or recipe.get("provider", {}).get("type") != "signed_distro_apt"
-        or recipe.get("recipe_revision") != 2
+        or path.name != RECIPES[recipe["generation"]][0]
+        or digest(path) != RECIPES[recipe["generation"]][1]
     ):
         raise ValueError("release recipe identity differs")
     return {
@@ -644,7 +654,7 @@ def _recipe_record(path: pathlib.Path) -> dict[str, str | int]:
 
 def _recipes(bundle: pathlib.Path) -> list[dict[str, str | int]]:
     result = []
-    for generation, filename in RECIPES.items():
+    for generation, (filename, _) in RECIPES.items():
         item = _recipe_record(bundle / "runtime-recipes" / filename)
         if item["generation"] != generation:
             raise ValueError("release recipe generation differs")
@@ -656,6 +666,18 @@ def _recipes(bundle: pathlib.Path) -> list[dict[str, str | int]]:
     ]:
         raise ValueError("release recipe set differs")
     return result
+
+
+def stage_recipes(bundle: pathlib.Path, repository: pathlib.Path) -> None:
+    """Stage only the exact release inventory used by offline verification."""
+    destination = bundle / "runtime-recipes"
+    destination.mkdir()
+    for filename, _ in RECIPES.values():
+        source = repository / "src/kodi_lab/runtime/recipes" / filename
+        _file_record(source)
+        _recipe_record(source)
+        (destination / filename).write_bytes(source.read_bytes())
+    _recipes(bundle)
 
 
 def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
@@ -1060,7 +1082,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("finalize", "verify", "configure", "development-source", "preflight"),
+        choices=(
+            "stage-recipes",
+            "finalize",
+            "verify",
+            "configure",
+            "development-source",
+            "preflight",
+        ),
     )
     parser.add_argument("bundle", type=pathlib.Path)
     parser.add_argument("repository", type=pathlib.Path, nargs="?")
@@ -1073,10 +1102,13 @@ def main() -> int:
     parser.add_argument("--temporary-network-child-prefix", type=int, default=24)
     args = parser.parse_args()
     try:
-        if args.command == "finalize":
+        if args.command in ("stage-recipes", "finalize"):
             if args.repository is None:
-                raise ValueError("finalize requires repository")
-            finalize(args.bundle, args.repository)
+                raise ValueError(f"{args.command} requires repository")
+            if args.command == "stage-recipes":
+                stage_recipes(args.bundle, args.repository)
+            else:
+                finalize(args.bundle, args.repository)
         else:
             data = verify(
                 args.bundle,
@@ -1092,7 +1124,8 @@ def main() -> int:
                     args.repository_bind or values["KODI_LAB_REPOSITORY_BIND"]
                 )
                 print(
-                    "Repository listener address is available locally; verify advertised feed reachability from Kodi after startup."
+                    "Repository listener address is available locally; verify "
+                    "advertised feed reachability from Kodi after startup."
                 )
             elif args.command == "configure":
                 configure(
