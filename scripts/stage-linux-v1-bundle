@@ -67,9 +67,7 @@ cp "$repository/docs/PRODUCTION-OPERATIONS.md" "$output/PRODUCTION-OPERATIONS.md
 cp "$repository/docs/LINUX-V1-RELEASE.md" \
   "$output/RELEASE.md"
 cp "$repository/scripts/linux-v1-bundle" "$output/linux-v1-bundle"
-mkdir "$output/runtime-recipes"
-cp "$repository"/src/kodi_lab/runtime/recipes/{matrix-19.4-r2,nexus-20.5-r2,omega-21.3-r2}.json \
-  "$output/runtime-recipes/"
+python3 "$output/linux-v1-bundle" stage-recipes "$output" "$repository"
 cat > "$output/.env.example" <<'EOF'
 # Run python3 linux-v1-bundle configure . --repository-bind PRIVATE_LAN_IP
 #   --repository-port PORT --repository-base-url http://DURABLE_LAN_HOST:PORT
