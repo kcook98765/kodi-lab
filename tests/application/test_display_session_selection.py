@@ -1,4 +1,4 @@
-"""Exact approved Preview selection never grants a standard viewer."""
+"""Preview selection requires exact sealed approval and the reviewed recipe."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,25 +69,76 @@ def test_current_piers_preview_selection_requires_exact_sealed_approval(
 
 
 def test_ordinary_piers_r2_does_not_gain_disposable_selection(
-    factory: sessionmaker[Session],
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import hashlib
+    from dataclasses import replace
     from uuid import UUID
 
-    from kodi_lab.runtime.recipes import load_installation_recipe
-    from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
-    from tests.runtime.test_ostree_installation import acknowledgement, ready
-
-    operation = ready(factory)
-    backend = broker()
-    backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
-    RuntimeInstallationService(factory, backend).create_preview_instance(
-        development_mode=True, acknowledgement=acknowledgement()
+    from kodi_lab.runtime.ostree_assembly import (
+        assembly_assets_digest,
+        load_assembly_assets,
     )
+    from kodi_lab.runtime.ostree_installation import OstreeInstallationAssembly
+    from kodi_lab.runtime.recipes import (
+        PREVIEW_INSTALLATION_DIGEST,
+        load_recorded_reviewed_recipe,
+    )
+    from kodi_lab.runtime.ubuntu_support import load_support_closure
+    from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
+    from tests.runtime import test_ostree_installation as fixture
+
+    reviewed = load_recorded_reviewed_recipe(
+        "piers", "piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST
+    )
+    acknowledgement = fixture.acknowledgement().model_copy(
+        update={
+            "recipe_id": reviewed.recipe.recipe_id,
+            "recipe_revision": 2,
+            "recipe_digest": reviewed.digest,
+        }
+    )
+    current_assembly = fixture.assembly
+
+    def historical_assembly(operation: UUID) -> OstreeInstallationAssembly:
+        original = current_assembly(operation)
+        return replace(
+            original,
+            assembly=replace(
+                original.assembly,
+                recipe_revision=2,
+                supporting_closure_digest=load_support_closure(revision=2).digest,
+                assembly_assets_digest="sha256:" + assembly_assets_digest(revision=2),
+                asset_hashes=tuple(
+                    sorted(
+                        (name, hashlib.sha256(data).hexdigest())
+                        for name, data in load_assembly_assets(revision=2).items()
+                    )
+                ),
+            ),
+            acknowledgement=acknowledgement,
+        )
+
+    # Reconstruct only the test's historical installation/registration. Restore
+    # current defaults before exercising the real selection policy below.
+    with monkeypatch.context() as historical:
+        historical.setattr(fixture, "load_installation_recipe", lambda _: reviewed)
+        historical.setattr(fixture, "assembly", historical_assembly)
+        historical.setattr(
+            "kodi_lab.application.runtime_installations.load_installation_recipe",
+            lambda _: reviewed,
+        )
+        operation = fixture.ready(factory)
+        backend = broker()
+        backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
+        RuntimeInstallationService(factory, backend).create_preview_instance(
+            development_mode=True, acknowledgement=acknowledgement
+        )
     with factory() as db:
         row = RuntimeRecipeInstallationRepository(db).get(operation)
         assert row is not None and row.runtime_revision_id is not None
         revision_id = UUID(row.runtime_revision_id)
-    target = recipe_target_id(load_installation_recipe("piers"))
+    target = recipe_target_id(reviewed)
     service = DevelopmentSessionService(
         factory,
         lambda: ManagedContainerInventoryResult(containers=[]),
