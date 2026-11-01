@@ -12,4 +12,4 @@ def test_native_browser_contracts() -> None:
         timeout=10,
         check=True,
     )
-    assert "4 native browser qualification contracts passed" in result.stdout
+    assert "6 native browser qualification contracts passed" in result.stdout

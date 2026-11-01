@@ -23,3 +23,7 @@ async function closeObservedContext(command, context, now=Date.now, nap=ms=>new 
   throw Error('Closed viewer context still present');
 }
 module.exports={activateHeldButton,closeObservedContext};
+// Choose the integer CSS coordinate inside the requested framebuffer pixel.
+// Rounding a fractional canvas edge can dispatch into its preceding pixel.
+function framebufferPoint(rect,x,y) { return {x:Math.ceil(rect.x+x),y:Math.ceil(rect.y+y)}; }
+module.exports.framebufferPoint=framebufferPoint;
