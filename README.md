@@ -14,6 +14,23 @@ instances for experiments or connect to Kodi installations you already use.
 - Give MCP-compatible AI assistants access to the Kodi targets you choose.
 - Manage runtimes, instances and agent permissions from a Web interface.
 
+## Architecture at a glance
+
+![Kodi Lab architecture and data flow](docs/images/kodi-lab-architecture.svg)
+
+The diagram illustrates how the **Web UI** and **MCP-compatible agents** use
+Kodi Lab's common control and permissions layer to work with both existing
+external Kodi installations and isolated, on-demand managed Kodi runtimes.
+Managed instances provide browser viewing through noVNC and lightweight
+screen previews. External targets use Kodi JSON-RPC and, where installed,
+the optional Narrow Bridge add-on; Kodi Lab does not obtain OS-level access
+to external Kodi hosts.
+
+This is a conceptual overview, not a network-port inventory or a security
+boundary specification. See [architecture](docs/ARCHITECTURE.md),
+[security](SECURITY.md) and [standard noVNC](docs/STANDARD-NOVNC.md)
+for implementation details.
+
 ## Requirements
 
 - **Ubuntu 24.04 on 64-bit Intel/AMD (x86_64/amd64)** is the qualified host baseline.
