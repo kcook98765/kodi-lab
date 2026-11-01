@@ -18,24 +18,33 @@ selection remains Current Kodi. Opening an older registration does not select it
 its Advanced page identifies it as noncurrent. Home and Kodi link here in both
 administrator views. Household and external Kodi retain their separate management.
 
-The live screen reuses the existing noVNC controller and private transport for
-only the qualified, explicitly enabled Omega r4 instance. **Start Viewing** is
-explicit and defaults to view-only; **Stop Viewing** leaves Kodi running.
-**Take Control / Release Control** retain exclusive server-enforced input
-ownership and the original ten-minute deadline. Stop Kodi holds the existing lifecycle exclusion while it verifies viewer
-release before dispatch; fresh admission is refused under that claim. An uncertain release blocks Stop;
-no queued action is replayed. An expanded page opened without a selected, bound
-profile has no viewing controls and links back to Current Kodi. A changed environment retires the old panel and
-requires a page reload and fresh explicit viewing. Admission and control handoff
-recheck the rendered session and profile, so an old page cannot attach a fresh
-profile on the same registration. Other runtimes gain no noVNC
-qualification. Screenshots, JPEG preview and browser remote remain in Advanced.
+The live screen uses [standard noVNC viewing](STANDARD-NOVNC.md) for exact
+installed, validated Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1
+r3 runtimes. No experimental flag or individual viewer allowlist is required.
+Viewing runs at approximately 2 FPS at 640×360. **Start Viewing** is explicit and
+defaults to view-only, allowing independent MCP agent navigation while a human
+observes; **Stop Viewing** leaves Kodi running. **Take Control** acquires exclusive,
+server-enforced human input ownership and refuses conflicting agent/Web input.
+**Release Control** verifies neutral input and restores agent input. The maximum
+viewing session is ten minutes, unchanged by control handoffs.
+
+Stop Kodi holds the lifecycle exclusion, revokes viewing and retains input
+ownership until the broker proves that the exact native container has stopped.
+Fresh viewing admission is refused under that claim; an uncertain stop cannot
+clear ownership, and no queued action is replayed. An expanded page opened without
+a selected, bound profile has no viewing controls and links back to Current Kodi.
+A changed environment retires the old panel and requires a page reload and fresh
+explicit viewing. Admission and control handoff recheck the rendered session and
+profile, so an old page cannot attach a fresh profile on the same registration.
+Other recipes and older profiles gain no standard noVNC qualification. Existing
+HTTPS, authentication, CSRF, grants and viewer-cleanup requirements remain in force.
+Screenshots, JPEG preview and browser remote remain in Advanced.
 
 Native readiness, stored development prerequisites and a particular agent's
 permissions remain separate. A running container or saved Bridge record is not
 shown as complete development readiness. Runtime installations now distinguish
-canonical acquisition from separately reviewed development variants; a newer r4
-record does not make the canonical r2 installation appear unavailable. All recorded
+current acquisition recipes from historical reviewed variants; an older profile
+keeps its exact runtime pin when a newer recipe becomes available. All recorded
 failures remain inspectable under **Advanced → Reviewed runtime installations**.
 
 Advanced retains exact instance pins, Bridge/source/ZIP administration, recovery,

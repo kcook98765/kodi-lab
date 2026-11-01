@@ -30,16 +30,21 @@ instances for experiments or connect to Kodi installations you already use.
 Setup installs Python build/test packages automatically; editors and AI clients
 are optional.
 
-Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop is a working host
+Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has a reported working
 configuration, including managed Nexus/Omega and MCP. Follow the maintained
-[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). macOS and ARM64 hosts
-are not qualified. An existing Kodi target can be on another computer; these
-requirements apply to the Kodi Lab server.
+[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md); fresh-host qualification
+remains pending under [issue #8](https://github.com/kcook98765/kodi-lab/issues/8).
+macOS and ARM64 hosts are not qualified. An existing Kodi target can be on another
+computer; these requirements apply to the Kodi Lab server.
 
-For add-on development, the composed feature-branch [single-session walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough)
-describes the one-workspace, disposable-profile flow and its independent
-native/Bridge checks. It requires the corresponding reviewed code and matched
-deployment; it does not change an existing installation or platform qualification.
+For add-on development, the [Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough)
+describes one workspace with explicitly enabled retained version profiles or the
+default disposable-profile workflow, plus independent native/Bridge checks.
+[Standard noVNC viewing](docs/STANDARD-NOVNC.md) is available for the exact reviewed
+Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1 r3 runtimes; Ubuntu
+production deployment and four-version installed viewing acceptance passed on
+November 1, 2026. Existing installations still require a matched application,
+broker and schema update; older profiles are not automatically migrated.
 
 ## Quick Start — Install Kodi Lab
 
@@ -68,7 +73,8 @@ recorded; an exact commit can be selected with `--revision` / `-Revision`.
 
 It prompts for your private LAN repository address and Web administrator
 password, then builds/verifies the application bundle, initializes fresh state
-and starts services. Open <http://127.0.0.1:18100/login>, sign in and continue
+and starts services. Complete the [Web HTTPS prerequisite](#web-https-prerequisite),
+open `/login` at your site's trusted HTTPS origin, sign in and continue
 with [First-Time Setup](#first-time-setup). See the
 [installer guide](docs/HOST-INSTALLER.md) for prerequisites, configuration,
 start/stop and recovery. Windows users follow the
@@ -135,16 +141,22 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
 Keep the bundle and its generated configuration. The last command starts services
 in the background; reuse it from that directory for future restarts.
 
-**4. Open <http://127.0.0.1:18100/login> and sign in with your password.** Web
-access defaults to the server's own computer. If your browser is elsewhere, run
-this SSH tunnel on the browser's computer, replacing the login with your own:
+**4. Complete the [Web HTTPS prerequisite](#web-https-prerequisite), then open
+`/login` at your site's trusted HTTPS origin and sign in with your password.**
+For ports, capacity planning and troubleshooting, see the
+[full Linux installation guide](docs/LINUX-SOURCE-INSTALL.md).
 
-```sh
-ssh -N -L 18100:127.0.0.1:18100 your-user@your-server
-```
+### Web HTTPS prerequisite
 
-Leave the tunnel running and open the same local URL. For ports, capacity planning
-and troubleshooting, see the [full Linux installation guide](docs/LINUX-SOURCE-INSTALL.md).
+The installer starts a loopback HTTP backend at `127.0.0.1:18100`; it does not
+configure TLS. Browser sign-in and standard viewing require a separately configured,
+browser-trusted HTTPS/WSS ingress to Web. Use that ingress's HTTPS origin for
+`/login`, with same-origin WebSocket forwarding and forwarded-scheme trust limited
+to the actual proxy addresses. Direct HTTP sign-in is rejected. An SSH tunnel to
+the HTTP backend does not supply HTTPS; any tunnel to an existing HTTPS ingress
+must preserve certificate validation. Do not simply change the backend URL's
+scheme to HTTPS. This prerequisite also applies to Windows/WSL2. Local bearer-token
+MCP access remains separate from browser authentication.
 
 ## First-Time Setup
 

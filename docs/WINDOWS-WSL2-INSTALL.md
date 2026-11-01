@@ -137,9 +137,11 @@ The wrapper passes arguments directly to `wsl.exe --exec`; no private launcher
 or shell command-string translation is needed. Use the execution policy approved
 for your computer; review the script rather than disabling policy globally.
 
-Open <http://127.0.0.1:18100/login> in the Windows browser and sign in. The
-installer checks login readiness and anonymous MCP denial, but authorized MCP
-inspection still needs a client and target grant.
+Complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite), then
+open `/login` at your site's trusted HTTPS origin in Windows and sign in.
+The installer does not configure TLS; direct loopback HTTP sign-in is rejected.
+Its login-page readiness and anonymous MCP denial checks do not prove authenticated
+browser access. Authorized MCP inspection still needs a client and target grant.
 
 ## Repository LAN access and external targets
 
@@ -198,8 +200,9 @@ with sanitized versions/endpoints; do not relax trust checks or grants.
 For everyday add-on work, use [Kodi → Current Kodi](DEVELOPMENT-SESSION.md)
 after installing an approved runtime. It keeps one selected development
 environment and persistent workspace; Advanced retains the individual lifecycle
-controls described below. Viewer support still requires the exact qualified
-runtime and explicit administrator enablement.
+controls described below. [Standard viewing](STANDARD-NOVNC.md) requires the exact
+installed, validated runtime and explicit **Start Viewing**, without an experimental
+flag or instance allowlist. Windows/WSL2 fresh-host qualification remains pending.
 
 Follow [first-run setup](HOST-INSTALLER.md#first-run-and-authorized-inspection):
 install one Omega 21.3 runtime, create/provision/start an instance, check its
