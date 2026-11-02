@@ -171,3 +171,35 @@ def test_downloaded_file_is_standalone_and_help_has_no_project_dependency(
     )
     assert "bootstrap" in result.stdout
     assert list(tmp_path.iterdir()) == [script]
+
+
+@pytest.mark.usefixtures("prerequisites")
+def test_bootstrap_forwards_only_validated_windows_ingress_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], cwd: Path, *, capture: bool = False) -> str:
+        commands.append(command)
+        return "a" * 40 if command[:2] == ["git", "rev-parse"] else ""
+
+    monkeypatch.setattr(install, "host_kind", lambda: "windows-wsl2")
+    monkeypatch.setattr(install, "run", run)
+    args = arguments(tmp_path, "a" * 40)
+    args.web_https_proxy = "caddy"
+    args.https_ingress_subnet = "192.168.241.0/29"
+    args.https_port = 18443
+    args.windows_route = ["192.168.1.0/24", "127.0.0.0/8"]
+    install.bootstrap(args)
+    command = commands[-1]
+    assert command[command.index("--web-https-proxy") + 1] == "caddy"
+    assert (
+        command[command.index("--https-ingress-subnet") + 1]
+        == args.https_ingress_subnet
+    )
+    assert command[command.index("--https-port") + 1] == "18443"
+    assert [
+        command[index + 1]
+        for index, value in enumerate(command)
+        if value == "--windows-route"
+    ] == sorted(args.windows_route)

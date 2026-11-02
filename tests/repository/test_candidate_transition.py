@@ -1437,3 +1437,75 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
     assert _initialize_fixture(later, url(later)) == CURRENT_HEAD
     assert contents(later) == before
     assert (later / "master-key").read_bytes() not in keys
+
+
+def test_successor_preflight_requires_transition_for_unchanged_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.install import SUCCESSOR_CHECK
+
+    old, new, data, state, old_hash, new_hash, backup_id = _setup(tmp_path, monkeypatch)
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(state))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    with pytest.raises(ValueError, match="requires a completed repository"):
+        exec(SUCCESSOR_CHECK, {})
+    transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    database = state / remote_lifecycle.DATABASE
+    before = database.read_bytes()
+    repository_root = str(data)
+    # The admin-only service has this mount, but does not supply its environment
+    # key by default. The helper must explicitly pass the mounted repository path.
+    monkeypatch.delenv("KODI_LAB_REPOSITORY_DATA_ROOT")
+    with pytest.raises(HostBootstrapError, match="repository is unavailable"):
+        exec(SUCCESSOR_CHECK, {})
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", repository_root)
+    exec(SUCCESSOR_CHECK, {})
+    # The established same-head upgrade is validation-only and writes no new
+    # completion receipt. Do not invent another marker to require its invocation.
+    assert upgrade(state, f"sqlite:///{database}") == (CURRENT_HEAD, CURRENT_HEAD, None)
+    assert database.read_bytes() == before
+    assert not (state / ".last-upgrade.json").exists()
+
+
+def test_successor_preflight_requires_authoritative_schema_upgrade_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.install import SUCCESSOR_CHECK
+
+    old, new, data, state, old_hash, new_hash, backup_id = _setup(
+        tmp_path, monkeypatch, old_revision="0056_repository_workspace_deployment"
+    )
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(state))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    with pytest.raises(HostBootstrapError, match="does not match installed head"):
+        exec(SUCCESSOR_CHECK, {})
+    upgrade(state, f"sqlite:///{state / remote_lifecycle.DATABASE}")
+    exec(SUCCESSOR_CHECK, {})
+    completed = state / ".last-upgrade.json"
+    receipt = json.loads(completed.read_bytes())
+    receipt["repository_transition_operation_id"] = "f" * 32
+    completed.write_bytes(canonical(receipt))
+    with pytest.raises(HostBootstrapError, match="upgrade is incomplete"):
+        exec(SUCCESSOR_CHECK, {})
+
+
+@pytest.mark.parametrize(
+    "pending",
+    [".upgrade-pending.json", ".restore-pending.json", ".recovery-pending.json"],
+)
+def test_successor_preflight_preserves_existing_pending_operation_fences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pending: str
+) -> None:
+    from scripts.install import SUCCESSOR_CHECK
+
+    old, new, data, state, old_hash, new_hash, backup_id = _setup(tmp_path, monkeypatch)
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(state))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    marker = state / pending
+    marker.write_text("{}")
+    marker.chmod(0o600)
+    with pytest.raises(HostBootstrapError, match="incomplete"):
+        exec(SUCCESSOR_CHECK, {})
+    assert marker.read_text() == "{}"

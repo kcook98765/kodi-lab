@@ -14,7 +14,12 @@ param(
     [ValidateRange(1024, 65535)]
     [int]$RepositoryLocalPort = 18121,
     [ValidateRange(1024, 65535)]
-    [int]$WebPort = 18100
+    [int]$WebPort = 18100,
+    [ValidateSet('caddy')]
+    [string]$WebHttpsProxy,
+    [string]$HttpsIngressSubnet,
+    [ValidateRange(1024, 65535)]
+    [int]$HttpsPort = 18443
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +51,15 @@ if ($Revision -and $Revision -cnotmatch '^[0-9a-f]{40}$') {
 }
 if ($Revision -and ($CheckoutPath -or $Action -ne 'install')) {
     throw '-Revision applies only to installation without -CheckoutPath.'
+}
+if (($WebHttpsProxy -or $HttpsIngressSubnet -or $PSBoundParameters.ContainsKey('HttpsPort')) -and $Action -ne 'install') {
+    throw 'HTTPS options apply only to fresh install; management uses its recorded configuration.'
+}
+if (($HttpsIngressSubnet -or $PSBoundParameters.ContainsKey('HttpsPort')) -and -not $WebHttpsProxy) {
+    throw 'HTTPS options require -WebHttpsProxy caddy.'
+}
+if ($WebHttpsProxy -and -not $HttpsIngressSubnet) {
+    throw '-HttpsIngressSubnet requires an explicitly reviewed, unused RFC1918 IPv4 /29.'
 }
 $TemporaryInstaller = $null
 $LinuxAction = $Action
@@ -83,6 +97,15 @@ if ($Action -eq 'install') {
     )
     if ($RepositoryAddress) { $WslArguments += @('--repository-bind', $RepositoryAddress) }
     if ($RepositoryBaseUrl) { $WslArguments += @('--repository-base-url', $RepositoryBaseUrl) }
+    if ($WebHttpsProxy) {
+        if (@(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq $HttpsPort }).Count -gt 0) {
+            throw "HTTPS port $HttpsPort already has a Windows listener."
+        }
+        $WslArguments += @('--web-https-proxy', $WebHttpsProxy, '--https-ingress-subnet', $HttpsIngressSubnet, '--https-port', [string]$HttpsPort)
+        $WindowsRoutes = @((Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop).DestinationPrefix | Where-Object { $_ -ne '0.0.0.0/0' } | Sort-Object -Unique)
+        if ($WindowsRoutes.Count -eq 0) { throw 'Could not collect specific Windows IPv4 routes.' }
+        foreach ($Route in $WindowsRoutes) { $WslArguments += @('--windows-route', $Route) }
+    }
 }
 try {
     & wsl.exe @WslArguments

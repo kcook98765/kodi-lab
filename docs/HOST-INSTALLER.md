@@ -104,7 +104,12 @@ also verifies that the login page responds and anonymous MCP access returns
 
 ## First run and authorized inspection
 
-The installer provides the loopback HTTP backend, not TLS. Complete the
+By default the installer provides the loopback HTTP backend. Windows users can
+explicitly opt into [local Caddy HTTPS/WSS](WINDOWS-WSL2-INSTALL.md#optional-local-httpswss-ingress)
+with `--web-https-proxy caddy`, an explicit `--https-ingress-subnet`, optional
+`--https-port` (18443 by default), and specific `--windows-route` evidence.
+Ubuntu and Windows installations without these options retain their existing
+configuration. The optional proxy never imports a CA automatically. Complete the
 [Web HTTPS prerequisite](../README.md#web-https-prerequisite), then open `/login`
 at your site's trusted HTTPS origin and use your chosen password. Direct HTTP
 sign-in is rejected, even if the login page responds. In
@@ -178,8 +183,10 @@ the reviewed candidate transition or use Docker prune as recovery.
 
 After a manual upgrade, retire the old helper and any sign-in task pointing to
 it: they pin the old bundle. Use the new bundle's explicit startup commands with
-the retained project name and Windows override. This installer does not yet
-adopt a successor bundle into an existing receipt.
+the retained project name and Windows override. The optional Windows `configure-successor` action creates a separate verified
+site record and helper for an already staged/configured successor; it preserves
+the original receipt and does not perform an application upgrade. See the
+[Windows adoption procedure](WINDOWS-WSL2-INSTALL.md#adopt-an-existing-installation-disable-or-roll-back).
 
 The [manual Linux source steps](LINUX-SOURCE-INSTALL.md) remain available for
 operators who want to perform each action themselves.

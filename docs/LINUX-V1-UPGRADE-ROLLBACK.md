@@ -417,3 +417,66 @@ examples in this guide, retention-only procedures must omit `--rm`, add a unique
 `--name`, and retain the resulting container for review. This does not authorize
 starting, restarting or deleting previously retained containers or cleaning up
 production resources.
+
+## Windows successor site configuration
+
+Optional Windows HTTPS uses the [Windows successor procedure](WINDOWS-WSL2-INSTALL.md#adopt-an-existing-installation-disable-or-roll-back).
+The fresh installer cannot upgrade an initialized database. A separately staged,
+verified and configured successor under `NEW_SITE/bundle` can receive a new
+`SITE.json` using the approved successor source's `install.py configure-successor`.
+The previous receipt remains unchanged; the new record binds its hash and retains
+the same engine/project. All site/runtime `.env` values must match, except the
+verified Web/broker image and repository BUNDLE identities. The optional Caddy
+image is digest-pinned separately from the application bundle.
+
+Use the old helper to stop old Web/broker/repository/Caddy and retain it for the
+supported backup operation. Obtain the fresh backup and isolated recovery proof
+before any candidate transition. Then use `python3 NEW_SITE/kodi-lab.py compose
+--directory NEW_SITE -- ...` for successor commands above, keeping the explicit
+old project and canonical Windows/lab overlays. `compose run` jobs needing Web
+must run while Web is stopped; both reserve its same ingress IP. For the
+repository transition, explicitly target `repository-transition` using the
+helper's `compose -- run --rm --no-deps ... repository-transition ...`; Compose
+automatically enables a directly targeted profiled service. No global profile
+override is needed. The helper intentionally refuses arbitrary global
+profile/file overrides. Never omit the Windows repository override or use the
+successor directory name as the project.
+
+Run the repository-candidate transition before administrator `upgrade`, even
+for an unchanged schema, then verify the transition/upgrade receipts before
+`python3 NEW_SITE/kodi-lab.py start --directory NEW_SITE`. Site configuration
+alone is not readiness or upgrade evidence. Unless every BUNDLE in the verified
+receipt ancestry matches the proposed BUNDLE, helper `start` and
+`compose -- up ...` first run the successor image's existing
+`validate(require_head=True, require_marker=True)` and
+`verify_candidate_transition_completion()` checks, requiring a transition receipt
+before starting application services. The check reuses the network-disabled,
+socket-free `repository-transition` service as application UID/GID 10001,
+explicitly setting its existing repository mount as the repository root. It does
+not execute a transition or migration. Missing transition evidence, an old schema,
+pending recovery/upgrade markers or invalid completion evidence stops `up`.
+The ordinary Web launcher repeats its authoritative checks under the lifecycle
+lock. No installer readiness flag or manual override replaces those checks.
+
+For an unchanged schema, the established administrator `upgrade` validates state
+and returns without creating a new `.last-upgrade.json`; a synthetic receipt is
+not required. Keep the explicit upgrade command in the operator sequence. A
+proxy-only site change never runs a migration. The preflight follows hash-bound
+site ancestry to the original installation and omits transition checks only if
+every ancestor uses the proposed BUNDLE. A→A may omit preflight; A→B→B revalidates
+B's existing completion evidence without a migration; A→B→A must run preflight.
+An earlier BUNDLE match cannot bypass an intervening application change. The
+documented application rollback still uses the retained A bundle/site after
+reverse transition and supported restore, not an ancestry exemption. Normal Web
+startup checks still apply. Retire/repoint the old sign-in
+task and helper from active use after acceptance, retaining original evidence.
+Application state, credentials, repository configuration and managed runtimes
+are preserved; no database migration is introduced by ingress. Caddy CA/config
+volumes use the original project and survive ordinary service stop/start.
+
+For proxy-only rollback using the same BUNDLE, generate a separate site without
+HTTPS options as documented in the Windows guide; no database restore or feed
+transition is involved. For application rollback, retain the reverse candidate
+transition and supported restore requirements above. Preserve all original site
+records and CA material. Neither editing historical receipts nor bypassing
+bundle/source hashes is a supported transition.
