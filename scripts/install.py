@@ -561,6 +561,7 @@ def successor_preflight(root: Path, data: dict[str, Any]) -> None:
         return
     previous = data
     seen: set[Path] = set()
+    same_bundle = True
     while previous.get("schema") == SITE_SCHEMA:
         receipt = Path(previous["previous_receipt"])
         if receipt in seen:
@@ -570,10 +571,11 @@ def successor_preflight(root: Path, data: dict[str, Any]) -> None:
         if hashlib.sha256(body).hexdigest() != previous["previous_receipt_sha256"]:
             raise ValueError("successor receipt ancestry differs")
         previous = json.loads(body)
+        same_bundle = previous["bundle_sha256"] == data["bundle_sha256"] and same_bundle
     if previous.get("schema") != SCHEMA or previous.get("completed_stage") != "ready":
         raise ValueError("successor has no completed installation ancestor")
-    if previous["bundle_sha256"] == data["bundle_sha256"]:
-        return  # No application transition from the initialized bundle is needed.
+    if same_bundle:
+        return  # Every verified ancestor uses the proposed application bundle.
     run(
         [
             *compose(root, data),

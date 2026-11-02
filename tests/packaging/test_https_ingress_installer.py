@@ -511,9 +511,13 @@ def test_same_bundle_proxy_rollback_starts_without_transition_or_migration(
     )
 
 
-@pytest.mark.parametrize("target", ["a", "b"])
+@pytest.mark.parametrize(
+    "successor,target,needs_preflight",
+    [("a", "a", False), ("b", "b", True), ("b", "a", True)],
+)
+@pytest.mark.parametrize("activated", [False, True])
 def test_chained_site_configuration_cannot_bypass_successor_completion(
-    host: Host, target: str
+    host: Host, successor: str, target: str, needs_preflight: bool, activated: bool
 ) -> None:
     original = host.root.parent / "original.json"
     original.write_text(
@@ -531,7 +535,9 @@ def test_chained_site_configuration_cannot_bypass_successor_completion(
             {
                 "schema": install.SITE_SCHEMA,
                 "completed_stage": "successor_site_configured",
-                "bundle_sha256": target * 64,
+                "bundle_sha256": successor * 64,
+                "project": "kodi-lab-012345abcdef",
+                "host": "windows-wsl2",
                 "previous_receipt": str(original),
                 "previous_receipt_sha256": hashlib.sha256(
                     original.read_bytes()
@@ -539,6 +545,11 @@ def test_chained_site_configuration_cannot_bypass_successor_completion(
             }
         )
     )
+    # Site receipts remain configuration records even after a successful
+    # activation check. A previously activated B must still be seen in A's path.
+    if activated:
+        install.successor_preflight(host.root, json.loads(configured.read_text()))
+        host.commands.clear()
     data = {
         "schema": install.SITE_SCHEMA,
         "project": "kodi-lab-012345abcdef",
@@ -548,7 +559,7 @@ def test_chained_site_configuration_cannot_bypass_successor_completion(
         "previous_receipt_sha256": hashlib.sha256(configured.read_bytes()).hexdigest(),
     }
     host.fail = "repository-transition"
-    if target == "b":
+    if needs_preflight:
         with pytest.raises(subprocess.CalledProcessError):
             install.successor_preflight(host.root, data)
         assert any("repository-transition" in command for command in host.commands)
@@ -576,6 +587,42 @@ def test_successor_ancestry_tampering_fails_before_container_execution(
         "previous_receipt_sha256": "0" * 64,
         "bundle_sha256": "a" * 64,
     }
+    with pytest.raises(ValueError, match="ancestry differs"):
+        install.successor_preflight(host.root, data)
+    assert not host.commands
+
+
+def test_altered_older_ancestor_is_rejected_after_bundle_mismatch(host: Host) -> None:
+    original = host.root.parent / "original.json"
+    original.write_text(
+        json.dumps(
+            {
+                "schema": install.SCHEMA,
+                "completed_stage": "ready",
+                "bundle_sha256": "a" * 64,
+            }
+        )
+    )
+    successor = host.root.parent / "successor.json"
+    successor.write_text(
+        json.dumps(
+            {
+                "schema": install.SITE_SCHEMA,
+                "bundle_sha256": "b" * 64,
+                "previous_receipt": str(original),
+                "previous_receipt_sha256": hashlib.sha256(
+                    original.read_bytes()
+                ).hexdigest(),
+            }
+        )
+    )
+    data = {
+        "schema": install.SITE_SCHEMA,
+        "bundle_sha256": "a" * 64,
+        "previous_receipt": str(successor),
+        "previous_receipt_sha256": hashlib.sha256(successor.read_bytes()).hexdigest(),
+    }
+    original.write_text(original.read_text() + "\n")
     with pytest.raises(ValueError, match="ancestry differs"):
         install.successor_preflight(host.root, data)
     assert not host.commands

@@ -445,8 +445,9 @@ successor directory name as the project.
 Run the repository-candidate transition before administrator `upgrade`, even
 for an unchanged schema, then verify the transition/upgrade receipts before
 `python3 NEW_SITE/kodi-lab.py start --directory NEW_SITE`. Site configuration
-alone is not readiness or upgrade evidence. For a BUNDLE differing from the original initialized installation, helper
-`start` and `compose -- up ...` first run the successor image's existing
+alone is not readiness or upgrade evidence. Unless every BUNDLE in the verified
+receipt ancestry matches the proposed BUNDLE, helper `start` and
+`compose -- up ...` first run the successor image's existing
 `validate(require_head=True, require_marker=True)` and
 `verify_candidate_transition_completion()` checks, requiring a transition receipt
 before starting application services. The check reuses the network-disabled,
@@ -461,10 +462,13 @@ For an unchanged schema, the established administrator `upgrade` validates state
 and returns without creating a new `.last-upgrade.json`; a synthetic receipt is
 not required. Keep the explicit upgrade command in the operator sequence. A
 proxy-only site change never runs a migration. The preflight follows hash-bound
-site ancestry to the original installation: returning to that same BUNDLE skips
-transition checks; a later application BUNDLE revalidates its existing completion
-evidence. Chaining configured sites cannot bypass the check. Normal Web startup
-checks still apply. Retire/repoint the old sign-in
+site ancestry to the original installation and omits transition checks only if
+every ancestor uses the proposed BUNDLE. A→A may omit preflight; A→B→B revalidates
+B's existing completion evidence without a migration; A→B→A must run preflight.
+An earlier BUNDLE match cannot bypass an intervening application change. The
+documented application rollback still uses the retained A bundle/site after
+reverse transition and supported restore, not an ancestry exemption. Normal Web
+startup checks still apply. Retire/repoint the old sign-in
 task and helper from active use after acceptance, retaining original evidence.
 Application state, credentials, repository configuration and managed runtimes
 are preserved; no database migration is introduced by ingress. Caddy CA/config
