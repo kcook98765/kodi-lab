@@ -199,18 +199,37 @@ def probe(web_port: int) -> None:
             raise ValueError("Web login readiness failed")
     request = Request(
         origin + "/mcp",
+        method="POST",
         headers={
             "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
             "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "tools/list",
         },
+        data=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "tools/list",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                        "io.modelcontextprotocol/clientInfo": {
+                            "name": "kodi-lab-installer",
+                            "version": "1",
+                        },
+                    }
+                },
+            }
+        ).encode("utf-8"),
     )
     try:
         with opener.open(request, timeout=5):
             raise ValueError("MCP unexpectedly accepted an anonymous request")
     except HTTPError as error:
-        if error.code != 401 or not error.headers.get(
-            "WWW-Authenticate", ""
-        ).startswith("Bearer"):
+        challenge = error.headers.get("WWW-Authenticate", "")
+        if error.code != 401 or challenge.split(" ", 1)[0].lower() != "bearer":
             raise ValueError("MCP bearer readiness failed") from error
 
 

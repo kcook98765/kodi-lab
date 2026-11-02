@@ -16,15 +16,38 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 from urllib.error import HTTPError
+from urllib.request import Request
 
 import pytest
+from fastapi.testclient import TestClient
 
+from kodi_lab.mcp.transport import ModernMcpAuthMiddleware
 from scripts import install
 from tests.packaging.test_linux_v1_bundle import bundle as verified_bundle
 
 # Reuse the independently verified bundle fixture, including its real verifier.
 bundle = verified_bundle
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def mcp_opener(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    opener = MagicMock()
+    opener.open.return_value.__enter__.return_value.status = 200
+
+    def open_request(request: str | Request, *, timeout: int) -> Any:
+        if isinstance(request, str):
+            assert request.endswith("/login")
+            return opener.open.return_value
+        headers = Message()
+        headers["WWW-Authenticate"] = "Bearer"
+        # Match the installed transport: GET is rejected before authentication.
+        status = 401 if request.get_method() == "POST" else 405
+        raise HTTPError(request.full_url, status, "test", headers, None)
+
+    opener.open.side_effect = open_request
+    monkeypatch.setattr(install, "build_opener", lambda *_: opener)
+    return opener
 
 
 class Host:
@@ -36,7 +59,6 @@ class Host:
         monkeypatch.setattr(install, "host_kind", lambda: self.kind)
         monkeypatch.setattr(install, "engine", lambda *_: "engine-one")
         monkeypatch.setattr(install, "available_port", lambda *_: None)
-        monkeypatch.setattr(install, "probe", lambda *_: None)
         monkeypatch.setattr(shutil, "which", lambda value: "/usr/bin/" + value)
         monkeypatch.setattr(
             shutil,
@@ -71,7 +93,9 @@ class Host:
 
 
 @pytest.fixture
-def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Host:
+def host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mcp_opener: MagicMock
+) -> Host:
     return Host(tmp_path / "new installation", monkeypatch)
 
 
@@ -128,6 +152,36 @@ def test_failed_password_setup_preserves_database_and_never_starts_services(
     with pytest.raises(ValueError, match="partial installs are preserved"):
         install.install(host.args())
     assert before == host.commands
+    assert (host.root / "INSTALLATION.json").read_bytes() == receipt
+
+
+@pytest.mark.parametrize("kind", ["ubuntu", "windows-wsl2"])
+def test_failed_mcp_probe_preserves_services_started_installation(
+    host: Host, mcp_opener: MagicMock, kind: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    host.kind = kind
+    headers = Message()
+    headers["WWW-Authenticate"] = "Bearer"
+    mcp_opener.open.side_effect = [
+        mcp_opener.open.return_value,
+        HTTPError("http://127.0.0.1:18100/mcp", 403, "test", headers, None),
+    ]
+    with pytest.raises(ValueError, match="MCP bearer readiness failed"):
+        install.install(host.args())
+    receipt = (host.root / "INSTALLATION.json").read_bytes()
+    assert json.loads(receipt)["completed_stage"] == "services_started"
+    assert (host.root / "bundle/BUNDLE.json").is_file()
+    assert (host.root / "kodi-lab.py").is_file()
+    assert "last completed stage: services_started" in capsys.readouterr().err
+    assert not any(
+        token in command
+        for command in host.commands
+        for token in ("down", "prune", "rm", "stop")
+    )
+    before = list(host.commands)
+    with pytest.raises(ValueError, match="partial installs are preserved"):
+        install.install(host.args())
+    assert host.commands == before
     assert (host.root / "INSTALLATION.json").read_bytes() == receipt
 
 
@@ -407,7 +461,7 @@ def test_management_rechecks_real_bundle_and_daemon_identity(
 
 @pytest.mark.parametrize("action", ["start", "stop", "status"])
 def test_management_reuses_project_and_never_reinitializes(
-    host: Host, monkeypatch: pytest.MonkeyPatch, action: str
+    host: Host, monkeypatch: pytest.MonkeyPatch, mcp_opener: MagicMock, action: str
 ) -> None:
     data = {
         "project": "kodi-lab-012345abcdef",
@@ -421,6 +475,7 @@ def test_management_reuses_project_and_never_reinitializes(
         sys, "argv", ["installer", action, "--directory", str(host.root)]
     )
     assert install.main() == 0
+    assert mcp_opener.open.call_count == (2 if action == "start" else 0)
     assert len(host.commands) == (2 if action == "start" else 1)
     command = host.commands[-1]
     assert command[command.index("--project-name") + 1] == data["project"]
@@ -429,17 +484,37 @@ def test_management_reuses_project_and_never_reinitializes(
     )
 
 
+@pytest.mark.parametrize("stage", ["database_initialized", "services_started"])
 def test_start_refuses_a_partial_installation(
-    host: Host, monkeypatch: pytest.MonkeyPatch
+    host: Host, monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
-    monkeypatch.setattr(
-        install, "load", lambda _: {"completed_stage": "database_initialized"}
-    )
+    monkeypatch.setattr(install, "load", lambda _: {"completed_stage": stage})
     monkeypatch.setattr(
         sys, "argv", ["installer", "start", "--directory", str(host.root)]
     )
     assert install.main() == 1
     assert not host.commands
+
+
+def test_failed_start_probe_preserves_ready_receipt(
+    host: Host, monkeypatch: pytest.MonkeyPatch, mcp_opener: MagicMock
+) -> None:
+    install.install(host.args())
+    receipt = (host.root / "INSTALLATION.json").read_bytes()
+    monkeypatch.setattr(install, "load", lambda _: json.loads(receipt))
+    monkeypatch.setattr(
+        sys, "argv", ["installer", "start", "--directory", str(host.root)]
+    )
+    headers = Message()
+    mcp_opener.open.side_effect = [
+        mcp_opener.open.return_value,
+        HTTPError("http://127.0.0.1:18100/mcp", 401, "test", headers, None),
+    ]
+    before = len(host.commands)
+    assert install.main() == 1
+    assert len(host.commands) == before + 2
+    assert "up" in host.commands[-1]
+    assert (host.root / "INSTALLATION.json").read_bytes() == receipt
 
 
 def test_windows_override_replaces_lan_bind_and_preserves_broker_boundary(
@@ -497,7 +572,18 @@ def test_windows_override_replaces_lan_bind_and_preserves_broker_boundary(
 
 @pytest.mark.parametrize(
     "status,challenge,success",
-    [(401, "Bearer", True), (403, "Bearer", False), (401, "", False), (200, "", False)],
+    [
+        (401, "Bearer", True),
+        (401, 'Bearer realm="kodi-lab"', True),
+        (401, "bearer", True),
+        (403, "Bearer", False),
+        (405, "Bearer", False),
+        (401, "", False),
+        (401, "Basic", False),
+        (401, "BearerInvalid", False),
+        (200, "", False),
+        (202, "", False),
+    ],
 )
 def test_mcp_readiness_requires_anonymous_bearer_denial(
     monkeypatch: pytest.MonkeyPatch, status: int, challenge: str, success: bool
@@ -521,6 +607,64 @@ def test_mcp_readiness_requires_anonymous_bearer_denial(
     else:
         with pytest.raises(ValueError):
             install.probe(18100)
+
+
+def test_probe_request_matches_post_only_mcp_authentication_contract(
+    monkeypatch: pytest.MonkeyPatch, mcp_opener: MagicMock
+) -> None:
+    factory = MagicMock(return_value=mcp_opener)
+    monkeypatch.setattr(install, "build_opener", factory)
+    install.probe(18100)
+    assert factory.call_args.args[0].proxies == {}
+    assert mcp_opener.open.call_count == 2
+    assert mcp_opener.open.call_args_list[0].args == ("http://127.0.0.1:18100/login",)
+    request = mcp_opener.open.call_args.args[0]
+    assert isinstance(request, Request)
+    assert request.full_url == "http://127.0.0.1:18100/mcp"
+    assert request.get_method() == "POST"
+    assert mcp_opener.open.call_args.kwargs == {"timeout": 5}
+    headers = {key.lower(): value for key, value in request.header_items()}
+    assert headers == {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": "tools/list",
+    }
+    assert isinstance(request.data, bytes)
+    assert json.loads(request.data) == {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "tools/list",
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "kodi-lab-installer",
+                    "version": "1",
+                },
+            }
+        },
+    }
+    application = MagicMock()
+    authentication = MagicMock()
+    client = TestClient(ModernMcpAuthMiddleware(application, authentication))
+    assert client.get("/mcp").status_code == 405
+    response = client.request(
+        request.get_method(), "/mcp", headers=headers, content=request.data
+    )
+    client.close()
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    application.assert_not_called()
+    authentication.authenticate.assert_not_called()
+
+
+def test_web_login_readiness_still_precedes_mcp(mcp_opener: MagicMock) -> None:
+    mcp_opener.open.return_value.__enter__.return_value.status = 503
+    with pytest.raises(ValueError, match="Web login readiness failed"):
+        install.probe(18100)
+    assert mcp_opener.open.call_count == 1
 
 
 @pytest.mark.parametrize(
