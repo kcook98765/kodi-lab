@@ -139,9 +139,199 @@ for your computer; review the script rather than disabling policy globally.
 
 Complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite), then
 open `/login` at your site's trusted HTTPS origin in Windows and sign in.
-The installer does not configure TLS; direct loopback HTTP sign-in is rejected.
+The default installer provides HTTP only; the optional Caddy path below adds TLS.
+Direct loopback HTTP sign-in is rejected.
 Its login-page readiness and anonymous MCP denial checks do not prove authenticated
 browser access. Authorized MCP inspection still needs a client and target grant.
+
+## Optional local HTTPS/WSS ingress
+
+Browser administrator login and the screen viewer require trusted HTTPS/WSS.
+MCP clients may continue using the existing loopback HTTP endpoint with Bearer
+credentials. This optional path is **source-level verification only** until the
+native Windows checks below pass. It does not establish Windows acceptance.
+
+For a **fresh installation**, first inspect `Get-NetRoute -AddressFamily IPv4`
+in Windows and `ip -4 route show table all` plus `docker network inspect` in
+WSL, including active VPN routes and any reserved temporary-network pool. Choose an unused canonical private IPv4
+**/29** and an unused unprivileged HTTPS port. The subnet below is an example,
+not a reserved allocation. In ordinary PowerShell:
+
+```powershell
+.\install-windows.ps1 -WebHttpsProxy caddy `
+  -HttpsIngressSubnet 192.168.241.0/29 -HttpsPort 18443
+```
+
+The wrapper passes current Windows routes as literal arguments. The Python
+installer checks Linux routes, all Docker networks and `10.250.0.0/24` too.
+Every subsequent activation refreshes Windows routes through `powershell.exe`;
+keep WSL interoperability and that executable on WSL's PATH. An unavailable
+route query or a conflict stops activation. Connect the VPN before checking;
+repeat these checks when Windows/VPN routing changes. For direct Python
+installation, additionally supply each specific Windows route with repeated
+`--windows-route CIDR` arguments; omit only `0.0.0.0/0`.
+
+The path is `Firefox → https://127.0.0.1:18443 → Caddy → Web:8100`.
+Use **127.0.0.1**, including the selected HTTPS port, consistently; `localhost`
+is a different origin and is not added to the bundle's allowed hosts. Caddy's
+certificate contains the `127.0.0.1` IP SAN; `default_sni` selects it
+when an IP client omits SNI. There is no LAN HTTPS/Web/MCP
+publication or HTTP redirect listener. Leave repository LAN forwarding as
+separately configured below. Check Windows listeners/portproxy rules before
+activation and verify from a second LAN device that Web/MCP/HTTPS are unreachable.
+
+For the example subnet, the dedicated bridge gateway is `192.168.241.1`, Caddy
+is `192.168.241.2`, and Web's ingress address is `192.168.241.3`. Uvicorn receives
+**only** `FORWARDED_ALLOW_IPS=192.168.241.2`; it trusts no gateway, subnet, wildcard,
+hostname or additional peer. The existing backend on `127.0.0.1:18100` remains
+HTTP and ignores forged forwarding headers from other peers. Caddy preserves
+Host/Origin and uses its normal sanitized forwarding headers and WebSocket
+support; no authentication, CSRF, cookie or noVNC rule is changed.
+
+Only Web and Caddy join this bridge. It is a regular Docker bridge:
+`internal: true` prevented published ports in the isolated Linux fixture.
+Caddy therefore has ordinary bridge egress; this is not an egress firewall.
+Cross-bridge separation and the reserved peer address provide a network trust
+boundary, not cryptographic container identity. Ordinary containers on other
+bridges cannot claim the occupied endpoint through normal Docker allocation.
+Docker administrators can replace/attach containers or alter networking and
+remain trusted. The helper refuses unexpected ingress membership/address drift
+before activation. Caddy runs as UID/GID 10003, drops all capabilities, has no
+Docker/broker socket, and mounts only its Caddyfile and separate CA/config
+volumes. A private 128 MiB tmpfs holds a copy of the pinned official binary to
+remove its low-port file capability without granting a capability to Caddy.
+
+### Explicit certificate trust
+
+No installer command imports certificates into Windows or Firefox. Caddy uses
+its [internal CA](https://caddyserver.com/docs/automatic-https#local-https).
+In WSL, select the actual installation or successor site directory:
+
+```sh
+SITE="$HOME/kodi-lab-install"
+CID=$(python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- ps -q caddy)
+test -n "$CID"
+docker cp "$CID:/data/caddy/pki/authorities/local/root.crt" "$HOME/kodi-lab-caddy-root.crt"
+openssl x509 -in "$HOME/kodi-lab-caddy-root.crt" -noout -subject -fingerprint -sha256
+```
+
+Export **only `root.crt`**. Never copy the CA directory or `root.key` to Windows,
+a browser, a repository or a support report. Named volumes
+`PROJECT_caddy_data` and `PROJECT_caddy_config` retain CA and configuration
+state across stop/start and successor upgrades using the same project. Keep any
+CA backup private; removing the data volume creates a different CA and breaks
+existing trust. It is separate from the application database backup.
+
+Copy the public root certificate to Windows using your WSL home share. Inspect
+its identity/fingerprint against the WSL output before trusting it. For trust
+limited to a Firefox profile, open **Settings → Privacy & Security → Certificates
+→ View Certificates → Authorities → Import**, select this root, and explicitly
+allow it to identify websites. Alternatively, after reviewing the certificate,
+ordinary PowerShell can import it into your Windows user's root store:
+
+```powershell
+certutil -user -addstore Root "$HOME\Downloads\kodi-lab-caddy-root.crt"
+```
+
+Use the real destination file. Firefox can use Windows roots when **Allow
+Firefox to automatically trust third-party root certificates you install** is
+enabled; verify the actual profile/policy and restart Firefox as needed. See
+[Mozilla's CA guidance](https://support.mozilla.org/en-US/kb/setting-certificate-authorities-firefox).
+Open `https://127.0.0.1:18443/login` with no certificate exception. Inspect the
+certificate chain, SHA-256 root fingerprint and IP SAN in Firefox, then sign in.
+Never use `curl -k`, disabled certificate validation or a browser exception as
+acceptance evidence. Trust only the deliberate local CA, and remove it later
+only by its reviewed certificate identity.
+
+### Check and restart
+
+```sh
+python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- config
+python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- exec -T web printenv FORWARDED_ALLOW_IPS
+python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- logs --tail 50 caddy
+python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- stop caddy
+python3 "$SITE/kodi-lab.py" compose --directory "$SITE" -- up -d --wait --no-build caddy
+```
+
+Inspect `PROJECT-https-ingress` with `docker network inspect`: exactly Web and
+Caddy, the recorded /29, gateway +1, Caddy +2 and Web +3. Inspect Caddy's network
+attachments too: only ingress. The helper verifies canonical site files, bundle,
+engine and project before management commands, and network/route identity before
+activation. Do not edit the overlay, Caddyfile, bundle or receipt to bypass a
+failure. Default helper `stop`/`start` includes Caddy when configured. Existing
+sign-in startup can use that helper after native qualification.
+
+Verify Secure, HttpOnly, SameSite=Strict session cookies after login. Same-origin
+mutations still require the session CSRF token. In Firefox Network tools, an
+otherwise authorized viewer connection must upgrade with **101** to
+`wss://127.0.0.1:18443/...`; incorrect/missing Origin and invalid/replayed viewer
+tickets must remain denied. Proxy qualification can use isolated viewer doubles;
+live noVNC/display acceptance needs its own authorized managed runtime. This task
+does not require starting a Kodi instance. Anonymous protocol-valid MCP POSTs
+without a browser Origin must still receive `401 Bearer`; browser Origin policy
+may reject a request earlier. Keep existing MCP credentials and target grants.
+
+### Adopt an existing installation; disable or roll back
+
+An initialized installation must use a **successor bundle**, not another fresh
+install. Preserve its original `INSTALLATION.json`, bundle, private configuration
+and all evidence. The existing `kodi-lab-3d6d2c021c52` project, volumes,
+credentials, repository origin/runtime configuration and schema
+`0090_verified_noop_deployment` must survive. This change adds no migration.
+
+After owner release authorization, stage and verify the approved successor in a
+new private directory containing only `bundle/`. Load its reviewed images and
+configure its `.env` using the supported bundle tool, carrying **all** old site
+and runtime settings; only application image identities and BUNDLE identity
+change. The bundle's files remain verified and untouched by ingress generation.
+Use the approved successor source's installer to prepare a separate site record:
+
+```sh
+python3 /path/to/approved-source/scripts/install.py configure-successor \
+  --directory "$HOME/kodi-lab-successor" \
+  --previous-installation "$HOME/kodi-lab-install" \
+  --web-https-proxy caddy --https-ingress-subnet 192.168.241.0/29 \
+  --https-port 18443 --windows-route WINDOWS_SPECIFIC_ROUTE_CIDR
+```
+
+Repeat `--windows-route` for all current specific Windows IPv4 routes. This
+command validates both bundles/configurations and generates `SITE.json`, a
+management helper, the canonical Windows overlay and Caddyfile **outside** the
+bundle. It pins the successor bundle/source, original receipt hash, unchanged
+engine/project, proxy image, canonical overlay/Caddyfile hashes, CA/config
+volume names and exact topology. Volume names derive from that
+same recorded project. It performs no initialization, credential reset,
+repository transition, database upgrade or service activation. Failure preserves
+partial site files for diagnosis; do not overwrite them blindly.
+
+Follow [the supported upgrade sequence](LINUX-V1-UPGRADE-ROLLBACK.md#windows-successor-site-configuration):
+stop the old application services/proxy, obtain a fresh supported backup and
+isolated recovery proof, perform the reviewed repository-candidate transition
+and explicit administrator `upgrade`, verify receipts, then start through the
+successor helper. Use that helper's `compose -- ...` for successor service
+commands so the old project and all site overlays stay explicit. One-shot Web
+administrator jobs require Web to be stopped because its ingress IP is fixed.
+Retire the old helper/sign-in task from active use without deleting evidence;
+repoint any approved task only after successful qualification.
+
+For proxy-only disable/rollback, stop Caddy and Web through the active helper.
+Prepare another separate site directory with a verified/configured copy of the
+**same successor bundle**, run `configure-successor` against the active site
+**without HTTPS options**, then start through the resulting helper. This removes
+Web's forwarded trust/ingress attachment while retaining the same application
+state and project. No repository transition is needed when BUNDLE identity is
+unchanged. Preserve stopped Caddy, its volumes and old site evidence. HTTP MCP
+continues; direct HTTP browser login remains denied. Re-enabling uses the same
+reviewed subnet/project and retained CA. Application-bundle rollback follows
+the reverse-transition/restore guide; never start an old bundle blindly.
+
+Native Windows acceptance still must prove Desktop publication on loopback,
+non-conflicting Windows/WSL/VPN/Docker networks, actual direct versus proxy Web
+peers, exact trust, TLS SAN/chain and Firefox trust, login/logout/cookies,
+Origin/CSRF negatives, authorized WSS/noVNC and anonymous MCP denial, repository
+LAN restrictions, state/credential preservation, stop/start, Desktop restart,
+network recreation with the same addresses/CA, and rollback. Linux source tests
+and the isolated Caddy fixture do not establish any of those native results.
 
 ## Repository LAN access and external targets
 

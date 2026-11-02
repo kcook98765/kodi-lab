@@ -7466,3 +7466,30 @@ The owner accepts fresh profiles. Existing pins remain unchanged and older image
 remain unsupported for standard viewing until explicit supported replacement.
 No legacy-profile migration or compatibility system is added. Production rollout,
 profile retirement and issue closure remain separately authorized steps.
+
+## D-0477: Optional Windows ingress trusts one container peer
+
+Issue #8 uses an installer-owned, optional Caddy service on a dedicated bridge
+shared only with Web. A reviewed private /29 derives gateway +1, Caddy +2 and Web
++3; Uvicorn's existing `FORWARDED_ALLOW_IPS` contains only +2. Windows/Linux
+routes, all Docker networks and existing ingress members are checked before
+activation. Gateway/wildcard/subnet trust and application-security exceptions
+are excluded. The peer is a network trust boundary; Docker administrators can
+alter it and remain trusted.
+
+A regular bridge is required: `internal: true` suppressed port publication in
+the isolated Linux Docker fixture. Caddy has ordinary bridge egress, no managed
+attachment or socket access, and publishes TCP HTTPS only on host 127.0.0.1.
+The official amd64 Caddy image is digest-pinned. Its unprivileged process uses a
+private tmpfs copy of the image binary to discard the low-port file capability,
+keeping all capabilities dropped and the root filesystem read-only. Internal-CA
+trust is manual; only the public root certificate is exported. Host/Origin,
+Secure cookies, CSRF, viewer authorization and MCP Bearer policy stay unchanged.
+
+Canonical site files and their hashes live outside the verified bundle.
+`configure-successor` creates a separate site record retaining the old receipt
+hash, engine/project and site/runtime configuration; it never performs an
+application upgrade. Normal reviewed backup/recovery, candidate transition and
+administrator upgrade still precede activation. Default Ubuntu/Windows installs
+are unchanged. Focused source evidence, release qualification and native
+Windows/Desktop/Firefox acceptance remain separate.
