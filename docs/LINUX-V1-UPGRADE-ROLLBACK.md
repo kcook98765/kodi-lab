@@ -445,8 +445,27 @@ successor directory name as the project.
 Run the repository-candidate transition before administrator `upgrade`, even
 for an unchanged schema, then verify the transition/upgrade receipts before
 `python3 NEW_SITE/kodi-lab.py start --directory NEW_SITE`. Site configuration
-alone is not readiness or upgrade evidence. Retire/repoint the old sign-in task
-and helper from active use after acceptance, retaining original evidence.
+alone is not readiness or upgrade evidence. For a BUNDLE differing from the original initialized installation, helper
+`start` and `compose -- up ...` first run the successor image's existing
+`validate(require_head=True, require_marker=True)` and
+`verify_candidate_transition_completion()` checks, requiring a transition receipt
+before starting application services. The check reuses the network-disabled,
+socket-free `repository-transition` service as application UID/GID 10001,
+explicitly setting its existing repository mount as the repository root. It does
+not execute a transition or migration. Missing transition evidence, an old schema,
+pending recovery/upgrade markers or invalid completion evidence stops `up`.
+The ordinary Web launcher repeats its authoritative checks under the lifecycle
+lock. No installer readiness flag or manual override replaces those checks.
+
+For an unchanged schema, the established administrator `upgrade` validates state
+and returns without creating a new `.last-upgrade.json`; a synthetic receipt is
+not required. Keep the explicit upgrade command in the operator sequence. A
+proxy-only site change never runs a migration. The preflight follows hash-bound
+site ancestry to the original installation: returning to that same BUNDLE skips
+transition checks; a later application BUNDLE revalidates its existing completion
+evidence. Chaining configured sites cannot bypass the check. Normal Web startup
+checks still apply. Retire/repoint the old sign-in
+task and helper from active use after acceptance, retaining original evidence.
 Application state, credentials, repository configuration and managed runtimes
 are preserved; no database migration is introduced by ingress. Caddy CA/config
 volumes use the original project and survive ordinary service stop/start.

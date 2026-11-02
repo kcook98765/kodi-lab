@@ -140,7 +140,11 @@ for your computer; review the script rather than disabling policy globally.
 Complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite), then
 open `/login` at your site's trusted HTTPS origin in Windows and sign in.
 The default installer provides HTTP only; the optional Caddy path below adds TLS.
-Direct loopback HTTP sign-in is rejected.
+Direct loopback HTTP sign-in is rejected by the existing HTTPS middleware,
+before password validation or session creation, including a matching
+`Origin: http://127.0.0.1:18100`. The login route's same-origin helper alone
+accepts matching HTTP origins; it is not the HTTPS guard. Secure-cookie behavior
+is an additional protection, not the reason the normal HTTP login POST is denied.
 Its login-page readiness and anonymous MCP denial checks do not prove authenticated
 browser access. Authorized MCP inspection still needs a client and target grant.
 

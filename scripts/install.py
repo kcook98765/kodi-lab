@@ -25,6 +25,18 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 SCHEMA = "kodi-lab-host-installation-v1"
 SITE_SCHEMA = "kodi-lab-successor-site-v1"
+# Run inside the verified successor image, using its existing startup checks.
+# This preflight never migrates or records an installer-owned readiness state.
+SUCCESSOR_CHECK = """\
+from kodi_lab.config import Settings
+from kodi_lab.remote_lifecycle import validate, verify_candidate_transition_completion
+
+settings = Settings(_env_file=None)
+root, url = settings.data_root, settings.database_url
+validate(root, url, require_head=True, require_marker=True)
+if verify_candidate_transition_completion(root, url) is None:
+    raise ValueError("successor requires a completed repository candidate transition")
+"""
 # Official caddy:2.11.7-alpine, linux/amd64 manifest (not a mutable tag).
 CADDY_IMAGE = (
     "docker.io/library/caddy:2.11.7-alpine@sha256:"
@@ -544,6 +556,44 @@ def listener_preflight(root: Path, data: dict[str, Any]) -> None:
     )
 
 
+def successor_preflight(root: Path, data: dict[str, Any]) -> None:
+    if data.get("schema") != SITE_SCHEMA:
+        return
+    previous = data
+    seen: set[Path] = set()
+    while previous.get("schema") == SITE_SCHEMA:
+        receipt = Path(previous["previous_receipt"])
+        if receipt in seen:
+            raise ValueError("successor receipt ancestry contains a cycle")
+        seen.add(receipt)
+        body = receipt.read_bytes()
+        if hashlib.sha256(body).hexdigest() != previous["previous_receipt_sha256"]:
+            raise ValueError("successor receipt ancestry differs")
+        previous = json.loads(body)
+    if previous.get("schema") != SCHEMA or previous.get("completed_stage") != "ready":
+        raise ValueError("successor has no completed installation ancestor")
+    if previous["bundle_sha256"] == data["bundle_sha256"]:
+        return  # No application transition from the initialized bundle is needed.
+    run(
+        [
+            *compose(root, data),
+            "run",
+            "--rm",
+            "--no-deps",
+            "--user",
+            "10001:10001",
+            "--env",
+            "KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository",
+            "--entrypoint",
+            "python",
+            "repository-transition",
+            "-c",
+            SUCCESSOR_CHECK,
+        ],
+        root,
+    )
+
+
 def bootstrap(args: argparse.Namespace) -> None:
     """A downloaded copy can obtain a clean checkout without knowing its layout."""
     host = host_kind()
@@ -1057,6 +1107,8 @@ def main() -> int:
             activating = arguments[0] in {"up", "run"}
             if activating:
                 check_ingress_network(root, data)
+            if arguments[0] == "up":
+                successor_preflight(root, data)
             run([*compose(root, data, managed=True), *arguments], root)
             if activating:
                 check_ingress_network(root, data)

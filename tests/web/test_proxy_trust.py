@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 import uvicorn
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 from starlette.websockets import WebSocketDisconnect
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from kodi_lab.web.app import create_app
+from kodi_lab.web.app import _require_same_origin, create_app
 from scripts import install
 from tests.web import conftest
 from tests.web.conftest import INSTANCE_ID, PASSWORD
@@ -195,6 +198,42 @@ def test_direct_http_cannot_spoof_https_login(client: TestClient, peer: str) -> 
     direct = through_proxy(client.app, peer)
     assert direct.post("/login", data={"password": PASSWORD}).status_code == 403
     direct.close()
+
+
+def test_matching_http_origin_is_rejected_before_authentication(
+    client: TestClient, proxy: TestClient
+) -> None:
+    origin = "http://127.0.0.1:18100"
+    # Same-origin validation is scheme-neutral. The installed HTTPS middleware
+    # must deny the actual HTTP POST before the password/session route runs.
+    _require_same_origin(
+        Request(
+            {
+                "type": "http",
+                "scheme": "http",
+                "path": "/login",
+                "headers": [
+                    (b"host", b"127.0.0.1:18100"),
+                    (b"origin", origin.encode()),
+                ],
+                "query_string": b"",
+            }
+        )
+    )
+    auth = cast(FastAPI, client.app).state.kodi_lab.auth
+    with patch.object(auth, "login", wraps=auth.login) as login:
+        response = client.post(
+            origin + "/login",
+            headers={"Origin": origin},
+            data={"password": PASSWORD},
+            follow_redirects=False,
+        )
+        assert response.status_code == 403
+        assert response.json() == {"detail": "viewer_requires_https"}
+        assert "set-cookie" not in response.headers
+        login.assert_not_called()
+        sign_in(proxy)
+        login.assert_called_once_with(PASSWORD)
 
 
 def test_anonymous_mcp_still_demands_bearer_authentication(proxy: TestClient) -> None:

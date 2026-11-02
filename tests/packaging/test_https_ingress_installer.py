@@ -414,3 +414,168 @@ def test_previous_installation_option_is_not_silently_ignored(
         install, "host_kind", lambda: pytest.fail("invalid options must stop first")
     )
     assert install.main() == 1
+
+
+@pytest.mark.parametrize("action", ["start", "compose"])
+@pytest.mark.parametrize("completed", [False, True])
+def test_successor_up_checks_installed_completion_before_starting_services(
+    host: Host, monkeypatch: pytest.MonkeyPatch, action: str, completed: bool
+) -> None:
+    previous = host.root.parent / "previous-receipt.json"
+    previous.write_text(
+        json.dumps(
+            {
+                "schema": install.SCHEMA,
+                "completed_stage": "ready",
+                "bundle_sha256": "a" * 64,
+            }
+        )
+    )
+    data = {
+        "schema": install.SITE_SCHEMA,
+        "project": "kodi-lab-012345abcdef",
+        "host": "windows-wsl2",
+        "previous_receipt": str(previous),
+        "previous_receipt_sha256": hashlib.sha256(previous.read_bytes()).hexdigest(),
+        "bundle_sha256": "b" * 64,
+        "completed_stage": "successor_site_configured",
+        "web_port": 18100,
+        "repository_bind": "192.168.2.20",
+    }
+    monkeypatch.setattr(install, "load", lambda _: data)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["installer", action, "--directory", str(host.root)]
+        + (
+            ["--", "up", "-d", "web", "broker", "repository"]
+            if action == "compose"
+            else []
+        ),
+    )
+    if not completed:
+        host.fail = "repository-transition"
+    assert install.main() == (0 if completed else 1)
+    preflight = next(
+        command for command in host.commands if "repository-transition" in command
+    )
+    assert preflight[preflight.index("--user") + 1] == "10001:10001"
+    assert preflight[preflight.index("--entrypoint") + 1] == "python"
+    assert (
+        preflight[preflight.index("--env") + 1]
+        == "KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository"
+    )
+    assert preflight[-1] == install.SUCCESSOR_CHECK
+    up = [command for command in host.commands if "up" in command]
+    assert bool(up) == completed
+    if completed:
+        assert host.commands.index(preflight) < host.commands.index(up[0])
+    assert not any(
+        "upgrade" in command or "initialize" in command for command in host.commands
+    )
+
+
+def test_same_bundle_proxy_rollback_starts_without_transition_or_migration(
+    host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    previous = host.root.parent / "previous-receipt.json"
+    previous.write_text(
+        json.dumps(
+            {
+                "schema": install.SCHEMA,
+                "completed_stage": "ready",
+                "bundle_sha256": "a" * 64,
+            }
+        )
+    )
+    data = {
+        "schema": install.SITE_SCHEMA,
+        "project": "kodi-lab-012345abcdef",
+        "host": "windows-wsl2",
+        "previous_receipt": str(previous),
+        "previous_receipt_sha256": hashlib.sha256(previous.read_bytes()).hexdigest(),
+        "bundle_sha256": "a" * 64,
+        "completed_stage": "successor_site_configured",
+        "web_port": 18100,
+        "repository_bind": "192.168.2.20",
+    }
+    monkeypatch.setattr(install, "load", lambda _: data)
+    monkeypatch.setattr(
+        sys, "argv", ["installer", "start", "--directory", str(host.root)]
+    )
+    assert install.main() == 0
+    assert any("up" in command for command in host.commands)
+    assert not any(
+        "repository-transition" in command or "upgrade" in command
+        for command in host.commands
+    )
+
+
+@pytest.mark.parametrize("target", ["a", "b"])
+def test_chained_site_configuration_cannot_bypass_successor_completion(
+    host: Host, target: str
+) -> None:
+    original = host.root.parent / "original.json"
+    original.write_text(
+        json.dumps(
+            {
+                "schema": install.SCHEMA,
+                "completed_stage": "ready",
+                "bundle_sha256": "a" * 64,
+            }
+        )
+    )
+    configured = host.root.parent / "configured.json"
+    configured.write_text(
+        json.dumps(
+            {
+                "schema": install.SITE_SCHEMA,
+                "completed_stage": "successor_site_configured",
+                "bundle_sha256": target * 64,
+                "previous_receipt": str(original),
+                "previous_receipt_sha256": hashlib.sha256(
+                    original.read_bytes()
+                ).hexdigest(),
+            }
+        )
+    )
+    data = {
+        "schema": install.SITE_SCHEMA,
+        "project": "kodi-lab-012345abcdef",
+        "host": "windows-wsl2",
+        "bundle_sha256": target * 64,
+        "previous_receipt": str(configured),
+        "previous_receipt_sha256": hashlib.sha256(configured.read_bytes()).hexdigest(),
+    }
+    host.fail = "repository-transition"
+    if target == "b":
+        with pytest.raises(subprocess.CalledProcessError):
+            install.successor_preflight(host.root, data)
+        assert any("repository-transition" in command for command in host.commands)
+    else:
+        install.successor_preflight(host.root, data)
+        assert not host.commands
+
+
+def test_successor_ancestry_tampering_fails_before_container_execution(
+    host: Host,
+) -> None:
+    previous = host.root.parent / "previous.json"
+    previous.write_text(
+        json.dumps(
+            {
+                "schema": install.SCHEMA,
+                "completed_stage": "ready",
+                "bundle_sha256": "a" * 64,
+            }
+        )
+    )
+    data = {
+        "schema": install.SITE_SCHEMA,
+        "previous_receipt": str(previous),
+        "previous_receipt_sha256": "0" * 64,
+        "bundle_sha256": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="ancestry differs"):
+        install.successor_preflight(host.root, data)
+    assert not host.commands
