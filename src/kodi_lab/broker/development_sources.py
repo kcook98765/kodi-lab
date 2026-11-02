@@ -367,7 +367,6 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     if (
                         evidence.mode is not DevelopmentSourceDeploymentMode.COPY
                         or evidence.addon_id != source.addon_id
-                        or evidence.runtime_revision_id != revision.id
                         or evidence_operation is None
                         or evidence_operation.state
                         is not DevelopmentSourceDeploymentOperationState.SUCCEEDED
@@ -379,15 +378,22 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         }
                         or evidence_operation.original_managed_instance_id
                         != instance_id
+                        or evidence_operation.managed_instance_id
+                        not in {None, instance_id}
                         or evidence_operation.development_source_id != source_id
                         or evidence_operation.addon_id != source.addon_id
-                        or evidence_operation.runtime_revision_id != revision.id
+                        or evidence_operation.runtime_revision_id
+                        != evidence.runtime_revision_id
                         or evidence_operation.expected_container_id
                         != evidence.trusted_container_id
                     ):
                         raise DevelopmentSourceDeploymentStateError(
                             "Retained deployment evidence is inconsistent."
                         )
+                # Keep consistent historical evidence under its original runtime
+                # identity. The copy adapter requires exact current provenance
+                # for an existing destination; only an absent destination may
+                # establish a fresh baseline after runtime replacement.
                 prior = (
                     None
                     if evidence is None
