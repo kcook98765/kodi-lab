@@ -127,11 +127,18 @@ def test_confirmed_lan_install_binds_exact_ip_and_checks_mcp_isolation(
 
 
 @pytest.mark.parametrize(
+    "repository_url", ["http://192.168.1.20:18120", "https://repo.example.test"]
+)
+@pytest.mark.parametrize(
     "mode,bind",
     [("local-http", "127.0.0.1"), ("https", "127.0.0.1"), ("lan-http", "192.168.1.20")],
 )
 def test_bundle_configuration_and_verification_preserve_explicit_mode(
-    bundle: Path, monkeypatch: pytest.MonkeyPatch, mode: str, bind: str
+    bundle: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    bind: str,
+    repository_url: str,
 ) -> None:
     data = bundle_tool["verify"](bundle)
 
@@ -148,7 +155,7 @@ def test_bundle_configuration_and_verification_preserve_explicit_mode(
         18100,
         "192.168.1.20",
         18120,
-        "http://192.168.1.20:18120",
+        repository_url,
         web_access_mode=mode,
         web_published_bind=bind,
         confirm_lan_http=True,
@@ -203,6 +210,18 @@ def test_bundle_configuration_and_verification_preserve_explicit_mode(
     assert web["ports"] == expected_ports
     assert web["environment"]["KODI_LAB_WEB_ACCESS_MODE"] == mode
     assert web["environment"]["FORWARDED_ALLOW_IPS"] == ""
+    repository = rendered["services"]["repository"]
+    assert repository["environment"]["KODI_LAB_REPOSITORY_BASE_URL"] == repository_url
+    assert repository["ports"] == [
+        {
+            "mode": "ingress",
+            "host_ip": "192.168.1.20",
+            "target": 8110,
+            "published": "18120",
+            "protocol": "tcp",
+        }
+    ]
+    assert repository["read_only"] is True
     with pytest.raises(ValueError, match="already exists"):
         configure(
             bundle, data, 18100, "192.168.1.20", 18120, "http://192.168.1.20:18120"

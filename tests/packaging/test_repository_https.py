@@ -171,9 +171,11 @@ def test_https_configuration_keeps_http_compose_backend(
     assert service["read_only"] is True
 
 
-def certificate(tmp_path: Path, *, expired: bool) -> tuple[Path, ssl.SSLContext]:
+def certificate(
+    tmp_path: Path, *, expired: bool, hostname: str = "localhost"
+) -> tuple[Path, ssl.SSLContext]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])
     now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
@@ -184,7 +186,7 @@ def certificate(tmp_path: Path, *, expired: bool) -> tuple[Path, ssl.SSLContext]
         .not_valid_before(now - timedelta(days=2))
         .not_valid_after(now + timedelta(days=-1 if expired else 1))
         .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False
+            x509.SubjectAlternativeName([x509.DNSName(hostname)]), critical=False
         )
         .sign(key, hashes.SHA256())
     )
@@ -204,7 +206,9 @@ def certificate(tmp_path: Path, *, expired: bool) -> tuple[Path, ssl.SSLContext]
 
 @pytest.fixture
 def proxy(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Any]:
-    cert, context = certificate(tmp_path, expired=getattr(request, "param", False))
+    option = getattr(request, "param", False)
+    hostname = option if isinstance(option, str) else "localhost"
+    cert, context = certificate(tmp_path, expired=option is True, hostname=hostname)
     data = tmp_path / "data"
     backend_handler: type[RepositoryHandler] = type(
         "PrivateBackend", (RepositoryHandler,), {"root": data}
@@ -255,7 +259,7 @@ def proxy(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Any]:
 
     frontend = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
     frontend.socket = context.wrap_socket(frontend.socket, server_side=True)
-    base = f"https://localhost:{frontend.server_port}"
+    base = f"https://{hostname}:{frontend.server_port}"
     candidate = phase2_candidate(tmp_path)
     stable_manifest = stable.generate(candidate, data, base)
     development.initialize(data / "development-data", base, candidate)
