@@ -28,9 +28,11 @@ input neutralization and restores agent input. Stop Viewing, disconnect, hidden
 tab, logout or identity change ends viewing. The absolute session maximum is ten
 minutes across handoffs; start a new session explicitly after expiry.
 
-Viewing and authentication writes require HTTPS; session and administrator-view
-cookies are Secure, HttpOnly and SameSite=Strict. Deployments must retain the
-existing trusted HTTPS proxy. Same-origin/CSRF checks, one-use tickets, bounded
+Viewing follows the explicitly selected [Web access mode](WEB-NETWORKING.md):
+fresh local HTTP uses WS; optional HTTPS requires HTTPS/WSS and Secure cookies.
+Cookies remain HttpOnly and SameSite=Strict in every mode. Private-LAN HTTP is
+unencrypted and requires explicit confirmation. Existing HTTPS deployments retain
+their trusted proxy and Secure-cookie policy on upgrade. Same-origin/CSRF checks, one-use tickets, bounded
 workers, private Unix RFB transport and fail-closed cleanup remain mandatory.
 There is no new public port, service, MCP viewer tool or permission.
 

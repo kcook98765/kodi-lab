@@ -474,9 +474,29 @@ Application state, credentials, repository configuration and managed runtimes
 are preserved; no database migration is introduced by ingress. Caddy CA/config
 volumes use the original project and survive ordinary service stop/start.
 
-For proxy-only rollback using the same BUNDLE, generate a separate site without
-HTTPS options as documented in the Windows guide; no database restore or feed
+For proxy-only rollback using the same BUNDLE, generate a separate site with
+`--remove-https-proxy --web-access-mode https` as documented in the Windows guide; no database restore or feed
 transition is involved. For application rollback, retain the reverse candidate
 transition and supported restore requirements above. Preserve all original site
 records and CA material. Neither editing historical receipts nor bypassing
 bundle/source hashes is a supported transition.
+
+
+## Preserve Web security mode
+
+Fresh configuration now selects local HTTP. This is not an upgrade instruction:
+retain the installed `.env`, proxy overlays, trusted forwarding peer, allowed
+hosts and certificate/CA state. Missing Web mode settings mean legacy HTTPS.
+Existing HTTPS installations must keep `KODI_LAB_WEB_ACCESS_MODE=https` (or their
+legacy omitted setting) and loopback publication. The bundle verifier accepts
+legacy configuration; `configure` refuses to overwrite any existing `.env`.
+When preparing a new configuration from an older HTTPS site, explicitly choose
+`--web-access-mode https`; copying defaults would select fresh local HTTP.
+
+Installer successor configuration preserves the saved mode and omitted Caddy
+options. It rejects downgrades. A local HTTP Windows site may explicitly enable
+HTTPS with `--web-access-mode https`, matching HTTPS mode in the separately
+configured successor `.env`, and the existing Caddy arguments if Caddy is desired.
+All other site/runtime values and normal backup/transition/upgrade requirements
+remain. Original receipts are retained; do not edit them. Changing Web transport
+does not authorize database initialization, credential replacement or deployment.

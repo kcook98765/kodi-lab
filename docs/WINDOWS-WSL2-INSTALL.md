@@ -137,20 +137,19 @@ The wrapper passes arguments directly to `wsl.exe --exec`; no private launcher
 or shell command-string translation is needed. Use the execution policy approved
 for your computer; review the script rather than disabling policy globally.
 
-Complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite), then
-open `/login` at your site's trusted HTTPS origin in Windows and sign in.
-The default installer provides HTTP only; the optional Caddy path below adds TLS.
-Direct loopback HTTP sign-in is rejected by the existing HTTPS middleware,
-before password validation or session creation, including a matching
-`Origin: http://127.0.0.1:18100`. The login route's same-origin helper alone
-accepts matching HTTP origins; it is not the HTTPS guard. Secure-cookie behavior
-is an additional protection, not the reason the normal HTTP login POST is denied.
-Its login-page readiness and anonymous MCP denial checks do not prove authenticated
-browser access. Authorized MCP inspection still needs a client and target grant.
+For a fresh default installation, open **http://127.0.0.1:18100/login** in
+Windows and sign in. Local HTTP and standard noVNC/WS need no certificate or
+proxy. This new default does not change an existing HTTPS installation; omitted
+legacy mode settings retain HTTPS enforcement and Secure cookies. Native
+Windows acceptance of the new default is still pending. The optional Caddy path
+below selects HTTPS and keeps direct HTTP login disabled, including matching
+HTTP Origin requests. Readiness checks do not replace authenticated browser
+acceptance. MCP inspection still requires a client and target grant.
 
 ## Optional local HTTPS/WSS ingress
 
-Browser administrator login and the screen viewer require trusted HTTPS/WSS.
+Select this option when you want encrypted browser sessions. In HTTPS mode,
+administrator login and the screen viewer require trusted HTTPS/WSS.
 MCP clients may continue using the existing loopback HTTP endpoint with Bearer
 credentials. This optional path is **source-level verification only** until the
 native Windows checks below pass. It does not establish Windows acceptance.
@@ -321,7 +320,9 @@ repoint any approved task only after successful qualification.
 For proxy-only disable/rollback, stop Caddy and Web through the active helper.
 Prepare another separate site directory with a verified/configured copy of the
 **same successor bundle**, run `configure-successor` against the active site
-**without HTTPS options**, then start through the resulting helper. This removes
+**with `--remove-https-proxy --web-access-mode https`**, then start through the
+resulting helper. Omitted HTTPS options now preserve the active Caddy topology.
+This removes
 Web's forwarded trust/ingress attachment while retaining the same application
 state and project. No repository transition is needed when BUNDLE identity is
 unchanged. Preserve stopped Caddy, its volumes and old site evidence. HTTP MCP
