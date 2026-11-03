@@ -56,7 +56,7 @@ python3 "$repository/scripts/canonicalize_docker_archive.py" \
   "$output/kodi-lab-application-images.tar"
 rm "$output/.docker-save-application-images.tar"
 cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" \
-  "$repository/compose.development.yaml" "$output/"
+  "$repository/compose.development.yaml" "$repository/compose.lan-http.yaml" "$output/"
 cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
 cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \

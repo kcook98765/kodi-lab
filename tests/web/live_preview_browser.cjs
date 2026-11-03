@@ -47,7 +47,7 @@ function fixture() {
   const context = {
     document, window, HTMLElement: Element, HTMLButtonElement: Button, HTMLImageElement: Image,
     WebSocket: Socket, CustomEvent: class { constructor(type, value) { this.type = type; this.detail = value.detail; } },
-    crypto, performance: {now: () => now}, ArrayBuffer, Blob, Number, String, Error, JSON, Promise,
+    crypto: {getRandomValues: values => crypto.webcrypto.getRandomValues(values)}, Uint8Array, performance: {now: () => now}, ArrayBuffer, Blob, Number, String, Error, JSON, Promise,
     URL: {createObjectURL: () => { const url = `blob:fixture-${++object}`; urls.add(url); return url; }, revokeObjectURL: url => urls.delete(url)},
     setInterval: (fn, ms) => { timers.set(++timer, {fn, ms, recurring: true}); return timer; },
     clearInterval: id => timers.delete(id), clearTimeout: id => timers.delete(id),

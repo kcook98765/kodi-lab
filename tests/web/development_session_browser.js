@@ -33,7 +33,7 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   let next=0,reloads=0;
   const root={dataset:rendered,querySelector(selector) {return nodes.get(selector)||null;}, querySelectorAll:()=>actions};
   const document={hidden:false,querySelector:selector=>selector.startsWith('meta')?{content:'csrf'}:selector==='[data-novnc-viewer]'?viewerRoot:selector==='[data-viewer-current-status]'?null:root,addEventListener:add, dispatchEvent:event=>{events.push(event);listeners[event.type]?.(event);}};
-  const context={document,URL,location:{href:'https://lab.test/',protocol:'https:'},RFB:class {constructor(){clients.push(this);}addEventListener(){}disconnect(){}},WebSocket:class {},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{randomUUID:()=> '30000000-0000-4000-8000-000000000001',getRandomValues:array=>require('node:crypto').webcrypto.getRandomValues(array)},performance:require('node:perf_hooks').performance,AbortController,Set,Error,console,
+  const context={document,URL,location:{href:'https://lab.test/',protocol:'https:'},RFB:class {constructor(){clients.push(this);}addEventListener(){}disconnect(){}},WebSocket:class {},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{getRandomValues:array=>require('node:crypto').webcrypto.getRandomValues(array)},performance:require('node:perf_hooks').performance,AbortController,Set,Error,console,
     setTimeout(fn,delay) {timers.set(++next,{fn,delay});return next;}, clearTimeout:id=>timers.delete(id),
     fetch:async(url,options)=>{
       requests.push({url,options});
@@ -60,7 +60,10 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   const request=empty.requests.find(r=>r.options.method);
   assert.equal(request.url,'/api/development-session/reserve');
   assert.equal(request.options.headers['X-Kodi-Lab-CSRF'],'csrf');
-  assert.deepEqual(JSON.parse(request.options.body),{request_id:'30000000-0000-4000-8000-000000000001',expected_generation:0,workspace_id:workspace,target_id:target});
+  const body = JSON.parse(request.options.body);
+  assert.match(body.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  delete body.request_id;
+  assert.deepEqual(body,{expected_generation:0,workspace_id:workspace,target_id:target});
   assert.equal(empty.reloads(),1,'completed reservation gets a fresh identity-bound page');
   const reserved=boot('reserved');await flush();
   assert.equal(reserved.actions[0].disabled,false);
