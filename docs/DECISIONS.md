@@ -7528,3 +7528,14 @@ operation ID and validates a one-use opaque request proof, exact identity and
 fresh resource admission before dispatch. A generic START receipt cannot authorize
 this path. Existing development Start remains strict; ordinary readiness is
 native-only. See [the contract](ORDINARY-MANAGED-START.md).
+
+## Durable Create intent foundation (issue #196, milestone 1)
+
+Create uses one fixed-stage parent record, with database writer admission and
+unique request/canonical-target identities. Identical accepted requests replay;
+different requests for that target conflict with the original parent. Dispatch
+is checkpointed before a child call, and missing receipts never permit another
+dispatch. Uncertain and completed history cannot be reset or retried by this
+foundation. Parent references protect lifecycle receipts from normal pruning.
+There is no executor or public API in milestone 1, and parent intent does not
+grant broker/lifecycle authority. See [the contract](CREATE-KODI-FOUNDATION.md).

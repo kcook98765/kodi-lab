@@ -5633,6 +5633,99 @@ class ManagedInstanceDeleteOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class CreateKodiOperationRow(Base):
+    """One immutable approved intent per canonical Kodi, including terminal history."""
+
+    __tablename__ = "create_kodi_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "generation IN ('matrix','nexus','omega') "
+            "AND scope='create_native_v1' AND recipe_revision>=1 "
+            "AND length(recipe_id) BETWEEN 1 AND 128 AND version>=0",
+            name="create_kodi_intent",
+        ),
+        CheckConstraint(
+            "stage IN ('installation','registration','provisioning','startup',"
+            "'readiness') AND checkpoint IN ('accepted','planned','dispatched',"
+            "'confirmed','needs_attention','complete')",
+            name="create_kodi_stage",
+        ),
+        CheckConstraint(
+            "(checkpoint IN ('accepted','planned','dispatched') AND outcome IS NULL "
+            "AND reason IS NULL AND completed_at IS NULL) OR "
+            "(checkpoint='confirmed' AND outcome IS NOT NULL "
+            "AND outcome='succeeded' AND reason IS NULL "
+            "AND completed_at IS NULL) OR "
+            "(checkpoint='complete' AND stage='readiness' AND outcome IS NOT NULL "
+            "AND outcome='succeeded' "
+            "AND reason IS NULL AND completed_at IS NOT NULL) OR "
+            "(checkpoint='needs_attention' AND outcome IS NOT NULL "
+            "AND outcome IN ('refused','failed',"
+            "'uncertain') AND reason IS NOT NULL AND completed_at IS NOT NULL)",
+            name="create_kodi_outcome",
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND length(target_id)=36 "
+            "AND length(recipe_digest)=71 AND substr(recipe_digest,1,7)='sha256:' "
+            "AND substr(recipe_digest,8) NOT GLOB '*[^0-9a-f]*' "
+            "AND (reason IS NULL OR (length(reason) BETWEEN 1 AND 64 "
+            "AND reason NOT GLOB '*[^a-z0-9_]*'))",
+            name="create_kodi_identifiers",
+        ),
+        CheckConstraint(
+            "(runtime_revision_id IS NULL AND image_id IS NULL) OR "
+            "(runtime_revision_id IS NOT NULL AND length(runtime_revision_id)=36 "
+            "AND image_id IS NOT NULL AND length(image_id)=71 "
+            "AND substr(image_id,1,7)='sha256:' "
+            "AND substr(image_id,8) NOT GLOB '*[^0-9a-f]*')",
+            name="create_kodi_runtime_binding",
+        ),
+        CheckConstraint(
+            "(checkpoint IN ('accepted','planned') AND dispatched_at IS NULL) OR "
+            "(checkpoint IN ('dispatched','confirmed','complete') "
+            "AND dispatched_at IS NOT NULL) OR "
+            "(checkpoint='needs_attention' AND "
+            "(outcome='refused' OR dispatched_at IS NOT NULL))",
+            name="create_kodi_dispatch_checkpoint",
+        ),
+        CheckConstraint(
+            "(container_id IS NULL AND runtime_state_revision IS NULL) OR "
+            "(container_id IS NOT NULL AND length(container_id)=64 "
+            "AND container_id NOT GLOB '*[^0-9a-f]*' "
+            "AND runtime_state_revision IS NOT NULL AND runtime_state_revision>=0 "
+            "AND runtime_revision_id IS NOT NULL)",
+            name="create_kodi_container_binding",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    generation: Mapped[str] = mapped_column(String(16), nullable=False)
+    recipe_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    recipe_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    recipe_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    checkpoint: Mapped[str] = mapped_column(String(24), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    approved_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    dispatched_at: Mapped[str | None] = mapped_column(String(27))
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    outcome: Mapped[str | None] = mapped_column(String(16))
+    reason: Mapped[str | None] = mapped_column(String(64))
+    # Planned IDs precede child creation; no FK to a nonexistent child or live target.
+    installation_operation_id: Mapped[str | None] = mapped_column(
+        String(36), unique=True
+    )
+    provision_operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    start_operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    runtime_revision_id: Mapped[str | None] = mapped_column(String(36))
+    image_id: Mapped[str | None] = mapped_column(String(71))
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    runtime_state_revision: Mapped[int | None] = mapped_column(Integer)
+
+
 class ManagedInstanceLifecycleOperationRow(Base):
     """Durable typed history for one synchronous lifecycle request."""
 
