@@ -1,35 +1,34 @@
 # Architecture
 
-`V1-SPEC.md` is authoritative. This document is a concise implementation map,
-not a replacement specification.
+This is a chronological implementation map. Its phase sections preserve their
+historical tool counts, design decisions, and qualification checkpoints; they
+are not a current feature or network-port inventory. For the **installed** MCP
+toolset, discover tools with your authenticated client: enabled tools depend on
+server version, role, and exact grants. The
+[V1 specification](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract)
+records an earlier scoped baseline, while later work adds capabilities.
 
-Phase sections below retain their checkpoint tool counts and artifact identities.
-The current twenty-tool MCP contract and seven-tool production subset are in
-[V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
-The current Bridge packaging contract is in [BRIDGE.md](BRIDGE.md).
-Read-only current/previous log inspection, fixed paths, response bounds and
-trust requirements are in [KODI-LOGS.md](KODI-LOGS.md) (D-0433).
-
-For the current V1 release, managed instances are disposable and the stable
-reviewed Linux amd64 recipes are Matrix 19.4, Nexus 20.5, and Omega 21.3.
-The four-runtime/private-archive sections below record earlier compatibility
-and implementation evidence, including Kodi 19.5 and Piers; they do not define
-the installable V1 set. See D-0381 and `LINUX-V1-RELEASE.md`.
+The original stable V1 runtime scope covered Matrix 19.4, Nexus 20.5, and
+Omega 21.3, with disposable managed instances. Current Kodi also supports
+explicitly retained per-version development profiles and a reviewed
+development-only Piers 22 RC1 option. Only one managed instance may run at a
+time. See the [Current Kodi workflow](DEVELOPMENT-SESSION.md) and
+[exact standard viewing recipes](STANDARD-NOVNC.md). Historical
+four-runtime/private-archive sections below are not installation instructions.
 
 Kodi Lab uses Python, FastAPI, server-rendered HTML with minimal JavaScript,
-SQLite metadata, filesystem artifact storage, Nginx, Docker Compose, and a
-restricted container-management broker. The application and broker must not
-grant unrestricted Docker-socket access.
+SQLite metadata, filesystem artifact storage, Docker Compose, and a restricted
+container-management broker. Fresh Web installations use local HTTP;
+private-LAN HTTP or HTTPS ingress is separately selected. See
+[Web networking](WEB-NETWORKING.md) and
+[repository networking](REPOSITORY-NETWORKING.md) for the distinct connections.
+Web and Kodi containers do not receive unrestricted Docker-socket access.
 
-The common application/service layer will serve web, API, and MCP adapters.
-MCP operates and develops against targets; the web UI administers the lab.
-Managed and remote Kodi implementations share a generic Target abstraction.
-Version-specific behavior belongs in runtime/Kodi adapters rather than service
-conditionals.
-
-The recommended module boundaries in specification section 48 will be added as
-their implementation phases begin. Phase 0 keeps only the package,
-configuration, and migration metadata needed for a working foundation.
+The shared application/service layer supports Web, API, and MCP adapters.
+MCP operates and develops against authorized targets; the Web UI administers
+the lab. Managed and remote Kodi implementations share a Target abstraction.
+The [Bridge contract](BRIDGE.md) describes optional Kodi-side capabilities;
+[log inspection](KODI-LOGS.md) records its own bounds and trust requirements.
 
 ## Core domain and storage
 
