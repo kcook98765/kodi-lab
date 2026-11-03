@@ -2,6 +2,21 @@ import subprocess
 from pathlib import Path
 
 
+def test_standalone_binding_explicit_viewing_and_cleanup() -> None:
+    root = Path(__file__).resolve().parents[2]
+    subprocess.run(
+        [
+            "node",
+            str(Path(__file__).with_name("novnc_standalone_browser.cjs")),
+            str(root / "src/kodi_lab/web/static/novnc-phase1.js"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+
+
 def test_async_old_callbacks_cannot_stop_newer_attempts() -> None:
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run(

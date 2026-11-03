@@ -239,8 +239,8 @@ def test_enabled_routes_require_admin_csrf_origin_and_closed_schema(
     assert "ticket" in reply.json()
     assert client.post(path, json=body, headers=headers).status_code == 409
     page = client.get(f"/instances/{INSTANCE_ID}/novnc-phase1")
-    assert page.status_code == 200 and "Not the currently selected Kodi" in page.text
-    assert "data-novnc-viewer" not in page.text
+    assert page.status_code == 200 and "Viewing this managed Kodi" in page.text
+    assert "data-view-binding" in page.text
     assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
     assert "data:" not in client.get("/").headers["content-security-policy"]
 

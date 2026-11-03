@@ -20,6 +20,9 @@
 {% block content %}
       <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/managed-instances">Managed registrations</a></p>
       <h1>{{ detail.runtime.name }}</h1>
+      {% if novnc_instance_enabled(detail.runtime.managed_instance_id) %}
+      <p><a class="button-link" href="/instances/{{ detail.runtime.managed_instance_id }}/novnc-phase1">Open screen</a></p>
+      {% endif %}
       <section class="notice" aria-label="Current Kodi selection">
       {% set selected_kodi = current_kodi.current if current_kodi is defined else none %}
       {% if current_kodi is not defined %}
@@ -130,9 +133,6 @@
           <p data-live-age class="secondary">No live frame.</p>
           <img data-live-image width="640" height="360" style="max-width:100%;height:auto" alt="Live Kodi preview" draggable="false" hidden>
         </div>
-        {% if novnc_instance_enabled(detail.runtime.managed_instance_id) %}
-        <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/novnc-phase1">Open experimental noVNC viewer</a></p>
-        {% endif %}
         <h3>Saved screenshot</h3>
         <p class="secondary">A saved image of this registration is not a live screen or proof of the current runtime incarnation.</p>
         <p class="secondary">Read-only Kodi screenshots. Refresh pauses while this tab is hidden.</p>

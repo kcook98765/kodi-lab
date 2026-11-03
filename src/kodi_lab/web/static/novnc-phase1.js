@@ -127,12 +127,14 @@ start.onclick = async () => {
             runtime_revision_id:main.dataset.viewRuntime,container_id:main.dataset.viewContainer,
             workspace_id:main.dataset.viewWorkspace,source_id:main.dataset.viewSource,
         } : null;
-        const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {})});
+        const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {}), ...(main.dataset.viewBinding ? {expected_binding:main.dataset.viewBinding} : {})});
         connect(current, result);
     } catch (_) {
         if (attempt === current) {
             const ended = await end(current);
-            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Viewer unavailable. Open the instance for supported screenshot options.';
+            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = main.dataset.viewBinding
+                ? 'Screen unavailable or changed. Review this Kodi’s status, then reload this page before starting viewing.'
+                : 'Viewer unavailable. Open the instance for supported screenshot options.';
         }
     }
 };
@@ -198,6 +200,7 @@ element('#expand').onclick = async () => {
 };
 document.addEventListener('visibilitychange', () => { if (document.hidden) end(); });
 window.addEventListener('pagehide', () => end());
+if (main.dataset.viewBinding) window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 buttons();
 
 function currentStatus(detail) {
