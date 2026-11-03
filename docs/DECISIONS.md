@@ -7551,3 +7551,14 @@ and uncertainty can consume only a verified original terminal receipt. Verified
 failures remain final; new attempts need a separate retained-history design.
 No schema, broker contract/authority, runner, Web API or later Create execution
 is added. See [the contract](CREATE-KODI-INSTALLATION.md).
+
+## Exact Create registration and provision (issue #196, milestone 2B)
+
+Canonical registration distinguishes verified read-only reuse from checkpointed
+bootstrap mutation. Provision uses the existing typed child/lease claim to commit
+parent dispatch in the same transaction. Exact reply identity is captured while
+ownership remains active; parent success and the terminal child receipt commit
+together, retaining the precise post-release projection revision. Uncertainty
+never authorizes another child or container adoption. No schema, broker authority,
+Start/readiness, API, wizard or generic workflow changes are added. See
+[the contract](CREATE-KODI-REGISTRATION-PROVISIONING.md).

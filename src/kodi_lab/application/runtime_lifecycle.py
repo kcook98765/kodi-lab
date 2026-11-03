@@ -189,6 +189,12 @@ class ManagedRuntimeLifecycleService:
         precondition: Callable[[Session], None] | None = None,
         operation_id: UUID | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        on_result: Callable[
+            [Session, RunningLifecycleOperation, ProvisionManagedContainerResult], None
+        ]
+        | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
         return self._run(
@@ -198,11 +204,15 @@ class ManagedRuntimeLifecycleService:
             precondition=precondition,
             operation_id=operation_id,
             on_claim=on_claim,
+            on_provision_result=on_result,
+            on_terminal=on_terminal,
         )
 
-    def _provision(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
+    def _provision(
+        self, instance_id: UUID, _profile: RuntimeExecutionProfile
+    ) -> ProvisionManagedContainerResult:
         try:
-            self._broker.provision_managed_container(
+            result = self._broker.provision_managed_container(
                 managed_instance_id=str(instance_id)
             )
         except (ClientTransportError, ClientProtocolError) as error:
@@ -223,6 +233,7 @@ class ManagedRuntimeLifecycleService:
                 raise LifecycleDispatchUnconfirmedError from error
             raise
         self._readiness.clear(instance_id)
+        return result
 
     def start(
         self,
@@ -599,7 +610,9 @@ class ManagedRuntimeLifecycleService:
         self,
         instance_id: UUID,
         kind: ManagedInstanceLifecycleKind,
-        action: Callable[[UUID, RuntimeExecutionProfile], None],
+        action: Callable[
+            [UUID, RuntimeExecutionProfile], ProvisionManagedContainerResult | None
+        ],
         *,
         operation_id: UUID | None = None,
         precondition: Callable[[Session], None] | None = None,
@@ -608,6 +621,10 @@ class ManagedRuntimeLifecycleService:
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
         | None = None,
         ordinary_start: bool = False,
+        on_provision_result: Callable[
+            [Session, RunningLifecycleOperation, ProvisionManagedContainerResult], None
+        ]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
 
@@ -660,7 +677,22 @@ class ManagedRuntimeLifecycleService:
             self._operations.record_prior_state(handle, prior)
             if before_dispatch is not None:
                 before_dispatch()
-            action(instance_id, profile)
+            action_result = action(instance_id, profile)
+            if on_provision_result is not None:
+                if kind is not ManagedInstanceLifecycleKind.PROVISION or not isinstance(
+                    action_result, ProvisionManagedContainerResult
+                ):
+                    raise LifecycleDispatchUnconfirmedError
+                try:
+                    # The claim transaction has finished. Capture the exact reply
+                    # under ownership BEFORE status/projection observation or release.
+                    with self._session_factory.begin() as session:
+                        from sqlalchemy import text
+
+                        session.execute(text("BEGIN IMMEDIATE"))
+                        on_provision_result(session, handle, action_result)
+                except Exception as error:
+                    raise LifecycleDispatchUnconfirmedError from error
             result = self._status.get(instance_id)
             resulting_state = self._observe(instance_id)
         except Exception as error:
