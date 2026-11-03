@@ -131,7 +131,8 @@ bundle for recovery. `initialize` creates the private master key, migrates SQLit
 the installed head, and binds the state marker. The password command prompts
 without echo. Open **http://127.0.0.1:18100/login** on this computer and sign in.
 Fresh local HTTP needs no certificate or proxy. For private-LAN HTTP or a
-user-managed HTTPS proxy, see [advanced networking](WEB-NETWORKING.md). Web has no Docker
+user-managed HTTPS proxy, see [advanced networking](https://github.com/kcook98765/kodi-lab/blob/main/docs/WEB-NETWORKING.md).
+Web has no Docker
 socket. Its remote-target functions need no managed Kodi image. The runtime
 matrix shows three supported but unacquired generations at this point.
 
