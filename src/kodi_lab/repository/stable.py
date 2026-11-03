@@ -478,6 +478,9 @@ def generate(
 ) -> dict[str, object]:
     """Publish a complete stable generation after validating exact candidate inputs."""
     parsed = urlsplit(base_url)
+    parsed_port = parsed.port
+    if parsed_port is None and parsed.scheme == "https":
+        parsed_port = 443
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
@@ -486,7 +489,8 @@ def generate(
         or parsed.path
         or parsed.query
         or parsed.fragment
-        or not parsed.port
+        or not parsed_port
+        or parsed.netloc.endswith(":")
     ):
         raise ValueError("repository base URL is invalid")
     prior = None
