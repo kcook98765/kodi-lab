@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
     web_bind_host: Literal["127.0.0.1", "10.251.0.10", "0.0.0.0"] | None = None
     web_allowed_hosts: tuple[str, ...] = ()
+    # Missing mode is legacy HTTPS. Only fresh installers select HTTP by default.
+    web_access_mode: Literal["local-http", "lan-http", "https"] = "https"
     native_zip_base_url: str | None = None
     mcp_lan_url: str | None = None
     mcp_lan_ca_file: Path | None = None
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
     web_session_absolute_seconds: Literal[604_800] = 604_800
     trusted_custom_builds_enabled: bool = False
     experimental_novnc_instances: tuple[UUID, ...] = ()
+
+    @property
+    def web_requires_https(self) -> bool:
+        return self.web_access_mode == "https"
 
     external_target_master_key: SecretStr | None = None
     external_target_master_key_version: int = Field(default=1, ge=1, le=2_147_483_647)

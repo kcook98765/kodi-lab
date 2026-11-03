@@ -87,9 +87,11 @@ def test_pinned_local_git_checkout_runs_the_selected_installer(
         "--directory",
         str(tmp_path / "installation"),
     ]
-    assert result["argv"][-4:] == [
+    assert result["argv"][-6:] == [
         "--repository-bind",
         "192.168.50.20",
+        "--web-access-mode",
+        "local-http",
         "--repository-base-url",
         "http://lab.example:18120",
     ]

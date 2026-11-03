@@ -2466,6 +2466,17 @@ def create_app(
     async def security_headers(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        # LAN Web publication is not an MCP opt-in. This applies before protocol
+        # parsing/authentication, including requests with a forged loopback Host.
+        if settings.web_access_mode == "lan-http" and request.url.path == "/mcp":
+            return JSONResponse({"detail": "mcp_disabled_for_lan_web"}, status_code=403)
+        if (
+            settings.web_requires_https
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.url.path != "/mcp"
+            and request.url.scheme != "https"
+        ):
+            return JSONResponse({"detail": "web_requires_https"}, status_code=403)
         response = await call_next(request)
         context.mcp_workspace_retention.sweep()
         response.headers["Cache-Control"] = "no-store"
@@ -3314,7 +3325,7 @@ def create_app(
             created.token,
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
-            secure=settings.web_cookie_secure
+            secure=settings.web_requires_https
             or (novnc_viewer is not None and novnc_viewer.require_https),
             samesite="strict",
             path="/",
@@ -3345,7 +3356,7 @@ def create_app(
             str(mode),
             max_age=31536000,
             httponly=True,
-            secure=settings.web_cookie_secure
+            secure=settings.web_requires_https
             or (novnc_viewer is not None and novnc_viewer.require_https),
             samesite="strict",
             path="/",
@@ -3372,7 +3383,7 @@ def create_app(
         response.delete_cookie(
             settings.web_session_cookie_name,
             path="/",
-            secure=settings.web_cookie_secure
+            secure=settings.web_requires_https
             or (novnc_viewer is not None and novnc_viewer.require_https),
             httponly=True,
             samesite="strict",
@@ -7548,8 +7559,10 @@ def create_app(
         if context.auth.resolve(token) is None:
             await websocket.close(code=4401, reason="display_session_expired")
             return
-        if websocket.scope.get("query_string", b"") or not _websocket_same_origin(
-            websocket
+        if (
+            websocket.scope.get("query_string", b"")
+            or (settings.web_requires_https and websocket.url.scheme != "wss")
+            or not _websocket_same_origin(websocket)
         ):
             await websocket.close(code=4403, reason="display_unavailable")
             return

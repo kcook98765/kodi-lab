@@ -114,5 +114,5 @@ def build_viewer(
         path,
         authority,
         ownership=HumanViewerOwnership(sessions),
-        require_https=True,
+        require_https=settings.web_requires_https,
     )

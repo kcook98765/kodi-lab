@@ -247,6 +247,64 @@ def save(root: Path, data: dict[str, Any], stage: str) -> None:
     temporary.replace(root / "INSTALLATION.json")
 
 
+def web_options(
+    args: argparse.Namespace, host: str, ingress: dict[str, Any] | None
+) -> tuple[str, str]:
+    bind = getattr(args, "web_lan_ip", None)
+    mode = getattr(args, "web_access_mode", None) or (
+        "https" if ingress else "lan-http" if bind else "local-http"
+    )
+    if bind:
+        address = ipaddress.IPv4Address(bind)
+        if (
+            host != "ubuntu"
+            or mode != "lan-http"
+            or str(address) != bind
+            or not any(
+                address in ipaddress.IPv4Network(network)
+                for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            )
+        ):
+            raise ValueError(
+                "LAN HTTP requires Ubuntu and an exact private IPv4 address"
+            )
+    elif mode == "lan-http":
+        raise ValueError("LAN HTTP requires --web-lan-ip")
+    if ingress and mode != "https":
+        raise ValueError("Caddy ingress requires HTTPS mode")
+    if mode not in {"local-http", "lan-http", "https"}:
+        raise ValueError("invalid Web access mode")
+    return mode, bind or "127.0.0.1"
+
+
+def show_web_access(data: dict[str, Any]) -> None:
+    mode = data.get("web_access_mode", "https")
+    ingress = data.get("https_ingress")
+    if ingress:
+        print(
+            f"After manual CA trust, open https://127.0.0.1:{ingress['port']}/login. "
+            "HTTPS: encrypted browser sessions; see the Windows HTTPS guide."
+        )
+    elif mode == "https":
+        print(
+            "HTTPS mode: open /login at your configured reverse proxy URL. "
+            f"Plaintext upstream: 127.0.0.1:{data['web_port']}; "
+            "direct HTTP login is disabled."
+        )
+    else:
+        bind = data.get("web_bind", "127.0.0.1")
+        print(
+            f"Open http://{bind}:{data['web_port']}/login and use your chosen password."
+        )
+        print(
+            "Private-LAN HTTP: traffic is unencrypted. "
+            "MCP is disabled on this Web listener."
+            if mode == "lan-http"
+            else "Local HTTP: accessible from this computer only; "
+            "traffic is unencrypted."
+        )
+
+
 def ingress_config(subnet: str, port: int, routes: list[str]) -> dict[str, Any]:
     network = ipaddress.ip_network(subnet)
     private = [
@@ -589,8 +647,8 @@ def services(data: dict[str, Any]) -> list[str]:
     ]
 
 
-def probe(web_port: int) -> None:
-    origin = f"http://127.0.0.1:{web_port}"
+def probe(web_port: int, bind: str = "127.0.0.1", *, lan_http: bool = False) -> None:
+    origin = f"http://{bind}:{web_port}"
     opener = build_opener(ProxyHandler({}))
     with opener.open(origin + "/login", timeout=5) as response:
         if response.status != 200:
@@ -626,6 +684,13 @@ def probe(web_port: int) -> None:
         with opener.open(request, timeout=5):
             raise ValueError("MCP unexpectedly accepted an anonymous request")
     except HTTPError as error:
+        if lan_http:
+            if (
+                error.code != 403
+                or error.read(256) != b'{"detail":"mcp_disabled_for_lan_web"}'
+            ):
+                raise ValueError("LAN Web MCP isolation readiness failed") from error
+            return
         challenge = error.headers.get("WWW-Authenticate", "")
         if error.code != 401 or challenge.split(" ", 1)[0].lower() != "bearer":
             raise ValueError("MCP bearer readiness failed") from error
@@ -688,6 +753,14 @@ def load(root: Path) -> dict[str, Any]:
         "KODI_LAB_REPOSITORY_PORT": str(data["repository_port"]),
         "KODI_LAB_REPOSITORY_BASE_URL": data["repository_base_url"],
     }
+    mode = data.get("web_access_mode", "https")
+    bind = data.get("web_bind", "127.0.0.1")
+    if (
+        values.get("KODI_LAB_WEB_ACCESS_MODE", "https") != mode
+        or values.get("KODI_LAB_WEB_PUBLISHED_BIND", "127.0.0.1") != bind
+        or (data.get("https_ingress") and mode != "https")
+    ):
+        raise ValueError("Web security configuration differs from installation receipt")
     if any(values.get(key) != value for key, value in expected.items()):
         raise ValueError("site configuration differs from installation receipt")
     return data
@@ -754,6 +827,7 @@ def bootstrap(args: argparse.Namespace) -> None:
     """A downloaded copy can obtain a clean checkout without knowing its layout."""
     host = host_kind()
     ingress = ingress_options(args, host)
+    mode, web_bind = web_options(args, host, ingress)
     destination = installation_path(args.directory)
     if (
         destination.exists()
@@ -806,6 +880,9 @@ def bootstrap(args: argparse.Namespace) -> None:
     ]
     if args.repository_bind:
         command += ["--repository-bind", args.repository_bind]
+    command += ["--web-access-mode", mode]
+    if mode == "lan-http":
+        command += ["--web-lan-ip", web_bind]
     if args.repository_base_url:
         command += ["--repository-base-url", args.repository_base_url]
     if ingress:
@@ -826,6 +903,7 @@ def install(args: argparse.Namespace) -> None:
     source = Path(__file__).resolve().parent.parent
     host = host_kind()
     ingress = ingress_options(args, host)
+    mode, web_bind = web_options(args, host, ingress)
     root = installation_path(args.directory, source)
     if root.exists() or root.is_symlink() or not root.parent.is_dir():
         raise ValueError(
@@ -861,7 +939,21 @@ def install(args: argparse.Namespace) -> None:
         raise ValueError("choose distinct unprivileged ports (1024 through 65535)")
     engine_id = engine(source, host)
     check_networks(source)
-    available_port("127.0.0.1", args.web_port)
+    available_port(web_bind, args.web_port)
+    if mode == "lan-http":
+        print(
+            "WARNING: LAN HTTP sends passwords, sessions and "
+            "screen/control traffic unencrypted."
+        )
+        print(
+            "Only use a trusted private network. "
+            "MCP will be disabled on this Web listener."
+        )
+        if (
+            input(f"Type {web_bind} to confirm private-LAN Web access: ").strip()
+            != web_bind
+        ):
+            raise ValueError("private-LAN HTTP was not confirmed")
     available_port(
         "127.0.0.1" if host == "windows-wsl2" else repository_bind,
         args.repository_local_port if host == "windows-wsl2" else args.repository_port,
@@ -878,6 +970,8 @@ def install(args: argparse.Namespace) -> None:
         "project": "kodi-lab-" + uuid.uuid4().hex[:12],
         "source_commit": source_commit,
         "web_port": args.web_port,
+        "web_access_mode": mode,
+        "web_bind": web_bind,
         "repository_bind": repository_bind,
         "repository_port": args.repository_port,
         "repository_base_url": repository_url,
@@ -936,6 +1030,11 @@ def install(args: argparse.Namespace) -> None:
                 str(root / "bundle"),
                 "--port",
                 str(args.web_port),
+                "--web-access-mode",
+                mode,
+                "--web-published-bind",
+                web_bind,
+                *(["--confirm-lan-http"] if mode == "lan-http" else []),
                 "--repository-bind",
                 repository_bind,
                 "--repository-port",
@@ -1031,7 +1130,7 @@ def install(args: argparse.Namespace) -> None:
         )
         save(root, data, "services_started")
         check_ingress_network(root, data)
-        probe(args.web_port)
+        probe(args.web_port, web_bind, lan_http=mode == "lan-http")
         save(root, data, "ready")
     except (Exception, KeyboardInterrupt):
         print(
@@ -1041,15 +1140,7 @@ def install(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         raise
-    if ingress:
-        print(
-            f"After manual CA trust, open https://127.0.0.1:{ingress['port']}/login. "
-            "See the Windows HTTPS guide."
-        )
-    else:
-        print(
-            f"Open http://127.0.0.1:{args.web_port}/login and use your chosen password."
-        )
+    show_web_access(data)
     print(
         "Manage with: "
         + shlex.join(
@@ -1089,6 +1180,21 @@ def configure_successor(args: argparse.Namespace) -> None:
             "successor directory must contain only the new verified bundle/"
         )
     ingress = ingress_options(args, old["host"])
+    # Omitted successor options preserve HTTPS and the existing Caddy topology.
+    if getattr(args, "remove_https_proxy", False):
+        if ingress or getattr(args, "web_access_mode", None) != "https":
+            raise ValueError("proxy removal requires explicit --web-access-mode https")
+    elif ingress is None:
+        ingress = old.get("https_ingress")
+    mode = getattr(args, "web_access_mode", None) or old.get("web_access_mode", "https")
+    if (mode != old.get("web_access_mode", "https") and mode != "https") or getattr(
+        args, "web_lan_ip", None
+    ):
+        raise ValueError(
+            "successor may only preserve Web mode or explicitly enable HTTPS"
+        )
+    if ingress and mode != "https":
+        raise ValueError("enabling Caddy requires explicit --web-access-mode https")
     manifest = json.loads((root / "bundle/BUNDLE.json").read_text())
     # Check the verifier against the manifest before executing it, as load() does.
     tool = root / "bundle/linux-v1-bundle"
@@ -1101,11 +1207,16 @@ def configure_successor(args: argparse.Namespace) -> None:
 
     # Carry every configured site/runtime value; only application identities change.
     def values(path: Path) -> dict[str, str]:
-        return dict(
+        result = dict(
             line.split("=", 1)
             for line in path.read_text().splitlines()
             if line and not line.startswith("#")
         )
+        result.setdefault("KODI_LAB_WEB_ACCESS_MODE", "https")
+        result.setdefault("KODI_LAB_WEB_PUBLISHED_BIND", "127.0.0.1")
+        if path == previous / "bundle/.env":
+            result["KODI_LAB_WEB_ACCESS_MODE"] = mode
+        return result
 
     changed_images = {
         "KODI_LAB_REMOTE_IMAGE",
@@ -1137,6 +1248,8 @@ def configure_successor(args: argparse.Namespace) -> None:
             previous_receipt.read_bytes()
         ).hexdigest(),
         "completed_stage": "successor_site_configured",
+        "web_access_mode": mode,
+        "web_bind": old.get("web_bind", "127.0.0.1"),
     }
     data.pop("https_ingress", None)
     data.pop("https_ingress_identity", None)
@@ -1181,7 +1294,19 @@ def main() -> int:
     parser.add_argument("--repository-port", type=int, default=18120)
     parser.add_argument("--repository-local-port", type=int, default=18121)
     parser.add_argument("--web-port", type=int, default=18100)
+    parser.add_argument(
+        "--web-access-mode", choices=("local-http", "lan-http", "https")
+    )
+    parser.add_argument(
+        "--web-lan-ip",
+        help="Ubuntu private IPv4 address; prompts for unencrypted HTTP confirmation",
+    )
     parser.add_argument("--web-https-proxy", choices=("caddy",))
+    parser.add_argument(
+        "--remove-https-proxy",
+        action="store_true",
+        help="successor only: remove Caddy while retaining HTTPS enforcement",
+    )
     parser.add_argument("--https-ingress-subnet")
     parser.add_argument("--https-port", type=int)
     parser.add_argument("--windows-route", action="append")
@@ -1190,9 +1315,13 @@ def main() -> int:
     try:
         if args.previous_installation and args.action != "configure-successor":
             raise ValueError("--previous-installation requires configure-successor")
+        if args.remove_https_proxy and args.action != "configure-successor":
+            raise ValueError("--remove-https-proxy requires configure-successor")
         if args.action not in {"install", "bootstrap", "configure-successor"} and any(
             (
                 args.web_https_proxy,
+                args.web_access_mode,
+                args.web_lan_ip,
                 args.https_ingress_subnet,
                 args.https_port is not None,
                 args.windows_route,
@@ -1273,7 +1402,12 @@ def main() -> int:
             if activating:
                 check_ingress_network(root, data)
             if args.action == "start":
-                probe(data["web_port"])
+                probe(
+                    data["web_port"],
+                    data.get("web_bind", "127.0.0.1"),
+                    lan_http=data.get("web_access_mode") == "lan-http",
+                )
+                show_web_access(data)
     except (
         ValueError,
         KeyError,

@@ -7493,3 +7493,24 @@ application upgrade. Normal reviewed backup/recovery, candidate transition and
 administrator upgrade still precede activation. Default Ubuntu/Windows installs
 are unchanged. Focused source evidence, release qualification and native
 Windows/Desktop/Firefox acceptance remain separate.
+
+## D-0478: Explicit Web access modes preserve legacy HTTPS
+
+Issue #189 makes fresh bundle configuration select `local-http`, published only
+on `127.0.0.1`. Administrator login and standard noVNC use HTTP/WS; cookies retain
+HttpOnly and SameSite=Strict. Optional Ubuntu `lan-http` requires a selected
+RFC1918 IPv4 address and explicit confirmation of unencrypted traffic. Publication
+uses that exact interface. Because Web and MCP share a listener, LAN HTTP disables
+`/mcp` entirely, including forged loopback Host requests. Local HTTP and HTTPS
+retain existing MCP authentication and grants. A separate MCP networking design
+is required when remote browser and agent access must coexist.
+
+Missing mode configuration means `https`, preserving installed HTTPS behavior.
+HTTPS uses Secure cookies, HTTPS writes and WSS, with no forwarding peers trusted
+by default in Compose. User-managed proxies select their actual trusted peer and
+allowed hostname explicitly. Windows Caddy retains its exact peer, canonical
+topology, CA storage and permissions. Successors preserve mode and omitted Caddy
+options; explicit proxy removal requires HTTPS mode and never enables HTTP login.
+Bundle configuration refuses an existing `.env`; installation management checks
+mode/bind against its receipt. No state migration, certificate manager, public
+MCP opt-in, external Kodi/Bridge exception or production activation is included.
