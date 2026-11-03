@@ -102,20 +102,35 @@ application images, configures them by image ID, initializes/verifies the
 repository, initializes the database, prompts for your password, ensures the
 managed network and starts Web, broker and repository with health checks. It
 also verifies that the login page responds and anonymous MCP access returns
-`401 Bearer`. Authorized inspection is a separate first-run check below.
+`401 Bearer` on the retained loopback MCP endpoint in every mode. LAN HTTP
+also checks its browser-only listener rejects MCP. Authorized inspection is a
+separate first-run check below.
 
 ## First run and authorized inspection
 
-By default the installer provides the loopback HTTP backend. Windows users can
-explicitly opt into [local Caddy HTTPS/WSS](WINDOWS-WSL2-INSTALL.md#optional-local-httpswss-ingress)
-with `--web-https-proxy caddy`, an explicit `--https-ingress-subnet`, optional
-`--https-port` (18443 by default), and specific `--windows-route` evidence.
-Ubuntu and Windows installations without these options retain their existing
-configuration. The optional proxy never imports a CA automatically. Complete the
-[Web HTTPS prerequisite](../README.md#web-https-prerequisite), then open `/login`
-at your site's trusted HTTPS origin and use your chosen password. Direct HTTP
-sign-in is rejected, even if the login page responds. In
-**Development → Managed Kodi runtimes**, install Omega
+Open **http://127.0.0.1:18100/login** on the installation computer and use your
+chosen password. Fresh installation records `local-http`; no certificate or
+proxy is needed. Standard noVNC works over HTTP/WebSocket. Cookies retain
+HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
+
+For Ubuntu access from another computer on a trusted LAN, add
+`--web-lan-ip YOUR_PRIVATE_IPV4` to `bootstrap` or `install`. The installer warns
+about unencrypted passwords, sessions and screen/control traffic, then asks you
+to type that exact IP to confirm. It binds only that address, shows the LAN login
+URL and preserves local MCP at `http://127.0.0.1:18100/mcp`. A separate socket
+serves LAN browsers and rejects MCP independently of request headers. This
+option is unavailable on WSL2; its existing Windows networking path remains separate. See
+[advanced networking](WEB-NETWORKING.md) for examples and limitations.
+
+To require a user-managed HTTPS proxy, select `--web-access-mode https` when
+installing. Windows users can instead opt into
+[local Caddy HTTPS/WSS](WINDOWS-WSL2-INSTALL.md#optional-local-httpswss-ingress),
+which selects HTTPS automatically. Configure and trust the proxy before login;
+direct HTTP login is disabled in HTTPS mode. Existing installations without mode
+settings retain HTTPS; restart reads the saved mode/bind and refuses drift.
+Do not rerun fresh initialization or edit historical receipts to change modes.
+
+In **Development → Managed Kodi runtimes**, install Omega
 21.3, wait for **Ready**, create one managed instance, then **Provision** and
 **Start** it. Check healthy status, **View screen** and UI inspection. Runtime
 acquisition happens on demand and can take several minutes.
@@ -124,6 +139,8 @@ In **Agents**, create a **Read-only Inspection** client and grant that specific
 target. Keep the once-shown token in your client's private environment. Use the
 [README agent configuration](../README.md#connect-your-ai-agent) for local HTTP
 MCP, then verify `target_list` and `target_status` with the returned target UUID.
+Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
+requires its own explicit configuration.
 Unauthorized targets must remain absent or denied. Record the client version,
 source commit, runtime version and sanitized result; do not share tokens.
 

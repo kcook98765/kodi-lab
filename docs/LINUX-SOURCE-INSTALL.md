@@ -85,11 +85,11 @@ bundle, its trusted `BUNDLE.json` hash and generated private configuration.
 The ordinary startup command refuses an uninitialized or mismatched database;
 initialization/upgrade are explicit administrator operations.
 
-Before signing in, complete the [Web HTTPS prerequisite](../README.md#web-https-prerequisite).
-Open `/login` at your site's trusted HTTPS origin. The loopback HTTP backend does
-not provide TLS and rejects HTTP sign-in; an HTTP SSH tunnel does not satisfy the
-requirement. Keep the backend's intentional loopback binding and restrict proxy
-trust. No test credentials are provided.
+Fresh bundle configuration selects local HTTP. Open
+**http://127.0.0.1:18100/login** on this computer and sign in with your chosen
+password. Standard noVNC uses the same HTTP/WebSocket origin. No test credentials
+are provided. Optional [private-LAN HTTP and HTTPS](WEB-NETWORKING.md) have separate
+explicit setup; existing HTTPS settings must be retained during upgrade.
 
 ## Install, create and inspect managed Kodi
 
