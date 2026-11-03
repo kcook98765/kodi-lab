@@ -90,8 +90,8 @@ recorded; an exact commit can be selected with `--revision` / `-Revision`.
 
 It prompts for your private LAN repository address and Web administrator
 password, then builds/verifies the application bundle, initializes fresh state
-and starts services. Complete the [Web HTTPS prerequisite](#web-https-prerequisite),
-open `/login` at your site's trusted HTTPS origin, sign in and continue
+and starts services. Open **http://127.0.0.1:18100/login** on this computer,
+sign in with your chosen password and continue
 with [First-Time Setup](#first-time-setup). See the
 [installer guide](docs/HOST-INSTALLER.md) for prerequisites, configuration,
 start/stop and recovery. Windows users follow the
@@ -158,22 +158,26 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
 Keep the bundle and its generated configuration. The last command starts services
 in the background; reuse it from that directory for future restarts.
 
-**4. Complete the [Web HTTPS prerequisite](#web-https-prerequisite), then open
-`/login` at your site's trusted HTTPS origin and sign in with your password.**
+**4. Open http://127.0.0.1:18100/login on this computer and sign in.**
 For ports, capacity planning and troubleshooting, see the
 [full Linux installation guide](docs/LINUX-SOURCE-INSTALL.md).
 
-### Web HTTPS prerequisite
+### Web access and optional HTTPS
 
-The installer starts a loopback HTTP backend at `127.0.0.1:18100`; it does not
-configure TLS. Browser sign-in and standard viewing require a separately configured,
-browser-trusted HTTPS/WSS ingress to Web. Use that ingress's HTTPS origin for
-`/login`, with same-origin WebSocket forwarding and forwarded-scheme trust limited
-to the actual proxy addresses. Direct HTTP sign-in is rejected. An SSH tunnel to
-the HTTP backend does not supply HTTPS; any tunnel to an existing HTTPS ingress
-must preserve certificate validation. Do not simply change the backend URL's
-scheme to HTTPS. This prerequisite also applies to Windows/WSL2. Local bearer-token
-MCP access remains separate from browser authentication.
+Fresh installations use local HTTP: no certificates, reverse proxy or extra Web
+configuration is needed. Standard noVNC viewing and control use the same origin
+and WebSocket. Authentication, CSRF, Host/Origin checks and viewer ownership
+remain enforced.
+
+To use another computer, choose [private-LAN HTTP or HTTPS](docs/WEB-NETWORKING.md).
+LAN HTTP requires explicit confirmation and carries passwords, sessions and
+screen/control traffic unencrypted. HTTPS is optional and uses a user-managed
+proxy; Windows also has the existing opt-in Caddy path.
+
+<a id="web-https-prerequisite"></a>
+Existing HTTPS installations retain HTTPS enforcement on upgrade. Keep their
+proxy, trusted peer and certificate configuration; direct HTTP login remains
+blocked. See [advanced networking](docs/WEB-NETWORKING.md#https-with-a-user-managed-proxy).
 
 ## First-Time Setup
 
