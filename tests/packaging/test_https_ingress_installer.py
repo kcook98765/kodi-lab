@@ -78,11 +78,28 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opener: MagicMock) -> 
     host = Host(tmp_path / "installation", monkeypatch)
     host.kind = "windows-wsl2"
     base = host.run
+    volumes: dict[str, dict[str, Any]] = {}
 
     def run(command: list[str], cwd: Path, *, capture: bool = False) -> str:
         if command[0] == "powershell.exe":
             host.commands.append(command)
             return json.dumps(ROUTES)
+        if command[:3] == ["docker", "volume", "ls"]:
+            return "\n".join(volumes)
+        if command[:3] == ["docker", "volume", "create"]:
+            volumes[command[-1]] = {
+                "Name": command[-1],
+                "Driver": "local",
+                "Scope": "local",
+                "Options": None,
+                "Labels": dict(
+                    command[i + 1].split("=", 1)
+                    for i, value in enumerate(command)
+                    if value == "--label"
+                ),
+            }
+        if command[:3] == ["docker", "volume", "inspect"]:
+            return json.dumps([volumes[command[-1]]])
         return base(command, cwd, capture=capture)
 
     monkeypatch.setattr(install, "run", run)
@@ -105,6 +122,7 @@ def test_opt_in_receipt_and_lifecycle_preserve_exact_configuration(
     data = json.loads((host.root / "INSTALLATION.json").read_text())
     assert data["https_ingress"] == config()
     assert (host.root / "Caddyfile").read_text() == install.caddyfile(config())
+    assert (host.root / "Caddyfile").stat().st_mode & 0o777 == 0o640
     assert (host.root / "compose.windows.yaml").read_text() == install.windows_overlay(
         18121, config()
     )
@@ -133,6 +151,39 @@ def test_conflicting_tls_port_fails_before_installation(host: Host) -> None:
     with pytest.raises(ValueError, match="distinct"):
         install.install(args)
     assert not host.root.exists()
+
+
+def test_caddy_only_up_prepares_permissions_before_compose(
+    host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install.install(options(host))
+    data = json.loads((host.root / "INSTALLATION.json").read_text())
+    monkeypatch.setattr(install, "load", lambda _: data)
+    host.commands.clear()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "installer",
+            "compose",
+            "--directory",
+            str(host.root),
+            "--",
+            "up",
+            "-d",
+            "caddy",
+        ],
+    )
+    assert install.main() == 0
+    helpers = [c for c in host.commands if c[:2] == ["docker", "run"]]
+    assert len(helpers) == 2
+    assert all(c[c.index("--network") + 1] == "none" for c in helpers)
+    assert all(c[c.index("--cap-drop") + 1] == "ALL" for c in helpers)
+    assert helpers[0][helpers[0].index("--cap-add") + 1] == "CHOWN"
+    assert "--cap-add" not in helpers[1]
+    up = next(c for c in host.commands if "up" in c)
+    assert host.commands.index(helpers[-1]) < host.commands.index(up)
+    assert not any(c[:3] == ["docker", "volume", "create"] for c in host.commands)
 
 
 def test_proxy_failure_retains_partial_installation_and_never_reinitializes(
@@ -308,13 +359,24 @@ def test_real_verifier_rejects_ingress_or_receipt_tampering(
         install.load(root)
 
 
+@pytest.mark.parametrize("previous_https", [False, True])
 @pytest.mark.parametrize("disable", [False, True])
 def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
-    bundle: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, disable: bool
+    bundle: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    disable: bool,
+    previous_https: bool,
 ) -> None:
     old = tmp_path / "old"
     data = installed_bundle(bundle, old)
-    (old / "compose.windows.yaml").write_text(install.windows_overlay(18121))
+    if previous_https:
+        data["https_ingress"] = config()
+        data["https_ingress_identity"] = install.ingress_identity(data, config())
+        install.write_caddyfile(old, config())
+    (old / "compose.windows.yaml").write_text(
+        install.windows_overlay(18121, data.get("https_ingress"))
+    )
     install.save(old, data, "ready")
     old_receipt = (old / "INSTALLATION.json").read_bytes()
     successor = tmp_path / "successor"
@@ -335,8 +397,15 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
         https_ingress_subnet=None if disable else SUBNET,
         windows_route=None if disable else ROUTES,
     )
+    prepare = MagicMock()
+    monkeypatch.setattr(install, "prepare_caddy", prepare)
     install.configure_successor(args)
     new = install.load(successor)
+    if disable:
+        prepare.assert_not_called()
+    else:
+        prepare.assert_called_once_with(successor, new, create=not previous_https)
+        assert (successor / "Caddyfile").stat().st_mode & 0o777 == 0o640
     assert new["schema"] == install.SITE_SCHEMA and new["project"] == data["project"]
     assert new["previous_receipt_sha256"] == hashlib.sha256(old_receipt).hexdigest()
     assert new.get("https_ingress") == (None if disable else config())

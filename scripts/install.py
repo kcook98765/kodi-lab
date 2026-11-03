@@ -14,6 +14,7 @@ import runpy
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,51 @@ CADDY_IMAGE = (
     "docker.io/library/caddy:2.11.7-alpine@sha256:"
     "04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a"
 )
+# Only empty Docker roots (including the official image's empty skeleton) may
+# be initialized. chmod must precede chown: CHOWN alone cannot chmod afterward.
+CADDY_PERMISSIONS = """\
+file=/site/Caddyfile
+test "$(stat -c '%u:%a' "$file")" = "$1:640"
+group=$(stat -c '%g' "$file")
+test "$group" = "$2" || test "$group" = 10003
+for path in /data /config; do
+    case "$(stat -c '%u:%g:%a' "$path")" in
+        10003:10003:700) ;;
+        0:0:755)
+            for child in "$path"/.[!.]* "$path"/..?* "$path"/*; do
+                test -e "$child" || test -L "$child" || continue
+                test "$child" = "$path/caddy"
+                test ! -L "$child" && test -d "$child"
+                test "$(stat -c '%u:%g:%a' "$child")" = 0:0:1777
+                test -z "$(ls -A "$child")"
+            done
+            ;;
+        *) echo "Unexpected Caddy volume ownership or mode" >&2; exit 1 ;;
+    esac
+done
+for path in /data /config; do
+    if test "$(stat -c '%u' "$path")" = 0; then
+        mkdir -p "$path/caddy"
+        chmod 700 "$path" "$path/caddy"
+        chown 10003:10003 "$path/caddy" "$path"
+    fi
+done
+if test "$group" != 10003; then chown "$1:10003" "$file"; fi
+"""
+CADDY_ACCESS = """\
+test "$(sha256sum /site/Caddyfile | cut -d ' ' -f 1)" = "$1"
+for path in /data /config; do
+    test "$(stat -c '%u:%g:%a' "$path")" = 10003:10003:700
+    test -r "$path" && test -w "$path" && test -x "$path"
+    for child in "$path"/.[!.]* "$path"/..?* "$path"/*; do
+        test -e "$child" || test -L "$child" || continue
+        test "$child" = "$path/caddy"
+        test ! -L "$child" && test -d "$child"
+        test "$(stat -c '%u:%g:%a' "$child")" = 10003:10003:700
+    done
+    test -w "$path/caddy" && test -x "$path/caddy"
+done
+"""
 MANAGED_NETWORK = "kodi-lab-managed-v1"
 MIN_FREE_BYTES = 8 * 1024**3
 SOURCE_REPOSITORY = "https://github.com/kcook98765/kodi-lab.git"
@@ -259,6 +305,112 @@ def caddyfile(config: dict[str, Any]) -> str:
         "\tskip_install_trust\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n"
         "https://127.0.0.1:8443 {\n\ttls internal\n"
         f"\treverse_proxy {config['web_ip']}:8100\n}}\n"
+    )
+
+
+def write_caddyfile(root: Path, config: dict[str, Any]) -> None:
+    path = root / "Caddyfile"
+    with os.fdopen(
+        os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w"
+    ) as stream:
+        stream.write(caddyfile(config))
+        os.fchmod(stream.fileno(), 0o640)
+
+
+def prepare_caddy(root: Path, data: dict[str, Any], *, create: bool = False) -> None:
+    """Prepare exact site mounts, then prove access through the Docker engine."""
+    if not data.get("https_ingress"):
+        return
+    validate_ingress(root, data)
+    path = root / "Caddyfile"
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or info.st_uid != os.geteuid()
+        or info.st_gid not in {os.getegid(), 10003}
+        or stat.S_IMODE(info.st_mode) != 0o640
+    ):
+        raise ValueError("unexpected Caddyfile ownership or mode")
+    names = run(["docker", "volume", "ls", "--format", "{{.Name}}"], root, capture=True)
+    mounts = ["--mount", f"type=bind,src={path},dst=/site/Caddyfile"]
+    for role, target in (("caddy_data", "/data"), ("caddy_config", "/config")):
+        name = data["project"] + "_" + role
+        labels = {
+            "com.docker.compose.project": data["project"],
+            "com.docker.compose.volume": role,
+        }
+        if name not in names.splitlines():
+            if not create:
+                raise ValueError("missing Caddy volume; refusing CA replacement")
+            command = ["docker", "volume", "create", "--driver", "local"]
+            for key, value in labels.items():
+                command += ["--label", key + "=" + value]
+            run([*command, name], root)
+        volume = json.loads(
+            run(["docker", "volume", "inspect", name], root, capture=True)
+        )[0]
+        if (
+            volume.get("Name") != name
+            or volume.get("Driver") != "local"
+            or volume.get("Scope") != "local"
+            or volume.get("Options")
+            or not isinstance(volume.get("Labels"), dict)
+            or any((volume.get("Labels") or {}).get(k) != v for k, v in labels.items())
+        ):
+            raise ValueError("Caddy volume identity differs")
+        mounts += ["--mount", f"type=volume,src={name},dst={target},volume-nocopy"]
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges:true",
+        *mounts,
+    ]
+    run(
+        [
+            *command,
+            "--user",
+            "0:0",
+            "--cap-add",
+            "CHOWN",
+            "--entrypoint",
+            "/bin/sh",
+            CADDY_IMAGE,
+            "-ec",
+            CADDY_PERMISSIONS,
+            "permissions",
+            str(os.geteuid()),
+            str(os.getegid()),
+        ],
+        root,
+    )
+    # WSL paths must work as seen by Docker Desktop, not only by host stat().
+    # The probe has no administrative capabilities and cannot write the bind.
+    command = [
+        value + ",readonly" if value.startswith("type=bind,") else value
+        for value in command
+    ]
+    run(
+        [
+            *command,
+            "--user",
+            "10003:10003",
+            "--entrypoint",
+            "/bin/sh",
+            CADDY_IMAGE,
+            "-ec",
+            CADDY_ACCESS,
+            "access",
+            data["https_ingress_identity"]["caddyfile_sha256"],
+        ],
+        root,
     )
 
 
@@ -744,7 +896,7 @@ def install(args: argparse.Namespace) -> None:
             windows_overlay(args.repository_local_port, ingress)
         )
         if ingress:
-            (root / "Caddyfile").write_text(caddyfile(ingress))
+            write_caddyfile(root, ingress)
     try:
         run(["uv", "sync", "--locked", "--no-dev"], source)
         run(
@@ -865,6 +1017,7 @@ def install(args: argparse.Namespace) -> None:
         for stage, arguments in steps:
             run([*command, *arguments], root)
             save(root, data, stage)
+        prepare_caddy(root, data, create=True)
         run(
             [
                 *compose(root, data, managed=True),
@@ -995,7 +1148,8 @@ def configure_successor(args: argparse.Namespace) -> None:
         windows_overlay(data["repository_local_port"], ingress)
     )
     if ingress:
-        (root / "Caddyfile").write_text(caddyfile(ingress))
+        write_caddyfile(root, ingress)
+        prepare_caddy(root, data, create=not old.get("https_ingress"))
     shutil.copyfile(Path(__file__), root / "kodi-lab.py")
     (root / "SITE.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     load(root)
@@ -1113,6 +1267,8 @@ def main() -> int:
                 check_ingress_network(root, data)
             if arguments[0] == "up":
                 successor_preflight(root, data)
+            if activating:
+                prepare_caddy(root, data)
             run([*compose(root, data, managed=True), *arguments], root)
             if activating:
                 check_ingress_network(root, data)
