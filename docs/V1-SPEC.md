@@ -61,8 +61,10 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The authoritative V1 MCP registry contains twenty-six tools (D-0438). Client discovery is
-filtered by current preset permissions:
+The recorded scoped V1 MCP registry contains twenty-six tools (D-0438).
+This count is a baseline for the V1 contract, not the installed tool count:
+later features may extend it. Discover the actual server toolset and verify
+current preset permissions and grants before use. The recorded baseline includes:
 
 - `managed_ensure_ready`
 - `managed_release`
