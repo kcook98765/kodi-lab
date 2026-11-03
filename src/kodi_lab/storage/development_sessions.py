@@ -17,7 +17,7 @@ from kodi_lab.storage.models import (
 )
 
 if TYPE_CHECKING:
-    from kodi_lab.broker.docker_inventory import ManagedContainerRecord
+    from kodi_lab.storage.retained_development import RetainedContainer
 
 
 class DevelopmentSessionConflict(RuntimeError):
@@ -38,7 +38,7 @@ def active_session(session: Session) -> DevelopmentSessionRow | None:
 
 def require_session_admission(
     session: Session,
-    records: Sequence[ManagedContainerRecord],
+    records: Sequence[RetainedContainer],
     *,
     target_id: str,
     revision_id: str,

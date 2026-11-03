@@ -39,17 +39,20 @@
       if (!current.allowed_actions.includes(action)) throw new Error("State changed. Refresh status and review the available action.");
       if (action === "deprovision" && current.container_state !== "stopped") throw new Error("Runtime removal requires a verified stopped state.");
       dispatched = true;
-      const response = await fetch(`${endpoint}/${action}`, {
+      const response = await fetch(`${endpoint}/${action === "start" ? "managed-start" : action}`, {
         method:"POST", credentials:"same-origin",
         headers:{"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf || ""}, body:"{}",
       });
-      if (!response.ok) throw new Error("The action was not confirmed.");
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        throw new Error(failure?.error?.message || "The action was not confirmed.");
+      }
       // A successful response is followed by a fresh page, including reconciliation.
       window.location.reload();
     } catch (error) {
       if (dispatched) {
         uncertain = true;
-        status.textContent = "The action outcome could not be confirmed. No retry was sent. Reload this page and review current status and operation history before any further action.";
+        status.textContent = `The action outcome could not be confirmed. ${error.message} No retry was sent. Reload this page and review current status and operation history before any further action.`;
       } else status.textContent = error.message;
       block();
     } finally {

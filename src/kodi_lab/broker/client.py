@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal, TypeVar
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from kodi_lab.broker.docker_inventory import (
     DOCKER_API_TIMEOUT_SECONDS,
@@ -584,6 +584,7 @@ class BrokerClient:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        ordinary_start_proof: SecretStr | None = None,
     ) -> StartManagedContainerResult:
         """Start the exact owned container previously observed by the caller."""
 
@@ -592,6 +593,7 @@ class BrokerClient:
                 managed_instance_id=managed_instance_id,
                 expected_container_id=expected_container_id,
                 expected_runtime_state=expected_runtime_state,
+                ordinary_start_proof=ordinary_start_proof,
             )
         except ValidationError as error:
             raise ClientProtocolError(
@@ -1267,6 +1269,13 @@ class BrokerClient:
         request_id = str(uuid4())
         try:
             serialized_params = params.model_dump(mode="json")
+            if isinstance(params, StartManagedContainerParams):
+                if params.ordinary_start_proof is None:
+                    serialized_params.pop("ordinary_start_proof", None)
+                else:
+                    serialized_params["ordinary_start_proof"] = (
+                        params.ordinary_start_proof.get_secret_value()
+                    )
             if (
                 isinstance(params, EstablishManagedBridgeTrustParams)
                 and not params.install_reviewed

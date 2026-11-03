@@ -30,6 +30,7 @@ from kodi_lab.domain import (
     ManagedInstanceSemanticState,
     TargetAvailability,
 )
+from kodi_lab.storage.models import ManagedStartAuthorizationRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceMutationLeaseRepository,
@@ -127,6 +128,27 @@ class ManagedInstanceLifecycleOperationCoordinator:
             preserve_native_projection=True,
         )
 
+    def begin_managed_start(
+        self,
+        instance_id: UUID,
+        *,
+        instance_name: str,
+        precondition: Callable[[Session], None],
+        on_claim: Callable[[Session, RunningLifecycleOperation], None],
+        operation_id: UUID | None = None,
+    ) -> RunningLifecycleOperation:
+        """Ordinary Web authority must be persisted by on_claim in this transaction."""
+        return self._begin(
+            instance_id,
+            instance_name=instance_name,
+            kind=ManagedInstanceLifecycleKind.START,
+            prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
+            precondition=precondition,
+            before_reserve=on_claim,
+            operation_id=operation_id,
+            ordinary_start=True,
+        )
+
     def _begin(
         self,
         instance_id: UUID,
@@ -138,6 +160,9 @@ class ManagedInstanceLifecycleOperationCoordinator:
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
         preserve_native_projection: bool = False,
+        ordinary_start: bool = False,
+        before_reserve: Callable[[Session, RunningLifecycleOperation], None]
+        | None = None,
     ) -> RunningLifecycleOperation:
         self._stale.sweep_instance(instance_id)
         self._reconciliation.require_allowed(instance_id, _ACTION[kind])
@@ -161,7 +186,7 @@ class ManagedInstanceLifecycleOperationCoordinator:
         try:
             with self._session_factory.begin() as session:
                 session.execute(text("BEGIN IMMEDIATE"))
-                if kind is ManagedInstanceLifecycleKind.START:
+                if kind is ManagedInstanceLifecycleKind.START and not ordinary_start:
                     from kodi_lab.storage.retained_development import (
                         require_retained_selection,
                     )
@@ -171,6 +196,18 @@ class ManagedInstanceLifecycleOperationCoordinator:
                     precondition(session)
                 ManagedInstanceLifecycleOperationRepository(session).create(operation)
                 leases = ManagedInstanceMutationLeaseRepository(session)
+                if ordinary_start:
+                    token = ManagedRuntimeProjectionRepository(
+                        session
+                    ).observation_token(instance_id)
+                    if token is None or before_reserve is None:
+                        raise LifecycleOperationConflictError(
+                            "Start identity unavailable."
+                        )
+                    handle = replace(
+                        handle, runtime_state_revision=token.runtime_state_revision + 1
+                    )
+                    before_reserve(session, handle)
                 leases.reserve(
                     instance_id,
                     kind=ManagedInstanceMutationKind.LIFECYCLE,
@@ -197,6 +234,20 @@ class ManagedInstanceLifecycleOperationCoordinator:
                     raise LifecycleOperationConflictError(
                         "Lifecycle mutation authority could not be acquired."
                     )
+                if ordinary_start:
+                    authorization = session.get(
+                        ManagedStartAuthorizationRow, str(handle.operation_id)
+                    )
+                    if (
+                        authorization is None
+                        or authorization.target_id != str(instance_id)
+                        or authorization.runtime_state_revision
+                        != handle.runtime_state_revision
+                        or authorization.lease_digest != handle.token_digest
+                    ):
+                        raise LifecycleOperationConflictError(
+                            "Start authority binding changed."
+                        )
                 if on_claim is not None:
                     on_claim(session, handle)
         except ManagedRuntimeReconciliationBlockedError as error:

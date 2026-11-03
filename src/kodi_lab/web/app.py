@@ -2073,6 +2073,7 @@ def create_app(
         reset_operations=reset_operations,
         lifecycle_operations=lifecycle_operations,
         bridge_trust=managed_bridge_trust,
+        data_root=settings.data_root,
     )
     resources = ManagedResourceService(
         session_factory,
@@ -8680,6 +8681,48 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.start(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/managed-start",
+        response_model=ManagedRuntimeStatus,
+    )
+    def start_managed(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus | JSONResponse:
+        try:
+            return context.lifecycle.start_managed(instance_id)
+        except DevelopmentSessionConflict as error:
+            messages = {
+                "retained_other_runtime_active": (
+                    "Another Kodi is active or could not be verified stopped. "
+                    "Stop it explicitly, then check status before starting this Kodi."
+                ),
+                "managed_start_identity_changed": (
+                    "This Kodi's existing container could not be verified. "
+                    "Review its details and history. "
+                    "Start did not provision or replace it."
+                ),
+                "development_session_requires_review": (
+                    "The selected development environment needs review. "
+                    "Review it in Development before starting Kodi; "
+                    "its selection was preserved."
+                ),
+                "development_session_runtime_ineligible": (
+                    "This Kodi's pinned runtime is not eligible. "
+                    "Review its runtime details."
+                ),
+            }
+            return _json_error(
+                409,
+                error.code,
+                messages.get(
+                    error.code,
+                    "Kodi has a pending operation or setup conflict. "
+                    "Review its details and history before another action.",
+                ),
+            )
 
     @app.post("/api/instances/{instance_id}/stop", response_model=ManagedRuntimeStatus)
     def stop(

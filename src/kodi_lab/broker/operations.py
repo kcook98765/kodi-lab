@@ -8,7 +8,14 @@ from ipaddress import IPv4Address, IPv4Network
 from typing import Literal, TypeVar, cast
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from kodi_lab import __version__
 from kodi_lab.broker.addon_zips import (
@@ -569,6 +576,9 @@ class StartManagedContainerParams(StrictModel):
         min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )
     expected_runtime_state: ContainerRuntimeState
+    ordinary_start_proof: SecretStr | None = Field(
+        default=None, min_length=43, max_length=43
+    )
 
     @field_validator("managed_instance_id")
     @classmethod
@@ -2291,6 +2301,11 @@ def build_foundation_registry(
             "broker_managed_instance_id": params.managed_instance_id
         }
         try:
+            if params.ordinary_start_proof is not None and capacity is None:
+                raise OperationError(
+                    "managed_start_authority_unavailable",
+                    "Ordinary Start admission is unavailable.",
+                )
             pinned_revision_id = pin_resolver.resolve_runtime_revision_id(
                 params.managed_instance_id
             )
@@ -2311,6 +2326,11 @@ def build_foundation_registry(
                     container_id=params.expected_container_id,
                     revision_id=pinned_revision_id,
                     dispatch=dispatch_start,
+                    ordinary_start_proof=(
+                        params.ordinary_start_proof.get_secret_value()
+                        if params.ordinary_start_proof
+                        else None
+                    ),
                 )
             )
         except ManagedCapacityError as error:
