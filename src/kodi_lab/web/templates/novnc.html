@@ -13,13 +13,13 @@
   <main>
     <p><a href="/instances/{{ instance }}">Kodi details</a> · <a href="/development-session">Current Kodi</a> · <a href="/instances/{{ instance }}#visual-access">Screenshot options</a></p>
     <h1>{{ viewer_name|default('Watch Kodi') }}</h1>
-    <p data-viewer-current-status>{{ viewer_context|default('This viewer stays bound to this exact instance. Open Current Kodi to check the selected environment.') }}</p>
+    <p data-viewer-current-status>{{ viewer_context|default('This viewer stays bound to this exact instance.') }}</p>
     {% if viewer_can_start|default(true) %}
     {{ kodi_viewer(instance, viewer_generation|default(''), false, viewer_selection|default(none), viewer_binding|default('')) }}
     {% elif viewer_standalone|default(false) %}
     <p role="status">This Kodi's screen is unavailable. Review <a href="/instances/{{ instance }}#instance-controls-heading">this Kodi's status and recovery options</a>. If it is stopped, use Start Kodi there. Reload this page once Kodi is ready.</p>
     {% else %}
-    <p>Open <a href="/development-session">Current Kodi</a> to select, prepare or watch the current environment. Reload this page after its exact profile is selected and prepared.</p>
+    <p>This Kodi's selected development environment is not fully bound. Open <a href="/development-session">Current Kodi</a> to review or complete the selection. Reload this page after its exact profile is selected and prepared.</p>
     {% endif %}
   </main>
   {% if viewer_can_start|default(true) %}<script type="module" src="/static/novnc-phase1.js"></script>{% endif %}

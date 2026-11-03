@@ -175,6 +175,50 @@ def test_standalone_page_preserves_development_selection_and_opens_no_worker(
             assert rows[0].target_id == str(UNRELATED_INSTANCE_ID)
 
 
+def test_same_selected_unbound_environment_cannot_fall_back_to_standalone(
+    standalone_client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = standalone_client
+    csrf = login(client)
+    fingerprint = rendered_binding(client)
+    selected(client, database, monkeypatch, phase="reserved")
+    viewer = service(client)
+    calls_before = list(broker.calls)
+    with pytest.raises(ValueError, match="view session identity changed"):
+        viewer.binding(INSTANCE_ID, "view-only")
+
+    def forbidden(_instance: Any) -> ViewBinding:
+        pytest.fail(
+            "An incomplete selected environment must not use standalone fallback"
+        )
+
+    monkeypatch.setattr(viewer, "page_binding", forbidden)
+    response = client.get(PAGE)
+    assert response.status_code == 200
+    assert "selected development environment is not fully bound" in response.text
+    assert 'href="/development-session"' in response.text
+    assert "data-novnc-viewer" not in response.text
+    assert "novnc-phase1.js" not in response.text
+    # Even a page rendered before reservation cannot bypass catalog authority.
+    response = client.post(
+        START,
+        json={"attempt": str(view_attempt()), "expected_binding": fingerprint},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 409
+    assert not viewer.attachments and viewer.registry.active_count() == 0
+    assert broker.calls == calls_before
+    with database() as db:
+        current = db.get(DevelopmentSessionRow, 1)
+        assert current is not None
+        assert current.target_id == str(INSTANCE_ID) and current.phase == "reserved"
+        assert current.container_id is None
+        assert db.get(NovncSessionRow, str(INSTANCE_ID)) is None
+
+
 @pytest.mark.parametrize(
     "change",
     ["container", "image", "started", "revision", "epoch", "selection", "unsafe"],

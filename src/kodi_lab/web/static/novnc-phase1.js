@@ -28,7 +28,7 @@ const viewerClock = Number(main.dataset.viewerClockMs);
 const viewerClockStarted = performance.now();
 function viewAttempt() {
     const stamp = Math.floor(viewerClock + performance.now() - viewerClockStarted);
-    if (!Number.isSafeInteger(stamp) || viewerClock <= 0 || stamp >= 2 ** 48) throw new Error('Reload Current Kodi');
+    if (!Number.isSafeInteger(stamp) || viewerClock <= 0 || stamp >= 2 ** 48) throw new Error('Reload this page');
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     let remaining = stamp;
     for (let i = 5; i >= 0; i--) { bytes[i] = remaining % 256; remaining = Math.floor(remaining / 256); }
@@ -115,7 +115,7 @@ start.onclick = async () => {
     if (start.disabled || identityRetired || !permitted) return;
     let current;
     try { current = viewAttempt(); }
-    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
+    catch (_) { status.textContent = 'Reload this page before starting or changing viewing.'; return; }
     attempt = current;
     buttons();
     status.textContent = 'Connecting';
@@ -143,7 +143,7 @@ async function change(action) {
     const old = attempt;
     let current;
     try { current = viewAttempt(); }
-    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
+    catch (_) { status.textContent = 'Reload this page before starting or changing viewing.'; return; }
     attempt = current;
     switching = true;
     buttons();

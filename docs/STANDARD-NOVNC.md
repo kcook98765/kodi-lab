@@ -32,6 +32,13 @@ reloading the viewer page. Stopped Kodi can be started separately through its
 existing lifecycle controls. Viewing never changes the selected development
 environment.
 
+If this exact Kodi is already selected for development but its environment is
+not fully bound, viewing is deliberately denied, including standalone admission.
+Review or complete that selection in Current Kodi, then reload the viewer. A
+missing or inconsistent workspace/source/container binding cannot be bypassed
+by opening the exact-instance page. Viewing without a development selection,
+or while a different Kodi is selected, remains supported.
+
 Choose and prepare a fresh Kodi in Current Kodi, start it, then click Start
 Viewing. noVNC loads only on that request. The initial session is view-only;
 agent navigation remains independent. Take Control explicitly acquires human
