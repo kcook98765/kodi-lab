@@ -1,18 +1,32 @@
 # Kodi Lab
 
-Kodi Lab lets AI agents inspect, control, test and develop against Kodi through
-the Model Context Protocol (MCP). Its Web administrator can manage isolated Kodi
-instances for experiments or connect to Kodi installations you already use.
+**Self-hosted Kodi development, testing, and MCP integration for AI agents.**
+
+Kodi Lab provides a Web interface and a permission-controlled Model Context
+Protocol (MCP) server for working with Kodi. Connect installations you already
+use, or install isolated Kodi runtimes on demand to develop, test, and debug
+add-ons.
+
+Bring any compatible AI client and model you choose. Kodi Lab does not run an AI
+model or require cloud AI credentials of its own. It is intended for Kodi add-on
+developers, Kodi users who want diagnostics or controlled automation, and people
+using MCP-compatible coding agents.
 
 ## Features
 
-- Run multiple Kodi versions side by side.
-- Connect existing Kodi installations without replacing them.
-- Inspect the Kodi UI and capture screenshots.
-- [View Current Kodi with noVNC](docs/STANDARD-NOVNC.md), with optional human control.
-- Test and debug add-ons in disposable development instances.
-- Give MCP-compatible AI assistants access to the Kodi targets you choose.
-- Manage runtimes, instances and agent permissions from a Web interface.
+- Connect existing Kodi installations using JSON-RPC and the optional Narrow
+  Bridge add-on, without OS-level access to those hosts.
+- Install reviewed Kodi versions on demand and switch between isolated profiles;
+  **only one managed Kodi instance runs at a time**.
+- Develop and test one add-on workspace in **Current Kodi**, using disposable
+  profiles or explicitly enabled retained profiles for each version.
+- Inspect Kodi UI state and capture screenshots. View supported managed Kodi
+  through [noVNC](docs/STANDARD-NOVNC.md) (about 2 FPS, view-only by default,
+  with optional human control; no audio).
+- Grant MCP-compatible agents access only to selected Kodi targets and
+  explicitly authorized operations.
+- Manage runtime installation, connections, permissions, and development
+  workflows from the Web UI.
 
 ## Architecture at a glance
 
@@ -54,14 +68,12 @@ remains pending under [issue #8](https://github.com/kcook98765/kodi-lab/issues/8
 macOS and ARM64 hosts are not qualified. An existing Kodi target can be on another
 computer; these requirements apply to the Kodi Lab server.
 
-For add-on development, the [Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough)
-describes one workspace with explicitly enabled retained version profiles or the
-default disposable-profile workflow, plus independent native/Bridge checks.
-[Standard noVNC viewing](docs/STANDARD-NOVNC.md) is available for the exact reviewed
-Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1 r3 runtimes; Ubuntu
-production deployment and four-version installed viewing acceptance passed on
-November 1, 2026. Existing installations still require a matched application,
-broker and schema update; older profiles are not automatically migrated.
+For daily add-on development, follow the
+[Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+Existing installations may need to explicitly enable **Retained Kodi versions**;
+profile reuse and runtime/viewer eligibility depend on the installed version.
+See [standard noVNC viewing](docs/STANDARD-NOVNC.md) for the exact supported
+runtime revisions and older-profile limitations.
 
 ## Quick Start — Install Kodi Lab
 
@@ -100,8 +112,9 @@ forwarding setup.
 
 ### Manual installation
 
-Use these steps when performing installation yourself instead of running the
-installer. Both paths use the same verified bundle and initialization commands.
+These steps are for operators who prefer manual installation. Most new users
+should use the installer above. Both paths use the same verified bundle and
+initialization commands.
 
 **1. Clone and build the application bundle.** Run these commands in Bash as
 your ordinary user, with the prerequisites above installed:
@@ -164,47 +177,58 @@ For ports, capacity planning and troubleshooting, see the
 
 ### Web access and optional HTTPS
 
-Fresh installations use local HTTP: no certificates, reverse proxy or extra Web
-configuration is needed. Standard noVNC viewing and control use the same origin
-and WebSocket. Authentication, CSRF, Host/Origin checks and viewer ownership
-remain enforced.
+**Local Web access works immediately after a fresh installation.** Open
+[http://127.0.0.1:18100/login](http://127.0.0.1:18100/login) on the installation
+computer. No certificates or reverse proxy are needed for local login or
+standard noVNC viewing. The local MCP endpoint uses separate bearer-token
+authentication.
 
-To use another computer, choose [private-LAN HTTP or HTTPS](docs/WEB-NETWORKING.md).
-LAN HTTP requires explicit confirmation and carries passwords, sessions and
-screen/control traffic unencrypted. HTTPS is optional and uses a user-managed
-proxy; Windows also has the existing opt-in Caddy path.
+For browsers on **another computer**, configure
+[Web networking](docs/WEB-NETWORKING.md). Ubuntu offers an explicit private-LAN
+HTTP option; HTTPS is also supported through a configured proxy. LAN HTTP is
+**unencrypted**, including passwords, session cookies, screenshots, and control
+traffic. Never expose it to the public Internet. Windows/WSL2 uses its separate
+[networking guidance](docs/WINDOWS-WSL2-INSTALL.md).
 
 <a id="web-https-prerequisite"></a>
-Existing HTTPS installations retain HTTPS enforcement on upgrade. Keep their
-proxy, trusted peer and certificate configuration; direct HTTP login remains
-blocked. See [advanced networking](docs/WEB-NETWORKING.md#https-with-a-user-managed-proxy).
+Existing HTTPS installations continue to require trusted HTTPS/WSS after upgrade;
+they do not automatically switch to local HTTP. Preserve their proxy and
+certificate configuration. See
+[HTTPS configuration](docs/WEB-NETWORKING.md#https-with-a-user-managed-proxy).
+The separately configured Kodi add-on repository address is not the Web login
+address.
 
 ## First-Time Setup
 
-1. In Web, switch to **Development** and open **Managed Kodi runtimes**.
-2. Choose a version and click **Install**. RC1 asks you to acknowledge that exact
-   prerelease. Only your chosen runtime is downloaded, on demand. Kodi Lab verifies
-   its binaries, assembles the local image and validates it before **Ready**.
-   No Kodi compilation or manual Flatpak setup is needed; Kodi executables are
-   not bundled with Kodi Lab.
-3. Allow several minutes for installation. RC1's provisional estimate is
-   **5–15 minutes**. The page updates automatically, and installation continues
-   if you leave or close your browser. Return later to check progress.
-4. Once Ready, create a managed instance, then use its **Provision** and **Start**
-   controls. Same-version instances reuse this image without downloading Kodi again.
-5. Check healthy status, open **View screen** and try UI inspection. For richer
-   managed RC1 inspection, use **Install reviewed Bridge** on the instance page.
+1. In Web, open **Development → Managed Kodi runtimes**, choose a reviewed Kodi
+   version, and select **Install**. Kodi executables are not bundled with Kodi
+   Lab: only the chosen runtime is downloaded, verified, and assembled locally.
+   Piers 22 RC1 requires explicit prerelease acknowledgement.
+2. Wait for **Ready**. Installation continues after you close the browser.
+   The provisional first-install estimate for Piers RC1 is **5–15 minutes**;
+   actual time depends on downloads and the host.
+3. For add-on development, go to **Kodi → Current Kodi**. Choose the registered
+   source/workspace and runtime, then follow the **Prepare Kodi**, source-setup,
+   **Start Kodi**, and native/Bridge readiness steps as applicable. See the
+   [everyday walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+   Retained version profiles are opt-in on existing installations; only one
+   managed Kodi runs at a time.
+4. For manual instance administration instead, use the Advanced instance
+   controls to create, **Provision**, and **Start** an instance. These are not
+   required steps for every Current Kodi workflow.
+5. For eligible managed runtimes, use **Start Viewing** in Current Kodi or
+   capture a screenshot. Viewing starts in read-only mode; **Take Control**
+   explicitly transfers input to the browser. More detailed UI inspection can
+   require the reviewed Narrow Bridge setup.
 
-Stop, restart, reset and removal use the same instance controls. Save anything
-you need before resetting or removing a disposable instance; see
-[state recovery](docs/MANAGED-STATE-RECOVERY.md).
+Save anything important before resetting or removing a disposable profile; see
+[managed state recovery](docs/MANAGED-STATE-RECOVERY.md). Installing a newer
+reviewed runtime recipe does not automatically migrate existing profiles.
 
-To connect an existing Kodi instead, open **Add Kodi** and follow the Bridge and
-pairing instructions. See [existing-Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
-For everyday Kodi, enter its address and code; a friendly name is optional.
-Use [reconnect guidance](docs/KODI-RECONNECT.md) for an existing/revoked pairing,
-and [repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md) after a
-host address change.
+To connect an existing Kodi installation instead, use **Add Kodi** and its
+pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
+[reconnection](docs/KODI-RECONNECT.md), and
+[repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md).
 
 ## Connect Your AI Agent
 
@@ -255,27 +279,37 @@ and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).
 | Kodi 21 Omega **21.3** | Stable runtime |
 | Kodi 22 Piers **22.0 RC1** | **Preview / Prerelease — Development only** |
 
-These are the reviewed Linux amd64 choices. RC1 is not a stable Home
-recommendation. Kodi Lab itself is a prerelease development/testing checkpoint;
-see [qualification notes](docs/RC1-TESTING-CHECKPOINT.md).
+These are the reviewed Linux amd64 runtime options; Kodi executables are acquired
+on demand, not included in Kodi Lab. Piers RC1 is not a stable Home recommendation.
+Standard noVNC viewing is qualified only for
+[exact reviewed recipe revisions](docs/STANDARD-NOVNC.md), not automatically for
+older profiles. Kodi Lab remains a prerelease development/testing project.
+Earlier [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical
+qualification records, not a live test-status report.
 
 ## Documentation
 
-- [Linux installation and capacity planning](docs/LINUX-SOURCE-INSTALL.md)
-- [Shared installer and everyday management](docs/HOST-INSTALLER.md)
-- [Windows/WSL2 installation and qualification status](docs/WINDOWS-WSL2-INSTALL.md)
-- [Existing Kodi, add-on repository and local source setup](docs/LINUX-V1-INSTALL.md)
-- [Optional HTTPS for add-on repository downloads](docs/REPOSITORY-NETWORKING.md)
-- [Managed RC1 workflow and known limitations](docs/RC1-WEB-WORKFLOW.md)
-- [Agent add-on development](docs/PHASE12-MCP-DEVELOPMENT.md)
-- [Screenshots and UI inspection](docs/UI-OBSERVATION.md)
-- [Backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md)
-- [Contributing](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Security reporting](SECURITY.md) and [accessibility](ACCESSIBILITY.md)
+- **Getting started:** [Installer and everyday management](docs/HOST-INSTALLER.md),
+  [Linux manual installation and capacity](docs/LINUX-SOURCE-INSTALL.md),
+  [Windows/WSL2 setup](docs/WINDOWS-WSL2-INSTALL.md), and
+  [Web access and optional HTTPS](docs/WEB-NETWORKING.md).
+- **Kodi and add-on development:** [Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md),
+  [external Kodi and repository setup](docs/LINUX-V1-INSTALL.md),
+  [managed development workflow](docs/MANAGED-AGENT-LOOP.md), and
+  [UI inspection](docs/UI-OBSERVATION.md).
+- **Agents and architecture:** [MCP development reference](docs/PHASE12-MCP-DEVELOPMENT.md),
+  [remote-agent networking](docs/NATIVE-LAN-MCP.md), and
+  [architecture and security boundaries](docs/ARCHITECTURE.md).
+- **Operations:** [Managed state recovery](docs/MANAGED-STATE-RECOVERY.md),
+  [backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md),
+  and [optional repository HTTPS](docs/REPOSITORY-NETWORKING.md).
+- **Project:** [Contributing](CONTRIBUTING.md),
+  [Code of Conduct](CODE_OF_CONDUCT.md), [security reporting](SECURITY.md),
+  and [accessibility](ACCESSIBILITY.md).
 
-Agents act only on targets and permissions you grant. Web and Kodi containers
-do not receive the Docker socket; the broker manages container lifecycle.
-See [architecture and security boundaries](docs/ARCHITECTURE.md).
+Agents can act only on targets and operations you authorize. Web and Kodi
+containers do not receive the Docker socket; the restricted broker manages
+container lifecycle.
 
 ## Support
 
