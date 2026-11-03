@@ -2466,10 +2466,18 @@ def create_app(
     async def security_headers(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        # LAN Web publication is not an MCP opt-in. This applies before protocol
-        # parsing/authentication, including requests with a forged loopback Host.
-        if settings.web_access_mode == "lan-http" and request.url.path == "/mcp":
-            return JSONResponse({"detail": "mcp_disabled_for_lan_web"}, status_code=403)
+        # Uvicorn obtains server from getsockname(), independently of Host,
+        # Origin and proxy headers. Only the normal socket admits MCP; missing
+        # transport metadata also fails closed when LAN Web is enabled.
+        server = request.scope.get("server")
+        if (
+            settings.web_access_mode == "lan-http"
+            and request.url.path == "/mcp"
+            and (server is None or server[1] != settings.web_port)
+        ):
+            return JSONResponse(
+                {"detail": "mcp_requires_local_listener"}, status_code=403
+            )
         if (
             settings.web_requires_https
             and request.method not in {"GET", "HEAD", "OPTIONS"}

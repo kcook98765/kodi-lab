@@ -117,7 +117,7 @@ def test_mcp_exposure_is_independent_of_browser_login(http_client: TestClient) -
             )
         else:
             assert reply.status_code == 403
-            assert reply.json() == {"detail": "mcp_disabled_for_lan_web"}
+            assert reply.json() == {"detail": "mcp_requires_local_listener"}
 
 
 def test_authorized_http_websocket_keeps_one_use_ticket(

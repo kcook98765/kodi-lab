@@ -1,4 +1,9 @@
-# Simple Web access focused qualification
+# Original simple Web access focused qualification (7bac447)
+
+This records the original draft at `7bac447`. Its LAN MCP disablement has been
+superseded by the owner-approved [local MCP / LAN Web separation revision](lan-web-local-mcp-20261102.md).
+LAN HTTP now retains local MCP on its original loopback endpoint. The results
+below remain historical evidence, not qualification of the revised listener code.
 
 Issue #189; starting main `1bc363d`. Source work only on Claw, in isolated
 worktrees. No deployment, merge, database migration, full test suite or managed

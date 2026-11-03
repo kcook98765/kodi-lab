@@ -1,0 +1,5 @@
+# Append a browser-only publication; retain the normal loopback Web/MCP port.
+services:
+  web:
+    ports:
+      - "${KODI_LAB_WEB_PUBLISHED_BIND:?select an exact private LAN IP}:${KODI_LAB_PUBLISHED_PORT:-18100}:8101"

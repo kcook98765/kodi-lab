@@ -91,23 +91,39 @@ def test_confirmed_lan_install_binds_exact_ip_and_checks_mcp_isolation(
     )
     monkeypatch.setattr("builtins.input", lambda _: args.web_lan_ip)
     headers = Message()
+    headers["WWW-Authenticate"] = "Bearer"
     mcp_opener.open.side_effect = [
+        mcp_opener.open.return_value,
+        HTTPError("http://127.0.0.1:18100/mcp", 401, "test", headers, None),
         mcp_opener.open.return_value,
         HTTPError(
             "http://192.168.1.20:18100/mcp",
             403,
             "test",
             headers,
-            io.BytesIO(b'{"detail":"mcp_disabled_for_lan_web"}'),
+            io.BytesIO(b'{"detail":"mcp_requires_local_listener"}'),
         ),
     ]
     install.install(args)
-    assert binds[0] == ("192.168.1.20", 18100)
+    assert binds[:2] == [("127.0.0.1", 18100), ("192.168.1.20", 18100)]
     command = next(cmd for cmd in host.commands if "configure" in cmd)
     assert "--confirm-lan-http" in command
     assert command[command.index("--web-published-bind") + 1] == "192.168.1.20"
     output = capsys.readouterr().out
     assert "unencrypted" in output and "http://192.168.1.20:18100/login" in output
+    assert "http://127.0.0.1:18100/mcp" in output
+    requests = [item.args[0] for item in mcp_opener.open.call_args_list]
+    assert [item if isinstance(item, str) else item.full_url for item in requests] == [
+        "http://127.0.0.1:18100/login",
+        "http://127.0.0.1:18100/mcp",
+        "http://192.168.1.20:18100/login",
+        "http://192.168.1.20:18100/mcp",
+    ]
+    assert all(
+        "compose.lan-http.yaml" in " ".join(cmd)
+        for cmd in host.commands
+        if cmd[:2] == ["docker", "compose"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,6 +167,11 @@ def test_bundle_configuration_and_verification_preserve_explicit_mode(
                 str(bundle / ".env"),
                 "-f",
                 str(bundle / "compose.release.yaml"),
+                *(
+                    ["-f", str(bundle / "compose.lan-http.yaml")]
+                    if mode == "lan-http"
+                    else []
+                ),
                 "config",
                 "--format",
                 "json",
@@ -160,15 +181,26 @@ def test_bundle_configuration_and_verification_preserve_explicit_mode(
         )
     )
     web = rendered["services"]["web"]
-    assert web["ports"] == [
+    expected_ports = [
         {
             "mode": "ingress",
-            "host_ip": bind,
+            "host_ip": "127.0.0.1",
             "target": 8100,
             "published": "18100",
             "protocol": "tcp",
         }
     ]
+    if mode == "lan-http":
+        expected_ports.append(
+            {
+                "mode": "ingress",
+                "host_ip": bind,
+                "target": 8101,
+                "published": "18100",
+                "protocol": "tcp",
+            }
+        )
+    assert web["ports"] == expected_ports
     assert web["environment"]["KODI_LAB_WEB_ACCESS_MODE"] == mode
     assert web["environment"]["FORWARDED_ALLOW_IPS"] == ""
     with pytest.raises(ValueError, match="already exists"):

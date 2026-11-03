@@ -235,6 +235,8 @@ def compose(root: Path, data: dict[str, Any], *, managed: bool = False) -> list[
     ]
     if data["host"] == "windows-wsl2":
         command += ["-f", str(root / "compose.windows.yaml")]
+    if data.get("web_access_mode") == "lan-http":
+        command += ["-f", str(root / "bundle/compose.lan-http.yaml")]
     if managed:
         command += ["-f", str(root / "bundle/compose.lab.yaml")]
     return [*command, "--profile", "lab"]
@@ -298,7 +300,7 @@ def show_web_access(data: dict[str, Any]) -> None:
         )
         print(
             "Private-LAN HTTP: traffic is unencrypted. "
-            "MCP is disabled on this Web listener."
+            f"Local MCP remains at http://127.0.0.1:{data['web_port']}/mcp."
             if mode == "lan-http"
             else "Local HTTP: accessible from this computer only; "
             "traffic is unencrypted."
@@ -648,52 +650,62 @@ def services(data: dict[str, Any]) -> list[str]:
 
 
 def probe(web_port: int, bind: str = "127.0.0.1", *, lan_http: bool = False) -> None:
-    origin = f"http://{bind}:{web_port}"
+    origin = f"http://127.0.0.1:{web_port}"
     opener = build_opener(ProxyHandler({}))
     with opener.open(origin + "/login", timeout=5) as response:
         if response.status != 200:
             raise ValueError("Web login readiness failed")
-    request = Request(
-        origin + "/mcp",
-        method="POST",
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-            "MCP-Protocol-Version": "2026-07-28",
-            "Mcp-Method": "tools/list",
-        },
-        data=json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 0,
-                "method": "tools/list",
-                "params": {
-                    "_meta": {
-                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                        "io.modelcontextprotocol/clientCapabilities": {},
-                        "io.modelcontextprotocol/clientInfo": {
-                            "name": "kodi-lab-installer",
-                            "version": "1",
-                        },
-                    }
-                },
-            }
-        ).encode("utf-8"),
-    )
+
+    def mcp_request(base: str) -> Request:
+        return Request(
+            base + "/mcp",
+            method="POST",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "MCP-Protocol-Version": "2026-07-28",
+                "Mcp-Method": "tools/list",
+            },
+            data=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 0,
+                    "method": "tools/list",
+                    "params": {
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                            "io.modelcontextprotocol/clientCapabilities": {},
+                            "io.modelcontextprotocol/clientInfo": {
+                                "name": "kodi-lab-installer",
+                                "version": "1",
+                            },
+                        }
+                    },
+                }
+            ).encode("utf-8"),
+        )
+
     try:
-        with opener.open(request, timeout=5):
+        with opener.open(mcp_request(origin), timeout=5):
             raise ValueError("MCP unexpectedly accepted an anonymous request")
     except HTTPError as error:
-        if lan_http:
-            if (
-                error.code != 403
-                or error.read(256) != b'{"detail":"mcp_disabled_for_lan_web"}'
-            ):
-                raise ValueError("LAN Web MCP isolation readiness failed") from error
-            return
         challenge = error.headers.get("WWW-Authenticate", "")
         if error.code != 401 or challenge.split(" ", 1)[0].lower() != "bearer":
             raise ValueError("MCP bearer readiness failed") from error
+    if lan_http:
+        lan_origin = f"http://{bind}:{web_port}"
+        with opener.open(lan_origin + "/login", timeout=5) as response:
+            if response.status != 200:
+                raise ValueError("LAN Web login readiness failed")
+        try:
+            with opener.open(mcp_request(lan_origin), timeout=5):
+                raise ValueError("LAN Web unexpectedly exposed MCP")
+        except HTTPError as error:
+            if (
+                error.code != 403
+                or error.read(256) != b'{"detail":"mcp_requires_local_listener"}'
+            ):
+                raise ValueError("LAN Web MCP isolation readiness failed") from error
 
 
 def load(root: Path) -> dict[str, Any]:
@@ -939,15 +951,16 @@ def install(args: argparse.Namespace) -> None:
         raise ValueError("choose distinct unprivileged ports (1024 through 65535)")
     engine_id = engine(source, host)
     check_networks(source)
-    available_port(web_bind, args.web_port)
+    available_port("127.0.0.1", args.web_port)
     if mode == "lan-http":
+        available_port(web_bind, args.web_port)
         print(
             "WARNING: LAN HTTP sends passwords, sessions and "
             "screen/control traffic unencrypted."
         )
         print(
             "Only use a trusted private network. "
-            "MCP will be disabled on this Web listener."
+            "Local MCP stays on loopback; LAN Web does not expose MCP."
         )
         if (
             input(f"Type {web_bind} to confirm private-LAN Web access: ").strip()

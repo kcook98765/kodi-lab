@@ -61,6 +61,7 @@ RELEASE_FILES = {
     DEVELOPMENT_MANIFEST,
     ".env.example",
     "compose.release.yaml",
+    "compose.lan-http.yaml",
     "compose.lab.yaml",
     "compose.development.yaml",
     "LICENSE",
@@ -273,8 +274,7 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
     except IndexError as error:
         raise ValueError("repository service layout differs") from error
     if (
-        "${KODI_LAB_WEB_PUBLISHED_BIND:-127.0.0.1}:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
-        not in web
+        "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100" not in web
         or "repository_data:/srv/kodi-lab-repository:ro" not in repository
         or "repository_data:/srv/kodi-lab-repository\n" not in web
         or "entrypoint: [kodi-lab-repository]" not in repository
@@ -1059,7 +1059,7 @@ def configure(
     if web_access_mode == "lan-http":
         print(
             "LAN HTTP: passwords, sessions and screen/control traffic are "
-            "unencrypted; MCP is disabled on this listener."
+            "unencrypted; local MCP stays on loopback, separate from LAN Web."
         )
     if temporary_network_pool:
         temporary_network_pool = validate_temporary_network_pool(
@@ -1146,7 +1146,7 @@ def main() -> int:
     parser.add_argument(
         "--confirm-lan-http",
         action="store_true",
-        help="acknowledge unencrypted LAN HTTP and disabled MCP on this listener",
+        help="acknowledge unencrypted LAN HTTP; local MCP stays on loopback",
     )
     parser.add_argument("--repository-bind", default="")
     parser.add_argument("--repository-port", type=int, default=0)

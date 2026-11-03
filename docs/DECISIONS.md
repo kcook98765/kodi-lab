@@ -7500,10 +7500,15 @@ Issue #189 makes fresh bundle configuration select `local-http`, published only
 on `127.0.0.1`. Administrator login and standard noVNC use HTTP/WS; cookies retain
 HttpOnly and SameSite=Strict. Optional Ubuntu `lan-http` requires a selected
 RFC1918 IPv4 address and explicit confirmation of unencrypted traffic. Publication
-uses that exact interface. Because Web and MCP share a listener, LAN HTTP disables
-`/mcp` entirely, including forged loopback Host requests. Local HTTP and HTTPS
-retain existing MCP authentication and grants. A separate MCP networking design
-is required when remote browser and agent access must coexist.
+uses that exact interface on a separate browser-only socket. The same Web process,
+ASGI application and lifespan retain `127.0.0.1:18100 → container:8100` for local
+Web/MCP and append `SELECTED_PRIVATE_IP:18100 → container:8101` for LAN browsers.
+MCP admission uses Uvicorn's kernel-derived destination port, never Host, Origin,
+client source or forwarding headers. Missing socket metadata fails closed in
+LAN mode. Local bearer authentication, agent permissions and target grants stay
+operational; the LAN socket rejects MCP even with a valid credential. Separately
+configured remote MCP proxies may still use the normal loopback listener. This
+owner-approved revision replaces the draft's original blanket MCP disablement.
 
 Missing mode configuration means `https`, preserving installed HTTPS behavior.
 HTTPS uses Secure cookies, HTTPS writes and WSS, with no forwarding peers trusted
