@@ -1,4 +1,10 @@
-# RC1 integration/testing checkpoint
+# RC1 integration/testing checkpoint (historical)
+
+> **Historical qualification record:** The test counts, failures, and release
+> boundaries below describe this earlier RC1 source checkpoint, not the
+> current repository test status. Later standard noVNC release and installed
+> acceptance results are recorded in
+> [Standard managed Kodi viewing](STANDARD-NOVNC.md#completed-production-deployment-2026-11-01).
 
 This source checkpoint supports independent installation testing. It is not the
 first public release or production deployment approval. Kodi 22 RC1 remains
