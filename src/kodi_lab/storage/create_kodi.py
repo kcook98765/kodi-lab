@@ -24,7 +24,11 @@ from kodi_lab.domain.create_kodi import (
     CreateTransitionError,
 )
 from kodi_lab.storage.models import CreateKodiOperationRow as Row
-from kodi_lab.storage.models import ManagedInstanceRow, RuntimeRecipeInstallationRow
+from kodi_lab.storage.models import (
+    ManagedInstanceMutationLeaseRow,
+    ManagedInstanceRow,
+    RuntimeRecipeInstallationRow,
+)
 
 _CHILD_COLUMNS = {
     CreateStage.INSTALLATION: "installation_operation_id",
@@ -96,6 +100,23 @@ class CreateKodiRepository:
         with self._sessions() as session:
             row = session.scalar(select(Row).where(Row.target_id == str(target_id)))
             return _snapshot(row) if row else None
+
+    def owns_provision_claim(self, operation_id: UUID, token_digest: str) -> bool:
+        """Read-only: a rolled-back claimant cannot fence a later claim's owner."""
+        with self._sessions() as session:
+            row = session.get(Row, str(operation_id))
+            lease = (
+                session.get(ManagedInstanceMutationLeaseRow, row.target_id)
+                if row
+                else None
+            )
+            return bool(
+                row
+                and lease
+                and row.stage == CreateStage.PROVISIONING
+                and lease.operation_id == row.provision_operation_id
+                and lease.lease_token_digest == token_digest
+            )
 
     def accept(
         self,
@@ -513,4 +534,42 @@ class CreateKodiRepository:
                 row.checkpoint = CreateCheckpoint.ACCEPTED
                 row.dispatched_at = None
                 row.outcome = None
+            return _snapshot(row)
+
+    def confirm_registration(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        verify: Callable[[Session, CreateOperation], bool],
+    ) -> CreateOperation:
+        """Confirm exact local DB evidence; undispatched reuse advances atomically."""
+        with self._change(
+            operation_id,
+            version,
+            CreateCheckpoint.ACCEPTED,
+            CreateCheckpoint.PLANNED,
+            CreateCheckpoint.DISPATCHED,
+            CreateCheckpoint.NEEDS_ATTENTION,
+        ) as row:
+            if row.stage != CreateStage.REGISTRATION or (
+                row.checkpoint == CreateCheckpoint.NEEDS_ATTENTION
+                and row.outcome != CreateOutcome.UNCERTAIN
+            ):
+                raise CreateTransitionError("registration_confirmation_not_supported")
+            session = object_session(row)
+            assert session is not None
+            if verify(session, _snapshot(row)) is not True:
+                raise CreateTransitionError("canonical_registration_not_verified")
+            if row.dispatched_at is None:
+                row.stage, row.checkpoint = (
+                    CreateStage.PROVISIONING,
+                    CreateCheckpoint.ACCEPTED,
+                )
+            else:
+                row.checkpoint, row.outcome = (
+                    CreateCheckpoint.CONFIRMED,
+                    CreateOutcome.SUCCEEDED,
+                )
+                row.reason = row.completed_at = None
             return _snapshot(row)

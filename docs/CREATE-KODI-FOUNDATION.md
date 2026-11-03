@@ -4,6 +4,9 @@ This document records the milestone 1 foundation. Milestone 2A adds only the
 [installation adapter and narrow explicit recovery](CREATE-KODI-INSTALLATION.md),
 with no schema or broker changes. Its two installation-specific recovery commands
 are the bounded exceptions to the terminal Needs attention behavior below.
+Milestone 2B adds [exact registration and provision hooks](CREATE-KODI-REGISTRATION-PROVISIONING.md),
+including explicit confirmation of an uncertain local registration goal. It adds
+no general retry, provision recovery, Start or readiness integration.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,
