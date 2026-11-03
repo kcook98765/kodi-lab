@@ -7,10 +7,10 @@ human control. Kodi acquisition and Bridge pairing remain separate operations.
 
 ## Choose an access mode
 
-| Mode | Web publication | Browser transport | MCP on this listener |
+| Mode | Web publication | Browser transport | MCP access |
 | --- | --- | --- | --- |
 | Fresh default: `local-http` | `127.0.0.1:18100` | HTTP and WS | Existing bearer authentication |
-| Optional Ubuntu `lan-http` | Selected private IPv4 only | Unencrypted HTTP and WS | Disabled for every caller |
+| Optional Ubuntu `lan-http` | Selected private IPv4 plus the existing loopback port | Unencrypted HTTP and WS | Local MCP retained; LAN listener rejects MCP |
 | Optional `https` | Loopback upstream behind your proxy | HTTPS and WSS | Existing bearer authentication; remote exposure is a separate decision |
 
 `127.0.0.1` always means the computer running the browser. On another computer,
@@ -43,17 +43,26 @@ unencrypted and asks you to type the exact IP to confirm. Declining stops before
 creating installation state. Open the displayed URL from another LAN computer,
 for example `http://192.168.1.50:18100/login`.
 
-The Web port binds only that IP, never `0.0.0.0`, an entire subnet or every
-interface. Public, loopback, link-local and noncanonical addresses are rejected.
+The LAN publication binds only that IP, never `0.0.0.0`, an entire subnet or
+every interface. The original loopback Web/MCP publication remains available.
+Public, loopback, link-local and noncanonical addresses are rejected as LAN
+selections.
 Choose a DHCP reservation or stable address. Do not add router port forwarding
 or expose this HTTP port to the Internet. The installer does not change firewall
 rules. Do not change production ports or rules merely to try this option.
 
-Web and `/mcp` share a process/listener. To prevent this browser choice from
-exposing agent access, LAN HTTP **disables `/mcp` entirely**, even with a forged
-loopback Host or a valid bearer token. This includes local clients trying that
-listener. Choose local HTTP or separately configured HTTPS/MCP networking when
-agent access is needed. No agent permissions or credentials are changed.
+LAN HTTP keeps **http://127.0.0.1:18100/mcp** fully operational for local agents,
+with the same bearer authentication, permissions and target grants. Web login
+does not authorize MCP, and a valid token does not enable MCP on the LAN socket.
+
+The existing Web process opens two sockets with one application and lifespan.
+Docker keeps `127.0.0.1:18100 → container:8100` for local Web/MCP and adds
+`SELECTED_PRIVATE_IP:18100 → container:8101` for LAN browsers. The application
+admits MCP only on the normal socket, using Uvicorn's kernel-derived destination
+port. Missing transport metadata fails closed. Host, Origin and forwarding
+headers cannot select the local socket. No extra service, proxy or database is
+introduced. Remote MCP remains a separately configured capability; the LAN Web
+socket rejects it even with valid credentials.
 
 For manual **fresh bundle** configuration, the equivalent selection is:
 
@@ -66,7 +75,19 @@ python3 linux-v1-bundle configure . \
 ```
 
 The acknowledgement flag explicitly accepts the same unencrypted-traffic and
-MCP limitations. This does not initialize or activate the bundle. Follow the
+Web security warning. This does not initialize or activate the bundle. Include
+`-f compose.lan-http.yaml` **after** `-f compose.release.yaml` in every manual
+LAN start/recreate command (alongside any existing lab/development overlays).
+The installer includes this verified overlay automatically. For example, the
+managed-service startup command is:
+
+```sh
+docker compose -f compose.release.yaml -f compose.lab.yaml \
+  -f compose.lan-http.yaml --profile lab up -d --wait --no-build web broker repository
+```
+
+The overlay appends the exact LAN binding and retains the loopback mapping.
+Omitting it leaves local MCP available but does not publish LAN Web. Follow the
 installation guide for the remaining steps. The simple LAN option is Ubuntu
 only; Windows/WSL2 retains its existing explicit networking/Caddy path.
 
@@ -205,8 +226,8 @@ Do not assume that an HTTP login-page health response proves HTTPS login works.
 
 Web uses administrator sessions and CSRF. MCP uses bearer tokens, protocol
 headers, client permissions and target/source/workspace grants; a Web login does
-not authorize an agent. Local HTTP normally provides
-`http://127.0.0.1:18100/mcp` to local clients. Never put tokens in URLs or query
+not authorize an agent. Every installation mode, including LAN HTTP, retains
+`http://127.0.0.1:18100/mcp` for local clients. Never put tokens in URLs or query
 strings. HTTPS proxy examples above block remote MCP; enabling it requires a
 separate deliberate endpoint/ACL/trust configuration. See
 [native LAN MCP](NATIVE-LAN-MCP.md) for that existing advanced workflow.

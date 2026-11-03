@@ -100,8 +100,9 @@ application images, configures them by image ID, initializes/verifies the
 repository, initializes the database, prompts for your password, ensures the
 managed network and starts Web, broker and repository with health checks. It
 also verifies that the login page responds and anonymous MCP access returns
-`401 Bearer` in local HTTP/HTTPS modes. LAN HTTP checks that MCP is disabled
-on this listener. Authorized inspection is a separate first-run check below.
+`401 Bearer` on the retained loopback MCP endpoint in every mode. LAN HTTP
+also checks its browser-only listener rejects MCP. Authorized inspection is a
+separate first-run check below.
 
 ## First run and authorized inspection
 
@@ -114,8 +115,9 @@ For Ubuntu access from another computer on a trusted LAN, add
 `--web-lan-ip YOUR_PRIVATE_IPV4` to `bootstrap` or `install`. The installer warns
 about unencrypted passwords, sessions and screen/control traffic, then asks you
 to type that exact IP to confirm. It binds only that address, shows the LAN login
-URL and disables MCP on this shared Web listener. This option is unavailable on
-WSL2; its existing Windows networking path remains separate. See
+URL and preserves local MCP at `http://127.0.0.1:18100/mcp`. A separate socket
+serves LAN browsers and rejects MCP independently of request headers. This
+option is unavailable on WSL2; its existing Windows networking path remains separate. See
 [advanced networking](WEB-NETWORKING.md) for examples and limitations.
 
 To require a user-managed HTTPS proxy, select `--web-access-mode https` when
@@ -134,9 +136,9 @@ acquisition happens on demand and can take several minutes.
 In **Agents**, create a **Read-only Inspection** client and grant that specific
 target. Keep the once-shown token in your client's private environment. Use the
 [README agent configuration](../README.md#connect-your-ai-agent) for local HTTP
-MCP, then verify `target_list` and `target_status` with the returned target UUID. LAN HTTP intentionally disables this shared MCP
-endpoint; use local HTTP or a separately designed HTTPS/MCP installation when
-agent access is required.
+MCP, then verify `target_list` and `target_status` with the returned target UUID.
+Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
+requires its own explicit configuration.
 Unauthorized targets must remain absent or denied. Record the client version,
 source commit, runtime version and sanitized result; do not share tokens.
 
