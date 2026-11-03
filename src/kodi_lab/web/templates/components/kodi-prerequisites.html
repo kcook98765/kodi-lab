@@ -1,0 +1,21 @@
+{% macro kodi_prerequisites(snapshot) %}
+<section class="kodi-prerequisites" data-kodi-prerequisites data-generation="{{ snapshot.generation }}" aria-label="Create Kodi requirements" aria-busy="false">
+  <h2>Setup requirements · Kodi <span data-prerequisite-version>{{ snapshot.version }}</span></h2>
+  <p data-prerequisite-summary role="status" aria-live="polite">{{ snapshot.summary }}</p>
+  <p>These results are informational snapshots. Installation and startup check their requirements again when requested.</p>
+  <p>Checked <time data-prerequisite-time datetime="{{ snapshot.checked_at.isoformat() }}">{{ snapshot.checked_at.strftime('%d %b %Y, %H:%M UTC') }}</time></p>
+  <button type="button" data-prerequisite-refresh hidden>Check again</button>
+  <noscript><p>Reload this page to check again.</p></noscript>
+  <p data-prerequisite-error role="alert" hidden></p>
+  <ul class="kodi-prerequisite-checks" data-prerequisite-checks>
+    {% for item in snapshot.checks %}
+    <li data-check-key="{{ item.key }}" data-status="{{ item.status }}">
+      <h3>{{ item.title }}</h3>
+      <p class="kodi-prerequisite-label">{{ item.label }}</p>
+      <p>{{ item.message }}</p>
+      {% if item.detail_url %}<a href="{{ item.detail_url }}">Review {{ item.title|lower }}</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endmacro %}

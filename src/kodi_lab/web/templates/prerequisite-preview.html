@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% from 'components/kodi-prerequisites.html' import kodi_prerequisites %}
+{% set nav_section = 'kodi' %}
+{% block title %}Create Kodi requirements preview · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Create Kodi requirements</h1>
+<p class="notice">Preview of the setup checks for Create Kodi. Checking does not create Kodi or start a download.</p>
+{{ kodi_prerequisites(snapshot) }}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/kodi-prerequisites.js') }}" defer></script>{% endblock %}
