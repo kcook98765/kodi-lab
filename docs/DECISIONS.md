@@ -7519,3 +7519,12 @@ options; explicit proxy removal requires HTTPS mode and never enables HTTP login
 Bundle configuration refuses an existing `.env`; installation management checks
 mode/bind against its receipt. No state migration, certificate manager, public
 MCP opt-in, external Kodi/Bridge exception or production activation is included.
+
+## Ordinary managed Start authority (issue #196)
+
+Ordinary Web startup uses a scoped authorization linked to the existing typed
+START operation and mutation lease. The broker resolves it through the lease's
+operation ID and validates a one-use opaque request proof, exact identity and
+fresh resource admission before dispatch. A generic START receipt cannot authorize
+this path. Existing development Start remains strict; ordinary readiness is
+native-only. See [the contract](ORDINARY-MANAGED-START.md).

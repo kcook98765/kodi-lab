@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
 from threading import Event
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from uuid import UUID
 
+from pydantic import SecretStr
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_zip_installations import (
@@ -30,6 +35,7 @@ from kodi_lab.application.managed_bridge_trust import (
     ManagedBridgeTrustService,
     invalidate_managed_bridge_trust,
 )
+from kodi_lab.application.managed_runtime_admission import require_managed_runtime
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_retirement_receipts import (
@@ -60,6 +66,7 @@ from kodi_lab.broker.operations import (
     StartManagedContainerResult,
     StopManagedContainerResult,
 )
+from kodi_lab.config import Settings
 from kodi_lab.domain import (
     ManagedInstanceLifecycleKind,
     ManagedInstanceLifecycleOperation,
@@ -68,6 +75,9 @@ from kodi_lab.domain import (
     RuntimeExecutionProfile,
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator, ReadinessResult
+from kodi_lab.storage.managed_activity import timestamp
+from kodi_lab.storage.managed_start import ManagedStartBinding, require_managed_start
+from kodi_lab.storage.models import ManagedStartAuthorizationRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
@@ -131,6 +141,21 @@ class _LifecycleBroker(Protocol):
     ) -> DeprovisionManagedContainerResult: ...
 
 
+class _ManagedAlreadyRunning(RuntimeError):
+    """No dispatch or readiness replacement is needed for this exact runtime."""
+
+
+class _ManagedStartBroker(Protocol):
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+        ordinary_start_proof: SecretStr,
+    ) -> StartManagedContainerResult: ...
+
+
 class ManagedRuntimeLifecycleService:
     def __init__(
         self,
@@ -143,6 +168,7 @@ class ManagedRuntimeLifecycleService:
         lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
         | None = None,
         bridge_trust: ManagedBridgeTrustService | None = None,
+        data_root: Path | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
@@ -151,6 +177,7 @@ class ManagedRuntimeLifecycleService:
         self._coordinator_factory = coordinator_factory
         self._reset_operations = reset_operations
         self._bridge_trust = bridge_trust
+        self._data_root = data_root or Settings().data_root
         self._operations = lifecycle_operations or (
             ManagedInstanceLifecycleOperationCoordinator(session_factory)
         )
@@ -217,6 +244,90 @@ class ManagedRuntimeLifecycleService:
             before_dispatch=before_dispatch,
         )
 
+    def start_managed(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID | None = None,
+        expected: ManagedStartBinding | None = None,
+        precondition: Callable[[Session], None] | None = None,
+    ) -> ManagedRuntimeStatus:
+        """Ordinary Web Start. Mint one proof under the existing lifecycle claim."""
+        self._require_no_reset(instance_id)
+        proof = SecretStr(secrets.token_urlsafe(32))
+        binding: list[ManagedStartBinding] = []
+
+        def admission(session: Session) -> None:
+            from kodi_lab.storage.models import ManagedInstanceRow
+
+            row = session.get(ManagedInstanceRow, str(instance_id))
+            if row is None:
+                raise ManagedInstanceNotFoundError(instance_id)
+            require_managed_runtime(
+                session,
+                instance_id,
+                UUID(row.runtime_revision_id),
+                data_root=self._data_root,
+            )
+            value = require_managed_start(
+                session,
+                self._broker.managed_container_inventory().containers,
+                target_id=str(instance_id),
+                revision_id=row.runtime_revision_id,
+            )
+            if expected is not None and value != expected:
+                raise LifecycleConflictError("The expected Kodi identity changed.")
+            binding.append(value)
+            if precondition is not None:
+                precondition(session)
+            if value.state == "running":
+                raise _ManagedAlreadyRunning
+
+        def claimed(session: Session, handle: RunningLifecycleOperation) -> None:
+            value = binding[0]
+            session.add(
+                ManagedStartAuthorizationRow(
+                    operation_id=str(handle.operation_id),
+                    target_id=value.target_id,
+                    runtime_revision_id=value.revision_id,
+                    container_id=value.container_id,
+                    image_id=value.image_id,
+                    runtime_state_revision=handle.runtime_state_revision,
+                    lease_digest=handle.token_digest,
+                    proof_digest=hashlib.sha256(
+                        proof.get_secret_value().encode()
+                    ).hexdigest(),
+                    created_at=timestamp(datetime.now(UTC)),
+                )
+            )
+            session.flush()
+
+        def dispatch(target: UUID, profile: RuntimeExecutionProfile) -> None:
+            value = binding[0]
+            if str(profile.runtime_revision_id) != value.revision_id:
+                raise LifecycleConflictError("The runtime pin changed before Start.")
+            self._dispatch_start(
+                lambda: cast(_ManagedStartBroker, self._broker).start_managed_container(
+                    managed_instance_id=str(target),
+                    expected_container_id=value.container_id,
+                    expected_runtime_state=ContainerRuntimeState(value.state),
+                    ordinary_start_proof=proof,
+                )
+            )
+
+        try:
+            return self._run(
+                instance_id,
+                ManagedInstanceLifecycleKind.START,
+                dispatch,
+                operation_id=operation_id,
+                precondition=admission,
+                on_claim=claimed,
+                ordinary_start=True,
+            )
+        except _ManagedAlreadyRunning:
+            return self._status.get(instance_id)
+
     def install_reviewed_bridge(self, instance_id: UUID) -> ManagedRuntimeStatus:
         """Closed candidate installation under the existing lifecycle mutation lease."""
         self._require_no_reset(instance_id)
@@ -253,12 +364,19 @@ class ManagedRuntimeLifecycleService:
 
     def _start(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
-        try:
-            self._broker.start_managed_container(
+        self._dispatch_start(
+            lambda: self._broker.start_managed_container(
                 managed_instance_id=str(instance_id),
                 expected_container_id=container.container_id,
                 expected_runtime_state=container.runtime_state,
             )
+        )
+
+    def _dispatch_start(
+        self, dispatch: Callable[[], StartManagedContainerResult]
+    ) -> None:
+        try:
+            dispatch()
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
         except RemoteBrokerError as error:
@@ -273,7 +391,11 @@ class ManagedRuntimeLifecycleService:
             raise
 
     def _queue_readiness(
-        self, instance_id: UUID, profile: RuntimeExecutionProfile
+        self,
+        instance_id: UUID,
+        profile: RuntimeExecutionProfile,
+        *,
+        native_only: bool = False,
     ) -> None:
 
         def run(cancel_event: Event) -> ReadinessResult:
@@ -285,6 +407,7 @@ class ManagedRuntimeLifecycleService:
                 result.usability_state.value == "usable"
                 and not cancel_event.is_set()
                 and self._bridge_trust is not None
+                and not native_only
             ):
                 try:
                     self._bridge_trust.prepare_background(instance_id)
@@ -484,6 +607,7 @@ class ManagedRuntimeLifecycleService:
         before_dispatch: Callable[[], None] | None = None,
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
         | None = None,
+        ordinary_start: bool = False,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
 
@@ -497,7 +621,7 @@ class ManagedRuntimeLifecycleService:
                 ManagedInstanceLifecycleKind.PROVISION,
             }:
                 require_runtime_reservations_idle(session, str(instance_id))
-            if kind is ManagedInstanceLifecycleKind.START:
+            if kind is ManagedInstanceLifecycleKind.START and not ordinary_start:
                 from kodi_lab.storage.retained_development import (
                     require_retained_container,
                     retained_targets,
@@ -512,15 +636,25 @@ class ManagedRuntimeLifecycleService:
             if precondition is not None:
                 precondition(session)
 
-        handle = self._operations.begin(
-            instance_id,
-            instance_name=instance_name,
-            kind=kind,
-            prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
-            operation_id=operation_id,
-            precondition=admission,
-            on_claim=on_claim,
-        )
+        if ordinary_start:
+            assert kind is ManagedInstanceLifecycleKind.START and on_claim is not None
+            handle = self._operations.begin_managed_start(
+                instance_id,
+                instance_name=instance_name,
+                operation_id=operation_id,
+                precondition=admission,
+                on_claim=on_claim,
+            )
+        else:
+            handle = self._operations.begin(
+                instance_id,
+                instance_name=instance_name,
+                kind=kind,
+                prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
+                operation_id=operation_id,
+                precondition=admission,
+                on_claim=on_claim,
+            )
         try:
             prior = self._observe(instance_id)
             self._operations.record_prior_state(handle, prior)
@@ -567,7 +701,10 @@ class ManagedRuntimeLifecycleService:
         if kind is ManagedInstanceLifecycleKind.START and self._is_expected_result(
             kind, resulting_state
         ):
-            self._queue_readiness(instance_id, profile)
+            if ordinary_start:
+                self._queue_readiness(instance_id, profile, native_only=True)
+            else:
+                self._queue_readiness(instance_id, profile)
         return result
 
     @staticmethod

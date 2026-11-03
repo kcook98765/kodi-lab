@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from collections.abc import Callable
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -29,17 +31,25 @@ from kodi_lab.broker.errors import (
     RuntimeStatePreconditionError,
 )
 from kodi_lab.config import Settings
+from kodi_lab.domain import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceMutationKind,
+)
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     require_session_admission,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.managed_activity import resource_policy, timestamp
+from kodi_lab.storage.managed_start import require_managed_start
 from kodi_lab.storage.models import (
     DevelopmentSessionRow,
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedProvisionReservationRow,
+    ManagedStartAuthorizationRow,
     ManagedStartReservationRow,
 )
 from kodi_lab.storage.retained_development import retained_inventory, retained_targets
@@ -228,6 +238,7 @@ class ManagedCapacityAdmission:
         instance_id: str,
         container_id: str,
         revision_id: str,
+        ordinary_start_proof: str | None = None,
     ) -> str:
         with self._sessions() as session:
             # The trusted inventory snapshot and reservation share one writer
@@ -257,14 +268,81 @@ class ManagedCapacityAdmission:
             ):
                 raise ManagedCapacityError("managed_start_identity_unavailable")
             try:
-                require_session_admission(
-                    session,
-                    records,
-                    target_id=instance_id,
-                    revision_id=revision_id,
-                    container_id=container_id,
-                    starting=True,
+                authorization = session.get(
+                    ManagedStartAuthorizationRow, lease.operation_id
                 )
+                if ordinary_start_proof is not None:
+                    operation = session.get(
+                        ManagedInstanceLifecycleOperationRow, lease.operation_id
+                    )
+                    if (
+                        authorization is None
+                        or operation is None
+                        or lease.operation_kind
+                        is not ManagedInstanceMutationKind.LIFECYCLE
+                        or operation.kind is not ManagedInstanceLifecycleKind.START
+                        or operation.state
+                        is not ManagedInstanceLifecycleOperationState.RUNNING
+                        or operation.managed_instance_id != instance_id
+                        or operation.original_managed_instance_id != instance_id
+                        or operation.reconciliation_required
+                        or authorization.consumed_at is not None
+                        or authorization.target_id != instance_id
+                        or authorization.runtime_revision_id != revision_id
+                        or authorization.container_id != container_id
+                        or authorization.image_id != selected[0].image_id
+                        or authorization.runtime_state_revision
+                        != instance.runtime_state_revision
+                        or not hmac.compare_digest(
+                            authorization.lease_digest, lease.lease_token_digest
+                        )
+                        or not hmac.compare_digest(
+                            authorization.proof_digest,
+                            hashlib.sha256(ordinary_start_proof.encode()).hexdigest(),
+                        )
+                        or lease.acquired_at is None
+                        or lease.heartbeat_at is None
+                        or not (
+                            datetime.fromisoformat(lease.acquired_at)
+                            <= datetime.fromisoformat(lease.heartbeat_at)
+                            <= now
+                        )
+                    ):
+                        raise ManagedCapacityError(
+                            "managed_start_authority_unavailable"
+                        )
+                    from kodi_lab.application.managed_runtime_admission import (
+                        require_managed_runtime,
+                    )
+
+                    require_managed_runtime(
+                        session,
+                        UUID(instance_id),
+                        UUID(revision_id),
+                        data_root=Settings().data_root,
+                    )
+                    require_managed_start(
+                        session,
+                        records,
+                        target_id=instance_id,
+                        revision_id=revision_id,
+                        own_operation_id=lease.operation_id,
+                        now=now,
+                    )
+                else:
+                    require_session_admission(
+                        session,
+                        records,
+                        target_id=instance_id,
+                        revision_id=revision_id,
+                        container_id=container_id,
+                        starting=True,
+                    )
+                    # A generic request cannot borrow another request's ordinary lease.
+                    if authorization is not None:
+                        raise ManagedCapacityError(
+                            "managed_start_authority_unavailable"
+                        )
             except DevelopmentSessionConflict as error:
                 raise ManagedCapacityError(error.code) from error
             reservations = list(session.scalars(select(ManagedStartReservationRow)))
@@ -295,6 +373,9 @@ class ManagedCapacityAdmission:
                     created_at=timestamp(now),
                 )
             )
+            if ordinary_start_proof is not None:
+                assert authorization is not None
+                authorization.consumed_at = timestamp(now)
             session.commit()
             return lease.operation_id
 
@@ -305,9 +386,12 @@ class ManagedCapacityAdmission:
         container_id: str,
         revision_id: str,
         dispatch: Callable[[], StartManagedContainerRecord],
+        ordinary_start_proof: str | None = None,
     ) -> StartManagedContainerRecord:
         try:
-            operation_id = self._claim(instance_id, container_id, revision_id)
+            operation_id = self._claim(
+                instance_id, container_id, revision_id, ordinary_start_proof
+            )
         except SQLAlchemyError as error:
             raise ManagedCapacityError("managed_capacity_unavailable") from error
         try:

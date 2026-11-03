@@ -506,3 +506,11 @@ observed; that does not establish their original queue-time identity. Native
 invocation ambiguity and post-invocation provenance remain attached to the
 original work. Current setup observations do not convert historical results into
 native readiness, and refreshing stored history does not rerun a smoke test.
+
+## Ordinary Kodi startup
+
+The managed instance page's **Start Kodi** action can start an existing reviewed
+Kodi without a development workspace. It preserves a different valid stopped
+selection and refuses active/unknown resources or incomplete selections. Development
+resume, agent lifecycle and Bridge preparation keep their strict session rules.
+See [ordinary managed Start](ORDINARY-MANAGED-START.md) for admission and recovery.

@@ -5730,6 +5730,35 @@ class ManagedInstanceLifecycleOperationRow(Base):
     )
 
 
+class ManagedStartAuthorizationRow(Base):
+    """One-use ordinary Start proof, issued atomically with lifecycle ownership."""
+
+    __tablename__ = "managed_start_authorizations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(target_id)=36 AND length(runtime_revision_id)=36 "
+            "AND length(container_id)=64 AND length(image_id)=71 "
+            "AND substr(image_id,1,7)='sha256:' AND runtime_state_revision>=0 "
+            "AND length(lease_digest)=64 AND length(proof_digest)=64",
+            name="managed_start_authorization_binding",
+        ),
+    )
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instance_lifecycle_operations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    lease_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    proof_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    consumed_at: Mapped[str | None] = mapped_column(String(27))
+
+
 class ManagedInstanceMutationLeaseRow(Base):
     """One closed-kind mutation reservation or active lease per instance."""
 
@@ -8714,10 +8743,12 @@ for _trigger_sql in NOVNC_INPUT_TRIGGERS:
     )
 
 
-from kodi_lab.storage.retained_policy_sql import RETAINED_MUTATION_TRIGGER  # noqa: E402
+from kodi_lab.storage.retained_policy_sql import (  # noqa: E402
+    MANAGED_START_MUTATION_TRIGGER,
+)
 
 event.listen(
     Base.metadata,
     "after_create",
-    DDL(RETAINED_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    DDL(MANAGED_START_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
 )

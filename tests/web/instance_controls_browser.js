@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const source = fs.readFileSync(process.argv[2], "utf8");
-function fixture({allowed = ["start", "deprovision"], failed = false, unknown = false, busy = false} = {}) {
+function fixture({allowed = ["start", "deprovision"], failed = false, rejected = false, unknown = false, busy = false} = {}) {
   const requests = [];
   const make = dataset => ({dataset, disabled:false, hidden:false, listeners:{}, addEventListener(name, fn) {this.listeners[name] = fn;}});
   const buttons = ["provision", "start", "stop", "deprovision"].map(action => make({instanceAction:action}));
@@ -19,6 +19,7 @@ function fixture({allowed = ["start", "deprovision"], failed = false, unknown = 
     fetch:async (url, options = {}) => {
       requests.push({url, options});
       if (options.method === "POST" && failed) throw new Error("connection lost");
+      if (options.method === "POST" && rejected) return {ok:false, json:async () => ({error:{message:"Another Kodi is running."}})};
       return {ok:true, json:async () => ({managed_instance_id:"target-fixture", container_state:unknown ? "unknown" : "stopped", allowed_actions:allowed})};
     }, encodeURIComponent, Error,
   });
@@ -32,6 +33,8 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   click(f,"start"); click(f,"start"); await flush();
   assert.equal(f.requests.filter(item => item.options.method === "POST").length, 1);
   assert.equal(f.requests[1].options.headers["X-Kodi-Lab-CSRF"], "csrf-fixture");
+  assert.equal(f.requests[1].url, "/api/instances/target-fixture/managed-start");
+  assert.equal(f.requests[1].options.body, "{}");
   assert.equal(f.reloads, 1);
   f = fixture({allowed:[]}); click(f,"start"); await flush();
   assert.equal(f.requests.length, 1); assert(f.buttons.every(button => button.disabled));
@@ -39,6 +42,9 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(f.requests.filter(item => item.options.method === "POST").length, 1);
   assert.match(f.status.textContent,/outcome could not be confirmed/);
   f.refresh.listeners.click(); assert.equal(f.reloads, 1);
+  f = fixture({rejected:true}); click(f,"start"); await flush(); click(f,"start"); await flush();
+  assert.equal(f.requests.filter(item => item.options.method === "POST").length, 1);
+  assert.match(f.status.textContent,/Another Kodi is running/);
   f = fixture(); f.form.listeners.submit({preventDefault(){}}); await flush();
   assert.equal(f.requests.length,0); assert.equal(f.approved.focused,true);
   f.approved.checked = true; f.form.listeners.submit({preventDefault(){}}); await flush();
