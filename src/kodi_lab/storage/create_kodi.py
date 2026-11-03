@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, object_session, sessionmaker
 
 from kodi_lab.domain.create_kodi import (
     CREATE_SCOPE,
@@ -24,6 +24,7 @@ from kodi_lab.domain.create_kodi import (
     CreateTransitionError,
 )
 from kodi_lab.storage.models import CreateKodiOperationRow as Row
+from kodi_lab.storage.models import ManagedInstanceRow, RuntimeRecipeInstallationRow
 
 _CHILD_COLUMNS = {
     CreateStage.INSTALLATION: "installation_operation_id",
@@ -194,6 +195,35 @@ class CreateKodiRepository:
         version: int,
         result: CreateChildResult,
     ) -> CreateOperation:
+        return self._record_result(operation_id, version=version, result=result)
+
+    def resolve_installation_result(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        result: CreateChildResult,
+        verify_result: Callable[[], bool],
+    ) -> CreateOperation:
+        """Explicitly resolve uncertainty from the original installation receipt.
+
+        No reset, new attempt, UUID replacement or broader stage recovery.
+        """
+        return self._record_result(
+            operation_id,
+            version=version,
+            result=result,
+            verify_resolution=verify_result,
+        )
+
+    def _record_result(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        result: CreateChildResult,
+        verify_resolution: Callable[[], bool] | None = None,
+    ) -> CreateOperation:
         if not isinstance(result.stage, CreateStage) or not isinstance(
             result.outcome, CreateOutcome
         ):
@@ -202,7 +232,50 @@ class CreateKodiRepository:
             result.runtime_revision_id, UUID
         ):
             raise CreateTransitionError("invalid_runtime_revision")
-        with self._change(operation_id, version, CreateCheckpoint.DISPATCHED) as row:
+        allowed = (
+            (CreateCheckpoint.NEEDS_ATTENTION,)
+            if verify_resolution is not None
+            else (CreateCheckpoint.DISPATCHED,)
+        )
+        with self._change(operation_id, version, *allowed) as row:
+            if verify_resolution is not None and (
+                row.stage != CreateStage.INSTALLATION
+                or row.outcome != CreateOutcome.UNCERTAIN
+                or row.dispatched_at is None
+                or result.outcome not in {CreateOutcome.SUCCEEDED, CreateOutcome.FAILED}
+            ):
+                raise CreateTransitionError("installation_resolution_not_supported")
+            if verify_resolution is not None:
+                session = object_session(row)
+                assert session is not None
+                source = session.get(RuntimeRecipeInstallationRow, str(result.child_id))
+                if (
+                    source is None
+                    or (
+                        source.generation,
+                        source.recipe_id,
+                        source.recipe_revision,
+                        source.recipe_digest,
+                        source.state.value,
+                        source.runtime_revision_id,
+                        source.image_id if result.image_id else None,
+                    )
+                    != (
+                        row.generation,
+                        row.recipe_id,
+                        row.recipe_revision,
+                        row.recipe_digest,
+                        "ready"
+                        if result.outcome is CreateOutcome.SUCCEEDED
+                        else "failed",
+                        str(result.runtime_revision_id)
+                        if result.runtime_revision_id
+                        else None,
+                        result.image_id,
+                    )
+                    or verify_resolution() is not True
+                ):
+                    raise CreateTransitionError("original_installation_not_verified")
             current = _snapshot(row)
             if (
                 result.stage,
@@ -222,8 +295,110 @@ class CreateKodiRepository:
                     raise CreateTransitionError("success_has_reason")
                 row.checkpoint = CreateCheckpoint.CONFIRMED
                 row.outcome = CreateOutcome.SUCCEEDED
+                row.reason = row.completed_at = None
             else:
                 self._attention(row, result.outcome, result.reason)
+            return _snapshot(row)
+
+    def resume_refused_installation(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+    ) -> CreateOperation:
+        """Explicit continuation of a refusal that could not have dispatched."""
+        with self._change(
+            operation_id, version, CreateCheckpoint.NEEDS_ATTENTION
+        ) as row:
+            if (
+                row.stage != CreateStage.INSTALLATION
+                or row.outcome != CreateOutcome.REFUSED
+                or row.dispatched_at is not None
+            ):
+                raise CreateTransitionError("installation_resume_not_supported")
+            session = object_session(row)
+            assert session is not None
+            if (
+                row.installation_operation_id
+                and session.get(
+                    RuntimeRecipeInstallationRow, row.installation_operation_id
+                )
+                is not None
+            ):
+                raise CreateTransitionError("unexpected_installation_receipt")
+            row.checkpoint = (
+                CreateCheckpoint.PLANNED
+                if row.installation_operation_id
+                else CreateCheckpoint.ACCEPTED
+            )
+            row.outcome = row.reason = row.completed_at = None
+            return _snapshot(row)
+
+    def reuse_installation(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        source_operation_id: UUID,
+        runtime_revision_id: UUID,
+        image_id: str,
+        verify_runtime: Callable[[], bool],
+    ) -> CreateOperation:
+        """Atomically confirm verified reuse and advance, without fake dispatch.
+
+        Preserve an already planned (unused) UUID. The cached receipt remains
+        authoritatively correlated by exact recipe/revision/image, via the
+        existing ready_for_revision lookup; it is not adopted as that child.
+        """
+        with self._change(
+            operation_id, version, CreateCheckpoint.ACCEPTED, CreateCheckpoint.PLANNED
+        ) as row:
+            if row.stage != CreateStage.INSTALLATION or row.dispatched_at is not None:
+                raise CreateTransitionError("installation_reuse_not_supported")
+            session = object_session(row)
+            assert session is not None
+            source = session.get(RuntimeRecipeInstallationRow, str(source_operation_id))
+            if source is None or (
+                source.state.value,
+                source.generation,
+                source.recipe_id,
+                source.recipe_revision,
+                source.recipe_digest,
+                source.runtime_revision_id,
+                source.image_id,
+            ) != (
+                "ready",
+                row.generation,
+                row.recipe_id,
+                row.recipe_revision,
+                row.recipe_digest,
+                str(runtime_revision_id),
+                image_id,
+            ):
+                raise CreateTransitionError("cached_installation_mismatch")
+            if (
+                row.installation_operation_id is not None
+                and session.get(
+                    RuntimeRecipeInstallationRow, row.installation_operation_id
+                )
+                is not None
+            ):
+                raise CreateTransitionError("unexpected_installation_receipt")
+            instance = session.get(ManagedInstanceRow, row.target_id)
+            if instance is not None and instance.runtime_revision_id != str(
+                runtime_revision_id
+            ):
+                raise CreateTransitionError("canonical_pin_conflict")
+            # Recheck eligibility/image while holding the database writer lock;
+            # concurrent revocation cannot slip between this proof and commit.
+            if verify_runtime() is not True:
+                raise CreateTransitionError("cached_runtime_not_verified")
+            if row.installation_operation_id is None:
+                row.installation_operation_id = str(source_operation_id)
+            row.runtime_revision_id, row.image_id = str(runtime_revision_id), image_id
+            row.stage = CreateStage.REGISTRATION
+            # Confirmation + advance is atomic for reuse. No dispatch occurred.
+            row.checkpoint = CreateCheckpoint.ACCEPTED
             return _snapshot(row)
 
     @staticmethod

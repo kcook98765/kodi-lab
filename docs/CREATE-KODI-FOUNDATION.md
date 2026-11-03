@@ -1,5 +1,10 @@
 # Durable Create Kodi foundation (issue #196, milestone 1)
 
+This document records the milestone 1 foundation. Milestone 2A adds only the
+[installation adapter and narrow explicit recovery](CREATE-KODI-INSTALLATION.md),
+with no schema or broker changes. Its two installation-specific recovery commands
+are the bounded exceptions to the terminal Needs attention behavior below.
+
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,
 Start, readiness probe or Bridge integration**. The only execution driver and

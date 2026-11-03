@@ -7539,3 +7539,15 @@ dispatch. Uncertain and completed history cannot be reset or retried by this
 foundation. Parent references protect lifecycle receipts from normal pruning.
 There is no executor or public API in milestone 1, and parent intent does not
 grant broker/lifecycle authority. See [the contract](CREATE-KODI-FOUNDATION.md).
+
+## Installation-only Create integration (issue #196, milestone 2A)
+
+The reviewed installer accepts an existing planned UUID and commits the parent's
+dispatch checkpoint immediately before its existing broker launch. Planned calls
+cannot join unrelated operations or implicitly retry/reconcile. Verified cached
+runtime reuse is an atomic ledger advance without a synthetic dispatch. Narrow
+explicit recovery retains the original UUID: undispatched refusals can continue,
+and uncertainty can consume only a verified original terminal receipt. Verified
+failures remain final; new attempts need a separate retained-history design.
+No schema, broker contract/authority, runner, Web API or later Create execution
+is added. See [the contract](CREATE-KODI-INSTALLATION.md).

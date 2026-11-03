@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -107,6 +108,25 @@ class RuntimeInstallationUnavailable(RuntimeError):
 
 class RuntimeInstallationActionConflict(RuntimeError):
     pass
+
+
+class RuntimeInstallationDispatchUncertain(RuntimeError):
+    """The planned launch was attempted; never substitute or redispatch its ID."""
+
+
+@dataclass(frozen=True)
+class CreateInstallationObservation:
+    """Read-only evidence for the installation adapter, never launch authority."""
+
+    operation_id: UUID | None
+    generation: str
+    recipe_id: str
+    recipe_revision: int
+    recipe_digest: str
+    status: str
+    busy: bool
+    runtime_revision_id: UUID | None = None
+    image_id: str | None = None
 
 
 def preview_acknowledgement(*, display_candidate: bool = False) -> dict[str, object]:
@@ -937,7 +957,15 @@ class RuntimeInstallationService:
         generation: Generation,
         *,
         action: Literal["install", "retry", "reacquire"] = "install",
+        operation_id: UUID | None = None,
+        before_dispatch: Callable[[UUID], None] | None = None,
     ) -> RuntimeInstallationView:
+        if operation_id is not None:
+            if before_dispatch is None or action != "install":
+                raise RuntimeInstallationActionConflict
+            return self._start_planned(generation, operation_id, before_dispatch)
+        if before_dispatch is not None:
+            raise RuntimeInstallationActionConflict
         if not self._capable():
             raise RuntimeInstallationUnavailable
         latest = self._latest(generation)
@@ -998,6 +1026,144 @@ class RuntimeInstallationService:
                 None,
                 capable=True,
                 worker_operation_id=result.operation_id,
+            ),
+            newly_accepted=result.newly_accepted,
+        )
+
+    def observe_create(
+        self,
+        generation: Generation,
+        operation_id: UUID | None = None,
+    ) -> CreateInstallationObservation:
+        """Inspect exact receipts/worker facts without reconciliation or writes."""
+        if generation not in GENERATIONS:
+            raise RuntimeInstallationActionConflict
+        reviewed = load_installation_recipe(generation)
+        with self._factory() as session:
+            row = (
+                RuntimeRecipeInstallationRepository(session).get(operation_id)
+                if operation_id is not None
+                else self._latest(generation)
+            )
+        base = CreateInstallationObservation(
+            operation_id=UUID(row.id) if row else operation_id,
+            generation=row.generation if row else generation,
+            recipe_id=row.recipe_id if row else reviewed.recipe.recipe_id,
+            recipe_revision=row.recipe_revision
+            if row
+            else reviewed.recipe.recipe_revision,
+            recipe_digest=row.recipe_digest if row else reviewed.digest,
+            status="unavailable",
+            busy=True,
+        )
+        if not self._capable():
+            return base
+        try:
+            active = self._active_worker()
+            if type(active.lock_held) is not bool:
+                return base
+            busy = active.operation_id is not None or active.lock_held
+            worker = (
+                self._broker.observe_reviewed_runtime_installation(
+                    str(base.operation_id)
+                )
+                if base.operation_id
+                else None
+            )
+            if worker is not None and (
+                worker.state not in {"running", "exited", "missing"}
+                or type(worker.lock_held) is not bool
+            ):
+                return replace(base, status="uncertain")
+            busy = busy or (worker is not None and worker.lock_held)
+            running = worker is not None and worker.state == "running"
+            exact_active = (
+                active.operation_id == str(base.operation_id)
+                and active.generation == generation
+            )
+            if running:
+                return replace(
+                    base, status="active" if exact_active else "uncertain", busy=True
+                )
+            if row is None:
+                return replace(
+                    base,
+                    status="uncertain"
+                    if worker is not None and worker.state == "exited"
+                    else "absent",
+                    busy=busy,
+                )
+            if row.state.value == "ready":
+                if (
+                    not self._eligible_ready(row)
+                    or self._broker.reviewed_runtime_image_present(row.id).present
+                    is not True
+                ):
+                    return replace(base, busy=busy)
+                return replace(
+                    base,
+                    status="ready",
+                    busy=busy,
+                    runtime_revision_id=UUID(row.runtime_revision_id or ""),
+                    image_id=row.image_id,
+                )
+            if row.state.value == "failed":
+                return replace(
+                    base, status="uncertain" if busy else "failed", busy=busy
+                )
+            return replace(
+                base, status="uncertain" if busy else "interrupted", busy=busy
+            )
+        except Exception:
+            return base
+
+    def _start_planned(
+        self,
+        generation: Generation,
+        operation_id: UUID,
+        before_dispatch: Callable[[UUID], None],
+    ) -> RuntimeInstallationView:
+        # Deliberately stricter than legacy start(): no joining another operation,
+        # implicit retry/reacquisition, or stateful reconciliation before dispatch.
+        current = self.observe_create(generation)
+        exact = self.observe_create(generation, operation_id)
+        if current.busy or exact.busy:
+            raise RuntimeInstallationBusy
+        if current.status != "absent" or exact.status != "absent":
+            raise RuntimeInstallationActionConflict
+        with self._factory() as session:
+            pending = session.scalar(
+                select(RuntimeRecipeInstallationRow.id)
+                .where(
+                    RuntimeRecipeInstallationRow.state.in_(
+                        ("pending", "acquiring", "assembling", "validating")
+                    )
+                )
+                .limit(1)
+            )
+        if pending is not None:
+            raise RuntimeInstallationBusy
+        # This callback MUST commit before the very next call. No observation,
+        # fallback or adoption occurs between checkpoint and broker dispatch.
+        before_dispatch(operation_id)
+        try:
+            result = self._broker.launch_reviewed_runtime_installation(
+                generation=generation, operation_id=str(operation_id)
+            )
+            if (
+                result.operation_id != str(operation_id)
+                or result.generation != generation
+            ):
+                raise RuntimeInstallationDispatchUncertain
+        except Exception as error:
+            raise RuntimeInstallationDispatchUncertain from error
+        return replace(
+            self._view(
+                generation,
+                None,
+                capable=True,
+                worker_operation_id=str(operation_id),
+                reconcile=False,
             ),
             newly_accepted=result.newly_accepted,
         )
