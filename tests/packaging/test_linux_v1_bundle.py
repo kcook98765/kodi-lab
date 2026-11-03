@@ -101,7 +101,11 @@ def bundle(tmp_path: Path) -> Path:
             )
         elif name == "linux-v1-bundle":
             path.write_bytes((root / "scripts/linux-v1-bundle").read_bytes())
-        elif name in {"compose.release.yaml", "compose.development.yaml"}:
+        elif name in {
+            "compose.release.yaml",
+            "compose.development.yaml",
+            "compose.lan-http.yaml",
+        }:
             path.write_bytes((root / name).read_bytes())
         elif name in {"INSTALL.md", "RELEASE.md"}:
             path.write_bytes((root / "docs" / f"LINUX-V1-{name}").read_bytes())

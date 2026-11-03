@@ -25,6 +25,7 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
         web_host="10.251.0.10",
         effective_web_bind_host="10.251.0.10",
         web_port=8180,
+        web_access_mode="https",
         experimental_novnc_instances=("fixture-instance",) if enabled else (),
     )
 

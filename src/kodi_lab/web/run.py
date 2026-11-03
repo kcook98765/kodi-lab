@@ -1,10 +1,12 @@
-"""Localhost-only Web process entry point."""
+"""Web process with an optional separate browser-only LAN socket."""
 
 from __future__ import annotations
 
 import json
 import logging
 import math
+import socket
+from contextlib import ExitStack
 from copy import deepcopy
 from typing import Any, cast
 
@@ -110,8 +112,7 @@ def main() -> None:
     )
     from kodi_lab.web.novnc_protocol import BoundedWebSocketProtocol
 
-    uvicorn.run(
-        app,
+    options: dict[str, Any] = dict(
         host=settings.effective_web_bind_host,
         port=settings.web_port,
         access_log=True,
@@ -120,6 +121,20 @@ def main() -> None:
         ws_max_queue=1,
         log_config=application_logging_config(),
     )
+    if settings.web_access_mode != "lan-http":
+        uvicorn.run(app, **options)
+        return
+    # One ASGI application, event loop and lifespan own both sockets. Docker
+    # publishes the first only on loopback and the second on the selected IP.
+    config = uvicorn.Config(app, **options)
+    with ExitStack() as stack:
+        sockets = [
+            stack.enter_context(
+                socket.create_server((settings.effective_web_bind_host, port))
+            )
+            for port in (settings.web_port, settings.web_lan_port)
+        ]
+        uvicorn.Server(config).run(sockets=sockets)
 
 
 if __name__ == "__main__":

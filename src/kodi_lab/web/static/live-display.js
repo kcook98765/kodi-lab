@@ -13,6 +13,13 @@
   if (!(start instanceof HTMLButtonElement) || !(stop instanceof HTMLButtonElement) || !(image instanceof HTMLImageElement)) return;
   let socket = null, epoch = 0, objectUrl = null, ageTimer = null, pending = null;
   let decoding = false, lastSequence = 0, lastShown = 0, initialAge = 0, attempt = null;
+  const requestId = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  };
   const url = `/api/instances/${visual.dataset.instanceId}/display-policy`;
   const state = (active) => {
     visual.dataset.liveActive = String(active);
@@ -60,7 +67,7 @@
   start.addEventListener("click", async () => {
     if (socket !== null || start.disabled || document.hidden) return;
     const mine = ++epoch;
-    const currentAttempt = crypto.randomUUID(); attempt = currentAttempt;
+    const currentAttempt = requestId(); attempt = currentAttempt;
     start.disabled = true; start.hidden = true; stop.hidden = false;
     state(true); lastSequence = 0;
     if (status instanceof HTMLElement) status.textContent = "Checking this Kodi screen…";

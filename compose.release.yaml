@@ -15,7 +15,10 @@ services:
       - no-new-privileges:true
     environment:
       KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
-      KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+      KODI_LAB_WEB_ALLOWED_HOSTS: '["${KODI_LAB_WEB_PUBLISHED_BIND:-127.0.0.1}"]'
+      KODI_LAB_WEB_ACCESS_MODE: ${KODI_LAB_WEB_ACCESS_MODE:-https}
+      # Trust no forwarding peer until an HTTPS overlay selects an exact proxy.
+      FORWARDED_ALLOW_IPS: ""
       KODI_LAB_MCP_LAN_URL: ${KODI_LAB_MCP_LAN_URL:-}
       KODI_LAB_MCP_LAN_CA_FILE: ${KODI_LAB_MCP_LAN_CA_FILE:-}
       KODI_LAB_MCP_LAN_HTTP_ENABLED: ${KODI_LAB_MCP_LAN_HTTP_ENABLED:-false}
