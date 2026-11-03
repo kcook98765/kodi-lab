@@ -1,4 +1,13 @@
 :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+.kodi-prerequisites { margin-block: 1.5rem; }
+.kodi-prerequisite-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; list-style: none; padding: 0; }
+.kodi-prerequisite-checks li { min-width: 0; border: 1px solid #8887; border-radius: .4rem; padding: 1rem; overflow-wrap: anywhere; }
+.kodi-prerequisite-checks h3 { margin-top: 0; }
+.kodi-prerequisite-label { font-weight: 700; }
+.kodi-prerequisite-checks [data-status="attention"] { border-inline-start: .3rem solid #b98; }
+.kodi-prerequisites button, .kodi-prerequisites a { min-height: 2.75rem; }
+.kodi-prerequisites a { display: inline-block; }
+.kodi-prerequisites [hidden] { display: none !important; }
 body { max-width: 64rem; margin: 0 auto; padding: 1.5rem; }
 header { display: flex; align-items: center; justify-content: space-between; }
 .login-panel { max-width: 28rem; margin: 10vh auto; }

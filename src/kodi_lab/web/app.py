@@ -289,6 +289,11 @@ from kodi_lab.application.managed_capability_prerequisites import (
     ManagedCapabilityPrerequisiteService,
 )
 from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
+from kodi_lab.application.managed_kodi_prerequisites import (
+    ManagedKodiPrerequisiteService,
+    PrerequisiteSnapshot,
+    StableGeneration,
+)
 from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_observation_bridge import (
     ManagedObservationBridgeService,
@@ -2401,6 +2406,9 @@ def create_app(
     runtime_installations = RuntimeInstallationService(
         session_factory, broker, data_root=settings.data_root
     )
+    kodi_prerequisites = ManagedKodiPrerequisiteService(
+        runtime_installations, context.managed_resources, data_root=settings.data_root
+    )
     app.state.kodi_lab = context
     app.add_middleware(
         TrustedHostMiddleware,
@@ -3893,6 +3901,32 @@ def create_app(
                 "bridge_allowed_ports": settings.external_bridge_allowed_ports,
                 "supported_bridge_version": SUPPORTED_V1_BRIDGE_ADDON_VERSION,
             },
+        )
+
+    @app.get("/api/create-kodi/prerequisites", response_model=PrerequisiteSnapshot)
+    def create_kodi_prerequisites(
+        generation: StableGeneration = "omega",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> JSONResponse:
+        return JSONResponse(
+            kodi_prerequisites.snapshot(generation).model_dump(mode="json"),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/preview/create-kodi-prerequisites", response_class=HTMLResponse)
+    def prerequisite_component_preview(
+        request: Request,
+        generation: StableGeneration = "omega",
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "prerequisite-preview.html",
+            {
+                "snapshot": kodi_prerequisites.snapshot(generation),
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/runtimes", response_class=HTMLResponse)

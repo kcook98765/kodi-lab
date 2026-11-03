@@ -155,6 +155,16 @@ class RuntimeInstallationView:
     eligibility_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeInstallationInspection:
+    installation: RuntimeInstallationView
+    existing_instance_id: UUID | None
+    has_installation_record: bool
+    active_operation_id: str | None
+    lock_held: bool | None
+    backend_issue: str | None
+
+
 class RuntimeInstallationService:
     """Use durable rows and broker facts without exposing Docker details."""
 
@@ -769,6 +779,42 @@ class RuntimeInstallationService:
                 if development_variant
                 else note
             ),
+        )
+
+    def inspect(self, generation: Generation) -> RuntimeInstallationInspection:
+        """Observe a stable recipe without reconciliation or admission."""
+        if generation not in GENERATIONS:
+            raise ValueError("inspection requires a reviewed stable generation")
+        target_id = recipe_target_id(load_installation_recipe(generation))
+        with self._factory() as session:
+            existing = ManagedInstanceRepository(session).get(target_id)
+        row = self._latest(generation)
+        failure = self._capability_failure()
+        active = None
+        if failure is None:
+            try:
+                active = self._active_worker()
+            except RuntimeInstallationUnavailable:
+                failure = "worker_unavailable"
+        view = self._view(
+            generation,
+            row,
+            capable=failure is None,
+            unavailable_code=failure or "broker_unreachable",
+            worker_operation_id=(
+                active.operation_id
+                if active is not None and active.generation == generation
+                else None
+            ),
+            reconcile=False,
+        )
+        return RuntimeInstallationInspection(
+            installation=replace(view, action="none"),
+            existing_instance_id=target_id if existing is not None else None,
+            has_installation_record=row is not None,
+            active_operation_id=active.operation_id if active is not None else None,
+            lock_held=active.lock_held if active is not None else None,
+            backend_issue=failure,
         )
 
     def records(
