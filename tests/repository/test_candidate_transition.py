@@ -1439,8 +1439,50 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
     assert (later / "master-key").read_bytes() not in keys
 
 
+@pytest.fixture
+def successor_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise emitted overrides over the Web image's wildcard-bind default."""
+    from pydantic import ValidationError
+
+    from kodi_lab.config import Settings
+    from scripts import install
+
+    previous = tmp_path / "previous.json"
+    previous.write_text(
+        json.dumps(
+            {"schema": install.SCHEMA, "completed_stage": "ready", "bundle_sha256": "a"}
+        )
+    )
+    commands: list[list[str]] = []
+    with monkeypatch.context() as capture:
+        capture.setattr(install, "run", lambda command, cwd: commands.append(command))
+        install.successor_preflight(
+            tmp_path,
+            {
+                "schema": install.SITE_SCHEMA,
+                "project": "kodi-lab-012345abcdef",
+                "host": "windows-wsl2",
+                "bundle_sha256": "b",
+                "previous_receipt": str(previous),
+                "previous_receipt_sha256": sha256(previous.read_bytes()),
+            },
+        )
+    monkeypatch.setenv("KODI_LAB_WEB_BIND_HOST", "0.0.0.0")
+    monkeypatch.delenv("KODI_LAB_WEB_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(ValidationError, match="wildcard Web bind requires explicit"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    (command,) = commands
+    for index, value in enumerate(command):
+        if value == "--env":
+            key, setting = command[index + 1].split("=", 1)
+            monkeypatch.setenv(key, setting)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.web_bind_host == "0.0.0.0"
+    assert settings.web_allowed_hosts == ("127.0.0.1",)
+
+
 def test_successor_preflight_requires_transition_for_unchanged_schema(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, successor_environment: None
 ) -> None:
     from scripts.install import SUCCESSOR_CHECK
 
@@ -1468,7 +1510,7 @@ def test_successor_preflight_requires_transition_for_unchanged_schema(
 
 
 def test_successor_preflight_requires_authoritative_schema_upgrade_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, successor_environment: None
 ) -> None:
     from scripts.install import SUCCESSOR_CHECK
 
@@ -1495,7 +1537,10 @@ def test_successor_preflight_requires_authoritative_schema_upgrade_completion(
     [".upgrade-pending.json", ".restore-pending.json", ".recovery-pending.json"],
 )
 def test_successor_preflight_preserves_existing_pending_operation_fences(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pending: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pending: str,
+    successor_environment: None,
 ) -> None:
     from scripts.install import SUCCESSOR_CHECK
 

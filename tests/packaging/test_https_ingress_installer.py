@@ -172,9 +172,30 @@ def test_merged_compose_exposes_only_loopback_and_two_ingress_members(
         site, {"project": "kodi-lab-012345abcdef", "host": "windows-wsl2"}, managed=True
     )
     rendered = json.loads(
-        install.run([*command, "config", "--format", "json"], site, capture=True)
+        install.run(
+            [
+                *command,
+                "--profile",
+                "repository-transition",
+                "config",
+                "--format",
+                "json",
+            ],
+            site,
+            capture=True,
+        )
     )
     services = rendered["services"]
+    validation = services["repository-transition"]
+    assert validation["image"] == services["web"]["image"]
+    assert validation["network_mode"] == "none" and validation["read_only"]
+    assert validation["cap_drop"] == ["ALL"]
+    assert validation["security_opt"] == ["no-new-privileges:true"]
+    assert {mount["target"] for mount in validation["volumes"]} == {
+        "/candidate",
+        "/srv/kodi-lab-repository",
+        "/var/lib/kodi-lab",
+    }
     assert {
         name
         for name, service in services.items()
@@ -461,10 +482,14 @@ def test_successor_up_checks_installed_completion_before_starting_services(
     )
     assert preflight[preflight.index("--user") + 1] == "10001:10001"
     assert preflight[preflight.index("--entrypoint") + 1] == "python"
-    assert (
-        preflight[preflight.index("--env") + 1]
-        == "KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository"
-    )
+    assert [
+        preflight[index + 1]
+        for index, value in enumerate(preflight)
+        if value == "--env"
+    ] == [
+        "KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository",
+        'KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]',
+    ]
     assert preflight[-1] == install.SUCCESSOR_CHECK
     up = [command for command in host.commands if "up" in command]
     assert bool(up) == completed
