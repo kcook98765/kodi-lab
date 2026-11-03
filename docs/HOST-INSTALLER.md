@@ -82,7 +82,9 @@ python3 install.py bootstrap --directory "$HOME/kodi-lab-install" \
   --repository-bind 192.168.1.50 --repository-port 18120 --web-port 18100
 ```
 
-Replace the example address. `--repository-base-url` accepts an explicit
+Replace the example address. Default repository HTTP needs no certificates or
+proxy. For optional owner-managed HTTPS, see [repository networking](REPOSITORY-NETWORKING.md).
+`--repository-base-url` accepts an explicit
 credential-free origin if devices use a durable hostname or configured HTTPS
 proxy; otherwise it defaults to `http://ADDRESS:18120`. It must identify the
 actual reachable repository. The installer does not create DNS or TLS services.

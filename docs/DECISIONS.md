@@ -7493,3 +7493,29 @@ application upgrade. Normal reviewed backup/recovery, candidate transition and
 administrator upgrade still precede activation. Default Ubuntu/Windows installs
 are unchanged. Focused source evidence, release qualification and native
 Windows/Desktop/Firefox acceptance remain separate.
+
+## D-0478: Explicit Web access modes preserve legacy HTTPS
+
+Issue #189 makes fresh bundle configuration select `local-http`, published only
+on `127.0.0.1`. Administrator login and standard noVNC use HTTP/WS; cookies retain
+HttpOnly and SameSite=Strict. Optional Ubuntu `lan-http` requires a selected
+RFC1918 IPv4 address and explicit confirmation of unencrypted traffic. Publication
+uses that exact interface on a separate browser-only socket. The same Web process,
+ASGI application and lifespan retain `127.0.0.1:18100 → container:8100` for local
+Web/MCP and append `SELECTED_PRIVATE_IP:18100 → container:8101` for LAN browsers.
+MCP admission uses Uvicorn's kernel-derived destination port, never Host, Origin,
+client source or forwarding headers. Missing socket metadata fails closed in
+LAN mode. Local bearer authentication, agent permissions and target grants stay
+operational; the LAN socket rejects MCP even with a valid credential. Separately
+configured remote MCP proxies may still use the normal loopback listener. This
+owner-approved revision replaces the draft's original blanket MCP disablement.
+
+Missing mode configuration means `https`, preserving installed HTTPS behavior.
+HTTPS uses Secure cookies, HTTPS writes and WSS, with no forwarding peers trusted
+by default in Compose. User-managed proxies select their actual trusted peer and
+allowed hostname explicitly. Windows Caddy retains its exact peer, canonical
+topology, CA storage and permissions. Successors preserve mode and omitted Caddy
+options; explicit proxy removal requires HTTPS mode and never enables HTTP login.
+Bundle configuration refuses an existing `.env`; installation management checks
+mode/bind against its receipt. No state migration, certificate manager, public
+MCP opt-in, external Kodi/Bridge exception or production activation is included.

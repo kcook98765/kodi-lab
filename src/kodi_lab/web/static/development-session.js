@@ -12,6 +12,14 @@
   const workspace = form.elements.namedItem('workspace_id'), target = form.elements.namedItem('target_id');
   const phases = new Set(['reserved', 'provisioning', 'bound', 'uncertain', 'closed']);
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  // getRandomValues also works on private-LAN HTTP.
+  const requestId = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  };
   const advice = {
     development_session_existing_resource: 'An existing Kodi profile occupies the environment. Review its exact registration; it has been preserved.',
     development_session_busy: 'An operation is active. Review its saved outcome before continuing.',
@@ -145,7 +153,7 @@
   }
   form.addEventListener('submit', event => {
     event.preventDefault();
-    if (!reserve.disabled) return mutate('/reserve', {request_id:crypto.randomUUID(), expected_generation:view.latest_generation, workspace_id:workspace.value, target_id:target.value});
+    if (!reserve.disabled) return mutate('/reserve', {request_id:requestId(), expected_generation:view.latest_generation, workspace_id:workspace.value, target_id:target.value});
   });
   for (const button of buttons) button.addEventListener('click', () => {
     if (!button.disabled && view?.current) return mutate(`/${button.dataset.sessionAction}`, {expected_generation:view.current.generation});

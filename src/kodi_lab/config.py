@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
     web_bind_host: Literal["127.0.0.1", "10.251.0.10", "0.0.0.0"] | None = None
     web_allowed_hosts: tuple[str, ...] = ()
+    # Missing mode is legacy HTTPS. Only fresh installers select HTTP by default.
+    web_access_mode: Literal["local-http", "lan-http", "https"] = "https"
     native_zip_base_url: str | None = None
     mcp_lan_url: str | None = None
     mcp_lan_ca_file: Path | None = None
@@ -42,12 +44,25 @@ class Settings(BaseSettings):
     mcp_lan_http_allowed_cidr: str | None = None
     mcp_lan_http_readiness_socket: Path | None = None
     web_port: int = Field(default=8100, ge=1, le=65_535)
+    web_lan_port: int = Field(default=8101, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
     web_session_idle_seconds: Literal[43_200] = 43_200
     web_session_absolute_seconds: Literal[604_800] = 604_800
     trusted_custom_builds_enabled: bool = False
     experimental_novnc_instances: tuple[UUID, ...] = ()
+
+    @property
+    def web_requires_https(self) -> bool:
+        return self.web_access_mode == "https"
+
+    @model_validator(mode="after")
+    def _separate_web_listeners(self) -> "Settings":
+        if self.web_access_mode == "lan-http" and self.web_lan_port == self.web_port:
+            raise ValueError(
+                "LAN Web and local Web/MCP require distinct listener ports"
+            )
+        return self
 
     external_target_master_key: SecretStr | None = None
     external_target_master_key_version: int = Field(default=1, ge=1, le=2_147_483_647)

@@ -265,6 +265,7 @@ see [qualification notes](docs/RC1-TESTING-CHECKPOINT.md).
 - [Shared installer and everyday management](docs/HOST-INSTALLER.md)
 - [Windows/WSL2 installation and qualification status](docs/WINDOWS-WSL2-INSTALL.md)
 - [Existing Kodi, add-on repository and local source setup](docs/LINUX-V1-INSTALL.md)
+- [Optional HTTPS for add-on repository downloads](docs/REPOSITORY-NETWORKING.md)
 - [Managed RC1 workflow and known limitations](docs/RC1-WEB-WORKFLOW.md)
 - [Agent add-on development](docs/PHASE12-MCP-DEVELOPMENT.md)
 - [Screenshots and UI inspection](docs/UI-OBSERVATION.md)

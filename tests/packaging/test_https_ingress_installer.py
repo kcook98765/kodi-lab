@@ -359,7 +359,10 @@ def test_real_verifier_rejects_ingress_or_receipt_tampering(
         install.load(root)
 
 
-@pytest.mark.parametrize("previous_https", [False, True])
+@pytest.mark.parametrize(
+    "previous_https,previous_mode",
+    [(False, "https"), (True, "https"), (False, "local-http")],
+)
 @pytest.mark.parametrize("disable", [False, True])
 def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
     bundle: Path,
@@ -367,9 +370,17 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
     monkeypatch: pytest.MonkeyPatch,
     disable: bool,
     previous_https: bool,
+    previous_mode: str,
 ) -> None:
     old = tmp_path / "old"
     data = installed_bundle(bundle, old)
+    if previous_mode == "local-http":
+        data["web_access_mode"] = previous_mode
+        data["web_bind"] = "127.0.0.1"
+        with (old / "bundle/.env").open("a") as env:
+            env.write(
+                "KODI_LAB_WEB_ACCESS_MODE=local-http\nKODI_LAB_WEB_PUBLISHED_BIND=127.0.0.1\n"
+            )
     if previous_https:
         data["https_ingress"] = config()
         data["https_ingress_identity"] = install.ingress_identity(data, config())
@@ -382,6 +393,13 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
     successor = tmp_path / "successor"
     successor.mkdir()
     shutil.copytree(old / "bundle", successor / "bundle")
+    if previous_mode == "local-http":
+        env_path = successor / "bundle/.env"
+        env_path.write_text(
+            env_path.read_text().replace(
+                "KODI_LAB_WEB_ACCESS_MODE=local-http", "KODI_LAB_WEB_ACCESS_MODE=https"
+            )
+        )
     before = {
         str(p.relative_to(successor)): p.read_bytes()
         for p in (successor / "bundle").rglob("*")
@@ -396,6 +414,8 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
         web_https_proxy=None if disable else "caddy",
         https_ingress_subnet=None if disable else SUBNET,
         windows_route=None if disable else ROUTES,
+        remove_https_proxy=disable,
+        web_access_mode="https" if disable or previous_mode == "local-http" else None,
     )
     prepare = MagicMock()
     monkeypatch.setattr(install, "prepare_caddy", prepare)
@@ -407,6 +427,7 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
         prepare.assert_called_once_with(successor, new, create=not previous_https)
         assert (successor / "Caddyfile").stat().st_mode & 0o777 == 0o640
     assert new["schema"] == install.SITE_SCHEMA and new["project"] == data["project"]
+    assert new["web_access_mode"] == "https"
     assert new["previous_receipt_sha256"] == hashlib.sha256(old_receipt).hexdigest()
     assert new.get("https_ingress") == (None if disable else config())
     assert not (successor / "INSTALLATION.json").exists()
@@ -567,6 +588,48 @@ def test_successor_up_checks_installed_completion_before_starting_services(
     assert not any(
         "upgrade" in command or "initialize" in command for command in host.commands
     )
+
+
+@pytest.mark.parametrize("requested_mode", [None, "local-http"])
+def test_successor_omission_preserves_caddy_and_http_downgrade_is_rejected(
+    bundle: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    requested_mode: str | None,
+) -> None:
+    old = tmp_path / "old"
+    data = installed_bundle(bundle, old)
+    data["https_ingress"] = config()
+    data["https_ingress_identity"] = install.ingress_identity(data, config())
+    install.write_caddyfile(old, config())
+    (old / "compose.windows.yaml").write_text(install.windows_overlay(18121, config()))
+    install.save(old, data, "ready")
+    successor = tmp_path / "successor"
+    successor.mkdir()
+    shutil.copytree(old / "bundle", successor / "bundle")
+    monkeypatch.setattr(install, "host_kind", lambda: "windows-wsl2")
+    monkeypatch.setattr(install, "engine", lambda *_: "engine-one")
+    monkeypatch.setattr(install, "check_ingress_network", lambda *_: None)
+    prepare = MagicMock()
+    monkeypatch.setattr(install, "prepare_caddy", prepare)
+    args = argparse.Namespace(
+        directory=str(successor),
+        previous_installation=str(old),
+        web_access_mode=requested_mode,
+    )
+    if requested_mode:
+        with pytest.raises(ValueError, match="preserve Web mode"):
+            install.configure_successor(args)
+        assert not (successor / "SITE.json").exists()
+        prepare.assert_not_called()
+    else:
+        install.configure_successor(args)
+        new = install.load(successor)
+        assert new["web_access_mode"] == "https" and new["https_ingress"] == config()
+        prepare.assert_called_once_with(successor, new, create=False)
+        assert (successor / "compose.windows.yaml").read_bytes() == (
+            old / "compose.windows.yaml"
+        ).read_bytes()
 
 
 def test_same_bundle_proxy_rollback_starts_without_transition_or_migration(

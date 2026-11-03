@@ -153,6 +153,11 @@ before transferring it. The stable feed serves these identical reviewed bytes.
 
 ## Optional development repository
 
+Both feeds use the configured repository origin. HTTP is the default; optional
+HTTPS uses your existing trusted reverse proxy. See
+[repository networking](https://github.com/kcook98765/kodi-lab/blob/main/docs/REPOSITORY-NETWORKING.md) for fresh-install configuration
+and Kodi certificate trust.
+
 `BASE/install/` also lists `repository.kodi-lab-dev-1.0.0.zip`, clearly marked
 for development/test Kodi installations. Install it separately through Kodi's
 normal **Install from zip file** flow; installing the stable repository does

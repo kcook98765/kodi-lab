@@ -156,6 +156,51 @@ def test_failed_password_setup_preserves_database_and_never_starts_services(
 
 
 @pytest.mark.parametrize("kind", ["ubuntu", "windows-wsl2"])
+@pytest.mark.parametrize("reachable", [True, False])
+@pytest.mark.parametrize("scheme", ["https", "HTTPS"])
+def test_fresh_https_checks_origin_before_ready(
+    host: Host, monkeypatch: pytest.MonkeyPatch, kind: str, reachable: bool, scheme: str
+) -> None:
+    host.kind = kind
+    args = host.args()
+    args.repository_base_url = f"{scheme}://repo.example.test"
+    run = host.run
+    manifests = {"verified": "local repository provenance"}
+    checks = []
+
+    def capture(command: list[str], cwd: Path, *, capture: bool = False) -> str:
+        result = run(command, cwd, capture=capture)
+        if "kodi-lab-repository" in command and "verify" in command and capture:
+            assert (
+                json.loads((host.root / "INSTALLATION.json").read_bytes())[
+                    "completed_stage"
+                ]
+                == "services_started"
+            )
+            return json.dumps(manifests)
+        return result
+
+    def check(base: str, observed: dict[str, Any]) -> None:
+        checks.append((base, observed))
+        if not reachable:
+            raise ValueError("Repository URL verification failed")
+
+    monkeypatch.setattr(install, "run", capture)
+    monkeypatch.setattr(install, "probe_repository", check)
+    if reachable:
+        install.install(args)
+    else:
+        with pytest.raises(ValueError, match="Repository URL verification failed"):
+            install.install(args)
+    assert checks == [(args.repository_base_url, manifests)]
+    data = json.loads((host.root / "INSTALLATION.json").read_bytes())
+    assert data["completed_stage"] == ("ready" if reachable else "services_started")
+    assert data["repository_base_url"] == args.repository_base_url
+    assert data["repository_port"] == 18120
+    assert "stop" not in [token for command in host.commands for token in command]
+
+
+@pytest.mark.parametrize("kind", ["ubuntu", "windows-wsl2"])
 def test_failed_mcp_probe_preserves_services_started_installation(
     host: Host, mcp_opener: MagicMock, kind: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

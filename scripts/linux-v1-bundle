@@ -61,6 +61,7 @@ RELEASE_FILES = {
     DEVELOPMENT_MANIFEST,
     ".env.example",
     "compose.release.yaml",
+    "compose.lan-http.yaml",
     "compose.lab.yaml",
     "compose.development.yaml",
     "LICENSE",
@@ -191,6 +192,8 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         address = ipaddress.ip_address(bind)
         parsed = urlsplit(base_url)
         parsed_port = parsed.port
+        if parsed_port is None and parsed.scheme == "https":
+            parsed_port = 443
     except ValueError as error:
         raise ValueError("invalid repository bind address or base URL") from error
     if (
@@ -199,6 +202,7 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         or not 1 <= port <= 65535
         or parsed.scheme not in {"http", "https"}
         or not parsed.hostname
+        or parsed.netloc.endswith(":")
         or parsed.hostname in {"localhost", "127.0.0.1"}
         or parsed.username is not None
         or parsed.password is not None
@@ -208,6 +212,7 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         or not parsed_port
         or any(ord(char) < 33 or ord(char) > 126 for char in base_url)
         or any(char in base_url for char in "'$#\\")
+        or not re.fullmatch(r"[a-zA-Z0-9.\-:\[\]]+", parsed.netloc)
     ):
         raise ValueError(
             "repository requires private bind and credential-free origin URL"
@@ -969,7 +974,17 @@ def verify(
             "KODI_LAB_BROKER_IMAGE": app["images"]["broker"],
         }
         base_keys = set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"} | REPOSITORY_KEYS
-        extras = set(values) - base_keys
+        web_keys = {"KODI_LAB_WEB_ACCESS_MODE", "KODI_LAB_WEB_PUBLISHED_BIND"}
+        selected_web_keys = set(values) & web_keys
+        if selected_web_keys and selected_web_keys != web_keys:
+            raise ValueError(
+                "Web mode and publication bind must be configured together"
+            )
+        validate_web_access(
+            values.get("KODI_LAB_WEB_ACCESS_MODE", "https"),
+            values.get("KODI_LAB_WEB_PUBLISHED_BIND", "127.0.0.1"),
+        )
+        extras = set(values) - base_keys - web_keys
         if (
             not base_keys.issubset(values)
             or extras
@@ -1007,6 +1022,23 @@ def verify(
     return data
 
 
+def validate_web_access(mode: str, bind: str) -> None:
+    if mode not in {"local-http", "lan-http", "https"}:
+        raise ValueError("invalid Web access mode")
+    if mode != "lan-http":
+        if bind != "127.0.0.1":
+            raise ValueError(
+                "local HTTP and HTTPS upstreams require loopback publication"
+            )
+        return
+    address = ipaddress.IPv4Address(bind)
+    private = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    if str(address) != bind or not any(
+        address in ipaddress.IPv4Network(network) for network in private
+    ):
+        raise ValueError("LAN Web access requires an exact private IPv4 address")
+
+
 def configure(
     bundle: pathlib.Path,
     data: dict[str, Any],
@@ -1016,10 +1048,23 @@ def configure(
     repository_base_url: str,
     temporary_network_pool: str = "",
     temporary_network_child_prefix: int = 24,
+    web_access_mode: str = "local-http",
+    web_published_bind: str = "127.0.0.1",
+    confirm_lan_http: bool = False,
 ) -> None:
     if (bundle / ".env").exists() or not 1 <= port <= 65535:
         raise ValueError(".env already exists or port is invalid")
     validate_repository_config(repository_bind, repository_port, repository_base_url)
+    validate_web_access(web_access_mode, web_published_bind)
+    if web_access_mode == "lan-http" and not confirm_lan_http:
+        raise ValueError(
+            "LAN HTTP requires explicit --confirm-lan-http acknowledgement"
+        )
+    if web_access_mode == "lan-http":
+        print(
+            "LAN HTTP: passwords, sessions and screen/control traffic are "
+            "unencrypted; local MCP stays on loopback, separate from LAN Web."
+        )
     if temporary_network_pool:
         temporary_network_pool = validate_temporary_network_pool(
             temporary_network_pool,
@@ -1054,6 +1099,8 @@ def configure(
         f"KODI_LAB_REMOTE_IMAGE={chosen['web']}\n"
         f"KODI_LAB_BROKER_IMAGE={chosen['broker']}\n"
         f"KODI_LAB_PUBLISHED_PORT={port}\n"
+        f"KODI_LAB_WEB_ACCESS_MODE={web_access_mode}\n"
+        f"KODI_LAB_WEB_PUBLISHED_BIND={web_published_bind}\n"
         f"KODI_LAB_REPOSITORY_BIND={repository_bind}\n"
         f"KODI_LAB_REPOSITORY_PORT={repository_port}\n"
         f"KODI_LAB_REPOSITORY_BASE_URL={repository_base_url}\n"
@@ -1094,6 +1141,17 @@ def main() -> int:
     parser.add_argument("bundle", type=pathlib.Path)
     parser.add_argument("repository", type=pathlib.Path, nargs="?")
     parser.add_argument("--port", type=int, default=18100)
+    parser.add_argument(
+        "--web-access-mode",
+        choices=("local-http", "lan-http", "https"),
+        default="local-http",
+    )
+    parser.add_argument("--web-published-bind", default="127.0.0.1")
+    parser.add_argument(
+        "--confirm-lan-http",
+        action="store_true",
+        help="acknowledge unencrypted LAN HTTP; local MCP stays on loopback",
+    )
     parser.add_argument("--repository-bind", default="")
     parser.add_argument("--repository-port", type=int, default=0)
     parser.add_argument("--repository-base-url", default="")
@@ -1137,6 +1195,9 @@ def main() -> int:
                     args.repository_base_url,
                     args.temporary_network_pool,
                     args.temporary_network_child_prefix,
+                    args.web_access_mode,
+                    args.web_published_bind,
+                    args.confirm_lan_http,
                 )
             elif args.command == "development-source":
                 if args.source is None or not (args.bundle / ".env").exists():
