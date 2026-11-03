@@ -586,6 +586,8 @@ def successor_preflight(root: Path, data: dict[str, Any]) -> None:
             "10001:10001",
             "--env",
             "KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository",
+            "--env",
+            'KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]',
             "--entrypoint",
             "python",
             "repository-transition",
