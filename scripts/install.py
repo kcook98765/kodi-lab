@@ -18,11 +18,13 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 SCHEMA = "kodi-lab-host-installation-v1"
 SITE_SCHEMA = "kodi-lab-successor-site-v1"
@@ -589,6 +591,78 @@ def services(data: dict[str, Any]) -> list[str]:
     ]
 
 
+class RepositoryNoRedirect(HTTPRedirectHandler):
+    def redirect_request(
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> None:
+        return None
+
+
+def probe_repository(base_url: str, manifests: dict[str, Any]) -> None:
+    """Match public downloads to locally verified provenance, with normal TLS trust."""
+    opener = build_opener(ProxyHandler({}), RepositoryNoRedirect())
+
+    def check(path: str, expected: str, limit: int = 32 * 1024**2) -> None:
+        digest = hashlib.sha256()
+        size = 0
+        deadline = time.monotonic() + 10
+        with opener.open(base_url + path, timeout=5) as response:
+            if response.status != 200:
+                raise ValueError("unexpected repository response")
+            while chunk := response.read1(65536):
+                size += len(chunk)
+                if size > limit or time.monotonic() > deadline:
+                    raise ValueError("repository response exceeds verification limit")
+                digest.update(chunk)
+        if digest.hexdigest() != expected:
+            raise ValueError("repository content differs from verified installation")
+
+    try:
+        for feed in ("stable", "development"):
+            manifest = manifests[feed]
+            if manifest["base_url"] != base_url:
+                raise ValueError("repository origin differs from verified installation")
+            index_hash = manifest["addons_xml_sha256"]
+            check(f"/{feed}/addons.xml", index_hash, 4 * 1024**2)
+            check(
+                f"/{feed}/addons.xml.sha256",
+                hashlib.sha256((index_hash + "\n").encode()).hexdigest(),
+                128,
+            )
+            repository_id = manifest["repository_id"]
+            version = manifest["repository_version"]
+            check(
+                f"/install/{repository_id}-{version}.zip",
+                manifest["bootstrap_zip_sha256"],
+            )
+            packages = [
+                *manifest["packages"],
+                {
+                    "id": repository_id,
+                    "version": version,
+                    "sha256": manifest["bootstrap_zip_sha256"],
+                },
+            ]
+            for package in {
+                (item["id"], item["version"]): item for item in packages
+            }.values():
+                path = (
+                    f"/{feed}/zips/{package['id']}/"
+                    f"{package['id']}-{package['version']}.zip"
+                )
+                check(path, package["sha256"])
+                check(
+                    path + ".sha256",
+                    hashlib.sha256((package["sha256"] + "\n").encode()).hexdigest(),
+                    128,
+                )
+    except (OSError, ValueError) as error:
+        raise ValueError(
+            "Repository URL verification failed. Check proxy forwarding, DNS, "
+            "certificate trust and hostname; HTTPS never falls back to HTTP."
+        ) from error
+
+
 def probe(web_port: int) -> None:
     origin = f"http://127.0.0.1:{web_port}"
     opener = build_opener(ProxyHandler({}))
@@ -1032,6 +1106,24 @@ def install(args: argparse.Namespace) -> None:
         save(root, data, "services_started")
         check_ingress_network(root, data)
         probe(args.web_port)
+        if urlsplit(repository_url).scheme == "https":
+            manifests = json.loads(
+                run(
+                    [
+                        *command,
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "--entrypoint",
+                        "kodi-lab-repository",
+                        "repository",
+                        "verify",
+                    ],
+                    root,
+                    capture=True,
+                )
+            )
+            probe_repository(repository_url, manifests)
         save(root, data, "ready")
     except (Exception, KeyboardInterrupt):
         print(
@@ -1177,7 +1269,10 @@ def main() -> int:
     parser.add_argument("--directory")
     parser.add_argument("--revision", default="main")
     parser.add_argument("--repository-bind")
-    parser.add_argument("--repository-base-url")
+    parser.add_argument(
+        "--repository-base-url",
+        help="repository origin: private LAN HTTP by default, optional HTTPS proxy",
+    )
     parser.add_argument("--repository-port", type=int, default=18120)
     parser.add_argument("--repository-local-port", type=int, default=18121)
     parser.add_argument("--web-port", type=int, default=18100)

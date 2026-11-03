@@ -191,6 +191,8 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         address = ipaddress.ip_address(bind)
         parsed = urlsplit(base_url)
         parsed_port = parsed.port
+        if parsed_port is None and parsed.scheme == "https":
+            parsed_port = 443
     except ValueError as error:
         raise ValueError("invalid repository bind address or base URL") from error
     if (
@@ -199,6 +201,7 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         or not 1 <= port <= 65535
         or parsed.scheme not in {"http", "https"}
         or not parsed.hostname
+        or parsed.netloc.endswith(":")
         or parsed.hostname in {"localhost", "127.0.0.1"}
         or parsed.username is not None
         or parsed.password is not None
@@ -208,6 +211,7 @@ def validate_repository_config(bind: str, port: int, base_url: str) -> None:
         or not parsed_port
         or any(ord(char) < 33 or ord(char) > 126 for char in base_url)
         or any(char in base_url for char in "'$#\\")
+        or not re.fullmatch(r"[a-zA-Z0-9.\-:\[\]]+", parsed.netloc)
     ):
         raise ValueError(
             "repository requires private bind and credential-free origin URL"
