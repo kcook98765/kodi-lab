@@ -36,8 +36,10 @@ a selected, bound profile has no viewing controls and links back to Current Kodi
 A changed environment retires the old panel and requires a page reload and fresh
 explicit viewing. Admission and control handoff recheck the rendered session and
 profile, so an old page cannot attach a fresh profile on the same registration.
-Other recipes and older profiles gain no standard noVNC qualification. Existing
-HTTPS, authentication, CSRF, grants and viewer-cleanup requirements remain in force.
+Other recipes and older profiles gain no standard noVNC qualification. Viewing
+follows the selected [Web access mode](WEB-NETWORKING.md): fresh local HTTP uses
+WS, while HTTPS mode requires trusted HTTPS/WSS. Authentication, CSRF, grants,
+input ownership and viewer-cleanup requirements remain in force.
 Screenshots, JPEG preview and browser remote remain in Advanced.
 
 Native readiness, stored development prerequisites and a particular agent's
