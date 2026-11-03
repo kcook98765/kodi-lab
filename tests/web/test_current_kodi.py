@@ -753,7 +753,7 @@ def test_sealed_r4_current_page_admission_handoff_deadline_and_stop_compose(
 
 
 @pytest.mark.parametrize("phase", [None, "reserved", "bound", "other"])
-def test_expanded_page_without_rendered_bound_selection_cannot_follow_future_profile(
+def test_expanded_page_preserves_selected_fences_and_adds_standalone_context(
     viewer_client: TestClient,
     database: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
@@ -776,24 +776,24 @@ def test_expanded_page_without_rendered_bound_selection_cannot_follow_future_pro
     if phase == "bound":
         assert 'data-view-generation="1"' in page
         assert 'data-view-container="' + CONTAINER_ID in page
-    else:
+    elif phase == "reserved":
         assert "data-novnc-viewer" not in page
         assert "novnc-phase1.js" not in page
         assert "Reload this page" in page
         # Selecting/preparing later cannot add admission code to this old HTML.
-        if phase is None:
-            selected(client, database, monkeypatch)
-        else:
-            with database.begin() as db:
-                row = db.get(DevelopmentSessionRow, 1)
-                assert row is not None
-                row.target_id = str(INSTANCE_ID)
-                row.phase, row.container_id = "bound", CONTAINER_ID
+        with database.begin() as db:
+            row = db.get(DevelopmentSessionRow, 1)
+            assert row is not None
+            row.phase, row.container_id = "bound", CONTAINER_ID
         assert "data-novnc-viewer" not in page
         assert (
             'data-view-generation="1"'
             in client.get(f"/instances/{INSTANCE_ID}/novnc-phase1").text
         )
+    else:
+        assert "data-view-binding" in page
+        assert 'data-view-generation=""' in page
+        assert "data-view-workspace" not in page
 
 
 @pytest.mark.parametrize("path", ["/kodi", "/runtimes", f"/instances/{INSTANCE_ID}"])

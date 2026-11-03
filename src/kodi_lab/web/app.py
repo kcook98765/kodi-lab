@@ -627,7 +627,7 @@ from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
 )
-from kodi_lab.web.novnc import PrototypeViewer
+from kodi_lab.web.novnc import PrototypeViewer, binding_fingerprint
 from kodi_lab.web.novnc import install_routes as install_novnc_routes
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
@@ -7468,6 +7468,17 @@ def create_app(
         selected = view.current is not None and view.current.target_id == instance
         with session_factory() as db:
             target = TargetRepository(db).get(instance)
+        standalone: dict[str, Any] = {}
+        if not selected and novnc_viewer is not None:
+            try:
+                binding = novnc_viewer.page_binding(instance)
+            except (ValueError, OSError, KeyError):
+                standalone = {"viewer_can_start": False}
+            else:
+                standalone = {
+                    "viewer_can_start": True,
+                    "viewer_binding": binding_fingerprint(instance, binding),
+                }
         return {
             "viewer_name": friendly_kodi_name(
                 None if target is None else target.kodi_version
@@ -7488,9 +7499,11 @@ def create_app(
             )
             if selected
             else (
-                "Not the currently selected Kodi. This viewer manages this exact "
-                "registration. Open Current Kodi to see the selected environment."
+                "Viewing this managed Kodi. Viewing starts explicitly "
+                "and stays bound to this exact instance."
             ),
+            "viewer_standalone": not selected,
+            **standalone,
         }
 
     if novnc_viewer is not None:

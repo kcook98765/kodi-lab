@@ -28,7 +28,7 @@ const viewerClock = Number(main.dataset.viewerClockMs);
 const viewerClockStarted = performance.now();
 function viewAttempt() {
     const stamp = Math.floor(viewerClock + performance.now() - viewerClockStarted);
-    if (!Number.isSafeInteger(stamp) || viewerClock <= 0 || stamp >= 2 ** 48) throw new Error('Reload Current Kodi');
+    if (!Number.isSafeInteger(stamp) || viewerClock <= 0 || stamp >= 2 ** 48) throw new Error('Reload this page');
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     let remaining = stamp;
     for (let i = 5; i >= 0; i--) { bytes[i] = remaining % 256; remaining = Math.floor(remaining / 256); }
@@ -115,7 +115,7 @@ start.onclick = async () => {
     if (start.disabled || identityRetired || !permitted) return;
     let current;
     try { current = viewAttempt(); }
-    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
+    catch (_) { status.textContent = 'Reload this page before starting or changing viewing.'; return; }
     attempt = current;
     buttons();
     status.textContent = 'Connecting';
@@ -127,12 +127,14 @@ start.onclick = async () => {
             runtime_revision_id:main.dataset.viewRuntime,container_id:main.dataset.viewContainer,
             workspace_id:main.dataset.viewWorkspace,source_id:main.dataset.viewSource,
         } : null;
-        const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {})});
+        const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {}), ...(main.dataset.viewBinding ? {expected_binding:main.dataset.viewBinding} : {})});
         connect(current, result);
     } catch (_) {
         if (attempt === current) {
             const ended = await end(current);
-            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Viewer unavailable. Open the instance for supported screenshot options.';
+            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = main.dataset.viewBinding
+                ? 'Screen unavailable or changed. Review this Kodi’s status, then reload this page before starting viewing.'
+                : 'Viewer unavailable. Open the instance for supported screenshot options.';
         }
     }
 };
@@ -141,7 +143,7 @@ async function change(action) {
     const old = attempt;
     let current;
     try { current = viewAttempt(); }
-    catch (_) { status.textContent = 'Reload Current Kodi before starting or changing viewing.'; return; }
+    catch (_) { status.textContent = 'Reload this page before starting or changing viewing.'; return; }
     attempt = current;
     switching = true;
     buttons();
@@ -198,6 +200,7 @@ element('#expand').onclick = async () => {
 };
 document.addEventListener('visibilitychange', () => { if (document.hidden) end(); });
 window.addEventListener('pagehide', () => end());
+if (main.dataset.viewBinding) window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 buttons();
 
 function currentStatus(detail) {

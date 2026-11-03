@@ -81,6 +81,23 @@ class StartView(BaseModel):
     attempt: UUID
     rate: Literal[2] = 2
     expected_selection: ExpectedSelection | None = None
+    expected_binding: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+def binding_fingerprint(instance: UUID, binding: ViewBinding) -> str:
+    """Restrict a rendered page to server-resolved identity; confer no authority."""
+    return hashlib.sha256(
+        json.dumps(
+            (
+                str(instance),
+                binding.container,
+                binding.image,
+                binding.started,
+                binding.identity,
+            ),
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
 
 class StopView(BaseModel):
@@ -281,6 +298,15 @@ class PrototypeViewer:
             binding
         ):
             raise ValueError("view selection changed")
+        if body.expected_binding is not None:
+            if not secrets.compare_digest(
+                body.expected_binding, binding_fingerprint(instance, binding)
+            ):
+                raise ValueError("view runtime changed")
+        elif len(binding.identity) == 3 and binding.identity[2] is None:
+            # Standalone admission must carry the original rendered incarnation.
+            # Selected development viewers retain their existing selection fence.
+            raise ValueError("view runtime context required")
         with self.lock:
             self._expire()
             if self.closed:
@@ -419,6 +445,7 @@ class PrototypeViewer:
                     StartView(
                         attempt=body.next_attempt,
                         expected_selection=ExpectedSelection.from_binding(item.binding),
+                        expected_binding=binding_fingerprint(instance, item.binding),
                     ),
                     mode=mode,
                     deadline=deadline,
@@ -436,6 +463,15 @@ class PrototypeViewer:
                 raise ValueError("interactive ownership unavailable")
             self.ownership.require_control_available(instance)
         return self.authority(instance)
+
+    def page_binding(self, instance: UUID) -> ViewBinding:
+        """Inspect availability within the existing read capacity; admit no worker."""
+        if not self.checks.acquire(blocking=False):
+            raise ValueError("view check capacity reached")
+        try:
+            return self.binding(instance, "view-only")
+        finally:
+            self.checks.release()
 
     def revoke_instance(self, instance: UUID) -> None:
         self.registry.cancel(instance)

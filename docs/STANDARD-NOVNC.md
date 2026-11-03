@@ -1,7 +1,10 @@
 # Standard managed Kodi viewing
 
-Current Kodi offers **Start Viewing** for an exact installed, validated display
-runtime. No experimental UUID or Web/broker flag is needed. Fresh installations
+Managed instance details offer **Open screen**, then **Start Viewing**, without
+selecting Current Kodi or creating an add-on workspace. Current Kodi also offers
+**Start Viewing** for its exact selected development environment. Both paths
+require an installed, validated display runtime. No experimental UUID or
+Web/broker flag is needed. Fresh installations
 select these reviewed recipes:
 
 | Kodi | Recipe | Revision |
@@ -15,10 +18,26 @@ Piers remains Preview and requires exact prerelease consent. Version names,
 package presence and screenshots alone never confer viewer eligibility. Admission
 checks the exact packaged recipe and helper/package integrity, sealed installation
 and native display validation, current image/container incarnation, selected
-session identity and existing ownership/reconciliation fences. Unknown, altered,
+session identity when applicable and existing ownership/reconciliation fences. Unknown, altered,
 unvalidated and older images do not inherit standard viewing.
 
 ## Normal workflow
+
+For a running managed Kodi, open its exact instance details, click **Open
+screen**, then **Start Viewing**. Opening the page inspects availability; it does
+not prepare, start, stop or select Kodi. The page is fenced to the exact
+server-resolved runtime, image, container, start incarnation and catalog identity.
+A changed or unavailable runtime requires reviewing that instance's status and
+reloading the viewer page. Stopped Kodi can be started separately through its
+existing lifecycle controls. Viewing never changes the selected development
+environment.
+
+If this exact Kodi is already selected for development but its environment is
+not fully bound, viewing is deliberately denied, including standalone admission.
+Review or complete that selection in Current Kodi, then reload the viewer. A
+missing or inconsistent workspace/source/container binding cannot be bypassed
+by opening the exact-instance page. Viewing without a development selection,
+or while a different Kodi is selected, remains supported.
 
 Choose and prepare a fresh Kodi in Current Kodi, start it, then click Start
 Viewing. noVNC loads only on that request. The initial session is view-only;
