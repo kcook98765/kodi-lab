@@ -7,6 +7,9 @@ are the bounded exceptions to the terminal Needs attention behavior below.
 Milestone 2B adds [exact registration and provision hooks](CREATE-KODI-REGISTRATION-PROVISIONING.md),
 including explicit confirmation of an uncertain local registration goal. It adds
 no general retry, provision recovery, Start or readiness integration.
+Milestone 2C adds [exact Start integration](CREATE-KODI-START.md) through existing
+ordinary lifecycle authority; final readiness, Create API and orchestration remain
+separate work.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,

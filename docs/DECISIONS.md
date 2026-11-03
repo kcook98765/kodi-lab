@@ -7562,3 +7562,15 @@ together, retaining the precise post-release projection revision. Uncertainty
 never authorizes another child or container adoption. No schema, broker authority,
 Start/readiness, API, wizard or generic workflow changes are added. See
 [the contract](CREATE-KODI-REGISTRATION-PROVISIONING.md).
+
+## Exact Create managed Start (issue #196, milestone 2C)
+
+Create validates the retained post-provision projection and exact binding inside
+the existing ordinary Start claim. Parent dispatch, typed child, one-use authority
+and lease commit together. A verified broker reply is captured under ownership;
+parent and child success share terminal commit. Proof never enters the parent,
+and uncertainty never permits another Start or UUID. Retained mode or an existing
+legacy broker limit of one supplies atomic one-active admission. Start confirmation
+remains separate from final native readiness, viewing and optional Bridge/agent
+capability. No migration, broker authority/protocol, API, wizard or runner is added.
+See [the contract](CREATE-KODI-START.md).

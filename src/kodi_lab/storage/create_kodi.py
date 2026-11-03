@@ -25,8 +25,10 @@ from kodi_lab.domain.create_kodi import (
 )
 from kodi_lab.storage.models import CreateKodiOperationRow as Row
 from kodi_lab.storage.models import (
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    ManagedStartAuthorizationRow,
     RuntimeRecipeInstallationRow,
 )
 
@@ -117,6 +119,53 @@ class CreateKodiRepository:
                 and lease.operation_id == row.provision_operation_id
                 and lease.lease_token_digest == token_digest
             )
+
+    def owns_start_claim(self, operation_id: UUID, token_digest: str) -> bool:
+        with self._sessions() as session:
+            row = session.get(Row, str(operation_id))
+            lease = (
+                session.get(ManagedInstanceMutationLeaseRow, row.target_id)
+                if row
+                else None
+            )
+            return bool(
+                row
+                and lease
+                and row.stage == CreateStage.STARTUP
+                and lease.operation_id == row.start_operation_id
+                and lease.lease_token_digest == token_digest
+            )
+
+    def has_start_evidence(self, operation_id: UUID) -> bool:
+        with self._sessions() as session:
+            row = session.get(Row, str(operation_id))
+            child_id = row.start_operation_id if row else None
+            return bool(
+                child_id
+                and (
+                    session.get(ManagedInstanceLifecycleOperationRow, child_id)
+                    is not None
+                    or session.get(ManagedStartAuthorizationRow, child_id) is not None
+                )
+            )
+
+    def prepare_startup(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        verify: Callable[[Session, CreateOperation], None],
+    ) -> CreateOperation:
+        """Explicitly advance a verified confirmed provision, without execution."""
+        with self._change(operation_id, version, CreateCheckpoint.CONFIRMED) as row:
+            if row.stage != CreateStage.PROVISIONING:
+                raise CreateTransitionError("provision_not_confirmed")
+            session = object_session(row)
+            assert session is not None
+            verify(session, _snapshot(row))
+            row.stage, row.checkpoint = CreateStage.STARTUP, CreateCheckpoint.ACCEPTED
+            row.outcome, row.dispatched_at = None, None
+            return _snapshot(row)
 
     def accept(
         self,
