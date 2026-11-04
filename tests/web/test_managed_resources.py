@@ -21,7 +21,7 @@ def test_resource_policy_enrollment_and_hold_require_web_csrf(
     csrf = login(client)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     before = client.get("/api/managed-resources").json()
-    assert before["policy"] == {"max_running": 4, "idle_minutes": 60}
+    assert before["policy"] == {"max_running": 1, "idle_minutes": 60}
     assert before["instances"][0]["status"]["enrolled"] is False
     policy = {"max_running": 2, "idle_minutes": 10}
     assert client.post("/api/managed-resources/policy", json=policy).status_code == 403

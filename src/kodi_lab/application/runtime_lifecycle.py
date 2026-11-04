@@ -262,6 +262,13 @@ class ManagedRuntimeLifecycleService:
         operation_id: UUID | None = None,
         expected: ManagedStartBinding | None = None,
         precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        on_result: Callable[
+            [Session, RunningLifecycleOperation, StartManagedContainerResult], None
+        ]
+        | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         """Ordinary Web Start. Mint one proof under the existing lifecycle claim."""
         self._require_no_reset(instance_id)
@@ -313,11 +320,18 @@ class ManagedRuntimeLifecycleService:
             )
             session.flush()
 
-        def dispatch(target: UUID, profile: RuntimeExecutionProfile) -> None:
+            if on_claim is not None:
+                # Ordinary authority is already issued. The existing coordinator
+                # reserves/claims its matching lease before this transaction commits.
+                on_claim(session, handle)
+
+        def dispatch(
+            target: UUID, profile: RuntimeExecutionProfile
+        ) -> StartManagedContainerResult:
             value = binding[0]
             if str(profile.runtime_revision_id) != value.revision_id:
                 raise LifecycleConflictError("The runtime pin changed before Start.")
-            self._dispatch_start(
+            return self._dispatch_start(
                 lambda: cast(_ManagedStartBroker, self._broker).start_managed_container(
                     managed_instance_id=str(target),
                     expected_container_id=value.container_id,
@@ -335,6 +349,8 @@ class ManagedRuntimeLifecycleService:
                 precondition=admission,
                 on_claim=claimed,
                 ordinary_start=True,
+                on_start_result=on_result,
+                on_terminal=on_terminal,
             )
         except _ManagedAlreadyRunning:
             return self._status.get(instance_id)
@@ -385,9 +401,9 @@ class ManagedRuntimeLifecycleService:
 
     def _dispatch_start(
         self, dispatch: Callable[[], StartManagedContainerResult]
-    ) -> None:
+    ) -> StartManagedContainerResult:
         try:
-            dispatch()
+            return dispatch()
         except (ClientTransportError, ClientProtocolError) as error:
             raise LifecycleDispatchUnconfirmedError from error
         except RemoteBrokerError as error:
@@ -611,7 +627,8 @@ class ManagedRuntimeLifecycleService:
         instance_id: UUID,
         kind: ManagedInstanceLifecycleKind,
         action: Callable[
-            [UUID, RuntimeExecutionProfile], ProvisionManagedContainerResult | None
+            [UUID, RuntimeExecutionProfile],
+            ProvisionManagedContainerResult | StartManagedContainerResult | None,
         ],
         *,
         operation_id: UUID | None = None,
@@ -623,6 +640,10 @@ class ManagedRuntimeLifecycleService:
         ordinary_start: bool = False,
         on_provision_result: Callable[
             [Session, RunningLifecycleOperation, ProvisionManagedContainerResult], None
+        ]
+        | None = None,
+        on_start_result: Callable[
+            [Session, RunningLifecycleOperation, StartManagedContainerResult], None
         ]
         | None = None,
     ) -> ManagedRuntimeStatus:
@@ -691,6 +712,19 @@ class ManagedRuntimeLifecycleService:
 
                         session.execute(text("BEGIN IMMEDIATE"))
                         on_provision_result(session, handle, action_result)
+                except Exception as error:
+                    raise LifecycleDispatchUnconfirmedError from error
+            if on_start_result is not None:
+                if not ordinary_start or not isinstance(
+                    action_result, StartManagedContainerResult
+                ):
+                    raise LifecycleDispatchUnconfirmedError
+                try:
+                    with self._session_factory.begin() as session:
+                        from sqlalchemy import text
+
+                        session.execute(text("BEGIN IMMEDIATE"))
+                        on_start_result(session, handle, action_result)
                 except Exception as error:
                     raise LifecycleDispatchUnconfirmedError from error
             result = self._status.get(instance_id)

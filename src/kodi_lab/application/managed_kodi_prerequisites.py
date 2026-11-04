@@ -123,6 +123,21 @@ class ManagedKodiPrerequisiteService:
             capacity = self._resources.capacity()
             checks.append(
                 check(
+                    "running_policy",
+                    "One Kodi at a time",
+                    "passed" if capacity.limit == 1 else "attention",
+                    "The effective running limit is one Kodi."
+                    if capacity.limit == 1
+                    else "Create Kodi requires a running limit of 1. "
+                    f"Your current limit is {capacity.limit}; it has not been changed. "
+                    "Open Managed Kodi resource policy, set Maximum running "
+                    "managed Kodi to 1, save, then Check again. "
+                    "This does not stop an existing Kodi.",
+                    "/managed-resources" if capacity.limit != 1 else None,
+                )
+            )
+            checks.append(
+                check(
                     "capacity",
                     "Running Kodi capacity",
                     "passed" if capacity.available else "attention",
@@ -137,6 +152,14 @@ class ManagedKodiPrerequisiteService:
                 )
             )
         except Exception:
+            checks.append(
+                check(
+                    "running_policy",
+                    "One Kodi at a time",
+                    "unknown",
+                    "The running limit could not be verified. Check again.",
+                )
+            )
             checks.append(
                 check(
                     "capacity",

@@ -160,9 +160,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             previous_umask = os.umask(0o077)
             try:
                 initialize_state(data_root)
-                current, head = migrate_database(
-                    data_root / "database" / "kodi-lab.db", settings.database_url
-                )
+                with lifecycle_lock(data_root):
+                    current, head = migrate_database(
+                        data_root / "database" / "kodi-lab.db", settings.database_url
+                    )
             finally:
                 os.umask(previous_umask)
             print(f"Kodi Lab database revision: current={current} head={head}")

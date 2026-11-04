@@ -15,6 +15,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 
 from kodi_lab.storage.engine import create_database_engine
+from kodi_lab.storage.managed_activity import ManagedResourcePolicyValue
 
 
 @contextmanager
@@ -33,8 +34,14 @@ def packaged_config(database_url: str) -> Iterator[Config]:
 
 
 def migrate_database(database_path: Path, database_url: str) -> tuple[str, str]:
-    """Upgrade a new or versioned database; return installed current/head IDs."""
+    """Initialize/upgrade under the caller's exclusive host lifecycle lock.
 
+    Historical migrations keep their original defaults. Only a database with
+    no tables at entry receives today's first-install policy, before startup.
+    An interrupted initialization is not mistaken for a fresh database later.
+    """
+
+    new_database = True
     if database_path.exists() or database_path.is_symlink():
         metadata = database_path.lstat()
         if not stat.S_ISREG(metadata.st_mode):
@@ -47,6 +54,7 @@ def migrate_database(database_path: Path, database_url: str) -> tuple[str, str]:
                     "AND name NOT LIKE 'sqlite_%'"
                 )
             }
+            new_database = not tables
             if tables and "alembic_version" not in tables:
                 raise RuntimeError("existing database has no Alembic revision")
             if (
@@ -68,4 +76,12 @@ def migrate_database(database_path: Path, database_url: str) -> tuple[str, str]:
         engine.dispose()
     if current != head:
         raise RuntimeError("migration did not reach the installed head")
+    if new_database:
+        # No administrator policy existed at entry. Versioned databases,
+        # including partial/failed initializations, never enter this branch.
+        with sqlite3.connect(database_path) as db:
+            db.execute(
+                "UPDATE managed_resource_policy SET max_running=? WHERE id=1",
+                (ManagedResourcePolicyValue().max_running,),
+            )
     return current, head
