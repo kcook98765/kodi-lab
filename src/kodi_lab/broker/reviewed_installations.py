@@ -9,7 +9,7 @@ import re
 import socket
 import stat
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from urllib.parse import quote
 from uuid import UUID
@@ -101,28 +101,6 @@ def _desktop_bind_sources(
         or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", distro) is None
     ):
         return None
-    expected = {
-        DOCKER_SOCKET: ("bind", DOCKER_SOCKET, True),
-        HOST_ROUTE_DESTINATION: ("bind", HOST_ROUTE_SOURCE, False),
-        STATE_DESTINATION: ("volume", state_volume, True),
-        LOCK_DESTINATION: ("volume", lock_volume, True),
-    }
-    mounts = own["Mounts"]
-    for destination, (kind, source, writable) in expected.items():
-        matches = [
-            m
-            for m in mounts
-            if isinstance(m, dict) and m.get("Destination") == destination
-        ]
-        if len(matches) != 1:
-            return None
-        mount = matches[0]
-        if (
-            mount.get("Type") != kind
-            or mount.get("Name" if kind == "volume" else "Source") != source
-            or mount.get("RW") is not writable
-        ):
-            return None
     try:
         info = client.info()
     except DockerException:
@@ -136,10 +114,16 @@ def _desktop_bind_sources(
     ):
         return None
     root = f"/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/{distro}"
-    return _DesktopBindSources(
+    desktop = _DesktopBindSources(
         socket=f"{root}/docker.sock",
         route=f"{root}/{hashlib.sha256(HOST_ROUTE_SOURCE.encode('utf-8')).hexdigest()}",
     )
+    host = own.get("HostConfig")
+    if not isinstance(host, dict) or not _installation_mounts_match(
+        own.get("Mounts"), host, state_volume, lock_volume, desktop, broker=True
+    ):
+        return None
+    return desktop
 
 
 def _source_matches(
@@ -156,27 +140,91 @@ def _source_matches(
     return False
 
 
-def _worker_mounts_match(
+def _installation_mounts_match(
     mounts: object,
     host: dict[str, Any],
     state_volume: str,
     lock_volume: str,
     desktop: _DesktopBindSources | None,
+    *,
+    broker: bool = False,
 ) -> bool:
-    """Require four unique roles and agreement of requested/resolved metadata."""
+    """Match installation roles in both requested and resolved Docker metadata."""
     expected = {
         STATE_DESTINATION: ("volume", state_volume, True),
         LOCK_DESTINATION: ("volume", lock_volume, True),
         DOCKER_SOCKET: ("bind", DOCKER_SOCKET, True),
         HOST_ROUTE_DESTINATION: ("bind", HOST_ROUTE_SOURCE, False),
     }
+    # The base native-Linux Compose broker predates the route mount. It may
+    # omit that role when no aliases are admitted; workers still require it.
+    if (
+        broker
+        and desktop is None
+        and isinstance(mounts, list)
+        and not any(
+            isinstance(m, dict) and m.get("Destination") == HOST_ROUTE_DESTINATION
+            for m in mounts
+        )
+    ):
+        del expected[HOST_ROUTE_DESTINATION]
+    # The supported development overlay adds one read-only broker bind. Its
+    # host-selected source is never passed to a worker or used as alias authority.
+    development = "/mnt/kodi-lab-development"
+    if broker and isinstance(mounts, list):
+        extras = [
+            m
+            for m in mounts
+            if isinstance(m, dict) and m.get("Destination") == development
+        ]
+        if extras:
+            source = extras[0].get("Source")
+            if (
+                len(extras) != 1
+                or not isinstance(source, str)
+                or not source.startswith("/")
+                or source == "/"
+                or str(PurePosixPath(source)) != source
+                or ".." in PurePosixPath(source).parts
+                or "\0" in source
+                or ":" in source
+            ):
+                return False
+            expected[development] = ("bind", source, False)
     binds = host.get("Binds")
+    structured = host.get("Mounts")
+    if broker and structured:
+        # Compose's long-form development bind is the only supported structured
+        # descriptor. Installation roles keep the exact existing Binds contract.
+        if (
+            not isinstance(structured, list)
+            or len(structured) != 1
+            or not isinstance(structured[0], dict)
+            or development not in expected
+            or not isinstance(binds, list)
+        ):
+            return False
+        item = structured[0]
+        source = expected[development][1]
+        if (
+            set(item)
+            - {"Type", "Source", "Target", "ReadOnly", "BindOptions", "Consistency"}
+            or item.get("Type") != "bind"
+            or item.get("Source") != source
+            or item.get("Target") != development
+            or item.get("ReadOnly") is not True
+            or item.get("Consistency") not in (None, "")
+            or item.get("BindOptions") not in (None, {}, {"CreateMountpoint": False})
+        ):
+            return False
+        binds = [*binds, f"{source}:{development}:ro"]
+        structured = None
     if (
         not isinstance(mounts, list)
         or len(mounts) != len(expected)
         or not isinstance(binds, list)
         or len(binds) != len(expected)
-        or host.get("Mounts") not in (None, [])
+        or structured not in (None, [])
         or host.get("VolumesFrom") not in (None, [])
     ):
         return False
@@ -242,48 +290,39 @@ class DockerReviewedInstallationWorker:
         client: Any,
     ) -> tuple[str, str, str, _DesktopBindSources | None]:
         own = client.api.inspect_container(socket.gethostname())
+        if not isinstance(own, dict):
+            raise ReviewedWorkerError("broker inspection is unavailable")
         config = own.get("Config")
         image_id = own.get("Image")
         if (
             not isinstance(config, dict)
             or config.get("Entrypoint") != ["kodi-lab-broker"]
             or not isinstance(image_id, str)
-            or len(image_id) != 71
-            or not image_id.startswith("sha256:")
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None
         ):
             raise ReviewedWorkerError("installed broker image identity is invalid")
         image = client.api.inspect_image(image_id)
         if (
-            image.get("Id") != image_id
+            not isinstance(image, dict)
+            or image.get("Id") != image_id
             or image.get("Os") != "linux"
             or image.get("Architecture") != "amd64"
         ):
             raise ReviewedWorkerError("installed worker image is unavailable")
         mounts = own.get("Mounts")
-        if (
-            not isinstance(mounts, list)
-            or not all(isinstance(item, dict) for item in mounts)
-            or len(
-                [item for item in mounts if item.get("Destination") == DOCKER_SOCKET]
-            )
-            != 1
-            or not any(
-                item.get("Destination") == DOCKER_SOCKET
-                and item.get("Type") == "bind"
-                and item.get("Source") == DOCKER_SOCKET
-                and item.get("RW") is True
-                for item in mounts
-            )
-        ):
-            raise ReviewedWorkerError("broker Docker socket mount is unavailable")
         state_volume = _volume(mounts, STATE_DESTINATION)
         lock_volume = _volume(mounts, LOCK_DESTINATION)
-        return (
-            image_id,
-            state_volume,
-            lock_volume,
-            _desktop_bind_sources(client, own, state_volume, lock_volume),
-        )
+        if state_volume == lock_volume:
+            raise ReviewedWorkerError("broker state and lock volumes are not distinct")
+        desktop = _desktop_bind_sources(client, own, state_volume, lock_volume)
+        host = own.get("HostConfig")
+        if not isinstance(host, dict) or not _installation_mounts_match(
+            mounts, host, state_volume, lock_volume, desktop, broker=True
+        ):
+            raise ReviewedWorkerError(
+                "broker Docker socket or installation mounts are unavailable"
+            )
+        return image_id, state_volume, lock_volume, desktop
 
     def lock_held(self) -> bool:
         path = self._runtime_root / "recipe-install.lock"
@@ -351,7 +390,9 @@ class DockerReviewedInstallationWorker:
             and host.get("AutoRemove") is False
             and host.get("SecurityOpt") == ["no-new-privileges:true"]
             and config.get("User") == "0:0"
-            and _worker_mounts_match(mounts, host, state_volume, lock_volume, desktop)
+            and _installation_mounts_match(
+                mounts, host, state_volume, lock_volume, desktop
+            )
         )
 
     def _active(self, client: Any) -> tuple[UUID, str] | None:

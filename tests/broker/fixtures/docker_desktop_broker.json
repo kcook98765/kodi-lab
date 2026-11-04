@@ -1,0 +1,110 @@
+{
+  "broker": {
+    "Id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "Name": "/kodi-lab-fixture-broker-1",
+    "Image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Mounts": [
+      {
+        "Type": "volume",
+        "Name": "kodi-lab-fixture_broker_socket",
+        "Source": "/var/lib/docker/volumes/kodi-lab-fixture_broker_socket/_data",
+        "Destination": "/run/kodi-lab",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      },
+      {
+        "Type": "bind",
+        "Source": "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/6d2a43bd27d2d28602da880e9832c42fb02f7f5e404136f74c7b34b9c3da7b4f",
+        "Destination": "/tmp/kodi-lab-host-ipv4-route",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "volume",
+        "Name": "kodi-lab-fixture_remote_state",
+        "Source": "/var/lib/docker/volumes/kodi-lab-fixture_remote_state/_data",
+        "Destination": "/var/lib/kodi-lab",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      },
+      {
+        "Type": "bind",
+        "Source": "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/docker.sock",
+        "Destination": "/var/run/docker.sock",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      }
+    ],
+    "Config": {
+      "Entrypoint": [
+        "kodi-lab-broker"
+      ],
+      "Labels": {
+        "com.docker.compose.config-hash": "ea48e5dcc1549e9137fdc025b641bad4d5f4bcee57b3dfa25578b0409a450ea7",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "",
+        "com.docker.compose.image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "kodi-lab-fixture",
+        "com.docker.compose.project.config_files": "/home/kcook/kodi-lab-install/bundle/compose.release.yaml,/home/kcook/kodi-lab-install/compose.windows.yaml,/home/kcook/kodi-lab-install/bundle/compose.lab.yaml",
+        "com.docker.compose.project.environment_file": "/home/kcook/kodi-lab-install/bundle/.env",
+        "com.docker.compose.project.working_dir": "/home/kcook/kodi-lab-install/bundle",
+        "com.docker.compose.service": "broker",
+        "com.docker.compose.version": "5.5.1",
+        "desktop.docker.io/wsl-distro": "Ubuntu-24.04",
+        "io.kodi-lab.migration-head": "0092_create_kodi_operations",
+        "io.kodi-lab.reviewed-ostree-worker": "v1",
+        "org.opencontainers.image.revision": "a4de915a2e95c705a21b2ef8617758f83469b5a8",
+        "org.opencontainers.image.version": "1.0.0rc1"
+      },
+      "Cmd": null,
+      "Image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "User": "0:0"
+    },
+    "HostConfig": {
+      "Binds": [
+        "kodi-lab-fixture_broker_socket:/run/kodi-lab:rw",
+        "kodi-lab-fixture_remote_state:/var/lib/kodi-lab:rw",
+        "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/docker.sock:/var/run/docker.sock:rw",
+        "/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/6d2a43bd27d2d28602da880e9832c42fb02f7f5e404136f74c7b34b9c3da7b4f:/tmp/kodi-lab-host-ipv4-route:ro"
+      ],
+      "Mounts": null,
+      "VolumesFrom": null,
+      "ReadonlyRootfs": true,
+      "Privileged": false,
+      "CapAdd": [
+        "CAP_CHOWN",
+        "CAP_DAC_OVERRIDE",
+        "CAP_FOWNER",
+        "CAP_KILL",
+        "CAP_SETGID",
+        "CAP_SETUID"
+      ],
+      "CapDrop": [
+        "ALL"
+      ],
+      "SecurityOpt": [
+        "no-new-privileges:true"
+      ],
+      "NetworkMode": "kodi-lab-fixture_default"
+    }
+  },
+  "image": {
+    "Id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Os": "linux",
+    "Architecture": "amd64"
+  },
+  "engine": {
+    "ID": "fixture-engine-id",
+    "OperatingSystem": "Docker Desktop (containerized)",
+    "OSType": "linux",
+    "Name": "docker-desktop",
+    "ServerVersion": "29.8.2"
+  }
+}

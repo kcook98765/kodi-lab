@@ -29,19 +29,23 @@ from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 from kodi_lab.web.app import create_app
 from tests.broker.test_reviewed_runtime_installation_operation import (
+    DISTRO,
     IMAGE,
     FakeContainer,
     FakeContainers,
     broker_attributes,
+    translated,
 )
 
 from .conftest import ORIGIN, PASSWORD, login
 
 
+@pytest.mark.parametrize("desktop", [False, True])
 def test_web_broker_controlled_worker_durable_status_and_reconciliation(
     tmp_path: Path,
     database: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
+    desktop: bool,
 ) -> None:
     runtime_root = tmp_path / "broker-socket"
     runtime_root.mkdir(mode=0o750)
@@ -61,6 +65,14 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
         containers=containers,
         close=lambda: None,
     )
+    if desktop:
+        own["Config"]["Labels"]["desktop.docker.io/wsl-distro"] = DISTRO
+        translated(own)
+        docker_client.info = lambda: {
+            "OperatingSystem": "Docker Desktop (containerized)",
+            "OSType": "linux",
+        }
+        containers.on_create = translated
     monkeypatch.setattr(
         "kodi_lab.broker.reviewed_installations.socket.gethostname",
         lambda: "broker-id",
