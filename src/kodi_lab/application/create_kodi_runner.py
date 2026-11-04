@@ -22,7 +22,7 @@ class CreateKodiRunner:
 
     Each call plans once, advances once, or calls ONE existing adapter method.
     Adapter-internal checkpoints/claims remain in their existing transactions.
-    No public endpoint or application-startup hook invokes this runner.
+    Only an explicit protected continuation invokes this runner; no startup hook.
     """
 
     def __init__(

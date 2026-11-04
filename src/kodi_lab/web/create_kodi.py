@@ -1,4 +1,4 @@
-"""Administrator Create intent/status only; no stage executor belongs here."""
+"""Protected Create intent, passive status and one explicit bounded continuation."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from kodi_lab.application.create_kodi import CreateKodiService
+from kodi_lab.application.create_kodi_runner import CreateKodiRunner
 from kodi_lab.application.managed_kodi_prerequisites import (
     ManagedKodiPrerequisiteService,
     StableGeneration,
@@ -30,6 +31,7 @@ from kodi_lab.domain.create_kodi import (
     CreateOperation,
     CreateOutcome,
     CreateStage,
+    CreateTransitionError,
 )
 from kodi_lab.runtime.recipes import (
     load_installation_recipe,
@@ -46,6 +48,9 @@ from kodi_lab.storage.models import (
 )
 
 BASE = "/api/create-kodi/operations"
+type NextAction = Literal[
+    "continue", "wait", "check_again", "needs_attention", "complete"
+]
 type AvailabilityState = Literal[
     "not_created",
     "unverified",
@@ -76,6 +81,11 @@ class CreateAvailability(BaseModel):
     details_url: str | None = None
 
 
+class CreateContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    version: int = Field(ge=0)
+
+
 class CreateStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     operation_id: UUID
@@ -90,6 +100,7 @@ class CreateStatus(BaseModel):
     message: str
     complete: bool
     status_url: str
+    next_action: NextAction
     instance: CreateAvailability
 
 
@@ -110,7 +121,7 @@ class CreateApiError(Exception):
 
 
 class CreateKodiAPI:
-    """Project the durable ledger without calling lifecycle/status convergence."""
+    """Keep passive presentation separate from explicit one-step execution."""
 
     def __init__(
         self,
@@ -118,9 +129,11 @@ class CreateKodiAPI:
         service: CreateKodiService,
         prerequisites: ManagedKodiPrerequisiteService,
         broker: _Inventory,
+        runner: CreateKodiRunner,
     ) -> None:
         self._sessions, self.service = sessions, service
         self._prerequisites, self._broker = prerequisites, broker
+        self._runner = runner
         # No broker, readiness registry or recovery executor is supplied.
         self._reconciliation = ManagedInstanceReconciliationService(sessions)
 
@@ -296,6 +309,44 @@ class CreateKodiAPI:
                 "Check requirements and review the selection again.",
             ) from error
 
+    def continue_operation(self, operation_id: UUID, version: int) -> CreateStatus:
+        try:
+            op = self.service.get(operation_id)
+            if op is None:
+                raise CreateApiError(
+                    404,
+                    "create_operation_not_found",
+                    "No saved Create request was found.",
+                )
+            if op.version != version:
+                raise CreateTransitionError("stale_version")
+            return self.present(
+                self._runner.continue_once(operation_id, version=version)
+            )
+        except CreateApiError:
+            raise
+        except CreateTransitionError as error:
+            stale = str(error) == "stale_version"
+            raise CreateApiError(
+                409,
+                "create_stale_version" if stale else "create_continuation_blocked",
+                "Setup changed. Read its saved status before continuing."
+                if stale
+                else "Setup cannot safely continue. Read its saved status and review "
+                "the existing Kodi operation before taking further action.",
+                operation_id,
+            ) from error
+        except Exception as error:
+            # A response failure does not prove dispatch failed. Never retry here
+            # or expose underlying broker/lease/transport exception text.
+            raise CreateApiError(
+                503,
+                "create_continuation_unavailable",
+                "The setup response is unavailable. Read its saved status before "
+                "continuing; do not repeat earlier work.",
+                operation_id,
+            ) from error
+
     def _availability(self, op: CreateOperation) -> CreateAvailability:
         def value(
             state: AvailabilityState, message: str, details: bool = False
@@ -431,6 +482,22 @@ class CreateKodiAPI:
         elif op.checkpoint is CreateCheckpoint.DISPATCHED:
             state, reason = "waiting", "create_confirmation_pending"
             message = "Setup has been requested; its result has not been confirmed yet."
+            if op.stage is CreateStage.READINESS:
+                reason = "create_native_readiness_pending"
+                message = "Kodi is still getting ready. Check again to verify it."
+        # Presentation guidance is derived only from this snapshot. It neither
+        # inspects child ownership nor grants permission to skip admission.
+        next_action: NextAction = "continue"
+        if complete:
+            next_action = "complete"
+        elif state == "needs_attention":
+            next_action = "needs_attention"
+        elif op.checkpoint is CreateCheckpoint.DISPATCHED:
+            next_action = (
+                "check_again"
+                if op.stage in {CreateStage.READINESS, CreateStage.REGISTRATION}
+                else "wait"
+            )
         return CreateStatus(
             operation_id=op.id,
             generation=op.generation,
@@ -444,6 +511,7 @@ class CreateKodiAPI:
             message=message,
             complete=complete,
             status_url=f"{BASE}/{op.id}",
+            next_action=next_action,
             instance=instance,
         )
 
@@ -493,18 +561,14 @@ def create_kodi_router(
         except CreateApiError as error:
             return failure(error)
 
-    @router.post(BASE, response_model=CreateAccepted)
-    async def accept(
-        request: Request, _admin: AuthenticatedWebSession = write_admin
-    ) -> JSONResponse:
-        # Authenticate/verify origin and CSRF before buffering/parsing approval.
+    async def read_json(request: Request) -> bytearray | JSONResponse:
         if (
             request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             != "application/json"
         ):
             return failure(
                 CreateApiError(
-                    415, "create_json_required", "Send a JSON Create approval."
+                    415, "create_json_required", "Send a JSON Create request."
                 )
             )
         body = bytearray()
@@ -516,16 +580,26 @@ def create_kodi_router(
                             CreateApiError(
                                 413,
                                 "create_request_too_large",
-                                "Create approval is too large.",
+                                "Create request is too large.",
                             )
                         )
                     body.extend(chunk)
         except TimeoutError:
             return failure(
                 CreateApiError(
-                    408, "create_request_timeout", "Create approval timed out."
+                    408, "create_request_timeout", "Create request timed out."
                 )
             )
+        return body
+
+    @router.post(BASE, response_model=CreateAccepted)
+    async def accept(
+        request: Request, _admin: AuthenticatedWebSession = write_admin
+    ) -> JSONResponse:
+        # Authenticate/verify origin and CSRF before buffering/parsing approval.
+        body = await read_json(request)
+        if isinstance(body, JSONResponse):
+            return body
         try:
             payload = CreateApproval.model_validate_json(body)
         except ValidationError:
@@ -538,6 +612,39 @@ def create_kodi_router(
                 )
             )
         return await run_in_threadpool(accept_approval, payload)
+
+    def continue_once(operation_id: UUID, payload: CreateContinuation) -> JSONResponse:
+        try:
+            result = api.continue_operation(operation_id, payload.version)
+            return reply(result, location=result.status_url)
+        except CreateApiError as error:
+            return failure(error)
+
+    @router.post(BASE + "/{operation_id}/continue", response_model=CreateStatus)
+    async def continue_operation(
+        operation_id: UUID,
+        request: Request,
+        _admin: AuthenticatedWebSession = write_admin,
+    ) -> JSONResponse:
+        body = await read_json(request)
+        if isinstance(body, JSONResponse):
+            return body
+        try:
+            payload = CreateContinuation.model_validate_json(body)
+            if request.query_params:
+                raise ValueError("unexpected_query")
+        except (ValidationError, ValueError):
+            return failure(
+                CreateApiError(
+                    422,
+                    "create_invalid_request",
+                    "Provide only the saved nonnegative integer version. "
+                    "Unknown fields and query parameters are not allowed.",
+                )
+            )
+        # Broker dispatch and bounded native probes are synchronous. Keep the
+        # entire one-shot action/presentation off the application event loop.
+        return await run_in_threadpool(continue_once, operation_id, payload)
 
     @router.get(BASE + "/by-target/{target_id}", response_model=CreateStatus)
     def reconnect(

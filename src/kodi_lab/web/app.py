@@ -151,6 +151,12 @@ from kodi_lab.application.browser_remote import (
     RemoteAdapterFactory,
 )
 from kodi_lab.application.create_kodi import CreateKodiService
+from kodi_lab.application.create_kodi_installation import CreateKodiInstallationService
+from kodi_lab.application.create_kodi_provisioning import CreateKodiProvisioningService
+from kodi_lab.application.create_kodi_readiness import CreateKodiReadinessService
+from kodi_lab.application.create_kodi_registration import CreateKodiRegistrationService
+from kodi_lab.application.create_kodi_runner import CreateKodiRunner
+from kodi_lab.application.create_kodi_start import CreateKodiStartService
 from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentError,
     DevelopmentCapabilityAmendmentRead,
@@ -2537,13 +2543,37 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
 
+    create_repository = CreateKodiRepository(session_factory)
+    create_runner = CreateKodiRunner(
+        create_repository,
+        CreateKodiInstallationService(create_repository, runtime_installations),
+        CreateKodiRegistrationService(
+            session_factory, create_repository, runtime_installations
+        ),
+        CreateKodiProvisioningService(
+            create_repository,
+            runtime_installations,
+            lifecycle_service,
+            broker.managed_container_inventory,
+        ),
+        CreateKodiStartService(
+            create_repository,
+            runtime_installations,
+            lifecycle_service,
+            broker.managed_container_inventory,
+        ),
+        CreateKodiReadinessService(
+            session_factory, create_repository, runtime_installations, broker
+        ),
+    )
     app.include_router(
         create_kodi_router(
             CreateKodiAPI(
                 session_factory,
-                CreateKodiService(CreateKodiRepository(session_factory)),
+                CreateKodiService(create_repository),
                 kodi_prerequisites,
                 broker,
+                create_runner,
             ),
             current_session,
             mutation_session,

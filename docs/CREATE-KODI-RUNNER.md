@@ -4,8 +4,9 @@
 one already-approved durable parent. Each invocation performs at most one ledger
 transition or one existing adapter action, then reads the current parent. An
 adapter retains its own transactional claim, result confirmation and bounded
-native checks. There is no loop, scheduler, startup hook, public continuation
-endpoint or UI. Acceptance and status APIs do not invoke the runner.
+native checks. There is no loop, scheduler, startup hook or UI. Milestone 3B2's
+[protected continuation POST](CREATE-KODI-API.md) invokes it once; acceptance and
+status APIs do not invoke the runner.
 
 The runner receives the existing repository and five adapters through its
 constructor. It does not create another approval, lifecycle implementation,
@@ -87,9 +88,8 @@ invocation, original receipts, local registration interruption, active ownership
 expired/mismatched evidence, lost mutation responses, read-only readiness recheck,
 historical completion and concurrent original-child dispatch exclusion.
 
-Milestone 3B2 still needs an authenticated administrator continuation POST with
-the existing CSRF/origin protections, strict parent/version input, browser-safe
-status serialization and no-store response. It should invoke this method once;
-GET, acceptance, reconnect and application startup must remain passive. Request
-timeouts must not invite redispatch of uncertain mutation stages. No endpoint,
-guided wizard or polling execution is included here.
+Milestone 3B2 supplies the authenticated administrator POST with existing
+CSRF/origin protections, strict parent/version input, safe status serialization
+and no-store response. GET, acceptance, reconnect and application startup remain
+passive. Request timeouts must not invite redispatch of uncertain mutation
+stages. A guided wizard and its wait/inspection pacing are still separate work.

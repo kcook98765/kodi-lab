@@ -1,11 +1,11 @@
-# Authenticated Create API foundation (issue #196, milestone 3A)
+# Authenticated Create API (issue #196, milestones 3A and 3B2)
 
-This API records one explicitly approved Create intent and exposes its durable
-status. It does not execute a runner, plan children, install, provision, Start,
-Stop, probe readiness, configure Bridge or create viewer tickets. Approval covers
+Acceptance records one explicitly approved Create intent; status/reconnect remain
+passive. Only the explicit protected continuation POST invokes the existing
+bounded runner. Approval covers
 the existing `create_native_v1` scope; the eventual normal workflow remains
 Create Kodi → Preparing → Ready → Open screen, without separate approvals for
-each internal stage. No wizard or execution/continuation endpoint is added here.
+each internal stage. No wizard is included.
 
 ## Authentication and request boundary
 
@@ -15,7 +15,7 @@ header and same-origin Origin/Referer checks, with existing HTTPS, trusted-host
 and proxy restrictions. No presentation mode, new role, session or approval
 mechanism changes authorization.
 
-POST verifies authentication/origin/CSRF before reading approval JSON. The body
+POST verifies authentication/origin/CSRF before reading Create JSON. The body
 is limited to 4096 bytes and a five-second read deadline, then validated with
 Pydantic strict types and forbidden extra fields. Untrusted body content and
 validation exceptions are not echoed. The existing Web security headers apply;
@@ -59,8 +59,8 @@ recovery requirements and an already-present container for this canonical Kodi
 are reported without adoption or repair.
 
 These are snapshots before acceptance, not reservations or installation
-authorization. They can change immediately afterward. Every future typed stage
-must repeat its authoritative recipe, runtime, identity, selection, lease,
+authorization. They can change immediately afterward. Every typed stage repeats
+its authoritative recipe, runtime, identity, selection, lease,
 capacity and broker admission checks. This API does not duplicate those stages'
 complete admission policies or issue their authority.
 
@@ -104,6 +104,7 @@ Both return the same strict, small representation:
 | `phase`, `status`, `message` | Browser labels: Preparing/Setting up/Starting/Checking Kodi, Ready or Needs attention; waiting/preparing/attention/complete |
 | `reason_code` | Fixed public diagnostic, never an echoed internal reason |
 | `complete` | Historical parent completion, independent of subsequent runtime state |
+| `next_action` | Snapshot guidance: `continue`, `wait`, `check_again`, `needs_attention` or `complete`; never execution authority |
 | `instance` | Public target UUID, current availability label/message and existing details URL where registered |
 
 Normal UI should render phase/message, rather than requiring users to understand
@@ -127,18 +128,68 @@ reconciliation, child stage execution, native observation/probes or viewer servi
 No raw reasons, child UUIDs, proofs, lease digests, credentials, image/container IDs,
 internal filesystem paths or broker endpoints appear in the normal response.
 
-## Subsequent integration
+## Explicit bounded continuation
 
-A separately approved bounded runner must consume this same accepted intent and
-invoke the existing fixed-stage adapters with their persisted child UUIDs and
-transactional dispatch checkpoints. The approval must not be split into separate
-installation/registration/provision/Start consent prompts. An authenticated,
-version-checked explicit continuation surface still needs implementation; status
-GETs must remain passive, readiness rechecks must stay read-only and uncertainty
-must never cause earlier mutation replay or replacement UUIDs.
+`POST /api/create-kodi/operations/{operation_id}/continue`
+
+The only body field is `{"version": 0}`, using the exact nonnegative integer
+version last read from durable status. Strings, booleans, floats, unknown fields
+and query parameters are rejected. Clients cannot supply stage, child UUID,
+container, proof, force or retry parameters. The same administrator session,
+CSRF, Origin/Referer, trusted-host and HTTPS protections apply. An authenticated
+read request or MCP bearer credential alone does not authorize continuation.
+
+One POST invokes `CreateKodiRunner.continue_once()` once. The entire synchronous
+action and status presentation run in the existing Web thread pool, including
+broker calls and bounded native probes; they do not block the application event
+loop. No queue, scheduler, request retry or independent execution authority is
+added. Original child IDs, dispatch checkpoints, leases and Start proof admission
+stay in their existing services. The original Create approval covers the normal
+fixed sequence without separate per-stage consent.
+
+Success returns 200 with the same `CreateStatus`, `Location: <status_url>` and
+`Cache-Control: no-store`. Unknown parent is 404. Stale version is 409
+`create_stale_version` with the saved status URL; it never executes using the
+newer version. A competing claim after initial validation may return the current
+durable winner through the runner's existing version fence. Other transition
+refusals return 409 `create_continuation_blocked`; unexpected response/service
+failure returns 503 `create_continuation_unavailable`. Errors use fixed safe
+messages and reference the original parent/status resource, never raw exceptions.
+
+After a timeout or missing response, first GET the saved status URL (or reconnect
+by canonical target) and retain the original operation identity. A failed HTTP
+response does not establish that a child failed or was never dispatched. Never
+replace its child UUID or replay earlier mutation work. The endpoint itself
+does not retry, reset, repin, replace or Stop anything.
+
+Presentation guidance comes only from the parent snapshot and read-only current
+availability. `continue` means the next explicit call can plan/advance or ask the
+existing adapter to admit its action. `wait` means a dispatched mutation has no
+confirmed parent result; it is not a promise that GET polling will advance it.
+A later explicit POST inspects the original installation receipt or lifecycle
+ownership without redispatch. Matching active ownership returns waiting;
+missing, terminal-inconsistent or expired lifecycle ownership becomes Needs
+attention. Original uncertain mutation outcomes do not authorize automatic retry.
+
+`check_again` at native readiness invokes only the existing bounded read-only
+recheck (or exact local registration confirmation at that stage). `needs_attention`
+requires review; supported original installation/registration observation remains
+separate from mutation retry. `complete` is historical even after manual Stop.
+All metadata is informational: every continuation still checks the parent version
+and its existing authoritative stage admission. Passive GETs never claim a
+probe, confirm a child, change a stage or create viewer tickets.
+
+The prerequisite runtime-file observation also recognizes the legacy
+`setup_incomplete` view: that view is emitted only after eligibility and exact
+image presence pass, when canonical registration is absent. It is verified
+runtime reuse, not a download blocker. Registration remains a separately admitted
+Create stage, and missing images or unverified runtimes still require attention.
+
+## Guided interface still required
 
 The guided wizard still needs client UUID persistence, reviewed selection and
 embedded prerequisites, honest progress/reconnect/attention handling, explicit
-supported recovery actions, and independent exact-instance Open screen access.
+supported recovery actions, deliberate wait/inspection pacing, and independent
+exact-instance Open screen access. No continuation timers are implemented here.
 Bridge and agent setup remain optional after native Kodi is usable. New-attempt
 recovery and replacement/reset semantics are outside this milestone.
