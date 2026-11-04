@@ -1,0 +1,345 @@
+/* Browser-only, one-request-at-a-time continuation of the original Create intent. */
+(() => {
+  "use strict";
+  const root = document.querySelector("[data-create-kodi]");
+  if (!root) return;
+  class SetupError extends Error {}
+  const explanation = (failure, fallback) => failure instanceof SetupError ? failure.message : fallback;
+  const find = name => root.querySelector(`[data-create-${name}]`);
+  const component = root.querySelector("[data-kodi-prerequisites]");
+  const api = "/api/create-kodi/operations";
+  const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
+  const generations = new Set(["matrix", "nexus", "omega"]);
+  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Ready", "Needs attention"]);
+  const actions = new Set(["continue", "wait", "check_again", "needs_attention", "complete"]);
+  const csrf = document.querySelector('meta[name="kodi-lab-csrf"]').content;
+  let snapshot = JSON.parse(document.querySelector("#create-kodi-config").textContent);
+  const targets = snapshot.canonical_targets;
+  const lastKey = "kodi-lab.create-kodi.v1.last-generation";
+  let generation = snapshot.generation, saved = null, op = null, busy = false;
+  let running = false, timer = null, epoch = 0, reconciled = false, ready = false;
+  let storageOK = true, suspended = false, steps = 0, waits = 0;
+  const key = () => `kodi-lab.create-kodi.v1.${generation}`;
+  const text = (name, value) => { if (find(name).textContent !== value) find(name).textContent = value; };
+  const error = message => { text("error", message); find("error").hidden = !message; };
+  function pause(message = "") {
+    running = false;
+    clearTimeout(timer); timer = null;
+    if (message) text("notice", message);
+  }
+  function validApproval(value) {
+    return value && uuid(value.request_id) && value.generation === generation &&
+      typeof value.recipe_id === "string" && Number.isInteger(value.recipe_revision) && value.recipe_revision > 0 &&
+      /^sha256:[0-9a-f]{64}$/.test(value.recipe_digest) && value.owner_approved === true;
+  }
+  function readSaved() {
+    try {
+      const value = JSON.parse(localStorage.getItem(key()) || "null");
+      return value?.generation === generation &&
+        (uuid(value.operation_id) || validApproval(value.approval)) ? {
+          generation, operation_id:uuid(value.operation_id) ? value.operation_id : null,
+          approval:validApproval(value.approval) ? Object.fromEntries(
+            ["request_id", "generation", "recipe_id", "recipe_revision", "recipe_digest", "owner_approved"].map(name => [name, value.approval[name]])) : null,
+        } : null;
+    } catch (_) { return null; }
+  }
+  function save(value, required = false) {
+    try {
+      const encoded = JSON.stringify(value);
+      localStorage.setItem(key(), encoded);
+      if (localStorage.getItem(key()) !== encoded) throw new SetupError("storage changed");
+      saved = value;
+      localStorage.setItem(lastKey, generation);
+    } catch (_) {
+      storageOK = false;
+      if (required) throw new SetupError("Browser storage is unavailable. Allow site storage before approving setup.");
+    }
+  }
+  function requestUUID() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, x => x.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  function validate(value) {
+    if (!value || !uuid(value.operation_id) || value.generation !== generation ||
+        value.instance?.target_id !== snapshot.target_id ||
+        value.status_url !== `${api}/${value.operation_id}` ||
+        !Number.isSafeInteger(value.version) || value.version < 0 ||
+        !phases.has(value.phase) || !actions.has(value.next_action) ||
+        typeof value.message !== "string" || typeof value.complete !== "boolean" ||
+        (op && value.operation_id !== op.operation_id)) throw new SetupError("Unexpected saved setup. Check status before continuing.");
+    return value;
+  }
+  const available = () => !op || ["not_created", "unverified", "running", "stopped"].includes(op.instance.state);
+  const attention = () => op && (op.next_action === "needs_attention" || op.status === "needs_attention" || op.checkpoint === "needs_attention");
+  const resumable = () => reconciled && (op ? !op.complete && !attention() && available() : validApproval(saved?.approval));
+  function controls() {
+    root.setAttribute("aria-busy", String(busy));
+    find("approve").disabled = busy || running || !ready || !reconciled || !!op || !!saved?.approval || !storageOK;
+    find("generation").disabled = busy || running || (!!op && !op.complete) || (!!saved?.approval && !op?.complete);
+    find("check").disabled = busy;
+    find("check").hidden = !op && !saved?.approval && find("error").hidden;
+    find("resume").hidden = busy || running || !resumable();
+  }
+  function render() {
+    find("review").hidden = !!op;
+    find("progress").hidden = !op;
+    find("another").hidden = !op?.complete;
+    for (const name of ["screen", "start", "manage", "recovery"]) find(name).hidden = true;
+    if (op) {
+      text("phase", op.phase);
+      text("message", op.message);
+      text("wait", op.next_action === "wait" ? (running ? "This can take several minutes. Kodi Lab is checking the same saved setup." : "Your setup is saved. Resume setup to check its progress.") :
+        op.next_action === "check_again" ? "Kodi may need a little more startup time. Its saved setup is kept." : "");
+      text("version", op.kodi_version || generation);
+      text("reason", op.reason_code || op.status);
+      if (op.instance.details_url === `/instances/${op.instance.target_id}`) {
+        find("manage").href = op.instance.details_url;
+        find("manage").hidden = false;
+      }
+      if (op.complete) {
+        pause();
+        text("wait", "");
+        if (op.instance.state === "running") {
+          text("message", "Kodi was created successfully and is running. Open its screen when you’re ready.");
+          find("screen").href = `/instances/${op.instance.target_id}/novnc-phase1`;
+          find("screen").hidden = false;
+        } else if (op.instance.state === "stopped") {
+          text("message", "Created successfully — currently stopped.");
+          find("start").href = `/instances/${op.instance.target_id}#instance-controls-heading`;
+          find("start").hidden = false;
+        } else text("message", "Kodi was created successfully. " + op.instance.message);
+      } else if (attention() || !available()) {
+        pause(); text("phase", "Needs attention"); text("wait", "");
+        if (!attention() && !available()) text("message", "Kodi availability needs review. Check status before continuing.");
+        find("recovery").href = op.stage === "installation" || !op.instance.details_url
+          ? "/runtimes#installation-records" : `/instances/${op.instance.target_id}/history`;
+        find("recovery").hidden = false;
+      }
+    }
+    controls();
+  }
+  function attach(value) {
+    op = validate(value);
+    save({generation, operation_id:op.operation_id, approval:saved?.approval || null});
+    render();
+  }
+  async function json(url, method = "GET", body = null) {
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), method === "GET" ? 15000 : 90000);
+    try {
+      const response = await fetch(url, {
+        method, credentials:"same-origin", cache:"no-store", signal:controller.signal,
+        headers:method === "POST" ? {"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf} : {},
+        ...(body === null ? {} : {body:JSON.stringify(body)}),
+      });
+      if (method === "GET" && response.status === 404) return null;
+      if (!response.ok) throw new SetupError([401, 403].includes(response.status)
+        ? "Sign in again, then check the saved setup status."
+        : "Setup could not safely continue. Check its saved status before taking further action.");
+      return await response.json();
+    } finally { clearTimeout(deadline); }
+  }
+  async function reconnect(lost = false) {
+    pause(); busy = true; reconciled = false; controls();
+    const ticket = epoch;
+    try {
+      saved = readSaved();
+      let current = uuid(saved?.operation_id) ? await json(`${api}/${saved.operation_id}`) : null;
+      if (!current) current = await json(`${api}/by-target/${snapshot.target_id}`);
+      if (ticket !== epoch) return;
+      if (current) {
+        attach(current); reconciled = true;
+        text("notice", current.complete || attention() || !available() ? "" :
+          "Saved setup found. Choose Resume setup to continue it.");
+      } else if (saved?.operation_id) {
+        throw new SetupError("The saved setup could not be found. Check status or review existing Kodi installations.");
+      } else {
+        op = null; reconciled = true;
+        text("notice", saved?.approval ? "A setup approval is saved. Resume uses that same approval." : "");
+      }
+      if (!lost) error(storageOK || op ? "" : "Allow browser site storage before approving setup.");
+      render();
+    } catch (failure) {
+      if (ticket === epoch) error(explanation(failure, "Saved status is unavailable. Check status before continuing."));
+    } finally {
+      if (ticket === epoch) { busy = false; controls(); }
+    }
+  }
+  function schedule() {
+    if (!running || busy || document.hidden || !op || op.complete || attention() || !available()) return;
+    if (steps >= 40 || waits >= 20) {
+      pause("Setup is taking longer than expected. Check status, then Resume setup when you’re ready.");
+      reconciled = false; controls(); return;
+    }
+    const inspecting = op.next_action !== "continue";
+    const delay = inspecting ? Math.min(30000, 5000 * (1 + waits++)) : 800;
+    const known = op;
+    timer = setTimeout(() => { timer = null; void advance(inspecting ? known : null); }, delay);
+  }
+  async function advance(inspect = null) {
+    if (!running || busy || document.hidden) return;
+    busy = true; controls();
+    const ticket = epoch;
+    try {
+      if (inspect) {
+        const current = validate(await json(inspect.status_url));
+        if (ticket !== epoch) return;
+        attach(current);
+        if (current.version !== inspect.version || current.checkpoint !== inspect.checkpoint || current.stage !== inspect.stage) {
+          pause("Setup changed elsewhere. Check status, then Resume setup."); reconciled = false; return;
+        }
+        if (current.complete || attention() || !available()) return;
+      }
+      // Only the preceding known response / explicit Resume establishes this
+      // continuation. A passive GET never starts a run or permits redispatch.
+      steps++;
+      const previous = op;
+      const result = await json(op.status_url + "/continue", "POST", {version:op.version});
+      if (ticket !== epoch) return;
+      if (result.stage !== previous.stage || result.checkpoint !== previous.checkpoint) waits = 0;
+      attach(result); reconciled = true;
+    } catch (failure) {
+      if (ticket !== epoch) return;
+      pause(); error(explanation(failure, "The setup response was lost. Check status before continuing."));
+      busy = false;
+      await reconnect(true); // Observe first. Never automatically repeat the POST.
+    } finally {
+      if (ticket === epoch) { busy = false; render(); schedule(); }
+    }
+  }
+  async function approve(replay = false) {
+    if (busy || running || op || (!replay && find("approve").disabled)) return;
+    busy = true; suspended = false; controls();
+    const ticket = epoch;
+    try {
+      const existing = await json(`${api}/by-target/${snapshot.target_id}`);
+      if (ticket !== epoch || suspended || document.hidden) return;
+      if (existing) { attach(existing); reconciled = true; return; }
+      const pending = readSaved();
+      if (!replay && pending?.approval) {
+        saved = pending; text("notice", "A setup approval is already saved. Check status before resuming it."); return;
+      }
+      const approval = replay ? saved?.approval : {
+        request_id:requestUUID(), generation, recipe_id:snapshot.recipe_id,
+        recipe_revision:snapshot.recipe_revision, recipe_digest:snapshot.recipe_digest, owner_approved:true,
+      };
+      if (!validApproval(approval)) throw new SetupError("The saved approval needs review. Check status.");
+      save({generation, approval, operation_id:null}, true); // Commit BEFORE POST.
+      reconciled = false;
+      const accepted = await json(api, "POST", approval);
+      if (ticket !== epoch) return;
+      attach(accepted); reconciled = true;
+      running = !suspended && !document.hidden; steps = waits = 0; error("");
+      if (running) text("notice", "");
+      find("phase").focus();
+    } catch (failure) {
+      if (ticket !== epoch) return;
+      pause(); error(explanation(failure, "The approval response was lost. Check status before continuing."));
+      busy = false; await reconnect(true);
+    } finally { if (ticket === epoch) { busy = false; render(); schedule(); } }
+  }
+  function requirements(value) {
+    if (value.generation !== generation || !generations.has(generation) || !uuid(value.target_id) ||
+        !Array.isArray(value.checks) || typeof value.recipe_id !== "string" ||
+        !Number.isInteger(value.recipe_revision) || !/^sha256:[0-9a-f]{64}$/.test(value.recipe_digest)) {
+      ready = false; error("Setup requirements changed. Check again."); controls(); return false;
+    }
+    snapshot = value;
+    const required = ["installer", "activity", "runtime", "running_policy", "capacity"];
+    const blockers = value.checks.filter(item => item.status === "attention" ||
+      (item.key === "activity" && item.status === "existing") || (required.includes(item.key) && item.status === "unknown"));
+    ready = !blockers.length && required.every(key => value.checks.some(item => item.key === key));
+    text("summary", ready ? `Kodi ${value.version} is available. ${value.checks.find(item => item.key === "runtime")?.status === "passed" ? "Verified runtime files will be reused." : "Setup will download and check its files."}` : "Some setup requirements need attention. Review the notes and Check again.");
+    find("blockers").replaceChildren(...blockers.map(item => {
+      const node = document.createElement("li"); node.textContent = item.message; return node;
+    }));
+    controls();
+    return true;
+  }
+  function chooseGeneration(value) {
+    if (!generations.has(value)) return;
+    pause(); ++epoch; generation = value; ready = reconciled = false;
+    saved = op = null; find("generation").value = generation;
+    const url = new URL(window.location.href);
+    url.searchParams.set("generation", generation);
+    window.history.replaceState(null, "", url);
+    component.dataset.generation = generation;
+    text("summary", "Checking requirements and saved setup…"); render();
+    component.dispatchEvent(new CustomEvent("kodi-prerequisites-refresh"));
+  }
+  async function initialize() {
+    const ticket = epoch;
+    const explicit = new URL(window.location.href).searchParams.has("generation");
+    let remembered = null;
+    try { remembered = localStorage.getItem(lastKey); } catch (_) { /* canonical fallback */ }
+    if (!explicit && generations.has(remembered) && remembered !== generation) {
+      chooseGeneration(remembered); return;
+    }
+    if (explicit || saved || !targets) {
+      if (requirements(snapshot)) await reconnect();
+      return;
+    }
+    // Three bounded passive lookups recover a non-default version even when
+    // both browser storage and the URL context are missing. No stage is run.
+    busy = true; controls();
+    try {
+      const results = await Promise.all([...generations].map(async value => {
+        if (!uuid(targets[value])) throw new SetupError("Check the saved setup before continuing.");
+        const current = await json(`${api}/by-target/${targets[value]}`);
+        if (current && (current.generation !== value || current.instance?.target_id !== targets[value])) {
+          throw new SetupError("Unexpected saved setup. Check status before continuing.");
+        }
+        return current;
+      }));
+      if (ticket !== epoch) return;
+      const rank = value => value.complete ? 2 : value.status === "needs_attention" ? 1 : 0;
+      const found = results.filter(Boolean).sort((a, b) => rank(a) - rank(b))[0];
+      busy = false;
+      if (found && found.generation !== generation) { chooseGeneration(found.generation); return; }
+      if (!requirements(snapshot)) return;
+      reconciled = true;
+      if (found) {
+        attach(found);
+        text("notice", found.complete || attention() ? "" : "Saved setup found. Choose Resume setup to continue it.");
+      }
+      render();
+    } catch (failure) {
+      if (ticket === epoch) error(explanation(failure, "Saved status is unavailable. Check status before continuing."));
+    } finally { if (ticket === epoch) { busy = false; controls(); } }
+  }
+  find("form").addEventListener("submit", event => { event.preventDefault(); void approve(); });
+  find("check").addEventListener("click", () => { if (!busy) void reconnect(); });
+  find("resume").addEventListener("click", () => {
+    if (busy || running || !resumable()) return;
+    if (!op) { void approve(true); return; }
+    running = true; suspended = false; steps = waits = 0; error(""); text("notice", ""); controls(); schedule();
+  });
+  find("generation").addEventListener("change", () => {
+    if (busy || running || (op && !op.complete) || (saved?.approval && !op?.complete)) return;
+    chooseGeneration(find("generation").value);
+  });
+  component.querySelector("[data-prerequisite-refresh]").addEventListener("click", () => { ready = false; controls(); });
+  component.addEventListener("kodi-prerequisites-updated", event => {
+    if (busy || op) return;
+    if (requirements(event.detail)) void reconnect();
+  });
+  window.addEventListener("storage", event => {
+    if (event.key !== key() || op?.complete) return;
+    suspended = true;
+    pause("Setup changed in another tab. Check status before resuming."); reconciled = false; controls();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && !op?.complete) { suspended = true; pause("Automatic setup is paused in this tab. Check status when you return."); reconciled = false; controls(); }
+  });
+  window.addEventListener("pagehide", () => { pause(); ++epoch; busy = false; reconciled = false; });
+  window.addEventListener("pageshow", event => { if (event.persisted) void reconnect(); });
+  saved = readSaved();
+  // Detect storage denial without losing a previously persisted request.
+  try { const probe = key() + ".check"; localStorage.setItem(probe, "1"); localStorage.removeItem(probe); }
+  catch (_) { storageOK = false; error("Allow browser site storage before approving setup."); }
+  find("generation").value = generation;
+  void initialize(); // Initial load only reads.
+})();

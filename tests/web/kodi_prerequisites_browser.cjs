@@ -7,6 +7,7 @@ class Node {
   append(child) { this.children.push(child); }
   replaceChildren(...children) { this.children = children; }
   addEventListener(name, callback) { this.listeners[name] = callback; }
+  dispatchEvent(event) { this.listeners[event.type]?.(event); }
   setAttribute(name, value) { this[name] = value; }
 }
 function component() {
@@ -27,6 +28,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), {
   document, window: {addEventListener: (name, callback) => { assert.equal(name, "pagehide"); pagehide.push(callback); }},
   fetch: (url, options) => new Promise(resolve => requests.push({url, options, resolve})),
   AbortController, encodeURIComponent,
+  CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
 });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const snapshot = (generation = "omega", summary = "new snapshot") => ({generation, version: generation === "omega" ? "21.3" : "20.5", checked_at: "2026-11-03T01:02:03Z", summary,

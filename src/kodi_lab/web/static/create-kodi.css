@@ -1,0 +1,26 @@
+.create-kodi-page { max-width: 58rem; }
+.create-kodi-page [data-create-kodi] { max-width: 46rem; }
+.create-kodi-page h1 { margin-bottom: .5rem; }
+.create-kodi-page section { margin-block: 1.5rem; }
+.create-kodi-page select { display: block; width: min(100%, 26rem); min-height: 2.8rem; margin-top: .5rem; font: inherit; }
+.create-kodi-page .create-requirements { margin-block: 1.5rem; padding: 1rem; border: 1px solid #64748b; border-radius: .5rem; }
+.create-kodi-page .create-requirements h2 { margin-top: 0; }
+.create-kodi-page summary { cursor: pointer; min-height: 2.75rem; padding-block: .6rem; }
+.create-kodi-page button, .create-kodi-page .button-link { min-height: 2.75rem; }
+.create-kodi-page [data-create-approve], .create-kodi-page [data-create-screen] { background: #185a91; color: #fff; border: 1px solid #185a91; font-weight: 600; }
+.create-kodi-page [data-create-approve]:disabled { opacity: .6; }
+.create-kodi-page [data-create-approve]:hover:not(:disabled), .create-kodi-page [data-create-screen]:hover { background: #12466f; }
+.create-kodi-page [data-create-progress] { border-inline-start: .3rem solid #477dba; padding-inline-start: 1rem; }
+.create-kodi-page [data-create-phase]:focus { outline-offset: .3rem; }
+.create-kodi-page [data-create-error] { border-inline-start: .3rem solid #b91c1c; padding-inline-start: 1rem; }
+.create-kodi-page .actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.create-kodi-page .actions > a { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; }
+.create-kodi-page .kodi-prerequisites { margin-bottom: 0; }
+.create-kodi-page .kodi-prerequisite-checks { grid-template-columns: 1fr; }
+.create-kodi-page p, .create-kodi-page dd { overflow-wrap: anywhere; }
+.create-kodi-page [hidden] { display: none !important; }
+@media (max-width: 40rem) {
+  .create-kodi-page .actions { align-items: stretch; flex-direction: column; }
+  .create-kodi-page .actions > * { text-align: center; }
+  .create-kodi-page .create-requirements { padding: .75rem; }
+}

@@ -7635,3 +7635,15 @@ Verified runtime files without canonical registration are reusable prerequisites
 not a demand to redownload; registration keeps its existing stage admission.
 No schema, broker authority, queue, scheduler, wizard or passive execution is
 added. See [the API contract](CREATE-KODI-API.md).
+
+## Guided ordinary Create Kodi (issue #196, milestone 4A)
+
+One normal-navigation page embeds existing prerequisites and uses unchanged
+protected acceptance/status/continuation APIs. It persists the displayed recipe
+approval UUID before POST, reconnects by parent/canonical target, and drives one
+version-fenced request at a time with bounded foreground pacing. Unknown outcomes,
+other-tab changes and reloads pause for status/Resume; Needs attention never
+replays mutations. Native completion and current availability stay separate;
+Open screen uses the existing exact-instance viewer and stopped history links to
+normal Start controls. No scheduler, migration, authority, Bridge/agent preparation
+or development selection is added. See [the UI contract](CREATE-KODI-WIZARD.md).

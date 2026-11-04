@@ -185,11 +185,15 @@ image presence pass, when canonical registration is absent. It is verified
 runtime reuse, not a download blocker. Registration remains a separately admitted
 Create stage, and missing images or unverified runtimes still require attention.
 
-## Guided interface still required
+## Guided interface
 
-The guided wizard still needs client UUID persistence, reviewed selection and
-embedded prerequisites, honest progress/reconnect/attention handling, explicit
-supported recovery actions, deliberate wait/inspection pacing, and independent
-exact-instance Open screen access. No continuation timers are implemented here.
+Milestone 4A adds [the guided Create Kodi page](CREATE-KODI-WIZARD.md) using these
+unchanged APIs. It persists the original approval before acceptance, reconnects
+before offering Create, and paces version-fenced foreground continuation without
+a server scheduler. Unknown responses pause and retrieve status before Resume.
+
+It includes reviewed stable selection, embedded prerequisites, progress/attention
+handling and independent exact-instance Open screen links. Existing recovery
+surfaces remain separate from new attempts or replacement/reset behavior.
 Bridge and agent setup remain optional after native Kodi is usable. New-attempt
 recovery and replacement/reset semantics are outside this milestone.

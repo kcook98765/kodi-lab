@@ -92,4 +92,5 @@ Milestone 3B2 supplies the authenticated administrator POST with existing
 CSRF/origin protections, strict parent/version input, safe status serialization
 and no-store response. GET, acceptance, reconnect and application startup remain
 passive. Request timeouts must not invite redispatch of uncertain mutation
-stages. A guided wizard and its wait/inspection pacing are still separate work.
+stages. Milestone 4A adds [the guided browser flow and bounded foreground
+pacing](CREATE-KODI-WIZARD.md) without changing this runner or its authority.
