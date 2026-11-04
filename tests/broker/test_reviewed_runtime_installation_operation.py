@@ -106,7 +106,7 @@ class FakeContainers:
 
 
 def broker_attributes() -> dict[str, Any]:
-    return {
+    own: dict[str, Any] = {
         "Image": IMAGE,
         "Config": {"Entrypoint": ["kodi-lab-broker"], "Labels": {}},
         "Mounts": [
@@ -136,6 +136,17 @@ def broker_attributes() -> dict[str, Any]:
             },
         ],
     }
+
+    for mount in own["Mounts"]:
+        mount["Mode"] = "rw" if mount["RW"] else "ro"
+    own["HostConfig"] = {
+        "Binds": [
+            f"{m.get('Name') if m['Type'] == 'volume' else m['Source']}"
+            f":{m['Destination']}:{m['Mode']}"
+            for m in own["Mounts"]
+        ]
+    }
+    return own
 
 
 @pytest.fixture
@@ -534,7 +545,18 @@ def test_desktop_aliases_need_verified_engine_and_broker_context(
             attrs["Config"]["Labels"]["desktop.docker.io/wsl-distro"] = DISTRO
 
     containers.on_create = transform
-    rejected_everywhere(worker, containers, uuid4())
+    if context in {
+        "missing-route",
+        "wrong-broker-route",
+        "writable-broker-route",
+        "readonly-broker-state",
+        "duplicate-broker-route",
+    }:
+        with pytest.raises(ReviewedWorkerError):
+            worker.launch("omega", uuid4())
+        assert containers.created is None and containers.items == []
+    else:
+        rejected_everywhere(worker, containers, uuid4())
 
 
 @pytest.mark.parametrize(
@@ -780,8 +802,18 @@ def test_desktop_context_preserves_optional_broker_development_mount(
             "Source": "/srv/addon-sources",
             "Destination": "/mnt/kodi-lab-development",
             "RW": False,
+            "Mode": "ro",
         }
     )
+    own["HostConfig"]["Mounts"] = [
+        {
+            "Type": "bind",
+            "Source": "/srv/addon-sources",
+            "Target": "/mnt/kodi-lab-development",
+            "ReadOnly": True,
+            "BindOptions": {"CreateMountpoint": False},
+        }
+    ]
     containers.on_create = translated
     operation = uuid4()
     assert worker.launch("omega", operation)
@@ -829,6 +861,6 @@ def test_broker_socket_provenance_remains_exact_before_create(
         socket["Type"] = "volume"
     elif defect == "malformed":
         mounts.append(None)
-    with pytest.raises(ReviewedWorkerError, match="broker Docker socket"):
+    with pytest.raises(ReviewedWorkerError, match=r"broker.*mounts"):
         worker.launch("omega", uuid4())
     assert containers.created is None and containers.items == []
