@@ -32,6 +32,7 @@ from tests.broker.test_reviewed_runtime_installation_operation import (
     IMAGE,
     FakeContainer,
     FakeContainers,
+    broker_attributes,
 )
 
 from .conftest import ORIGIN, PASSWORD, login
@@ -47,23 +48,7 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
     runtime_root.chmod(0o750)  # The listener contract requires this exact mode.
     socket_path = runtime_root / "broker.sock"
     containers = FakeContainers()
-    own = {
-        "Image": IMAGE,
-        "Config": {"Entrypoint": ["kodi-lab-broker"]},
-        "Mounts": [
-            {
-                "Destination": "/var/lib/kodi-lab",
-                "Type": "volume",
-                "Name": "state-volume",
-            },
-            {"Destination": "/run/kodi-lab", "Type": "volume", "Name": "socket-volume"},
-            {
-                "Destination": "/var/run/docker.sock",
-                "Type": "bind",
-                "Source": "/var/run/docker.sock",
-            },
-        ],
-    }
+    own = broker_attributes()
     docker_client = SimpleNamespace(
         api=SimpleNamespace(
             inspect_container=lambda _name: own,
