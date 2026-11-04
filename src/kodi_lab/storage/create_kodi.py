@@ -167,6 +167,67 @@ class CreateKodiRepository:
             row.outcome, row.dispatched_at = None, None
             return _snapshot(row)
 
+    def prepare_readiness(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        verify: Callable[[Session, CreateOperation], None],
+    ) -> CreateOperation:
+        with self._change(operation_id, version, CreateCheckpoint.CONFIRMED) as row:
+            if row.stage != CreateStage.STARTUP:
+                raise CreateTransitionError("startup_not_confirmed")
+            session = object_session(row)
+            assert session is not None
+            verify(session, _snapshot(row))
+            row.stage, row.checkpoint = CreateStage.READINESS, CreateCheckpoint.ACCEPTED
+            row.outcome, row.dispatched_at = None, None
+            return _snapshot(row)
+
+    def claim_readiness_probe(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        verify: Callable[[Session, CreateOperation], None],
+    ) -> CreateOperation:
+        """Only this read-only stage permits an explicit repeated dispatch.
+
+        A new version fences an interrupted/older observer, without changing the
+        fixed correlation identity or replaying any installation/lifecycle work.
+        """
+        with self._change(
+            operation_id, version, CreateCheckpoint.PLANNED, CreateCheckpoint.DISPATCHED
+        ) as row:
+            if row.stage != CreateStage.READINESS:
+                raise CreateTransitionError("not_native_readiness")
+            session = object_session(row)
+            assert session is not None
+            verify(session, _snapshot(row))
+            row.checkpoint, row.dispatched_at = CreateCheckpoint.DISPATCHED, _now()
+            return _snapshot(row)
+
+    def complete_readiness(
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        verify: Callable[[Session, CreateOperation], None],
+    ) -> CreateOperation:
+        """Commit a fresh verified native result and its final fence together."""
+        with self._change(operation_id, version, CreateCheckpoint.DISPATCHED) as row:
+            if row.stage != CreateStage.READINESS:
+                raise CreateTransitionError("not_native_readiness")
+            session = object_session(row)
+            assert session is not None
+            verify(session, _snapshot(row))
+            row.checkpoint, row.outcome = (
+                CreateCheckpoint.COMPLETE,
+                CreateOutcome.SUCCEEDED,
+            )
+            row.completed_at, row.reason = _now(), None
+            return _snapshot(row)
+
     def accept(
         self,
         *,

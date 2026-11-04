@@ -7585,3 +7585,16 @@ Existing higher effective limits receive an actionable prerequisite explanation
 and require an explicit administrator change through the existing resource
 settings. Retained-profile capacity and exact Start admission remain unchanged.
 No migration, new authority, implicit stop or policy conversion is added.
+
+## Native Create completion and explicit observations (issue #196, milestone 2D)
+
+Native readiness reuses the existing bounded coordinator and fixed JSON-RPC
+adapter with an exact-container observation facade. Original Start/provision
+receipts, consumed authority, approved runtime/image, post-Start projection and
+recovery fences are checked before observation and at atomic parent completion.
+The process-local registry is not durable success evidence. Only Readiness allows
+an explicit new versioned read-only probe of a Dispatched parent, retaining its
+fixed correlation and all mutation child IDs. Interrupted or nonusable probes
+never replay lifecycle work, and historical completion never starts Kodi again.
+No schema, broker authority, general retry engine, API, runner, wizard or Bridge
+preparation is added. See [the contract](CREATE-KODI-READINESS.md).
