@@ -3,13 +3,31 @@
 import json
 import re
 import subprocess
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from tests.web.conftest import ORIGIN, login
 from tests.web.test_create_kodi_api import no_execution as no_execution
+
+
+def test_favicon_is_a_small_public_icon_with_normal_host_controls(
+    client: TestClient,
+) -> None:
+    icon = client.get("/favicon.ico")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"] == "image/vnd.microsoft.icon"
+    assert icon.headers["x-content-type-options"] == "nosniff"
+    assert len(icon.content) < 1024
+    with Image.open(BytesIO(icon.content)) as decoded:
+        assert decoded.format == "ICO" and decoded.size == (16, 16)
+    assert 'rel="icon"' in client.get("/login").text
+    assert (
+        client.get("/favicon.ico", headers={"Host": "evil.invalid"}).status_code == 400
+    )
 
 
 @pytest.mark.parametrize("generation", ["matrix", "nexus", "omega"])

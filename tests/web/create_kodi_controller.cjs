@@ -50,8 +50,10 @@ function boot(storage = new Map(), denied = false, config = {}) {
     },
   };
 }
-async function reply(request, value = null, code = value ? 200 : 404) {
-  assert(request); request.resolve({ok:code < 400, status:code, json:async () => value}); await flush();
+async function reply(request, value = null, code = value ? 200 : request.url.includes('/by-target/') ? 204 : 404) {
+  assert(request); request.resolve({ok:code < 400, status:code, json:async () => {
+    assert.notEqual(code,204,'No Content must not be parsed as JSON'); return value;
+  }}); await flush();
 }
 const posts = app => app.requests.filter(r => r.options.method === "POST");
 async function approved(app) {
@@ -69,6 +71,7 @@ async function approved(app) {
 }
 (async () => {
   const app = boot();
+  assert(app.requests[0].url.endsWith('?missing=empty'));
   assert(app.requests.every(r => r.options.method === "GET"));
   await approved(app);
   assert.equal(await app.tick(), 800);
@@ -245,7 +248,7 @@ async function approved(app) {
   const recovered = boot(new Map(), false, {canonical_targets:{omega:target, nexus:nexusTarget, matrix:matrixTarget}});
   assert.equal(recovered.requests.length, 3, "missing browser context scans the fixed stable canonical targets only");
   const nexus = status(1, {generation:"nexus", instance:{target_id:nexusTarget, state:"not_created"}});
-  for (const request of recovered.requests.slice()) await reply(request, request.url.endsWith(nexusTarget) ? nexus : null);
+  for (const request of recovered.requests.slice()) await reply(request, request.url.split('?')[0].endsWith(nexusTarget) ? nexus : null);
   assert.equal(recovered.nodes.generation.value, "nexus");
   assert.equal(new URL(recovered.window.location.href).searchParams.get("generation"), "nexus");
   const nexusSnapshot = {...snapshot, generation:"nexus", version:"20.5", target_id:nexusTarget};

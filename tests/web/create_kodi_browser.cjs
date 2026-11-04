@@ -11,11 +11,11 @@ function rpc(payload) {
 }
 const control = (action, extra = {}) => rpc({action, ...extra});
 const base = "https://127.0.0.1", folder = process.argv[4];
-let browser, drop = null, requests = [], consoleErrors = [];
+let browser, drop = null, requests = [], consoleErrors = [], resourceErrors = [];
 const screenshot = async (page, name) => page.screenshot({path:path.join(folder, name + ".png"), fullPage:true});
 async function context(generation) {
   const setup = await control("reset", {generation});
-  requests = []; consoleErrors = []; drop = null;
+  requests = []; consoleErrors = []; resourceErrors = []; drop = null;
   const ctx = await browser.newContext({viewport:{width:1280, height:900}});
   await ctx.route("**/*", async route => {
     const request = route.request();
@@ -23,7 +23,7 @@ async function context(generation) {
     const method = request.method(), url = request.url();
     const result = await rpc({method, url, headers:request.headers(), body:(request.postDataBuffer() || Buffer.alloc(0)).toString("base64")});
     let data; try { data = JSON.parse(Buffer.from(result.body, "base64").toString()); } catch (_) {}
-    requests.push({method, url, version:method === "POST" && url.includes("/api/create-kodi/") ? JSON.parse(request.postData() || "{}").version : null});
+    requests.push({method, url, status:result.status, version:method === "POST" && url.includes("/api/create-kodi/") ? JSON.parse(request.postData() || "{}").version : null});
     const lose = method === "POST" && ((drop === "accept" && url.endsWith("/api/create-kodi/operations")) ||
       (drop === "provision" && data?.stage === "provisioning" && data?.checkpoint === "confirmed") ||
       (drop === "start" && data?.stage === "startup" && data?.checkpoint === "confirmed"));
@@ -33,6 +33,7 @@ async function context(generation) {
   });
   const page = await ctx.newPage();
   page.on("pageerror", error => consoleErrors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") resourceErrors.push(message.text()); });
   await page.goto(base + "/login");
   await page.locator('input[name="password"]').fill(setup.password);
   // Redirected route.fulfill requests can leave Playwright's route handler.
@@ -69,6 +70,50 @@ async function mobile(page) {
 (async () => {
   browser = await chromium.launch({headless:true, executablePath:process.argv[3]});
   browser.on("disconnected", () => { if (pending.size) process.exitCode = 1; });
+  if (process.argv[5] === "empty-navigation") {
+    const empty = await context("omega"), page = empty.page;
+    for (const generation of ["nexus", "matrix", "omega"]) {
+      await page.locator("[data-create-generation]").selectOption(generation);
+      await page.locator("[data-create-approve]:enabled").waitFor();
+      await page.reload();
+      await page.locator("[data-create-approve]:enabled").waitFor();
+      assert.equal(await page.locator("[data-create-generation]").inputValue(),generation);
+    }
+    // Playwright intentionally aborts URLs ending exactly in /favicon.ico.
+    // Probe the same application route with a query; route tests cover its bare URL.
+    const icon = await page.evaluate(async () => {
+      const response = await fetch('/favicon.ico?fixture=1');
+      return {status:response.status,type:response.headers.get('content-type'),prefix:[...new Uint8Array(await response.arrayBuffer())].slice(0,4)};
+    });
+    assert.deepEqual(icon,{status:200,type:'image/vnd.microsoft.icon',prefix:[0,0,1,0]});
+    assert.equal(await page.locator('link[rel="icon"]').count(),1);
+    assert.equal(await page.locator('link[rel="icon"]').getAttribute('href'),base+'/static/favicon.ico');
+    const lookups = requests.filter(r=>r.url.includes('/by-target/'));
+    assert(lookups.length>=3);
+    assert(lookups.every(r=>r.status===204&&r.url.endsWith('?missing=empty')));
+    assert(!requests.some(r=>r.method==='POST'&&r.url.includes('/api/create-kodi/')));
+    assert.deepEqual(consoleErrors,[]);
+    assert.deepEqual(resourceErrors,[],"empty navigation has no browser-console resource errors");
+    const cleanRequests = requests.slice(), cleanSummary = await control('summary');
+    assert.equal(cleanSummary.parents,0);
+    assert.equal(cleanSummary.launches+cleanSummary.provisions+cleanSummary.starts,0);
+    // Lose only the acceptance response: no continuation is authorized afterward.
+    drop='accept';
+    await page.locator('[data-create-approve]').evaluate(button=>{button.click();button.click();});
+    await page.locator('[data-create-resume]:visible').waitFor();
+    const accepted = await control('summary');
+    assert.equal(accepted.parents,1);
+    await page.reload(); await page.locator('[data-create-resume]:visible').waitFor();
+    await page.evaluate(()=>localStorage.clear());
+    await page.reload(); await page.locator('[data-create-resume]:visible').waitFor();
+    assert.deepEqual(await control('summary'),accepted);
+    assert.equal(accepted.launches+accepted.provisions+accepted.starts,0);
+    assert.equal(continuations(),0);
+    assert.equal(requests.filter(r=>r.method==='POST'&&r.url.endsWith('/api/create-kodi/operations')).length,1);
+    assert.deepEqual(consoleErrors,[]);
+    await control('done',{result:{scenario:'empty first run, stable version selection, refresh, favicon, saved discovery after lost acceptance, duplicate click',cleanNavigationConsoleErrors:[],cleanRequests,icon,summary:accepted,noLifecycleOperations:true}});
+    await empty.ctx.close(); await browser.close(); process.stdin.destroy(); return;
+  }
   const first = await context("omega"), page = first.page;
   await screenshot(page, "01-choose-desktop");
   await mobile(page); await screenshot(page, "02-choose-mobile");
@@ -204,4 +249,4 @@ async function mobile(page) {
   await failed.ctx.close();
   await browser.close();
   process.stdin.destroy();
-})().catch(async error => { console.error(error); if (browser) await browser.close(); process.exitCode = 1; process.stdin.destroy(); });
+})().catch(async error => { console.error(error); console.error(JSON.stringify({resourceErrors,requests:requests.slice(-12)})); if (browser) await browser.close(); process.exitCode = 1; process.stdin.destroy(); });
