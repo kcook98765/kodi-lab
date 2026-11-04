@@ -8,7 +8,7 @@ function boot(){
  const events={},requests=[],clients=[],timers=new Map();let serial=0,reloads=0;
  const add=(name,fn)=>(events[name]||=[]).push(fn);
  const document={hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:key.startsWith('meta')?{content:'csrf'}:null,addEventListener:add};
- const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {},
+ const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {addEventListener() {}},
  setTimeout(fn,delay){timers.set(++serial,{fn,delay});return serial;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject})),};
  vm.runInNewContext(source,context);

@@ -22,6 +22,19 @@ let mode = 'view-only';
 let switching = false;
 let rfbConnected = false;
 let cleanupEpoch = 0;
+// Read-only support snapshots; no telemetry requests or pixel reads.
+const viewerDiagnostics = [];
+Object.defineProperty(main, 'viewerDiagnostics', {get: () => viewerDiagnostics.map(record => ({...record}))});
+function diagnostic(event, current, fields = {}) {
+    if (!['cleanup_requested', 'ws_open', 'ws_close', 'ws_error', 'rfb_connected', 'rfb_disconnected'].includes(event)) return;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(current)) return;
+    const record = {event, attempt: current, at_ms: Date.now()};
+    if (Number.isSafeInteger(fields.elapsed_ms)) record.elapsed_ms = Math.max(0, Math.min(600000, fields.elapsed_ms));
+    if ([1000, 1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 4403].includes(fields.code)) record.code = fields.code;
+    if (typeof fields.clean === 'boolean') record.clean = fields.clean;
+    viewerDiagnostics.push(record);
+    if (viewerDiagnostics.length > 64) viewerDiagnostics.shift();
+}
 // UUIDv7 gives replay IDs an immutable creation time. Use the server's clock
 // plus elapsed page time, so a user's wall-clock setting cannot age requests.
 const viewerClock = Number(main.dataset.viewerClockMs);
@@ -67,6 +80,7 @@ async function end(expected = attempt) {
     if (expected !== attempt) return;
     const endingEpoch = ++cleanupEpoch;
     const old = attempt;
+    if (old) diagnostic('cleanup_requested', old);
     attempt = null;
     const previousRfb = rfb;
     rfb = null;
@@ -90,6 +104,12 @@ function connect(current, result) {
     const url = new URL(`/api/instances/${instance}/novnc`, location.href);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(url, ['novnc', `view.${result.ticket}`]);
+    const began = performance.now();
+    const elapsed = () => Math.floor(performance.now() - began);
+    // Native listeners only; preserve WebSocket/RFB objects and timing policy.
+    ws.addEventListener('open', () => diagnostic('ws_open', current, {elapsed_ms: elapsed()}));
+    ws.addEventListener('close', event => diagnostic('ws_close', current, {elapsed_ms: elapsed(), code: event.code, clean: event.wasClean}));
+    ws.addEventListener('error', () => diagnostic('ws_error', current, {elapsed_ms: elapsed()}));
     const placeholder = main.querySelector('[data-viewer-placeholder]');
     if (placeholder) placeholder.hidden = true;
     const client = new RFB(element('#viewer'), ws);
@@ -102,6 +122,7 @@ function connect(current, result) {
     // Keep image quality while avoiding extra native compression work.
     client.compressionLevel = 0;
     client.addEventListener('connect', () => {
+        diagnostic('rfb_connected', current, {elapsed_ms: elapsed()});
         if (attempt !== current) return;
         rfbConnected = true;
         switching = false;
@@ -109,7 +130,11 @@ function connect(current, result) {
         buttons(true);
         if (mode === 'interactive') client.focus({preventScroll: true});
     });
-    client.addEventListener('disconnect', () => { if (rfb === client) rfbConnected = false; end(current); });
+    client.addEventListener('disconnect', event => {
+        diagnostic('rfb_disconnected', current, {elapsed_ms: elapsed(), clean: event?.detail?.clean});
+        if (rfb === client) rfbConnected = false;
+        end(current);
+    });
 }
 start.onclick = async () => {
     if (start.disabled || identityRetired || !permitted) return;

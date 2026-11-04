@@ -27,6 +27,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.websockets import WebSocketDisconnect
 
 from kodi_lab.application.live_display import (
     LIVE_DISPLAY_REGISTRY,
@@ -39,6 +40,7 @@ from kodi_lab.application.novnc_control import (
 )
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
+from kodi_lab.viewer_diagnostics import diagnostic
 from kodi_lab.web.view_attempts import FutureViewCancellation, ViewAttempts
 
 
@@ -500,7 +502,12 @@ async def relay(
 ) -> None:
     reader: asyncio.StreamReader | None = None
     writer: asyncio.StreamWriter | None = None
-    tasks: list[asyncio.Task[None]] = []
+    tasks: list[asyncio.Task[str]] = []
+    began = time.monotonic()
+    phase, reason = "binding_check", "failed"
+    accepted = False
+    ws_code: object = None
+    outcomes = dict.fromkeys(("incoming", "outgoing", "watchdog"), "pending")
     try:
         # Single-use browser ticket was consumed before any worker admission.
         if (
@@ -510,13 +517,18 @@ async def relay(
             )
             != item.binding
         ):
+            reason = "binding_changed"
             raise ValueError("view identity changed")
+        phase = "current_check"
         if not current():
+            reason = "session_ended"
             raise ValueError("view cancelled")
+        phase = "broker_connect"
         reader, writer = await asyncio.wait_for(
             asyncio.open_unix_connection(str(viewer.socket_path), limit=65536), 1
         )
         assert reader is not None and writer is not None
+        phase = "broker_handshake"
         challenge = (await asyncio.wait_for(reader.readexactly(64), 1)).decode("ascii")
         request = {
             "instance": str(item.session.instance_id),
@@ -529,72 +541,121 @@ async def relay(
         writer.write(json.dumps(request).encode() + b"\n")
         await asyncio.wait_for(writer.drain(), 1)
         if await asyncio.wait_for(reader.readexactly(3), 2) != b"OK\n":
+            reason = "worker_refused"
             raise ValueError("view worker refused")
         if not current():
+            reason = "session_ended"
             raise ValueError("view cancelled")
+        phase = "ws_accept"
         await websocket.accept(subprotocol="novnc")
+        accepted = True
+        diagnostic(
+            "web_accepted",
+            attempt=item.attempt,
+            instance=item.session.instance_id,
+            elapsed_ms=int((time.monotonic() - began) * 1000),
+        )
+        phase = "streaming"
 
-        async def incoming() -> None:
+        async def incoming() -> str:
+            nonlocal ws_code
             assert writer is not None
             window = time.monotonic()
             total = 0
             while True:
                 message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    ws_code = message.get("code")
+                    return "browser_disconnect"
                 payload = message.get("bytes")
                 if message["type"] != "websocket.receive" or not isinstance(
                     payload, bytes
                 ):
-                    return
-                if not 0 < len(payload) <= 65536 or not current():
-                    return
+                    return "invalid_browser_message"
+                if not 0 < len(payload) <= 65536:
+                    return "input_limit"
+                if not current():
+                    return "session_ended"
                 now = time.monotonic()
                 if now - window >= 1:
                     window, total = now, 0
                 total += len(payload)
                 if total > 131072:
-                    return
+                    return "input_limit"
                 writer.write(struct.pack("!BI", 1, len(payload)) + payload)
                 await asyncio.wait_for(writer.drain(), 2)
 
-        async def outgoing() -> None:
+        async def outgoing() -> str:
             assert reader is not None
             while True:
                 data = await reader.read(65536)
                 if not data or not current():
-                    return
+                    return "broker_eof" if not data else "session_ended"
                 await asyncio.wait_for(websocket.send_bytes(data), 2)
 
-        async def watchdog() -> None:
+        async def watchdog() -> str:
             assert writer is not None
+            denial = "authorization_rejected"
 
             def authorized() -> bool:
-                return (
-                    auth_current()
-                    and viewer.binding(item.session.instance_id, item.mode)
-                    == item.binding
-                    and (
-                        viewer.ownership is None
-                        or viewer.ownership.renew(
-                            item.session.instance_id, item.attempt, item.owner
-                        )
-                    )
-                )
+                nonlocal denial
+                if not auth_current():
+                    denial = "authorization_rejected"
+                    return False
+                if viewer.binding(item.session.instance_id, item.mode) != item.binding:
+                    denial = "binding_changed"
+                    return False
+                if viewer.ownership is not None and not viewer.ownership.renew(
+                    item.session.instance_id, item.attempt, item.owner
+                ):
+                    denial = "ownership_rejected"
+                    return False
+                return True
 
             while current():
                 if not await viewer.checked(
                     authorized, cancelled=item.session.cancelled
                 ):
-                    return
+                    return denial
                 if not current():
-                    return
+                    return "session_ended"
                 # Browser bytes are always kind 1; only this trusted check may
                 # renew the Web lease. A frozen/lost Web expires at the broker.
                 writer.write(struct.pack("!BI", 2, 0))
                 await asyncio.wait_for(writer.drain(), 1)
                 await asyncio.sleep(0.25)
+            return "session_ended"
 
         tasks = [asyncio.create_task(work()) for work in (incoming, outgoing, watchdog)]
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        completed, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        reason = "task_completed"
+        for name, task in zip(outcomes, tasks, strict=True):
+            if task in completed:
+                try:
+                    outcomes[name] = task.result()
+                except TimeoutError:
+                    outcomes[name] = "timeout"
+                except WebSocketDisconnect as error:
+                    ws_code = error.code
+                    outcomes[name] = "browser_disconnect"
+                except (OSError, asyncio.IncompleteReadError):
+                    outcomes[name] = "transport_error"
+                except asyncio.CancelledError:
+                    outcomes[name] = "cancelled"
+                except Exception:
+                    outcomes[name] = "internal_error"
+    except BaseException as error:
+        if reason == "failed":
+            reason = (
+                "timeout"
+                if isinstance(error, TimeoutError)
+                else "cancelled"
+                if isinstance(error, asyncio.CancelledError)
+                else "transport_error"
+                if isinstance(error, (OSError, asyncio.IncompleteReadError))
+                else "internal_error"
+            )
+        raise
     finally:
         item.session.cancelled.set()
         for task in tasks:
@@ -607,7 +668,24 @@ async def relay(
                 await asyncio.wait_for(writer.wait_closed(), 1)
         with suppress(Exception):
             await asyncio.wait_for(websocket.close(code=1000), 1)
-        await viewer.mutate(lambda: viewer.end(item))
+        cleanup_completed = False
+        try:
+            await viewer.mutate(lambda: viewer.end(item))
+            cleanup_completed = True
+        finally:
+            diagnostic(
+                "web_ended",
+                attempt=item.attempt,
+                instance=item.session.instance_id,
+                accepted=accepted,
+                phase=phase,
+                reason=reason,
+                ws_code=ws_code,
+                close_requested_code=1000,
+                cleanup_completed=cleanup_completed,
+                elapsed_ms=int((time.monotonic() - began) * 1000),
+                **outcomes,
+            )
 
 
 def install_routes(
@@ -805,6 +883,12 @@ def install_routes(
             or protocols[0] != "novnc"
             or not protocols[1].startswith("view.")
         ):
+            diagnostic(
+                "web_rejected",
+                instance=instance,
+                reason="authorization_rejected",
+                close_requested_code=4403,
+            )
             await websocket.close(code=4403)
             return
         try:
@@ -814,6 +898,12 @@ def install_routes(
                 )
             )
         except ValueError:
+            diagnostic(
+                "web_rejected",
+                instance=instance,
+                reason="ticket_rejected",
+                close_requested_code=4403,
+            )
             await websocket.close(code=4403)
             return
 

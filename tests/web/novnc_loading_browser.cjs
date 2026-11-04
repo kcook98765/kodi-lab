@@ -9,7 +9,7 @@ function boot(){
  const module=new Promise((resolve,reject)=>{resolveModule=resolve;rejectModule=reject;});
  const requests=[];
  class RFB {constructor(){clients++;}addEventListener(){}disconnect(){}}
- const context={document:{hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:{content:'csrf'},addEventListener(){}},window:{addEventListener(){}},location:{href:'https://lab.test/',protocol:'https:'},URL,WebSocket:class{},crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,
+ const context={document:{hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:{content:'csrf'},addEventListener(){}},window:{addEventListener(){}},location:{href:'https://lab.test/',protocol:'https:'},URL,WebSocket:class{addEventListener(){}},crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,
   loadViewerModule(){loaded++;return module;},fetch:(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return Promise.resolve({ok:true,json:async()=>url.endsWith('-start')?{ticket:'one',mode:'view-only'}:{stopped:true}});}};
  vm.runInNewContext(source,context);
  return {nodes,requests,resolve:()=>resolveModule({default:RFB}),reject:()=>rejectModule(Error('module failed')),loads:()=>loaded,clients:()=>clients};
