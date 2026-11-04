@@ -153,8 +153,9 @@ def test_recorded_higher_limit_is_actionable_without_changing_retained_policy(
 
 
 @pytest.mark.parametrize("present", [True, False])
+@pytest.mark.parametrize("registered", [True, False])
 def test_verified_existing_runtime_uses_eligibility_and_exact_image(
-    factory: sessionmaker[Session], tmp_path: Path, present: bool
+    factory: sessionmaker[Session], tmp_path: Path, present: bool, registered: bool
 ) -> None:
     operation = _ready(factory, generation="omega")
     with factory() as session:
@@ -162,13 +163,16 @@ def test_verified_existing_runtime_uses_eligibility_and_exact_image(
         assert row is not None and row.runtime_revision_id is not None
         revision = UUID(row.runtime_revision_id)
     reviewed = load_reviewed_recipe("omega")
-    bootstrap_recipe_instance(factory, reviewed, revision)
+    if registered:
+        bootstrap_recipe_instance(factory, reviewed, revision)
     broker = Broker()
     broker.image_present = present
     observed = checks(service(factory, tmp_path, broker))
     assert observed["runtime"].status == ("passed" if present else "attention")
-    assert observed["instance"].status == "existing"
-    assert observed["instance"].detail_url == f"/instances/{recipe_target_id(reviewed)}"
+    assert observed["instance"].status == ("existing" if registered else "info")
+    assert observed["instance"].detail_url == (
+        f"/instances/{recipe_target_id(reviewed)}" if registered else None
+    )
     with factory() as session:
         saved = session.get(RuntimeRecipeInstallationRow, str(operation))
         assert saved is not None and saved.state is RuntimeRecipeInstallationState.READY

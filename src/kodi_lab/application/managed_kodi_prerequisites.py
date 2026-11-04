@@ -325,7 +325,10 @@ class ManagedKodiPrerequisiteService:
                 "A saved installation record exists for this version. "
                 "Runtime files could not be verified. Review its saved setup.",
             )
-        elif view.status == "ready":
+        elif view.status in {"ready", "setup_incomplete"}:
+            # The legacy view labels an eligible, image-verified runtime without
+            # canonical registration "setup_incomplete". Create registers it in
+            # its own admitted stage; runtime files do not need another download.
             status, message = (
                 "passed",
                 "Approved runtime files are installed and verified. "

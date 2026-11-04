@@ -7623,3 +7623,15 @@ read-only installation/registration confirmation and native readiness rechecks
 retain original identities. No refusal reset, general recovery, scheduler,
 schema, broker authority, endpoint or wizard is introduced. See
 [the runner contract](CREATE-KODI-RUNNER.md).
+
+## Protected Create continuation (issue #196, milestone 3B2)
+
+One explicit strict versioned administrator POST invokes the existing bounded
+runner once in the Web thread pool, using existing session/CSRF/origin/host fences.
+It accepts no caller-selected stage, child identity, proof or retry authority.
+Stale requests conflict; lost responses direct reconnect to the original durable
+status rather than redispatch. Snapshot next-action guidance never drives work.
+Verified runtime files without canonical registration are reusable prerequisites,
+not a demand to redownload; registration keeps its existing stage admission.
+No schema, broker authority, queue, scheduler, wizard or passive execution is
+added. See [the API contract](CREATE-KODI-API.md).

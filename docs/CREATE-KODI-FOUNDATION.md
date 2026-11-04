@@ -19,6 +19,8 @@ triggered by those endpoints.
 Milestone 3B1 adds the [bounded internal runner](CREATE-KODI-RUNNER.md). It invokes
 one existing adapter or ledger transition per explicit call; no HTTP endpoint,
 startup hook, polling execution or new authority is added.
+Milestone 3B2 adds the protected versioned continuation POST described in the
+[API contract](CREATE-KODI-API.md). Acceptance, status and reconnect stay passive.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,
