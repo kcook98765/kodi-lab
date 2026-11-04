@@ -23,7 +23,7 @@ from kodi_lab.application.managed_kodi_prerequisites import (
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.auth.service import AuthenticatedWebSession
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
-from kodi_lab.domain import TargetType
+from kodi_lab.domain import RuntimeRecipeInstallationState, TargetType
 from kodi_lab.domain.create_kodi import (
     CreateAcceptance,
     CreateCheckpoint,
@@ -44,6 +44,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedProvisionReservationRow,
     ManagedStartReservationRow,
+    RuntimeRecipeInstallationRow,
     TargetRow,
 )
 
@@ -102,6 +103,8 @@ class CreateStatus(BaseModel):
     status_url: str
     next_action: NextAction
     instance: CreateAvailability
+    # Advisory receipt observation only; continuation still verifies ownership.
+    installation_result_available: bool | None = None
 
 
 class CreateAccepted(CreateStatus):
@@ -425,6 +428,36 @@ class CreateKodiAPI:
         )
 
     def present(self, op: CreateOperation) -> CreateStatus:
+        installation_result_available = None
+        if (
+            op.stage is CreateStage.INSTALLATION
+            and op.checkpoint is CreateCheckpoint.DISPATCHED
+            and op.installation_operation_id is not None
+        ):
+            with self._sessions() as session:
+                child = session.get(
+                    RuntimeRecipeInstallationRow, str(op.installation_operation_id)
+                )
+                installation_result_available = bool(
+                    child is not None
+                    and child.state
+                    in {
+                        RuntimeRecipeInstallationState.READY,
+                        RuntimeRecipeInstallationState.FAILED,
+                    }
+                    and (
+                        child.generation,
+                        child.recipe_id,
+                        child.recipe_revision,
+                        child.recipe_digest,
+                    )
+                    == (
+                        op.generation,
+                        op.recipe_id,
+                        op.recipe_revision,
+                        op.recipe_digest,
+                    )
+                )
         try:
             kodi_version = load_recorded_reviewed_recipe(
                 op.generation, op.recipe_id, op.recipe_revision, op.recipe_digest
@@ -513,6 +546,7 @@ class CreateKodiAPI:
             status_url=f"{BASE}/{op.id}",
             next_action=next_action,
             instance=instance,
+            installation_result_available=installation_result_available,
         )
 
 

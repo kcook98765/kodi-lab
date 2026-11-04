@@ -13,7 +13,7 @@ import httpx
 import pytest
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.create_kodi_runner import CreateKodiRunner
@@ -35,7 +35,9 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedStartAuthorizationRow,
     NovncSessionRow,
+    RuntimeRecipeInstallationRow,
 )
+from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 from kodi_lab.web.create_kodi import BASE
 from kodi_lab.web.novnc import PrototypeViewer
 from tests.application.test_create_kodi_installation import factory as factory
@@ -321,6 +323,7 @@ def test_active_install_worker_waits_without_launch_and_passive_get(
     env.broker.mode = "pending"
     status = step(web, step(web, status))
     assert status["checkpoint"] == "dispatched" and status["next_action"] == "wait"
+    assert status["installation_result_available"] is False
     before = counts(env)
     assert client.get(status["status_url"]).json() == status
     assert counts(env) == before
@@ -328,10 +331,79 @@ def test_active_install_worker_waits_without_launch_and_passive_get(
     op = env.repo.get(UUID(status["operation_id"]))
     assert op and op.installation_operation_id
     finish(factory, op.installation_operation_id)
+    observed = client.get(status["status_url"]).json()
+    assert observed == {**status, "installation_result_available": True}
+    assert env.repo.get(op.id) == op and counts(env) == before
+    assert step(web, status) == observed, "receipt cannot bypass live worker checks"
+    assert env.repo.get(op.id) == op and counts(env) == before
     env.broker.workers[str(op.installation_operation_id)] = "exited"
     env.broker.operation_id = env.broker.generation = None
     confirmed = step(web, status)
     assert confirmed["checkpoint"] == "confirmed" and len(env.broker.launches) == 1
+
+
+@pytest.mark.parametrize("receipt", ["active", "ready", "failed", "mismatched"])
+def test_installation_receipt_hint_is_exact_and_read_only(
+    web: Web,
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    receipt: str,
+) -> None:
+    env, client, _ = web
+    status = accept(web)
+    env.broker.mode = "pending"
+    status = step(web, step(web, status))
+    op = env.repo.get(UUID(status["operation_id"]))
+    assert op and op.installation_operation_id
+    if receipt in {"ready", "mismatched"}:
+        finish(factory, op.installation_operation_id)
+    elif receipt == "failed":
+        with factory.begin() as session:
+            RuntimeRecipeInstallationRepository(session).fail(
+                op.installation_operation_id,
+                code="installation_failed",
+                now=datetime.now(UTC),
+            )
+    if receipt == "mismatched":
+        with factory.begin() as session:
+            child = session.get(
+                RuntimeRecipeInstallationRow, str(op.installation_operation_id)
+            )
+            assert child
+            child.recipe_digest = "sha256:" + "f" * 64
+
+    before = counts(env)
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("receipt GET must not inspect the worker or run a continuation")
+
+    monkeypatch.setattr(CreateKodiRunner, "continue_once", forbidden)
+    monkeypatch.setattr(env.broker, "observe_reviewed_runtime_installation", forbidden)
+    statements: list[str] = []
+    engine = factory.kw["bind"]
+
+    def record(_c: Any, _cur: Any, sql: str, *_args: Any) -> None:
+        statements.append(sql.lstrip())
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        for _ in range(3):
+            for url in (status["status_url"], f"{BASE}/by-target/{op.target_id}"):
+                response = client.get(url)
+                assert response.status_code == 200
+                assert response.json() == {
+                    **status,
+                    "installation_result_available": receipt in {"ready", "failed"},
+                }
+                assert response.headers["Cache-Control"] == "no-store"
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert not [
+        sql
+        for sql in statements
+        if sql.split()[0].upper() in {"INSERT", "UPDATE", "DELETE", "REPLACE"}
+    ]
+    assert env.repo.get(op.id) == op and counts(env) == before
 
 
 @pytest.mark.parametrize("stage", ["installation", "provisioning", "startup"])

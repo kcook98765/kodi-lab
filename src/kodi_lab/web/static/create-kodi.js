@@ -18,13 +18,14 @@
   const lastKey = "kodi-lab.create-kodi.v1.last-generation";
   let generation = snapshot.generation, saved = null, op = null, busy = false;
   let running = false, timer = null, epoch = 0, reconciled = false, ready = false;
-  let storageOK = true, suspended = false, steps = 0, waits = 0;
+  let storageOK = true, suspended = false, steps = 0, waits = 0, remainingWait = 0;
   const key = () => `kodi-lab.create-kodi.v1.${generation}`;
   const text = (name, value) => { if (find(name).textContent !== value) find(name).textContent = value; };
   const error = message => { text("error", message); find("error").hidden = !message; };
   function pause(message = "") {
     running = false;
     clearTimeout(timer); timer = null;
+    remainingWait = 0;
     if (message) text("notice", message);
   }
   function validApproval(value) {
@@ -69,10 +70,13 @@
         !Number.isSafeInteger(value.version) || value.version < 0 ||
         !phases.has(value.phase) || !actions.has(value.next_action) ||
         typeof value.message !== "string" || typeof value.complete !== "boolean" ||
+        (value.installation_result_available != null && typeof value.installation_result_available !== "boolean") ||
         (op && value.operation_id !== op.operation_id)) throw new SetupError("Unexpected saved setup. Check status before continuing.");
     return value;
   }
   const available = () => !op || ["not_created", "unverified", "running", "stopped"].includes(op.instance.state);
+  const observingInstallation = value => value.stage === "installation" && value.checkpoint === "dispatched" &&
+    typeof value.installation_result_available === "boolean";
   const attention = () => op && (op.next_action === "needs_attention" || op.status === "needs_attention" || op.checkpoint === "needs_attention");
   const resumable = () => reconciled && (op ? !op.complete && !attention() && available() : validApproval(saved?.approval));
   function controls() {
@@ -170,12 +174,16 @@
   }
   function schedule() {
     if (!running || busy || document.hidden || !op || op.complete || attention() || !available()) return;
-    if (steps >= 40 || waits >= 20) {
+    if (steps >= 40 || (waits >= 20 && remainingWait === 0)) {
       pause("Setup is taking longer than expected. Check status, then Resume setup when you’re ready.");
       reconciled = false; controls(); return;
     }
     const inspecting = op.next_action !== "continue";
-    const delay = inspecting ? Math.min(30000, 5000 * (1 + waits++)) : 800;
+    if (remainingWait === 0) remainingWait = inspecting ? Math.min(30000, 5000 * (1 + waits++)) : 800;
+    // Cheap receipt GETs subdivide the existing bounded wait windows. Keep
+    // regular continuation checks at their original cadence if no result exists.
+    const delay = observingInstallation(op) ? Math.min(5000, remainingWait) : remainingWait;
+    remainingWait -= delay;
     const known = op;
     timer = setTimeout(() => { timer = null; void advance(inspecting ? known : null); }, delay);
   }
@@ -192,10 +200,11 @@
           pause("Setup changed elsewhere. Check status, then Resume setup."); reconciled = false; return;
         }
         if (current.complete || attention() || !available()) return;
+        if (observingInstallation(current) && !current.installation_result_available && remainingWait > 0) return;
       }
       // Only the preceding known response / explicit Resume establishes this
       // continuation. A passive GET never starts a run or permits redispatch.
-      steps++;
+      remainingWait = 0; steps++;
       const previous = op;
       const result = await json(op.status_url + "/continue", "POST", {version:op.version});
       if (ticket !== epoch) return;

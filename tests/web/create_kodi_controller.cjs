@@ -26,7 +26,7 @@ function boot(storage = new Map(), denied = false, config = {}) {
   window.location = {href:"https://127.0.0.1/create-kodi"};
   window.history = {replaceState:(_state, _title, url) => { window.location.href = String(url); }};
   document.createElement = () => new Element();
-  const requests = [], timers = new Map(); let nextTimer = 1;
+  const requests = [], timers = new Map(); let nextTimer = 1, elapsed = 0;
   const store = {
     getItem(key) { if (denied) throw new Error("denied"); return storage.get(key) || null; },
     setItem(key, value) { if (denied) throw new Error("denied"); storage.set(key, value); },
@@ -36,14 +36,16 @@ function boot(storage = new Map(), denied = false, config = {}) {
     CustomEvent:class { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } },
     setTimeout:(callback, delay) => { const key = nextTimer++; timers.set(key, {callback, delay}); return key; },
     clearTimeout:key => timers.delete(key),
-    fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
+    fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject, at:elapsed})),
   });
   return {nodes, root, component, refresh, document, window, requests, timers, storage,
+    get elapsed() { return elapsed; },
     submit:() => nodes.form.dispatchEvent({type:"submit", preventDefault(){}}),
     click:name => nodes[name].dispatchEvent({type:"click"}),
     async tick() {
       const selected = [...timers].find(([, value]) => value.delay <= 30000);
       assert(selected, "an explicitly scheduled continuation exists");
+      elapsed += selected[1].delay;
       timers.delete(selected[0]); selected[1].callback(); await flush(); return selected[1].delay;
     },
   };
@@ -73,7 +75,7 @@ async function approved(app) {
   assert.deepEqual(JSON.parse(posts(app).at(-1).options.body), {version:0});
   await reply(posts(app).at(-1), status(1, {checkpoint:"planned"}));
   await app.tick();
-  const dispatched = status(2, {checkpoint:"dispatched", next_action:"wait", status:"waiting"});
+  const dispatched = status(2, {checkpoint:"dispatched", next_action:"wait", status:"waiting", installation_result_available:false});
   await reply(posts(app).at(-1), dispatched);
   const before = posts(app).length;
   assert.equal(await app.tick(), 5000);
@@ -82,10 +84,62 @@ async function approved(app) {
   assert.equal(posts(app).length, before + 1);
   assert.deepEqual(JSON.parse(posts(app).at(-1).options.body), {version:2});
   await reply(posts(app).at(-1), dispatched);
-  assert.equal(await app.tick(), 10000, "unchanged worker inspection backs off");
+  assert.equal(await app.tick(), 5000, "receipt observation subdivides the next ten-second wait");
   await reply(app.requests.at(-1), status(3, {checkpoint:"confirmed"}));
   assert.equal(posts(app).length, before + 1, "another tab's newer state pauses rather than executes");
   assert.equal(app.timers.size, 0);
+
+  async function waiting() {
+    const app = boot(); await approved(app); await app.tick();
+    await reply(posts(app).at(-1), dispatched);
+    return app;
+  }
+  const prompt = await waiting();
+  // Reach the thirty-second continuation window with an ordinary slow worker.
+  for (let window = 1; window <= 6; window++) {
+    for (let slice = 0; slice < Math.min(6, window); slice++) {
+      assert.equal(await prompt.tick(), 5000);
+      const count = posts(prompt).length;
+      await reply(prompt.requests.at(-1), dispatched);
+      assert.equal(posts(prompt).length, count + (slice === Math.min(6, window) - 1 ? 1 : 0));
+    }
+    await reply(posts(prompt).at(-1), dispatched);
+  }
+  const acknowledged = posts(prompt).length;
+  assert.equal(await prompt.tick(), 5000);
+  await reply(prompt.requests.at(-1), dispatched);
+  assert.equal(posts(prompt).length, acknowledged, "intermediate GET has no mutation");
+  const completedChildAt = prompt.elapsed;
+  assert.equal(await prompt.tick(), 5000);
+  const observation = prompt.requests.at(-1);
+  prompt.submit(); prompt.click("check"); prompt.click("resume");
+  assert.equal(prompt.requests.at(-1), observation, "pending GET excludes other requests");
+  await reply(observation, {...dispatched, installation_result_available:true});
+  assert.equal(prompt.elapsed-completedChildAt,5000,"already-completed child observed within five seconds");
+  assert.equal(posts(prompt).length,acknowledged+1,"one original continuation, not a new installation");
+  assert.equal(posts(prompt).at(-1).url,dispatched.status_url+'/continue');
+  assert.deepEqual(JSON.parse(posts(prompt).at(-1).options.body),{version:2});
+  const confirmed = status(3,{checkpoint:"confirmed"});
+  await reply(posts(prompt).at(-1),confirmed);
+  assert.equal(await prompt.tick(),800,"normal stage progression remains unchanged");
+
+  const readFailure = await waiting();
+  await readFailure.tick(); await reply(readFailure.requests.at(-1),dispatched);
+  await reply(posts(readFailure).at(-1),dispatched);
+  await readFailure.tick();
+  const writesBeforeFailure = posts(readFailure).length;
+  readFailure.requests.at(-1).reject(new Error('temporary connection loss')); await flush();
+  await reply(readFailure.requests.at(-1),{...dispatched,installation_result_available:true});
+  assert.equal(posts(readFailure).length,writesBeforeFailure,"recovery GET cannot use a receipt to resume mutations");
+  assert.equal(readFailure.timers.size,0);
+  const refreshed = boot(readFailure.storage);
+  await reply(refreshed.requests[0],{...dispatched,installation_result_available:true});
+  assert.equal(posts(refreshed).length,0,"active-operation refresh observes only the saved parent");
+  assert.equal(refreshed.timers.size,0);
+  refreshed.click('resume'); assert.equal(await refreshed.tick(),5000);
+  await reply(refreshed.requests.at(-1),{...dispatched,installation_result_available:true});
+  assert.deepEqual(JSON.parse(posts(refreshed).at(-1).options.body),{version:2});
+  assert.equal(posts(refreshed)[0].url,dispatched.status_url+'/continue');
 
   const unknown = boot(); await approved(unknown); await unknown.tick();
   posts(unknown).at(-1).reject(new Error("secret internal transport")); await flush();
@@ -167,11 +221,22 @@ async function approved(app) {
   const bounded = boot(); await approved(bounded); await bounded.tick();
   await reply(posts(bounded).at(-1), status(1, {checkpoint:"planned"}));
   await bounded.tick(); await reply(posts(bounded).at(-1), dispatched);
+  const waitingAt = bounded.elapsed, writesAt = posts(bounded).length, readsAt = bounded.requests.length;
   for (let i = 0; i < 20; i++) {
-    assert.equal(await bounded.tick(), Math.min(30000, 5000 * (i + 1)));
-    await reply(bounded.requests.at(-1), dispatched);
+    const slices = Math.min(6,i+1);
+    for (let slice = 0; slice < slices; slice++) {
+      assert.equal(await bounded.tick(),5000);
+      const count = posts(bounded).length;
+      await reply(bounded.requests.at(-1),dispatched);
+      assert.equal(posts(bounded).length,count+(slice === slices-1 ? 1 : 0));
+    }
     await reply(posts(bounded).at(-1), dispatched);
   }
+  assert.equal(bounded.elapsed-waitingAt,525000,"same eight-minute-forty-five-second wait budget");
+  assert.equal(posts(bounded).length-writesAt,20,"no increase in regular continuation POSTs");
+  const reads = bounded.requests.slice(readsAt).filter(r=>r.options.method==='GET');
+  assert.equal(reads.length,105,"finite receipt-observation budget");
+  assert(reads.every((r,i)=>!i||r.at-reads[i-1].at>=5000),"no more than one receipt GET per five seconds");
   assert.equal(bounded.timers.size, 0, "a foreground run has a finite inspection budget");
   assert(bounded.nodes.notice.textContent.includes("taking longer"));
 

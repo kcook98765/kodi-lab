@@ -95,7 +95,10 @@ async function mobile(page) {
   assert.equal(summary.parents, 1); assert.equal(summary.launches, 1);
   assert.equal(summary.starts, 0);
   await screenshot(page, "03-preparing-mobile");
+  const finishedAt = Date.now();
   await control("finish_install"); drop = "provision";
+  await page.locator('[data-create-phase]').filter({hasText:"Setting up Kodi"}).waitFor({timeout:7500});
+  const installationAcknowledgedSeconds = (Date.now() - finishedAt) / 1000;
   await page.locator("[data-create-resume]:visible").waitFor({timeout:25000});
   summary = await control("summary"); assert.equal(summary.provisions, 1); assert.equal(summary.starts, 0);
   drop = "start"; await resume(page);
@@ -141,7 +144,7 @@ async function mobile(page) {
   assert.equal((await control("summary")).native, stopped.native);
   await mobile(page); await screenshot(page, "07-created-stopped-mobile");
   assert.equal(consoleErrors.length, 0, consoleErrors.join("\n"));
-  await control("done", {result:{scenario:"fresh Omega, duplicate click, refresh, canonical reconnect, tabs, lost acceptance/provision/Start responses, delayed installation/native, application restart, view-only admission, historical Stop", summary:stopped, admission}});
+  await control("done", {result:{scenario:"fresh Omega, duplicate click, refresh, canonical reconnect, tabs, lost acceptance/provision/Start responses, delayed installation/native, application restart, view-only admission, historical Stop", installationAcknowledgedSeconds, summary:stopped, admission}});
   await first.ctx.close();
 
   const cached = await context("nexus");
