@@ -46,6 +46,43 @@ def require_provision_receipt(session: Session, op: CreateOperation) -> None:
         raise CreateTransitionError("confirmed_provision_receipt_required")
 
 
+def require_start_receipt(session: Session, op: CreateOperation) -> None:
+    """Retained success evidence, not permission to dispatch another Start."""
+    require_provision_receipt(session, op)
+    child = (
+        session.get(ManagedInstanceLifecycleOperationRow, str(op.start_operation_id))
+        if op.start_operation_id
+        else None
+    )
+    auth = (
+        session.get(ManagedStartAuthorizationRow, str(op.start_operation_id))
+        if op.start_operation_id
+        else None
+    )
+    if (
+        child is None
+        or child.kind is not Kind.START
+        or child.state is not State.SUCCEEDED
+        or child.original_managed_instance_id != str(op.target_id)
+        or child.managed_instance_id != str(op.target_id)
+        or child.resulting_state not in {"running_usable", "running_not_ready"}
+        or child.reconciliation_required
+        or child.completed_at is None
+        or auth is None
+        or auth.consumed_at is None
+        or not (auth.created_at <= auth.consumed_at <= child.completed_at)
+        or (auth.target_id, auth.runtime_revision_id, auth.image_id, auth.container_id)
+        != (
+            str(op.target_id),
+            str(op.runtime_revision_id),
+            op.image_id,
+            op.container_id,
+        )
+        or op.runtime_state_revision != auth.runtime_state_revision + 1
+    ):
+        raise CreateTransitionError("confirmed_start_receipt_required")
+
+
 def _parent(
     session: Session, operation_id: UUID, version: int
 ) -> CreateKodiOperationRow:

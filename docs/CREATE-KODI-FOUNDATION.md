@@ -10,6 +10,9 @@ no general retry, provision recovery, Start or readiness integration.
 Milestone 2C adds [exact Start integration](CREATE-KODI-START.md) through existing
 ordinary lifecycle authority; final readiness, Create API and orchestration remain
 separate work.
+Milestone 2D adds [native readiness and explicit read-only rechecks](CREATE-KODI-READINESS.md).
+Only that observation stage may claim Dispatched again with the current version;
+installation and lifecycle dispatch uncertainty remain fenced as before.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,
