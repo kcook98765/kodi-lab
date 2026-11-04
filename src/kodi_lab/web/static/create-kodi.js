@@ -8,6 +8,7 @@
   const find = name => root.querySelector(`[data-create-${name}]`);
   const component = root.querySelector("[data-kodi-prerequisites]");
   const api = "/api/create-kodi/operations";
+  const byTarget = target => json(`${api}/by-target/${target}?missing=empty`);
   const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
   const generations = new Set(["matrix", "nexus", "omega"]);
   const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Ready", "Needs attention"]);
@@ -139,6 +140,8 @@
         headers:method === "POST" ? {"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf} : {},
         ...(body === null ? {} : {body:JSON.stringify(body)}),
       });
+      if (method === "GET" && response.status === 204 &&
+          url.startsWith(`${api}/by-target/`) && url.endsWith("?missing=empty")) return null;
       if (method === "GET" && response.status === 404) return null;
       if (!response.ok) throw new SetupError([401, 403].includes(response.status)
         ? "Sign in again, then check the saved setup status."
@@ -152,7 +155,7 @@
     try {
       saved = readSaved();
       let current = uuid(saved?.operation_id) ? await json(`${api}/${saved.operation_id}`) : null;
-      if (!current) current = await json(`${api}/by-target/${snapshot.target_id}`);
+      if (!current) current = await byTarget(snapshot.target_id);
       if (ticket !== epoch) return;
       if (current) {
         attach(current); reconciled = true;
@@ -224,7 +227,7 @@
     busy = true; suspended = false; controls();
     const ticket = epoch;
     try {
-      const existing = await json(`${api}/by-target/${snapshot.target_id}`);
+      const existing = await byTarget(snapshot.target_id);
       if (ticket !== epoch || suspended || document.hidden) return;
       if (existing) { attach(existing); reconciled = true; return; }
       const pending = readSaved();
@@ -297,7 +300,7 @@
     try {
       const results = await Promise.all([...generations].map(async value => {
         if (!uuid(targets[value])) throw new SetupError("Check the saved setup before continuing.");
-        const current = await json(`${api}/by-target/${targets[value]}`);
+        const current = await byTarget(targets[value]);
         if (current && (current.generation !== value || current.instance?.target_id !== targets[value])) {
           throw new SetupError("Unexpected saved setup. Check status before continuing.");
         }

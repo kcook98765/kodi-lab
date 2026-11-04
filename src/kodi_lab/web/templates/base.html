@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
     <title>{% block title %}Kodi Lab{% endblock %}</title>
+    <link rel="icon" type="image/vnd.microsoft.icon" sizes="16x16" href="{{ url_for('static', path='/favicon.ico') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
     {% if shared_navigation_enabled %}<script src="{{ url_for('static', path='/navigation.js') }}" defer></script>{% endif %}
     <script src="{{ url_for('static', path='/presentation.js') }}" defer></script>

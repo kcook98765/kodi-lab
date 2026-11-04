@@ -34,7 +34,13 @@ from fastapi import (
 )
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import (
@@ -2470,6 +2476,14 @@ def create_app(
         managed_next_step=managed_next_step,
     )
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(
+            _WEB_ROOT / "static" / "favicon.ico",
+            media_type="image/vnd.microsoft.icon",
+        )
+
     app.router.routes.append(
         Route(
             "/mcp",

@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -680,20 +680,31 @@ def create_kodi_router(
         # entire one-shot action/presentation off the application event loop.
         return await run_in_threadpool(continue_once, operation_id, payload)
 
-    @router.get(BASE + "/by-target/{target_id}", response_model=CreateStatus)
+    @router.get(
+        BASE + "/by-target/{target_id}",
+        response_model=CreateStatus,
+        responses={204: {"description": "No saved Create for this stable target."}},
+    )
     def reconnect(
-        target_id: UUID, _admin: AuthenticatedWebSession = read_admin
-    ) -> JSONResponse:
+        target_id: UUID,
+        missing: Literal["empty"] | None = None,
+        _admin: AuthenticatedWebSession = read_admin,
+    ) -> Response:
         op = api.service.for_target(target_id)
-        return (
-            reply(api.present(op))
-            if op
-            else failure(
-                CreateApiError(
-                    404,
-                    "create_operation_not_found",
-                    "No saved Create request was found.",
-                )
+        if op:
+            return reply(api.present(op))
+        # Only an opted-in lookup of a supported canonical target treats absence
+        # as normal. Arbitrary IDs and existing callers retain the 404 contract.
+        if missing == "empty" and any(
+            target_id == recipe_target_id(load_installation_recipe(generation))
+            for generation in ("matrix", "nexus", "omega")
+        ):
+            return Response(status_code=204, headers={"Cache-Control": "no-store"})
+        return failure(
+            CreateApiError(
+                404,
+                "create_operation_not_found",
+                "No saved Create request was found.",
             )
         )
 

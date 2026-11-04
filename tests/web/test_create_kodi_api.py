@@ -30,7 +30,7 @@ from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import ContainerHealthState, ContainerRuntimeState
 from kodi_lab.broker.operations import ManagedContainerInventoryEntry
 from kodi_lab.domain import InstanceRuntimeState, TargetType
-from kodi_lab.runtime.recipes import load_installation_recipe
+from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.models import (
     CreateKodiOperationRow,
@@ -138,6 +138,58 @@ def test_authentication_precedes_approval_body_and_bearer_is_not_admin(
     )
     assert client.get(f"{BASE}/{uuid4()}").status_code == 401
     assert client.get(f"{BASE}/by-target/{uuid4()}").status_code == 401
+    target = recipe_target_id(load_installation_recipe("omega"))
+    for target_id in (target, uuid4()):
+        assert (
+            client.get(f"{BASE}/by-target/{target_id}?missing=empty").status_code == 401
+        )
+        assert (
+            client.get(
+                f"{BASE}/by-target/{target_id}?missing=empty",
+                headers={"Authorization": "Bearer not-a-web-session"},
+            ).status_code
+            == 401
+        )
+
+
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega"])
+def test_expected_absence_requires_opt_in_and_a_canonical_target(
+    client: TestClient, headers: dict[str, str], generation: str
+) -> None:
+    target = recipe_target_id(load_installation_recipe(generation))
+    path = f"{BASE}/by-target/{target}"
+    assert client.get(path).status_code == 404
+    empty = client.get(path, params={"missing": "empty"})
+    assert empty.status_code == 204 and empty.content == b""
+    assert empty.headers["Cache-Control"] == "no-store"
+    for unrelated in (INSTANCE_ID, uuid4()):
+        unknown = client.get(f"{BASE}/by-target/{unrelated}?missing=empty")
+        assert unknown.status_code == 404
+        assert unknown.json()["error"]["code"] == "create_operation_not_found"
+    assert client.get(f"{BASE}/{uuid4()}?missing=empty").status_code == 404
+    assert client.get(path, params={"missing": "anything-else"}).status_code == 422
+
+
+def test_opted_in_discovery_preserves_saved_operation_and_approval_identity(
+    client: TestClient,
+    headers: dict[str, str],
+    database: sessionmaker[Session],
+) -> None:
+    payload = approval()
+    accepted = submit(client, headers, payload)
+    original = CreateKodiRepository(database).get(UUID(accepted["operation_id"]))
+    assert original
+    path = f"{BASE}/by-target/{original.target_id}"
+    status = client.get(accepted["status_url"]).json()
+    assert client.get(path).json() == status
+    for _ in range(3):
+        assert client.get(path, params={"missing": "empty"}).json() == status
+    replay = client.post(BASE, json=payload, headers=headers)
+    assert replay.status_code == 200
+    assert replay.json()["operation_id"] == str(original.id)
+    assert CreateKodiRepository(database).get(original.id) == original
+    with database() as session:
+        assert len(session.scalars(select(CreateKodiOperationRow)).all()) == 1
 
 
 def test_origin_csrf_and_referer_rules(

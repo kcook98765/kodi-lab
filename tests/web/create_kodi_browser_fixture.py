@@ -66,6 +66,7 @@ def main() -> None:
     parser.add_argument("--browser-module", required=True)
     parser.add_argument("--browser-executable", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--empty-navigation", action="store_true")
     args = parser.parse_args()
     args.evidence.mkdir(parents=True, exist_ok=True)
 
@@ -142,6 +143,7 @@ def main() -> None:
                 args.browser_module,
                 args.browser_executable,
                 str(args.evidence),
+                "empty-navigation" if args.empty_navigation else "full",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -164,7 +166,7 @@ def main() -> None:
                         assert env
                         with env.repo._sessions() as db:
                             rows = db.scalars(select(CreateKodiOperationRow)).all()
-                            assert len(rows) == 1
+                            assert len(rows) <= 1
                             assert db.scalars(select(AgentWorkspaceRow)).all() == []
                             assert db.scalars(select(DevelopmentSessionRow)).all() == []
                             result = {
@@ -174,8 +176,8 @@ def main() -> None:
                                 "starts": env.broker.starts,
                                 "stops": env.broker.stops,
                                 "native": len(env.transport.methods),
-                                "operation_id": rows[0].id,
-                                "checkpoint": rows[0].checkpoint,
+                                "operation_id": rows[0].id if rows else None,
+                                "checkpoint": rows[0].checkpoint if rows else None,
                             }
                     elif request.get("action"):
                         assert env
