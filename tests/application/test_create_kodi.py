@@ -55,6 +55,8 @@ def test_explicit_approval_replay_conflict_and_canonical_lookup(tmp_path: Path) 
     first, second = submit(), submit()
     assert not first.replayed and second.replayed
     assert first.operation == second.operation
+    assert app.for_request(request) == first.operation
+    assert app.for_request(uuid4()) is None
     assert app.for_target(first.operation.target_id) == first.operation
     with pytest.raises(CreateConflict, match="request_inputs_conflict") as conflict:
         submit(recipe_digest="sha256:" + "c" * 64)

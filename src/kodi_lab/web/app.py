@@ -150,6 +150,7 @@ from kodi_lab.application.browser_remote import (
     RemoteActorContext,
     RemoteAdapterFactory,
 )
+from kodi_lab.application.create_kodi import CreateKodiService
 from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentError,
     DevelopmentCapabilityAmendmentRead,
@@ -597,6 +598,7 @@ from kodi_lab.repository.development import (
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import (
     read_resource_policy as managed_resource_policy,
@@ -625,6 +627,7 @@ from kodi_lab.web.admin_views import (
     admin_view_context,
     admin_view_return_path,
 )
+from kodi_lab.web.create_kodi import CreateKodiAPI, create_kodi_router
 from kodi_lab.web.current_kodi import CurrentKodiPresentation, friendly_kodi_name
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.web.live_preview import preview_owner, stream_preview
@@ -2533,6 +2536,19 @@ def create_app(
         if not context.auth.csrf_matches(authenticated, supplied):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
+
+    app.include_router(
+        create_kodi_router(
+            CreateKodiAPI(
+                session_factory,
+                CreateKodiService(CreateKodiRepository(session_factory)),
+                kodi_prerequisites,
+                broker,
+            ),
+            current_session,
+            mutation_session,
+        )
+    )
 
     @app.exception_handler(HistoricalContainmentError)
     async def historical_containment_error(

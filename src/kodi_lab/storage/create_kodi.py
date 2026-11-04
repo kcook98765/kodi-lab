@@ -103,6 +103,11 @@ class CreateKodiRepository:
             row = session.scalar(select(Row).where(Row.target_id == str(target_id)))
             return _snapshot(row) if row else None
 
+    def for_request(self, request_id: UUID) -> CreateOperation | None:
+        with self._sessions() as session:
+            row = session.scalar(select(Row).where(Row.request_id == str(request_id)))
+            return _snapshot(row) if row else None
+
     def owns_provision_claim(self, operation_id: UUID, token_digest: str) -> bool:
         """Read-only: a rolled-back claimant cannot fence a later claim's owner."""
         with self._sessions() as session:

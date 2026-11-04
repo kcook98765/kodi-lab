@@ -1,4 +1,4 @@
-"""Explicit Create intent admission; no runner, Web endpoint or lifecycle calls."""
+"""Explicit Create intent admission; no runner or lifecycle calls."""
 
 from uuid import UUID
 
@@ -46,3 +46,6 @@ class CreateKodiService:
 
     def for_target(self, target_id: UUID) -> CreateOperation | None:
         return self.repository.for_target(target_id)
+
+    def for_request(self, request_id: UUID) -> CreateOperation | None:
+        return self.repository.for_request(request_id)
