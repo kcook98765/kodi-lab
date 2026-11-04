@@ -9,6 +9,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, object_session, sessionmaker
 
+from kodi_lab.domain import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceMutationKind,
+)
 from kodi_lab.domain.create_kodi import (
     CREATE_SCOPE,
     STAGES,
@@ -153,6 +158,99 @@ class CreateKodiRepository:
                     or session.get(ManagedStartAuthorizationRow, child_id) is not None
                 )
             )
+
+    def inspect_lifecycle_dispatch(
+        self, operation_id: UUID, *, version: int
+    ) -> CreateOperation:
+        """Wait only for the exact active child; otherwise fence, never dispatch.
+
+        Successful provision/Start confirmation already commits with the child
+        terminal receipt. A terminal child without that parent confirmation is
+        inconsistent evidence, not a new result-recovery or retry authority.
+        """
+        with self._writer() as session:
+            row = session.get(Row, str(operation_id))
+            if row is None or row.version != version:
+                raise CreateTransitionError("stale_version")
+            if row.checkpoint != CreateCheckpoint.DISPATCHED or row.stage not in {
+                CreateStage.PROVISIONING,
+                CreateStage.STARTUP,
+            }:
+                raise CreateTransitionError("not_dispatched_lifecycle")
+            starting = row.stage == CreateStage.STARTUP
+            child_id = (
+                row.start_operation_id if starting else row.provision_operation_id
+            )
+            child = (
+                session.get(ManagedInstanceLifecycleOperationRow, child_id)
+                if child_id
+                else None
+            )
+            lease = session.get(ManagedInstanceMutationLeaseRow, row.target_id)
+            instance = session.get(ManagedInstanceRow, row.target_id)
+            active = (
+                child is not None
+                and child.state is ManagedInstanceLifecycleOperationState.RUNNING
+                and child.kind
+                is (
+                    ManagedInstanceLifecycleKind.START
+                    if starting
+                    else ManagedInstanceLifecycleKind.PROVISION
+                )
+                and child.original_managed_instance_id
+                == child.managed_instance_id
+                == row.target_id
+                and not child.reconciliation_required
+                and lease is not None
+                and lease.operation_kind is ManagedInstanceMutationKind.LIFECYCLE
+                and lease.operation_id == child_id
+                and lease.lease_token_digest is not None
+                and lease.lease_expires_at is not None
+                and lease.lease_expires_at > _now()
+                and instance is not None
+                and instance.runtime_revision_id == row.runtime_revision_id
+            )
+            if active and starting:
+                auth = session.get(ManagedStartAuthorizationRow, child_id)
+                active = (
+                    auth is not None
+                    and lease is not None
+                    and instance is not None
+                    and (
+                        auth.target_id,
+                        auth.runtime_revision_id,
+                        auth.container_id,
+                        auth.image_id,
+                    )
+                    == (
+                        row.target_id,
+                        row.runtime_revision_id,
+                        row.container_id,
+                        row.image_id,
+                    )
+                    and auth.lease_digest == lease.lease_token_digest
+                    and auth.runtime_state_revision == instance.runtime_state_revision
+                    and row.runtime_state_revision
+                    in {auth.runtime_state_revision - 1, auth.runtime_state_revision}
+                )
+            elif active and row.runtime_state_revision is not None:
+                active = (
+                    instance is not None
+                    and instance.runtime_state_revision == row.runtime_state_revision
+                )
+            if active:
+                return _snapshot(row)
+            self._attention(
+                row,
+                CreateOutcome.UNCERTAIN,
+                "start_outcome_unconfirmed"
+                if starting
+                else "provision_outcome_unconfirmed",
+            )
+            row.version += 1
+            row.updated_at = _now()
+            session.flush()
+            return _snapshot(row)
 
     def prepare_startup(
         self,

@@ -16,6 +16,9 @@ installation and lifecycle dispatch uncertainty remain fenced as before.
 Milestone 3A adds [authenticated approval, status and reconnect APIs](CREATE-KODI-API.md).
 Acceptance records intent only; no runner, child dispatch or readiness probe is
 triggered by those endpoints.
+Milestone 3B1 adds the [bounded internal runner](CREATE-KODI-RUNNER.md). It invokes
+one existing adapter or ledger transition per explicit call; no HTTP endpoint,
+startup hook, polling execution or new authority is added.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,

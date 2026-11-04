@@ -7611,3 +7611,15 @@ availability, not child receipts, proofs or runtime authority. GETs never execut
 or resolve a stage. There is no new schema, approval/session system, broker
 authority, runner, continuation endpoint or wizard. The future runner must retain
 the single approved Create scope. See [the API contract](CREATE-KODI-API.md).
+
+## Bounded internal Create continuation (issue #196, milestone 3B1)
+
+One explicit versioned call plans, advances or invokes one existing fixed-stage
+adapter, then returns durable status. SQLite fencing and original child authority
+exclude duplicate mutation dispatch across processes. Active matching lifecycle
+ownership waits; missing/expired/inconsistent evidence becomes Needs attention,
+without another mutation or container-based success inference. Existing narrow
+read-only installation/registration confirmation and native readiness rechecks
+retain original identities. No refusal reset, general recovery, scheduler,
+schema, broker authority, endpoint or wizard is introduced. See
+[the runner contract](CREATE-KODI-RUNNER.md).
