@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
+import re
 import socket
 import stat
 from dataclasses import dataclass
@@ -65,6 +67,8 @@ def worker_name(operation_id: UUID) -> str:
 def _volume(mounts: object, destination: str) -> str:
     if not isinstance(mounts, list):
         raise ReviewedWorkerError("broker mounts are unavailable")
+    if not all(isinstance(item, dict) for item in mounts):
+        raise ReviewedWorkerError("broker mounts are unavailable")
     matches = [item for item in mounts if item.get("Destination") == destination]
     if len(matches) != 1 or matches[0].get("Type") != "volume":
         raise ReviewedWorkerError("broker state mount is not an exact volume")
@@ -72,6 +76,148 @@ def _volume(mounts: object, destination: str) -> str:
     if not isinstance(name, str) or not name:
         raise ReviewedWorkerError("broker state volume identity is invalid")
     return name
+
+
+@dataclass(frozen=True)
+class _DesktopBindSources:
+    socket: str
+    route: str
+
+
+def _desktop_bind_sources(
+    client: Any, own: dict[str, Any], state_volume: str, lock_volume: str
+) -> _DesktopBindSources | None:
+    """Admit only the two known aliases of this broker's WSL distro.
+
+    Docker/root administrators remain trusted, as for literal daemon-host paths.
+    A worker label or a Desktop-looking source is never provenance for an alias.
+    """
+    labels = own["Config"].get("Labels")
+    distro = (
+        labels.get("desktop.docker.io/wsl-distro") if isinstance(labels, dict) else None
+    )
+    if (
+        not isinstance(distro, str)
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", distro) is None
+    ):
+        return None
+    expected = {
+        DOCKER_SOCKET: ("bind", DOCKER_SOCKET, True),
+        HOST_ROUTE_DESTINATION: ("bind", HOST_ROUTE_SOURCE, False),
+        STATE_DESTINATION: ("volume", state_volume, True),
+        LOCK_DESTINATION: ("volume", lock_volume, True),
+    }
+    mounts = own["Mounts"]
+    for destination, (kind, source, writable) in expected.items():
+        matches = [
+            m
+            for m in mounts
+            if isinstance(m, dict) and m.get("Destination") == destination
+        ]
+        if len(matches) != 1:
+            return None
+        mount = matches[0]
+        if (
+            mount.get("Type") != kind
+            or mount.get("Name" if kind == "volume" else "Source") != source
+            or mount.get("RW") is not writable
+        ):
+            return None
+    try:
+        info = client.info()
+    except DockerException:
+        return None
+    if (
+        not isinstance(info, dict)
+        or not isinstance(info.get("OperatingSystem"), str)
+        or info["OperatingSystem"]
+        not in {"Docker Desktop", "Docker Desktop (containerized)"}
+        or info.get("OSType") != "linux"
+    ):
+        return None
+    root = f"/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/{distro}"
+    return _DesktopBindSources(
+        socket=f"{root}/docker.sock",
+        route=f"{root}/{hashlib.sha256(HOST_ROUTE_SOURCE.encode('utf-8')).hexdigest()}",
+    )
+
+
+def _source_matches(
+    actual: object, expected: str, desktop: _DesktopBindSources | None
+) -> bool:
+    if actual == expected:
+        return True
+    if desktop is None:
+        return False
+    if expected == DOCKER_SOCKET:
+        return actual == desktop.socket
+    if expected == HOST_ROUTE_SOURCE:
+        return actual == desktop.route
+    return False
+
+
+def _worker_mounts_match(
+    mounts: object,
+    host: dict[str, Any],
+    state_volume: str,
+    lock_volume: str,
+    desktop: _DesktopBindSources | None,
+) -> bool:
+    """Require four unique roles and agreement of requested/resolved metadata."""
+    expected = {
+        STATE_DESTINATION: ("volume", state_volume, True),
+        LOCK_DESTINATION: ("volume", lock_volume, True),
+        DOCKER_SOCKET: ("bind", DOCKER_SOCKET, True),
+        HOST_ROUTE_DESTINATION: ("bind", HOST_ROUTE_SOURCE, False),
+    }
+    binds = host.get("Binds")
+    if (
+        not isinstance(mounts, list)
+        or len(mounts) != len(expected)
+        or not isinstance(binds, list)
+        or len(binds) != len(expected)
+        or host.get("Mounts") not in (None, [])
+        or host.get("VolumesFrom") not in (None, [])
+    ):
+        return False
+    seen: set[str] = set()
+    for mount in mounts:
+        if not isinstance(mount, dict):
+            return False
+        destination = mount.get("Destination")
+        if (
+            not isinstance(destination, str)
+            or destination not in expected
+            or destination in seen
+        ):
+            return False
+        seen.add(destination)
+        kind, source, writable = expected[destination]
+        actual = mount.get("Name" if kind == "volume" else "Source")
+        if (
+            mount.get("Type") != kind
+            or mount.get("RW") is not writable
+            or mount.get("Mode") != ("rw" if writable else "ro")
+            or not _source_matches(actual, source, desktop if kind == "bind" else None)
+        ):
+            return False
+    seen.clear()
+    for bind in binds:
+        if not isinstance(bind, str):
+            return False
+        parts = bind.split(":")
+        if len(parts) != 3:
+            return False
+        actual, destination, mode = parts
+        if destination not in expected or destination in seen:
+            return False
+        seen.add(destination)
+        kind, source, writable = expected[destination]
+        if mode != ("rw" if writable else "ro") or not _source_matches(
+            actual, source, desktop if kind == "bind" else None
+        ):
+            return False
+    return True
 
 
 class DockerReviewedInstallationWorker:
@@ -92,7 +238,9 @@ class DockerReviewedInstallationWorker:
         return self._client_factory(timeout=10)
 
     @staticmethod
-    def _self_contract(client: Any) -> tuple[str, str, str]:
+    def _self_contract(
+        client: Any,
+    ) -> tuple[str, str, str, _DesktopBindSources | None]:
         own = client.api.inspect_container(socket.gethostname())
         config = own.get("Config")
         image_id = own.get("Image")
@@ -114,22 +262,27 @@ class DockerReviewedInstallationWorker:
         mounts = own.get("Mounts")
         if (
             not isinstance(mounts, list)
+            or not all(isinstance(item, dict) for item in mounts)
             or len(
-                [
-                    item
-                    for item in mounts
-                    if item.get("Destination") == DOCKER_SOCKET
-                    and item.get("Type") == "bind"
-                    and item.get("Source") == DOCKER_SOCKET
-                ]
+                [item for item in mounts if item.get("Destination") == DOCKER_SOCKET]
             )
             != 1
+            or not any(
+                item.get("Destination") == DOCKER_SOCKET
+                and item.get("Type") == "bind"
+                and item.get("Source") == DOCKER_SOCKET
+                and item.get("RW") is True
+                for item in mounts
+            )
         ):
             raise ReviewedWorkerError("broker Docker socket mount is unavailable")
+        state_volume = _volume(mounts, STATE_DESTINATION)
+        lock_volume = _volume(mounts, LOCK_DESTINATION)
         return (
             image_id,
-            _volume(mounts, STATE_DESTINATION),
-            _volume(mounts, LOCK_DESTINATION),
+            state_volume,
+            lock_volume,
+            _desktop_bind_sources(client, own, state_volume, lock_volume),
         )
 
     def lock_held(self) -> bool:
@@ -163,34 +316,20 @@ class DockerReviewedInstallationWorker:
         state_volume: str,
         lock_volume: str,
         generation: str | None = None,
+        *,
+        desktop: _DesktopBindSources | None = None,
     ) -> bool:
         attrs = container.attrs
         config = attrs.get("Config", {})
         host = attrs.get("HostConfig", {})
+        if not isinstance(config, dict) or not isinstance(host, dict):
+            return False
         labels = config.get("Labels", {})
+        if not isinstance(labels, dict):
+            return False
+        caps = host.get("CapAdd")
         actual_generation = labels.get(GENERATION_LABEL)
         mounts = attrs.get("Mounts")
-        expected_mounts = {
-            ("volume", state_volume, STATE_DESTINATION, True),
-            ("volume", lock_volume, LOCK_DESTINATION, True),
-            ("bind", DOCKER_SOCKET, DOCKER_SOCKET, True),
-            ("bind", HOST_ROUTE_SOURCE, HOST_ROUTE_DESTINATION, False),
-        }
-        actual_mounts = (
-            {
-                (
-                    item.get("Type"),
-                    item.get("Name")
-                    if item.get("Type") == "volume"
-                    else item.get("Source"),
-                    item.get("Destination"),
-                    item.get("RW"),
-                )
-                for item in mounts
-            }
-            if isinstance(mounts, list)
-            else set()
-        )
         return (
             attrs.get("Name") == "/" + worker_name(operation_id)
             and attrs.get("Image") == image_id
@@ -203,19 +342,21 @@ class DockerReviewedInstallationWorker:
             and config.get("Cmd")
             == ["install", actual_generation, "--operation-id", str(operation_id)]
             and host.get("NetworkMode") == "none"
-            and set(host.get("CapAdd") or []) == {"SETUID", "SETGID"}
+            and isinstance(caps, list)
+            and all(isinstance(cap, str) for cap in caps)
+            and set(caps) == {"SETUID", "SETGID"}
             and host.get("CapDrop") == ["ALL"]
             and host.get("ReadonlyRootfs") is True
             and host.get("Privileged") is False
             and host.get("AutoRemove") is False
             and host.get("SecurityOpt") == ["no-new-privileges:true"]
             and config.get("User") == "0:0"
-            and actual_mounts == expected_mounts
+            and _worker_mounts_match(mounts, host, state_volume, lock_volume, desktop)
         )
 
     def _active(self, client: Any) -> tuple[UUID, str] | None:
         active: tuple[UUID, str] | None = None
-        image_id, state_volume, lock_volume = self._self_contract(client)
+        image_id, state_volume, lock_volume, desktop = self._self_contract(client)
         containers = client.containers.list(
             all=True, filters={"label": f"{WORKER_LABEL}={WORKER_RESOURCE}"}
         )
@@ -235,7 +376,12 @@ class DockerReviewedInstallationWorker:
             generation = labels.get(GENERATION_LABEL)
             if (
                 not self._identity(
-                    container, operation_id, image_id, state_volume, lock_volume
+                    container,
+                    operation_id,
+                    image_id,
+                    state_volume,
+                    lock_volume,
+                    desktop=desktop,
                 )
                 or active is not None
             ):
@@ -312,7 +458,9 @@ class DockerReviewedInstallationWorker:
                     raise ReviewedWorkerBusy("another runtime installation is active")
                 if self.lock_held():
                     raise ReviewedWorkerBusy("another runtime installation is active")
-                image_id, state_volume, lock_volume = self._self_contract(client)
+                image_id, state_volume, lock_volume, desktop = self._self_contract(
+                    client
+                )
                 if generation == "piers":
                     assert preview_acknowledgement is not None
                     image = client.api.inspect_image(image_id)
@@ -380,6 +528,7 @@ class DockerReviewedInstallationWorker:
                     state_volume,
                     lock_volume,
                     generation,
+                    desktop=desktop,
                 ):
                     raise ReviewedWorkerError("created worker identity differs")
                 container.start()
@@ -393,14 +542,21 @@ class DockerReviewedInstallationWorker:
         try:
             client = self._client()
             try:
-                image_id, state_volume, lock_volume = self._self_contract(client)
+                image_id, state_volume, lock_volume, desktop = self._self_contract(
+                    client
+                )
                 try:
                     container = client.containers.get(worker_name(operation_id))
                 except NotFound:
                     return WorkerObservation("missing", self.lock_held())
                 container.reload()
                 if not self._identity(
-                    container, operation_id, image_id, state_volume, lock_volume
+                    container,
+                    operation_id,
+                    image_id,
+                    state_volume,
+                    lock_volume,
+                    desktop=desktop,
                 ):
                     return WorkerObservation("mismatch", self.lock_held())
                 state: Literal["running", "exited"] = (
