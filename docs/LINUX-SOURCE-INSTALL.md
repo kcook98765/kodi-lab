@@ -91,7 +91,16 @@ password. Standard noVNC uses the same HTTP/WebSocket origin. No test credential
 are provided. Optional [private-LAN HTTP and HTTPS](WEB-NETWORKING.md) have separate
 explicit setup; existing HTTPS settings must be retained during upgrade.
 
-## Install, create and inspect managed Kodi
+## Create your first managed Kodi
+
+Open **Kodi → Create Kodi**, leave **Omega · Recommended** selected, review the
+checks and click **Create Kodi** once. Keep the page open while **Preparing
+Kodi** advances to **Ready**, then choose **Open screen → Start Viewing**.
+Kodi Lab handles downloading, preparation and Start. Viewing needs no agent,
+Bridge pairing or development workspace. If you return to a paused setup,
+choose **Check status**, then **Resume setup** for that same operation.
+
+### Advanced runtime administration
 
 If you followed the remote-only startup in the bundle guide, enable the existing
 managed network and broker overlay from the configured bundle directory. The
@@ -137,16 +146,19 @@ recovery](MANAGED-STATE-RECOVERY.md) for the precise preservation boundaries.
 
 ## Configure an MCP client
 
-In Web **Agents**, create the appropriate client preset and explicitly grant
-your managed target. Start with inspection permissions; grant bounded control
-only if navigation is intended. Copy the credential shown once into the client's
-private environment/configuration, never into a command argument or issue log.
+Follow the [read-only agent setup](../README.md#connect-your-ai-agent) in Web
+**Agents**. Home-only Production Inspection does not authorize managed Kodi.
+For inspection-only managed access, assign the same custom `target.inspect`
+preset to the client and Kodi policy, then grant that exact Kodi. Protect the
+once-shown credential in the client's private environment/configuration, never
+in a command argument or issue log.
 
 For OpenCode running on the same computer, use the
 [README HTTP example](../README.md#connect-your-ai-agent). It reads the token
 from the agent's environment and connects to `http://127.0.0.1:18100/mcp` without
-requiring a separately enabled LAN endpoint. The retained HTTP qualification is
-OpenCode 1.14.39; client configuration syntax and protocol support vary.
+requiring a separately enabled LAN endpoint. Fresh localhost HTTP inspection
+passed with OpenCode 1.19.3 on Ubuntu 24.04; client configuration syntax and
+protocol support vary.
 
 For a local stdio client supporting MCP `2026-07-28`, install the application in
 its own Python 3.12 environment (`uv sync --locked` already supplies one for a
@@ -165,11 +177,10 @@ before choosing it. For a client on another computer, follow [native LAN MCP
 setup](NATIVE-LAN-MCP.md); opening Web does not enable LAN MCP automatically.
 Do not copy another installation's tokens, grants or pairing records.
 
-Verify `target_list`, then use the discovered explicit target UUID for
-`target_status`, `inspect_ui_state` and `screenshot_capture`. An unauthorized
-target must remain undiscoverable/denied. If granted, test a bounded
-`remote_action` and observe the changed UI. MCP does not own managed lifecycle;
-stop/reset/remove remain Web administrator actions.
+Verify `target_list`, then use the discovered target UUID for `target_status`
+and `addon_list`. An unauthorized target must remain undiscoverable/denied.
+Screenshots, richer UI/log inspection and control have separate permission and
+optional Bridge requirements; they are not needed for this first read-only check.
 
 ## Upgrade, rollback and issue evidence
 

@@ -43,7 +43,7 @@ const report = {scenarios: [], errors: [], mutations: []};
         }
         if (url.pathname === '/mcp-clients') {
           return route.fulfill({contentType: 'text/html', body: fs.readFileSync(path.join(evidence, `agents-${mode}-${state}.html`), 'utf8')
-            .replaceAll('http://127.0.0.1/static/', base + '/static/')});
+            .replace(/https?:\/\/127\.0\.0\.1\/static\//g, base + '/static/')});
         }
         assert.match(url.pathname, /^\/static\/[a-z0-9.-]+$/i);
         const filename = path.join(assets, path.basename(url.pathname));
@@ -60,6 +60,17 @@ const report = {scenarios: [], errors: [], mutations: []};
         await onboarding.locator(':scope > summary').focus();
         await page.keyboard.press('Enter');
       }
+      const local = page.getByRole('region', {name: 'OpenCode localhost HTTP example', exact: true});
+      await page.getByText('OpenCode localhost HTTP example', {exact: true}).focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await local.isVisible(), true);
+      await local.focus();
+      assert.equal(await local.evaluate(element => element === document.activeElement), true);
+      const remote = JSON.parse(await local.textContent()).mcp['kodi-lab'];
+      assert.equal(remote.url, 'http://127.0.0.1:18100/mcp');
+      assert.equal(remote.oauth, false);
+      assert.equal(remote.headers.Authorization, 'Bearer {env:KODI_LAB_MCP_TOKEN}');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       const region = page.getByRole('region', {name: 'MCP server configuration template', exact: true});
       await page.locator('[data-agent-local-port]').focus();
       await page.keyboard.press('Tab');

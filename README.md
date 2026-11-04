@@ -200,26 +200,21 @@ address.
 
 ## First-Time Setup
 
-1. In Web, open **Development → Managed Kodi runtimes**, choose a reviewed Kodi
-   version, and select **Install**. Kodi executables are not bundled with Kodi
-   Lab: only the chosen runtime is downloaded, verified, and assembled locally.
-   Piers 22 RC1 requires explicit prerelease acknowledgement.
-2. Wait for **Ready**. Installation continues after you close the browser.
-   The provisional first-install estimate for Piers RC1 is **5–15 minutes**;
-   actual time depends on downloads and the host.
-3. For add-on development, go to **Kodi → Current Kodi**. Choose the registered
-   source/workspace and runtime, then follow the **Prepare Kodi**, source-setup,
-   **Start Kodi**, and native/Bridge readiness steps as applicable. See the
-   [everyday walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
-   Retained version profiles are opt-in on existing installations; only one
-   managed Kodi runs at a time.
-4. For manual instance administration instead, use the Advanced instance
-   controls to create, **Provision**, and **Start** an instance. These are not
-   required steps for every Current Kodi workflow.
-5. For eligible managed runtimes, use **Start Viewing** in Current Kodi or
-   capture a screenshot. Viewing starts in read-only mode; **Take Control**
-   explicitly transfers input to the browser. More detailed UI inspection can
-   require the reviewed Narrow Bridge setup.
+1. Sign in and open **Kodi → Create Kodi**. Leave **Omega · Recommended**
+   selected for your first Kodi.
+2. Review **Before you start**, then click **Create Kodi** once. Kodi Lab
+   downloads and checks the files, prepares Kodi and starts it for you.
+3. Keep the page open while **Preparing Kodi** advances to **Ready**. Setup can
+   take several minutes. Returning or refreshing keeps the same saved setup.
+   If it is paused, use **Check status**, then **Resume setup**.
+4. Select **Open screen → Start Viewing** to see Kodi. Viewing starts view-only;
+   an agent, Bridge pairing and a development workspace are not required.
+
+Only one managed Kodi runs at a time by default. Connecting an agent is optional
+and can wait until Kodi is ready. For add-on development, follow the
+[Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+Manual runtime administration, including the Piers prerelease, remains under
+Development; see the [advanced runtime guide](docs/LINUX-SOURCE-INSTALL.md#advanced-runtime-administration).
 
 Save anything important before resetting or removing a disposable profile; see
 [managed state recovery](docs/MANAGED-STATE-RECOVERY.md). Installing a newer
@@ -232,10 +227,22 @@ pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and
 
 ## Connect Your AI Agent
 
-Open **Agents** in Web, create a client and grant it access to your chosen Kodi
-target. Start with **Read-only Inspection**; choose additional permissions only
-for the actions you want. Save the token shown once in your agent's private
-environment. Connection details and configuration examples are on **Agents**.
+Open **Agents** in Web and use a separate client for each agent. Choose the
+read-only setup for your kind of Kodi:
+
+- **Home Kodi added with Add Kodi:** choose **Production Inspection**, grant
+  that Kodi, then **Grant current inspect scope**. This preset is Home-only.
+- **Kodi created by Kodi Lab:** switch to **Development** view. Under
+  **Advanced administration**, create a custom preset using **Read-only
+  Inspection** as the permission ceiling and select only **Inspect Kodi health,
+  add-ons and UI state** (`target.inspect`). Choose that preset for the client
+  and your Kodi's policy, then grant only that Kodi. A new Kodi's unassigned
+  policy denies access. The built-in **Read-only Inspection** preset also
+  includes screenshot permission; the custom preset keeps inspection-only access.
+
+Issue a token and save it in the agent's private environment. A token does not
+replace the Kodi policy or target grant. Keep an existing suitable client and
+unexpired credential rather than creating another for each connection.
 
 For **OpenCode on the same computer**, add this to
 `~/.config/opencode/opencode.json`, merging it with any existing settings:
@@ -263,9 +270,11 @@ export KODI_LAB_MCP_TOKEN
 opencode
 ```
 
-Ask the agent to list its Kodi targets, then inspect one or capture a screenshot.
-Each tool uses the selected target's ID. Configuration syntax and compatibility
-vary by client.
+Ask the agent to list its Kodi targets, inspect the chosen Kodi's health, then
+list its add-ons. Native managed status and add-on inspection need no Bridge
+setup. Screenshots require visual permission; richer UI/log inspection can
+require optional Bridge setup. Each tool uses the selected target's ID.
+Configuration syntax and compatibility vary by client.
 See [OpenCode's MCP instructions](https://opencode.ai/docs/mcp-servers/),
 the [client compatibility notes](docs/PHASE11-MCP.md#final-client-and-conformance-matrix)
 and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).

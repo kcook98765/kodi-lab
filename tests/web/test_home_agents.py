@@ -192,6 +192,36 @@ def test_agents_requires_deliberate_preset_and_supported_config(
 
 
 @pytest.mark.parametrize("view", ["standard", "development"])
+def test_agents_explain_managed_policy_and_existing_local_http(
+    client: TestClient, view: str
+) -> None:
+    login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, view)
+    page = client.get("/mcp-clients").text
+    assert "Home-only" in page
+    assert "An unassigned Kodi policy denies access" in page
+    assert "only <code>target.inspect</code>" in page
+    assert page.index("OpenCode localhost HTTP example") < page.index(
+        '<fieldset class="agent-transport">'
+    )
+    configuration = re.search(
+        r'<pre id="agent-local-http-config"([^>]*)>(.*?)</pre>', page, re.S
+    )
+    assert configuration is not None
+    assert 'tabindex="0"' in configuration.group(1)
+    assert 'role="region"' in configuration.group(1)
+    server = json.loads(configuration.group(2))["mcp"]["kodi-lab"]
+    assert server == {
+        "type": "remote",
+        "url": "http://127.0.0.1:18100/mcp",
+        "oauth": False,
+        "headers": {"Authorization": "Bearer {env:KODI_LAB_MCP_TOKEN}"},
+    }
+    assert "another published Web port" in page
+    assert "No stdio adapter or LAN listener setup is needed" in page
+
+
+@pytest.mark.parametrize("view", ["standard", "development"])
 def test_agent_configuration_is_a_named_keyboard_region(
     client: TestClient, view: str
 ) -> None:
