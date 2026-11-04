@@ -131,7 +131,7 @@
           <button type="button" data-live-stop hidden>Stop Live Preview</button>
           <p data-live-status role="status">Live preview is off.</p>
           <p data-live-age class="secondary">No live frame.</p>
-          <img data-live-image width="640" height="360" style="max-width:100%;height:auto" alt="Live Kodi preview" draggable="false" hidden>
+          <img data-live-image width="640" height="360" alt="Live Kodi preview" draggable="false" hidden>
         </div>
         <h3>Saved screenshot</h3>
         <p class="secondary">A saved image of this registration is not a live screen or proof of the current runtime incarnation.</p>
@@ -144,7 +144,7 @@
         </dl>
         <p data-screenshot-metadata class="secondary">{% if visual.latest_capture_available %}Captured {{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago) · {{ visual.width }}×{{ visual.height }} · {{ visual.byte_size }} bytes{% else %}No current screenshot metadata.{% endif %}</p>
         <div data-screenshot-image-container{% if not visual.latest_capture_available %} hidden{% endif %}>
-          <img class="managed-screenshot" data-screenshot-image src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest" alt="Saved screenshot of this Kodi registration" draggable="false">
+          <img class="managed-screenshot" data-screenshot-image{% if visual.latest_capture_available %} src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest"{% endif %} alt="Saved screenshot of this Kodi registration" draggable="false">
         </div>
         {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
         <label>Refresh interval <select data-preview-interval><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="30">30 seconds</option></select></label>
