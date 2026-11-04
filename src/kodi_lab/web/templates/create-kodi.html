@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% from 'components/kodi-prerequisites.html' import kodi_prerequisites %}
+{% set nav_section = 'kodi' %}
+{% block title %}Create Kodi · Kodi Lab{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/create-kodi.css') }}">{% endblock %}
+{% block main_class %}create-kodi-page{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="/kodi">Kodi</a></p>
+<h1>Create Kodi</h1>
+<p>Set up a Kodi managed by Kodi Lab. You can connect an agent later.</p>
+<div data-create-kodi aria-busy="false">
+  <section aria-labelledby="create-choice-heading">
+    <h2 id="create-choice-heading">Choose your Kodi</h2>
+    <label for="create-generation">Kodi version</label>
+    <select id="create-generation" data-create-generation>
+      {% for value, label in [('omega', 'Omega · Recommended'), ('nexus', 'Nexus'), ('matrix', 'Matrix')] %}
+      <option value="{{ value }}"{% if snapshot.generation == value %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p data-create-another hidden>Choose a different version to set up another Kodi. Existing setups are kept.</p>
+  </section>
+  <section data-create-review aria-label="Review setup requirements">
+    <div class="create-requirements">
+      <h2>Before you start</h2>
+      <p data-create-summary>Checking saved setup…</p>
+      <ul data-create-blockers></ul>
+      <p>Storage and memory cannot be fully checked automatically. Review the resource notes below.</p>
+      <details>
+        <summary>Setup checks and resource notes</summary>
+        {{ kodi_prerequisites(snapshot) }}
+      </details>
+    </div>
+    <form data-create-form>
+      <p>Click Create Kodi to approve downloading if needed, preparing and starting this version.</p>
+      <button type="submit" data-create-approve disabled>Create Kodi</button>
+    </form>
+  </section>
+  <section data-create-progress aria-labelledby="create-phase" hidden>
+    <h2 id="create-phase" data-create-phase tabindex="-1">Preparing Kodi</h2>
+    <p data-create-message role="status" aria-live="polite" aria-atomic="true"></p>
+    <p data-create-wait></p>
+    <div class="actions">
+      <a class="button-link kodi-primary" data-create-screen hidden>Open screen</a>
+      <a class="button-link" data-create-start hidden>Start Kodi</a>
+      <a data-create-manage hidden>Manage Kodi</a>
+      <a data-create-recovery hidden>Review setup</a>
+    </div>
+    <details class="technical-details">
+      <summary>Setup details</summary>
+      <dl><dt>Requested version</dt><dd data-create-version></dd><dt>Status</dt><dd data-create-reason></dd></dl>
+    </details>
+  </section>
+  <p data-create-notice role="status" aria-live="polite"></p>
+  <p data-create-error role="alert" hidden></p>
+  <div class="actions create-reconnect">
+    <button type="button" data-create-check disabled>Check status</button>
+    <button type="button" data-create-resume hidden>Resume setup</button>
+  </div>
+</div>
+<noscript><p>JavaScript is needed for guided setup. Opening or reloading this page does not create or start Kodi.</p></noscript>
+<script type="application/json" id="create-kodi-config">{{ config|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/kodi-prerequisites.js') }}" defer></script>
+<script src="{{ url_for('static', path='/create-kodi.js') }}" defer></script>
+{% endblock %}

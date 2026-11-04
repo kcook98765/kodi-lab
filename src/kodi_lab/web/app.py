@@ -3976,6 +3976,34 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
 
+    @app.get("/create-kodi", response_class=HTMLResponse)
+    def create_kodi_page(
+        request: Request, generation: StableGeneration = "omega"
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        snapshot = kodi_prerequisites.snapshot(generation)
+        from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
+
+        return templates.TemplateResponse(
+            request,
+            "create-kodi.html",
+            {
+                "snapshot": snapshot,
+                "config": {
+                    **snapshot.model_dump(mode="json"),
+                    "canonical_targets": {
+                        value: str(recipe_target_id(load_installation_recipe(value)))
+                        for value in ("omega", "nexus", "matrix")
+                    },
+                },
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
     @app.get("/runtimes", response_class=HTMLResponse)
     async def runtime_matrix_page(
         request: Request,

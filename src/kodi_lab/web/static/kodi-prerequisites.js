@@ -46,6 +46,7 @@
       root.querySelector("[data-prerequisite-checks]").replaceChildren(list);
       root.querySelector("[data-prerequisite-version]").textContent = snapshot.version;
       root.querySelector("[data-prerequisite-summary]").textContent = snapshot.summary;
+      root.dispatchEvent(new CustomEvent("kodi-prerequisites-updated", {detail:snapshot}));
     }
     async function refresh() {
       const ticket = ++epoch, generation = root.dataset.generation;
