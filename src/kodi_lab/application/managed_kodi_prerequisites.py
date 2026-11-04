@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,7 +17,7 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationInspection,
     RuntimeInstallationService,
 )
-from kodi_lab.runtime.recipes import load_installation_recipe
+from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 
 StableGeneration = Literal["matrix", "nexus", "omega"]
 CheckStatus = Literal["passed", "attention", "existing", "unknown", "info"]
@@ -44,6 +45,10 @@ class PrerequisiteSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     generation: StableGeneration
     version: str
+    recipe_id: str
+    recipe_revision: int
+    recipe_digest: str
+    target_id: UUID
     checked_at: datetime
     summary: str
     checks: list[PrerequisiteCheck]
@@ -234,6 +239,10 @@ class ManagedKodiPrerequisiteService:
         return PrerequisiteSnapshot(
             generation=generation,
             version=reviewed.recipe.kodi_version,
+            recipe_id=reviewed.recipe.recipe_id,
+            recipe_revision=reviewed.recipe.recipe_revision,
+            recipe_digest=reviewed.digest,
+            target_id=recipe_target_id(reviewed),
             checked_at=self._clock(),
             checks=checks,
             summary="Some setup checks need attention."

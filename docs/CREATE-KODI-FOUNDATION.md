@@ -13,6 +13,9 @@ separate work.
 Milestone 2D adds [native readiness and explicit read-only rechecks](CREATE-KODI-READINESS.md).
 Only that observation stage may claim Dispatched again with the current version;
 installation and lifecycle dispatch uncertainty remain fenced as before.
+Milestone 3A adds [authenticated approval, status and reconnect APIs](CREATE-KODI-API.md).
+Acceptance records intent only; no runner, child dispatch or readiness probe is
+triggered by those endpoints.
 
 This milestone stores approved intent and fixed checkpoints. It has **no runner,
 HTTP endpoint, startup continuation, installation, registration, provisioning,

@@ -7598,3 +7598,16 @@ fixed correlation and all mutation child IDs. Interrupted or nonusable probes
 never replay lifecycle work, and historical completion never starts Kodi again.
 No schema, broker authority, general retry engine, API, runner, wizard or Bridge
 preparation is added. See [the contract](CREATE-KODI-READINESS.md).
+
+## Authenticated Create intent and reconnect (issue #196, milestone 3A)
+
+The existing single-admin session/CSRF/origin boundary accepts one explicit
+Create approval with a stable client UUID and exact reviewed stable recipe.
+New requests refresh read-only setup observations, then use existing SQLite
+admission. Identical replay preserves the saved parent even when prerequisites
+or current publication change; conflicts return its stable status location.
+Status/reconnect expose fixed browser-safe fields and exact-instance inventory
+availability, not child receipts, proofs or runtime authority. GETs never execute
+or resolve a stage. There is no new schema, approval/session system, broker
+authority, runner, continuation endpoint or wizard. The future runner must retain
+the single approved Create scope. See [the API contract](CREATE-KODI-API.md).
