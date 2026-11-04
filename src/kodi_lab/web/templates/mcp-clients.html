@@ -27,25 +27,49 @@
               {% for preset in presets if preset.assignable and not (preset.builtin and preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>{% endif %}
           </select></label>
-          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots. Neither preset grants Kodi control or development access.</p>
+          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is Home-only, for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots for Home Kodi. Neither Home preset authorizes Kodi created by Kodi Lab.</p>
+          <details>
+            <summary>Inspection for Kodi created by Kodi Lab</summary>
+            <ol>
+              <li>Switch to <strong>Development</strong> view. Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select only <strong>Inspect Kodi health, add-ons and UI state</strong> for inspection-only access.</li>
+              <li>Choose that preset for this client and for your Kodi's policy. An unassigned Kodi policy denies access.</li>
+              <li>Under this client's <strong>Kodi access</strong>, grant only that Kodi, then issue a token.</li>
+            </ol>
+            <p>The built-in <strong>Read-only Inspection</strong> preset also includes screenshot permission. A custom preset with only <code>target.inspect</code> keeps inspection-only access.</p>
+          </details>
           <button type="submit">Create client</button>
         </form>
       </section>
       <section aria-labelledby="agent-config-heading">
         <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
-        <p>Open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong> for your Home Kodi, then <strong>Grant current inspect scope</strong>. For screenshots, also grant the current visual scope when available. These are explicit actions; creating a client does not grant access.</p>
+        <p>For <strong>Home Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection steps above. Creating a client or issuing a token does not grant access.</p>
       </section>
       <section aria-labelledby="agent-copy-heading">
         <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
         <p>In your client, choose a <strong>Token lifetime</strong> and select <strong>Issue token</strong>. The configuration below will include the new token. Copy and store it securely before leaving or reloading this page: the token is shown only once and cannot be recovered.</p>
+        <p><strong>On the Kodi Lab computer:</strong> the default Linux installation already provides <code>http://127.0.0.1:18100/mcp</code>. Use your client's bearer token, not your Web password. No stdio adapter or LAN listener setup is needed. If you chose another published Web port, use it in this URL.</p>
+        <details class="agent-connection-details">
+          <summary>OpenCode localhost HTTP example</summary>
+          <p>Set <code>KODI_LAB_MCP_TOKEN</code> in your agent's private environment to the once-shown token. Merge this example with its existing settings; it keeps the token out of the file.</p>
+          <pre id="agent-local-http-config" tabindex="0" role="region" aria-label="OpenCode localhost HTTP example">{
+  "mcp": {
+    "kodi-lab": {
+      "type": "remote",
+      "url": "http://127.0.0.1:18100/mcp",
+      "oauth": false,
+      "headers": {"Authorization": "Bearer {env:KODI_LAB_MCP_TOKEN}"}
+    }
+  }
+}</pre>
+        </details>
         <fieldset class="agent-transport">
-          <legend>Connection method</legend>
+          <legend>Other connection methods</legend>
           <label><input type="radio" name="agent-transport" value="lan" data-agent-transport{% if lan_ready %} checked data-endpoint="{{ mcp_lan.url }}"{% else %} disabled{% endif %}> LAN HTTPS / Streamable HTTP{% if lan_ready %} (recommended){% endif %}</label>
           <label><input type="radio" name="agent-transport" value="lan-http" data-agent-transport aria-describedby="agent-http-risk"{% if http_ready %} data-endpoint="{{ mcp_lan_http.url }}"{% else %} disabled{% endif %}> Trusted LAN HTTP / unencrypted</label>
           <label><input type="radio" name="agent-transport" value="stdio" data-agent-transport{% if not lan_ready %} checked{% endif %}> Local / stdio</label>
         </fieldset>
         <p id="agent-http-risk"><strong>Trusted LAN HTTP is unencrypted.</strong> Bearer tokens and MCP traffic can be intercepted, read or modified on the network. An intercepted token can be replayed with that client's permissions and target grants. Use this only on a private LAN you trust; prefer short-lived, least-privilege tokens. HTTPS protects traffic in transit.</p>
-        <p data-agent-lan-status>{% if mcp_lan is defined %}{{ mcp_lan.message }}{% else %}Direct LAN MCP is not configured in this running server. Use Local / stdio.{% endif %}</p>
+        <p data-agent-lan-status>{% if mcp_lan %}{{ mcp_lan.message }}{% else %}Direct LAN MCP is not configured. Use localhost HTTP above on this computer, or Local / stdio if your client needs it.{% endif %}</p>
         <p data-agent-http-status>{% if mcp_lan_http is defined %}{{ mcp_lan_http.message }}{% else %}Trusted LAN HTTP is disabled in this running server.{% endif %}</p>
         <details class="agent-connection-details">
           <summary>Administrator connection setup</summary>

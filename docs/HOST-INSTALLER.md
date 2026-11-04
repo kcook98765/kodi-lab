@@ -113,6 +113,31 @@ chosen password. Fresh installation records `local-http`; no certificate or
 proxy is needed. Standard noVNC works over HTTP/WebSocket. Cookies retain
 HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
 
+1. Open **Kodi → Create Kodi** and leave **Omega · Recommended** selected.
+2. Review the checks and click **Create Kodi** once. Keep the page open while
+   Kodi Lab downloads, prepares and starts Kodi; this can take several minutes.
+3. At **Ready**, select **Open screen → Start Viewing**. Viewing is view-only
+   and needs no agent, Bridge pairing or development workspace.
+
+Refresh or return to the page to find the same saved setup. If it is paused,
+use **Check status**, then **Resume setup**; do not start a second installation.
+
+Connecting an agent is optional. Follow the
+[README read-only agent setup](../README.md#connect-your-ai-agent) to choose the
+correct Home or managed-Kodi policy, grant that specific Kodi and protect the
+once-shown token. Production Inspection is Home-only; managed Kodi also needs
+an explicitly assigned compatible policy. Verify `target_list`, `target_status`
+and `addon_list` through the existing localhost HTTP MCP endpoint.
+Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
+requires its own explicit configuration.
+Unauthorized targets must remain absent or denied. Record the client version,
+source commit, runtime version and sanitized result; do not share tokens.
+
+An existing external Kodi, including native Windows Kodi, uses **Add Kodi** and
+its normal Bridge pairing process. That is separate from the Lab host platform.
+
+### Optional Web networking
+
 For Ubuntu access from another computer on a trusted LAN, add
 `--web-lan-ip YOUR_PRIVATE_IPV4` to `bootstrap` or `install`. The installer warns
 about unencrypted passwords, sessions and screen/control traffic, then asks you
@@ -129,23 +154,6 @@ which selects HTTPS automatically. Configure and trust the proxy before login;
 direct HTTP login is disabled in HTTPS mode. Existing installations without mode
 settings retain HTTPS; restart reads the saved mode/bind and refuses drift.
 Do not rerun fresh initialization or edit historical receipts to change modes.
-
-In **Development → Managed Kodi runtimes**, install Omega
-21.3, wait for **Ready**, create one managed instance, then **Provision** and
-**Start** it. Check healthy status, **View screen** and UI inspection. Runtime
-acquisition happens on demand and can take several minutes.
-
-In **Agents**, create a **Read-only Inspection** client and grant that specific
-target. Keep the once-shown token in your client's private environment. Use the
-[README agent configuration](../README.md#connect-your-ai-agent) for local HTTP
-MCP, then verify `target_list` and `target_status` with the returned target UUID.
-Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
-requires its own explicit configuration.
-Unauthorized targets must remain absent or denied. Record the client version,
-source commit, runtime version and sanitized result; do not share tokens.
-
-An existing external Kodi, including native Windows Kodi, uses **Add Kodi** and
-its normal Bridge pairing process. That is separate from the Lab host platform.
 
 ## Start, stop and diagnose
 

@@ -267,7 +267,7 @@ dd { margin: 0; }
 .agents-page [data-rename] input { box-sizing: border-box; width: 100%; min-width: 0; }
 .agents-page .agent-setup-steps { padding-left: 1.5rem; }
 .agents-page .agent-setup-steps li { margin: .75rem 0; }
-.agents-page #agent-config { max-width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid #bbb; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agents-page #agent-config, .agents-page #agent-local-http-config { max-width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid #bbb; white-space: pre-wrap; overflow-wrap: anywhere; }
 .agents-page [data-client-id] { overflow-wrap: anywhere; }
 .agents-page .agent-client-details > summary span { display: block; margin-top: .3rem; font-size: .95rem; }
 .agents-page > section { margin-bottom: 2rem; }
