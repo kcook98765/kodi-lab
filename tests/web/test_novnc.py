@@ -350,16 +350,25 @@ def test_timed_out_checks_hold_only_bounded_real_worker_capacity() -> None:
 
 def test_websocket_rejects_missing_ticket_wrong_origin_and_query(
     enabled_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    import json
+    import logging
+
     from starlette.websockets import WebSocketDisconnect
 
+    from kodi_lab.viewer_diagnostics import LOGGER
+
+    monkeypatch.setattr(logging.getLogger(LOGGER), "propagate", True)
+    caplog.set_level(logging.INFO, logger=LOGGER)
     login(enabled_client)
-    path = f"/api/instances/{INSTANCE_ID}/novnc"
+    path = f"wss://127.0.0.1/api/instances/{INSTANCE_ID}/novnc"
     for url, origin, protocols in [
-        (path, "http://127.0.0.1", []),
+        (path, "https://127.0.0.1", []),
         (path, "http://evil.test", ["novnc", "view.fake"]),
-        (path + "?token=bad", "http://127.0.0.1", ["novnc", "view.fake"]),
-        (path, "http://127.0.0.1", ["novnc", "view.fake"]),
+        (path + "?token=bad", "https://127.0.0.1", ["novnc", "view.fake"]),
+        (path, "https://127.0.0.1", ["novnc", "view.fake"]),
     ]:
         with (
             pytest.raises(WebSocketDisconnect) as error,
@@ -371,6 +380,16 @@ def test_websocket_rejects_missing_ticket_wrong_origin_and_query(
         ):
             pass
         assert error.value.code == 4403
+    records = [
+        json.loads(record.message) for record in caplog.records if record.name == LOGGER
+    ]
+    assert len(records) == 4
+    assert [record["reason"] for record in records] == [
+        "authorization_rejected"
+    ] * 3 + ["ticket_rejected"]
+    assert all(record["close_requested_code"] == 4403 for record in records)
+    assert all("attempt" not in record for record in records)
+    assert "fake" not in json.dumps(records) and "token" not in json.dumps(records)
 
 
 def test_future_stop_never_acknowledges_unrecorded_cancellation(

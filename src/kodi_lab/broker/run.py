@@ -15,6 +15,7 @@ from kodi_lab.broker.errors import (
     BrokerUnavailableError,
 )
 from kodi_lab.broker.server import BrokerServer
+from kodi_lab.viewer_diagnostics import configure_diagnostics
 
 
 class _AuditFormatter(logging.Formatter):
@@ -34,6 +35,7 @@ class _AuditFormatter(logging.Formatter):
 
 
 def _configure_logging() -> None:
+    configure_diagnostics()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",

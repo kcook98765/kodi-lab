@@ -20,7 +20,7 @@ function boot(options = {}) {
     document, window:{addEventListener:listen, location:{reload:() => reloads++}},
     location:{href:'http://127.0.0.1/screen', protocol:'http:'}, URL,
     crypto:require('node:crypto').webcrypto, performance:{now:() => elapsed},
-    WebSocket:class {}, loadViewerModule() { imports++; return Promise.resolve({default:RFB}); },
+    WebSocket:class {addEventListener() {}}, loadViewerModule() { imports++; return Promise.resolve({default:RFB}); },
     fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
   return {nodes, requests, clients, document, imports:() => imports, reloads:() => reloads,

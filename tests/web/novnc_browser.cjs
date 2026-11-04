@@ -22,7 +22,7 @@ class RFB {
 }
 const context = {
     document: {querySelector: x => nodes[x], hidden: false, addEventListener(name, fn) {listeners[name] = fn;}},
-    window: {addEventListener() {}}, RFBFixture:RFB, WebSocket: class {}, URL,
+    window: {addEventListener() {}}, RFBFixture:RFB, WebSocket: class {addEventListener() {}}, URL,
     location: {href: 'https://lab.test/', protocol: 'https:'},
     crypto: require('crypto').webcrypto, performance: {now: () => 1000},
     fetch: (url, options) => {

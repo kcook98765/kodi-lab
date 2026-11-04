@@ -23,6 +23,7 @@ import docker  # type: ignore[import-untyped]
 
 from kodi_lab.broker.authorization import extract_peer_credentials
 from kodi_lab.broker.socket_path import SocketPathConfig, prepare_unix_listener
+from kodi_lab.viewer_diagnostics import diagnostic
 
 CHUNK = 65536
 BACKLOG = 1024 * 1024
@@ -90,6 +91,7 @@ class ViewResult:
     terminated: bool = False
     armed: bool = False
     reason: str = "failed"
+    exit_code: int | None = None
     done: Event = field(default_factory=Event)
 
 
@@ -134,8 +136,10 @@ class DockerViewTunnel:
         renewed = 0.0
         web_renewed = start
         arm_challenge = bytearray()
+        phase = "helper_create"
         try:
             if not self.valid():
+                self.result.reason = "revoked"
                 raise ValueError("view identity denied")
             created = self.client.exec_create(
                 self.binding.container,
@@ -159,6 +163,7 @@ class DockerViewTunnel:
             self.result.exec_id = created["Id"]
             if self.started is not None:
                 self.started(created["Id"])
+            phase = "helper_attach"
             attached = self.client.exec_start(created["Id"], socket=True, tty=False)
             wire = attached._sock
             assert wire is not None
@@ -167,6 +172,13 @@ class DockerViewTunnel:
             selector.register(web, selectors.EVENT_READ)
             selector.register(wire, selectors.EVENT_READ)
             self.result.startup_ms = (time.monotonic() - start) * 1000
+            diagnostic(
+                "helper_started",
+                attempt=self.request.attempt,
+                instance=self.request.instance,
+                startup_ms=int(self.result.startup_ms),
+            )
+            phase = "helper_stream"
             last_write = time.monotonic()
             while not stopped.is_set() and time.monotonic() - start < MAX_SESSION:
                 now = time.monotonic()
@@ -203,6 +215,7 @@ class DockerViewTunnel:
                                     or size > CHUNK
                                     or (kind == 2 and size)
                                 ):
+                                    self.result.reason = "invalid_envelope"
                                     raise ValueError("invalid private view envelope")
                                 if len(from_web) < 5 + size:
                                     break
@@ -240,11 +253,13 @@ class DockerViewTunnel:
                                     or reserved != b"\0\0\0"
                                     or size > BACKLOG
                                 ):
+                                    self.result.reason = "invalid_docker_stream"
                                     raise ValueError("invalid Docker stream")
                                 if len(from_exec) < 8 + size:
                                     break
                                 if stream == 2 and size:
                                     # Never mix/persist stderr with pixels.
+                                    self.result.reason = "helper_stderr"
                                     raise ValueError("display helper failed")
                                 if not output:
                                     last_write = time.monotonic()
@@ -256,6 +271,7 @@ class DockerViewTunnel:
                                             arm_challenge[:8] != b"KLVNCARM"
                                             or not self.valid()
                                         ):
+                                            self.result.reason = "arming_denied"
                                             raise ValueError("native arming denied")
                                         to_exec.extend(
                                             struct.pack("!BI", 4, 32)
@@ -274,11 +290,23 @@ class DockerViewTunnel:
                     max(len(output), len(from_exec), len(to_exec), len(from_web))
                     > BACKLOG
                 ):
+                    self.result.reason = "backlog_exceeded"
                     raise ValueError("display backlog exceeded")
                 if output and time.monotonic() - last_write > 2:
+                    self.result.reason = "consumer_stalled"
                     raise TimeoutError("display consumer stalled")
             if self.result.reason == "failed":
                 self.result.reason = "cancelled"
+        except Exception as error:
+            if self.result.reason == "failed":
+                self.result.reason = (
+                    "timeout"
+                    if isinstance(error, TimeoutError)
+                    else "transport_error"
+                    if isinstance(error, OSError)
+                    else "internal_error"
+                )
+            raise
         finally:
             ending = time.monotonic()
             with suppress(Exception):
@@ -298,6 +326,9 @@ class DockerViewTunnel:
                 except Exception:
                     break
                 if not state["Running"]:
+                    code = state.get("ExitCode")
+                    if type(code) is int and 0 <= code <= 255:
+                        self.result.exit_code = code
                     self.result.terminated = self.proven()
                     break
                 time.sleep(0.05)
@@ -307,6 +338,21 @@ class DockerViewTunnel:
             with suppress(Exception):
                 self.client.close()
             self.result.done.set()
+            diagnostic(
+                "helper_ended",
+                attempt=self.request.attempt,
+                instance=self.request.instance,
+                phase=phase,
+                reason=self.result.reason,
+                exit_code=self.result.exit_code,
+                armed=self.result.armed,
+                terminated=self.result.terminated,
+                bytes_up=self.result.bytes_up,
+                bytes_down=self.result.bytes_down,
+                startup_ms=int(self.result.startup_ms),
+                teardown_ms=int(self.result.teardown_ms),
+                elapsed_ms=int((time.monotonic() - start) * 1000),
+            )
 
 
 class DisplayLane:
@@ -415,6 +461,8 @@ class DisplayLane:
                     raise
 
     def _worker(self, peer: socket.socket) -> None:
+        request: ViewRequest | None = None
+        refusal = "admission_rejected"
         instance: UUID | None = None
         tunnel: DockerViewTunnel | None = None
         handshaking = True
@@ -458,6 +506,7 @@ class DisplayLane:
                 request = ViewRequest.decode(bytes(raw), challenge)
                 with self.lock:
                     if request.instance in self.active or len(self.active) >= 2:
+                        refusal = "capacity"
                         return
                     self.active.add(request.instance)
                     instance = request.instance
@@ -473,6 +522,13 @@ class DisplayLane:
             pass  # Closed failure, no credentials/RFB/exception text in audit.
         finally:
             peer.close()
+            if request is not None and tunnel is None:
+                diagnostic(
+                    "helper_rejected",
+                    attempt=request.attempt,
+                    instance=request.instance,
+                    reason=refusal,
+                )
             if tunnel is not None and tunnel.result.exec_id is None:
                 with suppress(Exception):
                     tunnel.result.terminated = tunnel.proven()
