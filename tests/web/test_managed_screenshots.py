@@ -87,6 +87,11 @@ def test_capture_latest_headers_replacement_and_failed_refresh_retention(
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     capture_url = f"/api/instances/{INSTANCE_ID}/screenshots"
 
+    missing = client.get(f"{capture_url}/latest")
+    assert missing.status_code == 503
+    assert missing.json()["error"]["code"] == "screenshot_capture_unavailable"
+    assert broker.screenshot_calls == 0
+
     first = client.post(capture_url, json={}, headers=headers)
     assert first.status_code == 200
     first_document = first.json()
@@ -168,7 +173,8 @@ def test_missing_cache_file_is_safe_and_not_recreated(
 def test_screen_preview_has_one_refreshable_capture_summary(client: TestClient) -> None:
     csrf = login(client)
     make_visual_ready(client, csrf)
-    empty_page = client.get(f"/instances/{INSTANCE_ID}").text
+    empty_response = client.get(f"/instances/{INSTANCE_ID}")
+    empty_page = empty_response.text
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     capture_url = f"/api/instances/{INSTANCE_ID}/screenshots"
     first = client.post(capture_url, json={}, headers=headers)
@@ -193,6 +199,7 @@ def test_screen_preview_has_one_refreshable_capture_summary(client: TestClient) 
             json.dumps(
                 {
                     "target": str(INSTANCE_ID),
+                    "csp": empty_response.headers["content-security-policy"],
                     "pages": {"empty": empty_page, "cached": cached_page},
                     "previous_timestamp": timestamp,
                     "capture": second.json(),

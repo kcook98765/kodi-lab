@@ -44,6 +44,7 @@ dd { margin: 0; }
 .instance-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .managed-screenshot { display: block; width: min(100%, 1280px); height: auto; border: 1px solid #9ca3af; background: #111827; pointer-events: none; user-select: none; }
 .live-display { margin-top: 1rem; }
+[data-live-image] { max-width: 100%; height: auto; }
 .runtime-install-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
