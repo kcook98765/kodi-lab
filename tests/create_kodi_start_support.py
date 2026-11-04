@@ -98,8 +98,14 @@ class Broker(NativeBroker):
 
 
 class Environment:
-    def __init__(self, sessions: sessionmaker[Session]) -> None:
-        provision = ProvisionEnvironment(sessions)
+    def __init__(
+        self,
+        sessions: sessionmaker[Session],
+        *,
+        fresh_install: bool = False,
+        retained: bool = True,
+    ) -> None:
+        provision = ProvisionEnvironment(sessions, fresh=fresh_install)
         provision.registered()
         self.op = provision.provisioning.provision(
             provision.op.id, version=provision.op.version
@@ -108,14 +114,15 @@ class Environment:
         self.sessions, self.repo = sessions, provision.repo
         self.broker = Broker(sessions, provision.broker.records[0])
         provision.close()
-        with sessions.begin() as session:
-            session.add(
-                DevelopmentSessionPolicyRow(
-                    id=1,
-                    retain_profiles=True,
-                    retained_omega_target_id=str(self.op.target_id),
+        if retained:
+            with sessions.begin() as session:
+                session.add(
+                    DevelopmentSessionPolicyRow(
+                        id=1,
+                        retain_profiles=True,
+                        retained_omega_target_id=str(self.op.target_id),
+                    )
                 )
-            )
         self.readiness = ReadinessTaskRegistry()
         self.installer = RuntimeInstallationService(sessions, self.broker)
         self.lifecycle = ManagedRuntimeLifecycleService(

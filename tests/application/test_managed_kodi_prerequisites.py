@@ -101,7 +101,8 @@ def test_empty_recipe_is_information_not_install_authorization(
     assert observed["runtime"].status == "info"
     assert observed["instance"].status == "info"
     assert observed["capacity"].status == "passed"
-    assert "0 of 4" in observed["capacity"].message
+    assert "0 of 1" in observed["capacity"].message
+    assert observed["running_policy"].status == "passed"
     assert {key for key, item in observed.items() if item.status == "unknown"} == {
         "docker_storage",
         "host_storage",
@@ -112,6 +113,43 @@ def test_empty_recipe_is_information_not_install_authorization(
     with factory() as session:
         assert session.scalars(select(ManagedResourcePolicyRow)).all() == []
         assert session.scalars(select(RuntimeRecipeInstallationRow)).all() == []
+
+
+@pytest.mark.parametrize("retained", [False, True])
+def test_recorded_higher_limit_is_actionable_without_changing_retained_policy(
+    factory: sessionmaker[Session], tmp_path: Path, retained: bool
+) -> None:
+    operation = _ready(factory, generation="omega")
+    with factory() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation))
+        assert row and row.runtime_revision_id
+        revision = UUID(row.runtime_revision_id)
+    reviewed = load_reviewed_recipe("omega")
+    target = bootstrap_recipe_instance(factory, reviewed, revision)
+    with factory.begin() as session:
+        session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=None))
+        session.add(
+            DevelopmentSessionPolicyRow(
+                id=1,
+                retain_profiles=retained,
+                retained_omega_target_id=target["target_id"] if retained else None,
+            )
+        )
+    broker = Broker()
+    value = service(factory, tmp_path, broker)
+    for _ in range(3):
+        observed = checks(value)["running_policy"]
+        assert observed.status == ("passed" if retained else "attention")
+        if not retained:
+            assert observed.detail_url == "/managed-resources"
+            assert "current limit is 4; it has not been changed" in observed.message
+            assert "to 1, save, then Check again" in observed.message
+    with factory() as session:
+        policy = session.get(ManagedResourcePolicyRow, 1)
+        assert policy and (policy.max_running, policy.idle_minutes) == (4, None)
+        selection = session.get(DevelopmentSessionPolicyRow, 1)
+        assert selection and selection.retain_profiles is retained
+    assert broker.launches == []
 
 
 @pytest.mark.parametrize("present", [True, False])
@@ -209,6 +247,7 @@ def test_missing_capabilities_are_distinct_from_unverified_observations(
         assert observed["activity"].status == "unknown"
     else:
         assert observed["capacity"].status == "unknown"
+        assert observed["running_policy"].status == "unknown"
     assert "private broker address" not in str(observed)
 
 

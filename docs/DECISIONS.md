@@ -7574,3 +7574,14 @@ legacy broker limit of one supplies atomic one-active admission. Start confirmat
 remains separate from final native readiness, viewing and optional Bridge/agent
 capability. No migration, broker authority/protocol, API, wizard or runner is added.
 See [the contract](CREATE-KODI-START.md).
+
+## Create first-install capacity compatibility (issue #196)
+
+Fresh host initialization uses one running managed Kodi. Historical migrations
+and all existing versioned policy records remain unchanged; initialization applies
+the new default only when no tables existed at entry, under the host lifecycle
+lock. Read-only defaults and first-use insertion agree with that initial policy.
+Existing higher effective limits receive an actionable prerequisite explanation
+and require an explicit administrator change through the existing resource
+settings. Retained-profile capacity and exact Start admission remain unchanged.
+No migration, new authority, implicit stop or policy conversion is added.

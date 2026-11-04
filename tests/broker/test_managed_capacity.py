@@ -184,8 +184,23 @@ class Environment:
 def env(tmp_path: Path) -> Iterator[Environment]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'capacity.db'}")
     Base.metadata.create_all(engine)
-    yield Environment(create_session_factory(engine))
+    sessions = create_session_factory(engine)
+    # These cases exercise an explicitly configured multi-Kodi installation.
+    with sessions.begin() as session:
+        resource_policy(session).max_running = 4
+    yield Environment(sessions)
     engine.dispose()
+
+
+def test_unrecorded_default_enforces_one_active_kodi(env: Environment) -> None:
+    with env.sessions.begin() as session:
+        session.delete(resource_policy(session))
+    assert env.start(0).start_performed
+    with pytest.raises(ManagedCapacityError, match="managed_capacity_full") as error:
+        env.start(1)
+    assert (error.value.used, error.value.limit) == (1, 1)
+    with env.sessions() as session:
+        assert resource_policy(session).max_running == 1
 
 
 def test_four_parallel_start_reservations_block_fifth_until_capacity_is_free(

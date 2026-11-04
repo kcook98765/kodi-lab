@@ -18,12 +18,47 @@ from kodi_lab.application.managed_kodi_prerequisites import DataStorageObservati
 from kodi_lab.application.runtime_installations import RuntimeInstallationService
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.storage.models import RuntimeRecipeInstallationRow
+from kodi_lab.storage.models import (
+    ManagedResourcePolicyRow,
+    RuntimeRecipeInstallationRow,
+)
 from tests.web.conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 from tests.web.test_runtime_installations import Flow, seed_installation
 
 API = "/api/create-kodi/prerequisites"
 PREVIEW = "/preview/create-kodi-prerequisites"
+
+
+def test_higher_recorded_limit_needs_explicit_administrator_correction(
+    client: TestClient, broker: FakeBroker, database: sessionmaker[Session]
+) -> None:
+    Flow().attach(broker)
+    csrf = login(client)
+    with database.begin() as session:
+        session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=None))
+    for _ in range(2):
+        checks = {item["key"]: item for item in client.get(API).json()["checks"]}
+        assert checks["running_policy"]["status"] == "attention"
+        assert checks["running_policy"]["detail_url"] == "/managed-resources"
+        assert (
+            "current limit is 4; it has not been changed"
+            in checks["running_policy"]["message"]
+        )
+    assert "One Kodi at a time" in client.get(PREVIEW).text
+    with database() as session:
+        row = session.get(ManagedResourcePolicyRow, 1)
+        assert row and (row.max_running, row.idle_minutes) == (4, None)
+    assert (
+        client.post(
+            "/api/managed-resources/policy",
+            json={"max_running": 1, "idle_minutes": None},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 200
+    )
+    checks = {item["key"]: item for item in client.get(API).json()["checks"]}
+    assert checks["running_policy"]["status"] == "passed"
+    assert not any(name in {"start", "stop", "provision"} for name, _ in broker.calls)
 
 
 def test_prerequisites_require_authentication_and_accept_only_reads(

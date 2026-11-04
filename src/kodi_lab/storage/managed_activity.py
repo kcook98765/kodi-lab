@@ -34,7 +34,7 @@ def timestamp(value: datetime) -> str:
 
 @dataclass(frozen=True)
 class ManagedResourcePolicyValue:
-    max_running: int = 4
+    max_running: int = 1
     idle_minutes: int | None = 60
 
 
@@ -49,12 +49,13 @@ def read_resource_policy(session: Session) -> ManagedResourcePolicyValue:
 
 
 def resource_policy(session: Session) -> ManagedResourcePolicyRow:
+    defaults = ManagedResourcePolicyValue()
     session.execute(
         insert(ManagedResourcePolicyRow)
         .values(
             id=1,
-            max_running=4,
-            idle_minutes=60,
+            max_running=defaults.max_running,
+            idle_minutes=defaults.idle_minutes,
         )
         .on_conflict_do_nothing(index_elements=["id"])
     )
