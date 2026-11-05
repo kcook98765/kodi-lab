@@ -33,14 +33,29 @@ new tabs. With neither URL nor local context, three fixed stable canonical
 lookups prefer an unfinished operation over historical completion. These reads
 never run a stage; they only select the version whose setup should be displayed.
 An existing parent is shown before another approval can be offered. A saved
-approval with no found parent requires explicit Resume; acceptance replay uses
-the original UUID and unchanged recipe inputs. Server request/canonical uniqueness
-and SQLite version/child claims remain the concurrency authority, including
+approval with no found parent can be replayed explicitly only by the original
+still-open approving page, using the original UUID and unchanged recipe inputs.
+Persisted approval metadata alone cannot authorize replay from a reload/new tab
+or into a replacement installation. Check status first. Server request/canonical
+uniqueness and SQLite version/child claims remain the concurrency authority, including
 independent tabs or application processes.
 
 Reload, BFCache restoration, another tab's storage update and hidden-page pauses
 require status/explicit Resume. They do not dispatch a child from GET. A completed
 or Needs attention parent never starts lifecycle execution again.
+
+## Orphaned browser setup
+
+When a saved operation returns the API's expected missing-operation response and
+its canonical target returns authoritative absence, **Discard saved setup** is
+offered. This explicit action rechecks both server lookups, current requirements
+and the exact stored value. It removes only that generation's unchanged local
+record (including its old approval), plus its matching last-generation marker.
+Other generations and browser storage are retained. A newly found server operation
+is attached passively; errors or concurrent storage changes keep setup blocked.
+A new approval rechecks canonical status, prerequisites and browser storage.
+No server reset or automatic replacement approval is performed. An approval-only
+unknown outcome without a confirmed operation remains fenced on a new page.
 
 ## Bounded foreground controller
 

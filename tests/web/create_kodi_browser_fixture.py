@@ -67,6 +67,7 @@ def main() -> None:
     parser.add_argument("--browser-executable", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--empty-navigation", action="store_true")
+    parser.add_argument("--orphan-recovery", action="store_true")
     args = parser.parse_args()
     args.evidence.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +144,11 @@ def main() -> None:
                 args.browser_module,
                 args.browser_executable,
                 str(args.evidence),
-                "empty-navigation" if args.empty_navigation else "full",
+                "orphan-recovery"
+                if args.orphan_recovery
+                else "empty-navigation"
+                if args.empty_navigation
+                else "full",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
