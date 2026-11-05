@@ -13,9 +13,11 @@ validation of new installer revisions is separate from host-platform operation.
 
 ## Prerequisites and capacity
 
-The qualified development baseline is Ubuntu 24.04, Linux x86_64/amd64, Python
-3.12, native rootful Docker Engine and Compose V2. Windows, macOS, ARM64 and
-rootless Docker are not qualified hosts for this managed-runtime path. Install
+The qualified baseline is Ubuntu 24.04, Linux x86_64/amd64, Python
+3.12, native rootful Docker Engine and Compose V2 (2.24.4 or newer).
+Windows uses the maintained WSL2/Docker Desktop path linked above; broader
+native qualification remains separate. macOS, ARM64 and rootless Docker are
+not qualified for this managed-runtime path. Install
 Git, uv, Python 3.12, `sha256sum`, Docker Engine and the Compose plugin using
 their upstream installation instructions. Run development commands as your
 ordinary user, with separately configured Docker-administrator access. Docker
@@ -56,40 +58,73 @@ internal; it is not published on the host.
 
 ## Clone and stage the application
 
-Clone the `main` development/testing checkpoint. For a
-private repository, authenticate Git using your normal GitHub mechanism; do not
-put credentials in the URL. Record the resulting commit for issue reports.
+**1. Clone and build the application bundle.** Run these commands in Bash as
+your ordinary user, with the prerequisites above installed:
 
 ```sh
 git clone https://github.com/kcook98765/kodi-lab.git
 cd kodi-lab
 git rev-parse HEAD
-git status --short
 uv sync --locked --dev
-./scripts/stage-linux-v1-bundle ../kodi-lab-test-bundle
+./scripts/stage-linux-v1-bundle ../kodi-lab-bundle
+cd ../kodi-lab-bundle
+sha256sum -c SHA256SUMS
+python3 linux-v1-bundle verify .
+docker image load --input kodi-lab-application-images.tar
 ```
 
-Staging requires a clean committed checkout and an empty output directory
-outside it. It builds Web/broker images and saves them into a local bundle; it
-does not publish them, download Kodi, or initialize an existing database. Do not
-use an existing production bundle/state directory for an independent test.
+Keep your clone unedited and use a new, empty bundle folder. It contains the Kodi
+Lab installation, not Kodi. GitHub access is required; use your normal GitHub
+authentication if the repository is private, without credentials in the URL.
+Record the source commit and preserve a trusted copy of the BUNDLE.json hash.
 
-The [README Quick Start](../README.md#quick-start--install-kodi-lab) includes the
-complete fresh-install commands and starts Web, repository and the managed
-broker together. Alternatively, follow
-[Linux V1 installation](LINUX-V1-INSTALL.md#install-kodi-lab-with-no-kodi-image)
-from the new bundle directory. That procedure verifies checksums, loads the
-application images, configures site-specific repository settings, initializes
-the isolated state and prompts for an administrator password. Preserve the
-bundle, its trusted `BUNDLE.json` hash and generated private configuration.
-The ordinary startup command refuses an uninitialized or mismatched database;
-initialization/upgrade are explicit administrator operations.
+**2. Configure the add-on repository.** Kodi devices download the Bridge and
+other Kodi Lab add-ons from this address. Enter this server's reachable private
+LAN IPv4 address (on your home network), not `127.0.0.1`. Choose an unused port;
+this example uses `18120`. It does not serve Kodi executables.
+Check that ports `18100` and `18120` are available and that Kodi Lab's private
+container network (`10.250.0.0/24`) does not conflict with your LAN, VPN or Docker
+networks.
 
-Fresh bundle configuration selects local HTTP. Open
-**http://127.0.0.1:18100/login** on this computer and sign in with your chosen
-password. Standard noVNC uses the same HTTP/WebSocket origin. No test credentials
-are provided. Optional [private-LAN HTTP and HTTPS](WEB-NETWORKING.md) have separate
-explicit setup; existing HTTPS settings must be retained during upgrade.
+```sh
+read -r -p "This server's private LAN IPv4 address: " repository_ip
+python3 linux-v1-bundle configure . \
+  --repository-bind "$repository_ip" --repository-port 18120 \
+  --repository-base-url "http://${repository_ip}:18120"
+docker compose -f compose.release.yaml config --quiet
+python3 linux-v1-bundle preflight .
+```
+
+**3. Initialize data, set your password and start services.** Initialization
+creates Kodi Lab's private data store. The password command prompts for your Web
+administrator password; there is no default password.
+
+```sh
+docker compose -f compose.release.yaml --profile repository-init \
+  run --rm --no-deps repository-init
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-repository repository verify
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-admin web initialize
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-admin web set-password
+docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
+  --entrypoint kodi-lab-runtime broker network-ensure
+docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
+  up -d --wait --no-build web broker repository
+```
+
+Keep the bundle and its generated configuration. The last command starts services
+in the background; reuse it from that directory for future restarts.
+
+**4. Open http://127.0.0.1:18100/login on this computer and sign in.**
+For ports, capacity planning and troubleshooting, see the
+[capacity guidance](#prerequisites-and-capacity).
+
+For a remote-only installation or detailed bundle administration, see
+[Linux V1 installation](LINUX-V1-INSTALL.md). Ordinary startup refuses an
+uninitialized or mismatched database; initialization is an explicit
+administrator operation.
 
 ## Create your first managed Kodi
 
@@ -131,7 +166,8 @@ Once Ready, use **Create managed instance**, then the ordinary provision/start
 controls. Additional instances reuse the installed runtime image rather than
 downloading Kodi again. Check healthy status, **View screen** and UI inspection;
 navigate to another window and verify that its screenshot changes. For RC1,
-**Install reviewed Bridge** installs the exact development candidate 1.1.16.
+**Install reviewed Bridge** installs the exact reviewed development build
+for that Kodi version (currently Bridge 1.1.32 for Piers).
 Native health/screenshots remain available independently of rich Bridge trust.
 Stock TagLib 2.3.1 has the documented Matroska fast-scan limitation; it is not
 claimed equivalent to Kodi's patched library.
@@ -187,9 +223,9 @@ optional Bridge requirements; they are not needed for this first read-only check
 Keep the exact clone commit, bundle/image identities and recipe digests. Review
 [known checkpoint test results](RC1-TESTING-CHECKPOINT.md) when reporting
 independent-system regression results. Follow
-[upgrade/rollback](LINUX-V1-UPGRADE-ROLLBACK.md), especially its RC1 provenance
-boundary: schema 0071 alone does not make older eligibility code safe after RC1
-approvals exist. Retain consistent private-state backups and runtime images;
+[backup and recovery](LINUX-V1-UPGRADE-ROLLBACK.md) for the supported baseline
+and future application transitions. Unsupported prerelease databases are
+refused; do not stamp them or attempt a prerelease conversion. Retain consistent private-state backups and runtime images;
 never use a Docker prune, volume deletion or direct SQLite edit as rollback.
 Report bounded errors and versions without credentials, pairing codes, database
 copies or personal screenshot contents.

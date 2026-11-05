@@ -1,8 +1,8 @@
 # Third-party notices
 
 Kodi Lab's original application and Bridge code are MIT licensed. Keep the
-copyright and license in [LICENSE](LICENSE) and
-[bridge/service.kodi_lab_bridge/LICENSE](bridge/service.kodi_lab_bridge/LICENSE).
+copyright and license in [LICENSE](https://github.com/kcook98765/kodi-lab/blob/main/LICENSE) and
+[Bridge license](https://github.com/kcook98765/kodi-lab/blob/main/bridge/service.kodi_lab_bridge/LICENSE).
 The distributed wheel includes the Bridge license and this notice. These terms
 do not relicense Kodi or any third-party dependency.
 
@@ -11,9 +11,9 @@ do not relicense Kodi or any third-party dependency.
 | Component | Distribution relationship | Applicable notices and source information |
 | --- | --- | --- |
 | Kodi Lab application, Web scripts/styles, Bridge and generated fixture assets | Project source/assets included in the wheel | MIT; original copyright/license texts are retained. Fixture media are generated project assets, not copies of commercial programmes. |
-| Code of Conduct | Adapted documentation included in the project source | Contributor Covenant 2.1 by Coraline Ada Ehmke and contributors, CC BY 4.0. Attribution, license link and the adapted reporting instructions are recorded in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). |
+| Code of Conduct | Adapted documentation included in the project source | Contributor Covenant 2.1 by Coraline Ada Ehmke and contributors, CC BY 4.0. Attribution, license link and the adapted reporting instructions are recorded in [CODE_OF_CONDUCT.md](https://github.com/kcook98765/kodi-lab/blob/main/CODE_OF_CONDUCT.md). |
 | Python application dependencies | Installed from upstream wheels into application images; not vendored into the Kodi Lab wheel | The exact dependencies are recorded in `uv.lock` and installed package metadata. Retain their upstream license/copyright files, including `.dist-info/licenses` and any NOTICE files. |
-| Pillow13.0.0 and its wheel libraries | Optional Web-only JPEG preview dependency; absent from broker images | Pillow uses MIT-CMU; retain the installed wheel LICENSE and incorporated-library notices in its `.dist-info/licenses` directory. Exact artifacts and hashes are in `uv.lock`. |
+| Pillow 13.0.0 and its wheel libraries | Optional Web-only JPEG preview dependency; absent from broker images | Pillow uses MIT-CMU; retain the installed wheel LICENSE and incorporated-library notices in its `.dist-info/licenses` directory. Exact artifacts and hashes are in `uv.lock`. |
 | Python and Debian base packages | Included in locally built Web/broker/worker images | Python uses the PSF license and incorporated-software notices; Debian packages retain their individual terms and `/usr/share/doc/*/copyright`. An image is not licensed wholly under MIT. |
 | OSTree, GnuPG and supporting system tools | Included in broker/worker images for acquisition and verification | libostree is LGPL-2.1-or-later; GnuPG is GPL-3.0-or-later; their dependent libraries have individual licenses. Keep packaged notices and provide corresponding source if redistributing these images where required. |
 | Kodi 19/20/21 binaries and dependencies | Downloaded from signed Ubuntu repositories only when the user installs a reviewed runtime | Kodi is GPL-2.0-or-later, with additional component licenses. Stable recipes record exact package identities and source/license references; downloaded package notices remain in the locally assembled image. |
@@ -90,10 +90,10 @@ matching source delivery and compliance with the applicable
 [Kodi distribution policy](https://kodi.wiki/view/Official:Distribution_Policy),
 including branding. That is not the on-demand installation workflow qualified here.
 
-The optional experimental noVNC client vendors noVNC 1.7.0 from the upstream tagged
+The standard noVNC viewer vendors noVNC 1.7.0 from the upstream tagged
 release. Its MPL-2.0 license and component notices accompany the static assets
 under `src/kodi_lab/web/static/vendor/novnc/`; `SOURCE.json` records the archive
-and individual-file SHA256 identities. The optional runtime recipe installs
+and individual-file SHA256 identities. The reviewed display runtime recipes install
 TigerVNC from signed Ubuntu packages. TigerVNC and dependency licenses and
 source-offer obligations remain those supplied by Ubuntu and upstream; no
-prebuilt runtime image is published by this prototype.
+prebuilt managed runtime image is distributed by Kodi Lab.

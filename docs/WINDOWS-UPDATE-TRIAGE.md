@@ -183,3 +183,78 @@ recovery of any ambiguous operation, restore the exact registered source and
 establish the Windows-specific baseline before future direct deployment, as described in the
 [direct-install recovery guide](WINDOWS-DIRECT-INSTALL.md#temporary-manual-add-on-installation-and-provenance).
 Resolving the native crash and reconciling deployment provenance are independent.
+
+## Historical successor helper correction
+
+The following procedure records the exact prerelease PR #186 helper correction.
+It is not required by current fresh installations and does not provide a
+conversion from retired prerelease schemas to `0001_initial_release`.
+
+### Recorded procedure
+
+If successor activation fails with `wildcard Web bind requires explicit allowed
+hosts` **after** the verified repository transition and explicit administrator
+upgrade succeeded, use the reviewed helper correction independently of the
+application bundle. The Web image supplies `KODI_LAB_WEB_BIND_HOST=0.0.0.0`;
+the validation-only `repository-transition` invocation also needs the normal Web
+service's exact `KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]`. The correction passes
+that setting only to this invocation. It changes no validator, schema, proxy
+peer, application image or bundle file.
+
+The existing management interface accepts an explicit `--directory`; it does
+not require execution from the installed helper's path. Use a separately retained
+helper rather than overwriting `SITE/kodi-lab.py`. `SITE.json` binds the bundle's
+source/manifest/verifier, engine/project, configuration and previous receipt,
+not the external helper's bytes. Record the correction's separate approved source
+commit and trusted SHA-256; never relabel the bundle as built from that commit.
+This procedure supports only the reviewed two-argument preflight correction to
+the PR #186 helper, not arbitrary helper/application version mixing.
+
+After owner approval, transfer the exact reviewed `scripts/install.py` to a new
+private directory **outside** the site and bundle. Obtain its expected SHA-256
+from the owner's trusted review/delivery record, independently of the downloaded
+file. In ordinary-user WSL Ubuntu, set the actual paths and trusted digest:
+
+```sh
+set -eu
+SITE="$HOME/kodi-lab-successor"         # existing configured site
+FIX="$HOME/kodi-lab-helper-correction" # new private delivery directory
+HELPER="$FIX/install.py"               # transferred reviewed bytes
+EXPECTED_HELPER_SHA256='REPLACE_WITH_TRUSTED_REVIEWED_SHA256'
+printf '%s  %s\n' "$EXPECTED_HELPER_SHA256" "$HELPER" | sha256sum --check --strict
+cp -p -- "$SITE/kodi-lab.py" "$FIX/original-kodi-lab.py"
+sha256sum "$SITE/SITE.json" "$SITE/kodi-lab.py" \
+  "$SITE/compose.windows.yaml" "$SITE/Caddyfile" \
+  "$SITE/bundle/BUNDLE.json" "$SITE/bundle/.env" > "$FIX/site-before.sha256"
+python3 "$HELPER" status --directory "$SITE"
+```
+
+Stop on any checksum, site, ancestry, engine, image, configuration or state
+discrepancy. Confirm application services are still stopped and retain the
+successful transition/upgrade outputs, original receipts, backup and recovery
+proof. The unchanged-schema administrator upgrade is validation-only and need
+not create a new `.last-upgrade.json`. Do not reconfigure the successor, rerun a
+transition/upgrade, initialize state or edit evidence to clear this error.
+
+Before activation, run only the corrected helper's existing check in the same
+network-disabled, socket-free service as application UID/GID 10001:
+
+```sh
+CHECK="$(python3 -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["SUCCESSOR_CHECK"])' "$HELPER")"
+python3 "$HELPER" compose --directory "$SITE" -- run --rm --no-deps \
+  --user 10001:10001 \
+  --env KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository \
+  --env 'KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]' \
+  --entrypoint python repository-transition -c "$CHECK"
+sha256sum --check --strict "$FIX/site-before.sha256"
+```
+
+Retain the exact command, exit status and output; require success from the
+existing state and transition-completion validators. This is validation only,
+not native Windows activation acceptance. After separate activation approval,
+run `python3 "$HELPER" start --directory "$SITE"`; it repeats the hash-bound
+ancestry and completion preflight before service startup. Complete the existing
+Windows HTTPS/login/WSS and preservation acceptance before repointing sign-in
+startup to this separately recorded helper. On failure, leave services stopped,
+retain both helpers and use the documented recovery procedure. No application
+image or deployment-bundle rebuild is required for this external-helper fix.

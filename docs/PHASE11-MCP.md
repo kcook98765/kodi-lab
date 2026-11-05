@@ -1,10 +1,11 @@
 # Phase 11 MCP transports and security
 
-The phase and slice counts below describe their historical checkpoints. For the
-current twenty-tool registry, including later development tools, see
-[V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
-Exactly seven current tools are production-eligible, including read-only UI and
-[bounded log inspection](KODI-LOGS.md).
+The phase/slice counts and client matrix below are historical checkpoints.
+Discover the installed toolset through an authenticated client; available tools
+depend on current permissions and exact grants. See the
+[README connection example](../README.md#connect-your-ai-agent) for first-time
+setup and the later OpenCode HTTP result. Historical compatibility results apply
+only to the exact client versions listed, not current versions of those clients.
 
 Kodi Lab's primary MCP authority is modern Streamable HTTP POST `/mcp`, exact
 protocol `2026-07-28`. Exact legacy `2025-11-25` is a bounded stateless HTTP

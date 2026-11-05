@@ -59,6 +59,17 @@ The standard configuration is pinned noVNC 1.7.0, native 640×360, approximately
 2 displayed FPS, compression 0, quality 6 and LP_NUM_THREADS=1. Audio is not
 provided. These are the settings used for completed standard acceptance.
 
+## Known first-connection limitation
+
+A fresh Nexus 20.5 setup reached native Ready but its first viewer disconnected
+before graphics. One explicit reconnect displayed Kodi successfully; the original
+cause remains unknown under [issue #214](https://github.com/kcook98765/kodi-lab/issues/214).
+The merged disconnect notice and lifecycle diagnostics improve reporting; they
+do not establish that this incident is fixed. Keep this separate from the exact
+historical four-version acceptance below. If viewing disconnects, check Kodi's
+status and retain the sanitized diagnostic reason before choosing Start Viewing
+again. Viewing remains view-only until Take Control is explicitly granted.
+
 ## Resource qualification contract
 
 The owner-approved standard Firefox process-tree RSS budget is **512 MiB above

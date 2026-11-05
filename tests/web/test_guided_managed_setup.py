@@ -41,7 +41,9 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     assert 'data-instance-name="Kodi 22 Piers RC1"' in preview
     assert "data-preview-acknowledgement" in preview
     assert not flow.launches
-    assert 'href="/runtimes#managed-setup-heading"' in client.get("/add-kodi").text
+    add_kodi = client.get("/add-kodi").text
+    assert 'href="/create-kodi"' in add_kodi
+    assert "Kodi Lab downloads, prepares and starts it for you." in add_kodi
 
 
 def test_failed_setup_exposes_original_operation_and_explicit_review(

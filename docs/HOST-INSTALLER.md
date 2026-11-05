@@ -95,7 +95,8 @@ an existing origin; regenerating with a new address is not a migration.
 Use a new destination outside the checkout, with an existing parent. Checkout
 and destination must be on the Linux filesystem, not under `/mnt`. The installer
 refuses an existing managed network rather than attaching a fresh database to
-another lab's runtimes. For an existing Lab, use the upgrade guide.
+another lab's runtimes. Do not delete a network to bypass this refusal; inspect
+its ownership and choose an independent installation environment.
 
 The installer builds and verifies the binary-free bundle, loads its exact
 application images, configures them by image ID, initializes/verifies the
@@ -158,8 +159,9 @@ To require a user-managed HTTPS proxy, select `--web-access-mode https` when
 installing. Windows users can instead opt into
 [local Caddy HTTPS/WSS](WINDOWS-WSL2-INSTALL.md#optional-local-httpswss-ingress),
 which selects HTTPS automatically. Configure and trust the proxy before login;
-direct HTTP login is disabled in HTTPS mode. Existing installations without mode
-settings retain HTTPS; restart reads the saved mode/bind and refuses drift.
+direct HTTP login is disabled in HTTPS mode. Restart reads the saved mode/bind
+and refuses drift. Compatibility defaults are documented in the
+[operator reference](LINUX-V1-UPGRADE-ROLLBACK.md#preserve-web-security-mode).
 Do not rerun fresh initialization or edit historical receipts to change modes.
 
 ## Start, stop and diagnose
@@ -204,23 +206,13 @@ explicit administrator commands, for example `-- ps` or `-- logs --tail 100`.
 inspect the preserved files and follow the equivalent manual steps. Do not
 delete volumes or rerun `initialize` to bypass a partially initialized database.
 
-For updates, stage a new bundle from a clean new commit and follow
-[upgrade and rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
-[state recovery](MANAGED-STATE-RECOVERY.md). This fresh installer is not an
-upgrader. Preserve the receipt's project name with `docker compose --project-name`
-for **every** manual old/new bundle command so it selects the existing volumes,
-and retain the Windows override when applicable. Stop Web/broker before backups
-or migrations and use the existing `kodi-lab-admin web backup` workflow. Preserve
-the old bundle/image identities, private state, published snapshots and required
-runtime images as documented. Do not edit the helper's identity receipt to skip
-the reviewed candidate transition or use Docker prune as recovery.
-
-After a manual upgrade, retire the old helper and any sign-in task pointing to
-it: they pin the old bundle. Use the new bundle's explicit startup commands with
-the retained project name and Windows override. The optional Windows `configure-successor` action creates a separate verified
-site record and helper for an already staged/configured successor; it preserves
-the original receipt and does not perform an application upgrade. See the
-[Windows adoption procedure](WINDOWS-WSL2-INSTALL.md#adopt-an-existing-installation-disable-or-roll-back).
+For compatible-state backups, restore and future application transitions, use
+[backup and rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
+[state recovery](MANAGED-STATE-RECOVERY.md). The initial schema is
+`0001_initial_release`; unsupported prerelease state is rejected and has no
+conversion path. Keep the original receipt, bundle, private state, runtime
+images and snapshot artifacts. Never edit identity receipts, delete volumes or
+use Docker prune as recovery.
 
 The [manual Linux source steps](LINUX-SOURCE-INSTALL.md) remain available for
 operators who want to perform each action themselves.

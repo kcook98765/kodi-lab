@@ -44,6 +44,18 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
         metadata = archive.read("kodi_lab-1.0.0rc1.dist-info/METADATA")
         assert b"License-Expression: MIT" in metadata
         assert b"License-File: LICENSE" in metadata
+        assert (
+            b"Project-URL: Repository, https://github.com/kcook98765/kodi-lab"
+            in metadata
+        )
+        assert (
+            b"Project-URL: Documentation, "
+            b"https://github.com/kcook98765/kodi-lab/blob/main/README.md" in metadata
+        )
+        assert (
+            b"Project-URL: Issues, https://github.com/kcook98765/kodi-lab/issues"
+            in metadata
+        )
         assert "kodi_lab-1.0.0rc1.dist-info/licenses/LICENSE" in names
         for path in (
             "kodi_lab/migrations/env.py",

@@ -38,6 +38,12 @@ dev = [
   "ruff>=0.12,<1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/kcook98765/kodi-lab"
+Documentation = "https://github.com/kcook98765/kodi-lab/blob/main/README.md"
+Repository = "https://github.com/kcook98765/kodi-lab"
+Issues = "https://github.com/kcook98765/kodi-lab/issues"
+
 [project.scripts]
 kodi-lab-admin = "kodi_lab.admin_cli:main"
 kodi-lab-mcp-stdio = "kodi_lab.mcp.stdio_proxy:main"
