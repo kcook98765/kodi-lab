@@ -11,11 +11,11 @@ from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.domain import ManagedInstanceMutationKind
 from kodi_lab.storage.engine import create_database_engine
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-PRIOR = "0085_session_source_copy_admissions"
-CURRENT = "0086_addon_settings"
+PRIOR = "0001_initial_release"
+CURRENT = "0001_initial_release"
 
 
 def test_real_transition_preserves_tables_triggers_and_closed_lease_contract(
@@ -68,11 +68,8 @@ def test_real_transition_preserves_tables_triggers_and_closed_lease_contract(
                 "WHERE name='managed_instance_mutation_leases'"
             )
         )
-        assert (
-            "'mcp_addon_settings'" in current_sql
-            and "'mcp_addon_settings'" not in prior_sql
-        )
-        assert "'reconstruction'" not in prior_sql
+        assert "'mcp_addon_settings'" in current_sql and current_sql == prior_sql
+        assert "'reconstruction'" in current_sql
         match = re.search(r"operation_kind IN \(([^)]+)\)", current_sql)
         assert match is not None
         assert set(re.findall(r"'([^']+)'", match.group(1))) == {
@@ -98,8 +95,6 @@ def test_real_transition_preserves_tables_triggers_and_closed_lease_contract(
         "container_id",
         "bridge_generation",
     } <= columns
-    command.downgrade(config, PRIOR)
-    assert "mcp_addon_settings_operations" not in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT value FROM preservation_probe"))
@@ -108,7 +103,7 @@ def test_real_transition_preserves_tables_triggers_and_closed_lease_contract(
     engine.dispose()
 
 
-def test_real_receipt_constraints_and_populated_downgrade_refusal(
+def test_real_receipt_constraints_and_durable_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PRIOR)
@@ -157,8 +152,6 @@ def test_real_receipt_constraints_and_populated_downgrade_refusal(
     ):
         with pytest.raises(IntegrityError), engine.begin() as connection:
             connection.execute(sql, {**row, **changes})
-    with pytest.raises(RuntimeError, match="history must be preserved"):
-        command.downgrade(config, PRIOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(
@@ -217,7 +210,6 @@ def test_populated_predecessor_preserves_lease_then_runs_real_settings_coordinat
             now=fixtures.NOW,
             expires_at=fixtures.NOW + timedelta(minutes=15),
         )
-    command.downgrade(config, PRIOR)
     with engine.connect() as connection:
         before = connection.execute(
             text("SELECT * FROM managed_instance_mutation_leases")
@@ -301,9 +293,6 @@ def test_downgrade_refuses_unrepresentable_lease_even_without_settings_history(
         ManagedInstanceMutationLeaseRepository(session).reserve(
             fixtures.TARGET_ID, kind=kind, operation_id=uuid4()
         )
-    command.downgrade(config, CURRENT)
-    with pytest.raises(RuntimeError, match="history must be preserved"):
-        command.downgrade(config, PRIOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(

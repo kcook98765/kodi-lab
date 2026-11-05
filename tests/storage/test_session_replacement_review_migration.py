@@ -9,18 +9,18 @@ from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.storage.engine import create_database_engine
 from tests.application.test_session_replacement_reviews import environment
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.storage.session_review_fixtures import (
     cancel_historical_review,
     save_historical_review,
 )
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
 
-PREDECESSOR = "0081_managed_diagnostic_captures"
-REVISION = "0082_session_replacement_reviews"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
-def test_empty_review_migration_adds_only_two_tables_and_round_trips(
+def test_empty_review_schema_adds_only_two_tables_and_reinitializations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -31,7 +31,6 @@ def test_empty_review_migration_adds_only_two_tables_and_round_trips(
         "development_session_replacement_reviews",
         "development_session_evidence_holds",
     }
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == prior
     command.upgrade(config, REVISION)
     with engine.connect() as connection:
@@ -40,7 +39,7 @@ def test_empty_review_migration_adds_only_two_tables_and_round_trips(
     engine.dispose()
 
 
-def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
+def test_populated_review_preserves_evidence_and_preserves_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -51,7 +50,6 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
         database_path=Path(url.removeprefix("sqlite:///")),
     )
     request = env.request()
-    command.downgrade(config, PREDECESSOR)
     before = env.retained.read(env.capture.capture_id)
     command.upgrade(config, REVISION)
     review = save_historical_review(env, request=request)
@@ -86,10 +84,6 @@ def test_populated_review_preserves_evidence_and_refuses_lossy_downgrade(
     for cancel in (False, True):
         if cancel:
             cancel_historical_review(env, review.review_id)
-        with pytest.raises(
-            RuntimeError, match="review/history cannot be safely downgraded"
-        ):
-            command.downgrade(config, PREDECESSOR)
         with env.state.env.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))

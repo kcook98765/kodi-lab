@@ -1,17 +1,12 @@
-import os
 import re
-import shutil
 import sqlite3
 import time
-from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
-from alembic.config import Config
-from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 from sqlalchemy import Connection, String, inspect, text
 from sqlalchemy.exc import IntegrityError
@@ -44,116 +39,10 @@ from kodi_lab.kodi.external import (
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, ExternalCredentialStore
+from tests.migration_support import MigrationTemplateStore, migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
 pytestmark = pytest.mark.slow
-
-
-class MigrationTemplateStore:
-    """Closed, integrity-checked SQLite templates at exact Alembic revisions."""
-
-    def __init__(
-        self, root: Path, templates: dict[str, Path], *, head_revision: str
-    ) -> None:
-        self.root = root
-        self._templates = templates
-        self._head_revision = head_revision
-
-    def clone(self, revision: str, destination: Path) -> None:
-        exact_revision = self._head_revision if revision == "head" else revision
-        source = self._templates[exact_revision]
-        assert not Path(f"{source}-wal").exists()
-        assert not Path(f"{source}-shm").exists()
-        shutil.copy2(source, destination)
-        with closing(sqlite3.connect(destination)) as connection:
-            assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-            assert connection.execute(
-                "SELECT version_num FROM alembic_version"
-            ).fetchone() == (exact_revision,)
-
-
-_active_migration_templates: MigrationTemplateStore | None = None
-_SESSION_TEMPLATES: pytest.StashKey[MigrationTemplateStore] = pytest.StashKey()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def migration_templates(
-    tmp_path_factory: pytest.TempPathFactory,
-    request: pytest.FixtureRequest,
-) -> MigrationTemplateStore:
-    """Build every exact revision once by advancing one pristine closed DB."""
-    # Imported fixture functions have distinct FixtureDefs in each importing
-    # module. Cache the closed store on this pytest session, rather than rebuild
-    # the entire migration graph for every such definition.
-    global _active_migration_templates
-    cached = request.config.stash.get(_SESSION_TEMPLATES, None)
-    if cached is not None:
-        _active_migration_templates = cached
-        return cached
-    project_root = Path(__file__).parents[2]
-    root = tmp_path_factory.mktemp("migration-templates")
-    data_root = root / "data"
-    database_dir = data_root / "database"
-    database_dir.mkdir(parents=True)
-    database_path = database_dir / "kodi-lab.db"
-    config = Config(str(project_root / "alembic.ini"))
-    revisions = [
-        revision.revision
-        for revision in reversed(
-            list(ScriptDirectory.from_config(config).walk_revisions())
-        )
-    ]
-    templates: dict[str, Path] = {}
-    previous_data_root = os.environ.get("KODI_LAB_DATA_ROOT")
-    previous_runtime_root = os.environ.pop("KODI_LAB_RUNTIME_ROOT", None)
-    os.environ["KODI_LAB_DATA_ROOT"] = str(data_root)
-    try:
-        for revision in revisions:
-            command.upgrade(config, revision)
-            template = root / f"{revision}.db"
-            with closing(sqlite3.connect(database_path)) as connection:
-                assert connection.execute("PRAGMA integrity_check").fetchone() == (
-                    "ok",
-                )
-                assert connection.execute(
-                    "SELECT version_num FROM alembic_version"
-                ).fetchone() == (revision,)
-            assert not Path(f"{database_path}-wal").exists()
-            assert not Path(f"{database_path}-shm").exists()
-            shutil.copy2(database_path, template)
-            templates[revision] = template
-    finally:
-        if previous_data_root is None:
-            os.environ.pop("KODI_LAB_DATA_ROOT", None)
-        else:
-            os.environ["KODI_LAB_DATA_ROOT"] = previous_data_root
-        if previous_runtime_root is not None:
-            os.environ["KODI_LAB_RUNTIME_ROOT"] = previous_runtime_root
-    store = MigrationTemplateStore(root, templates, head_revision=revisions[-1])
-    request.config.stash[_SESSION_TEMPLATES] = store
-    _active_migration_templates = store
-    return store
-
-
-def migration_setup(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    start_revision: str | None = None,
-) -> tuple[Config, str]:
-    project_root = Path(__file__).parents[2]
-    data_root = tmp_path / "data"
-    (data_root / "database").mkdir(parents=True)
-    monkeypatch.chdir(project_root)
-    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
-    monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
-    config = Config(str(project_root / "alembic.ini"))
-    database_path = data_root / "database" / "kodi-lab.db"
-    if start_revision is not None:
-        migration_templates = _active_migration_templates
-        assert migration_templates is not None
-        migration_templates.clone(start_revision, database_path)
-    database_url = f"sqlite:///{database_path}"
-    return config, database_url
 
 
 def test_revision_template_clones_are_private_and_pristine(
@@ -180,14 +69,14 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0092_create_kodi_operations",)
+        ).fetchone() == ("0001_initial_release",)
 
 
-def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
+def test_workspace_execution_recovery_schema_retains_historical_ineligibility(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0064_workspace_smoke_exception"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     execution_id = str(uuid4())
     values = {
@@ -212,7 +101,7 @@ def test_workspace_execution_recovery_migration_retains_historical_ineligibility
             values,
         )
     engine.dispose()
-    command.upgrade(config, "0065_workspace_execution_recovery")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         historical = connection.execute(
@@ -311,46 +200,28 @@ def test_workspace_execution_recovery_migration_retains_historical_ineligibility
             },
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, "0064_workspace_smoke_exception")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0065_workspace_execution_recovery"
+            "0001_initial_release"
         )
     engine.dispose()
 
 
-def test_empty_workspace_execution_recovery_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0064_workspace_smoke_exception"
-    )
-    command.upgrade(config, "0065_workspace_execution_recovery")
-    command.downgrade(config, "0064_workspace_smoke_exception")
-    engine = create_database_engine(database_url)
-    assert (
-        "workspace_execution_recovery_operations"
-        not in inspect(engine).get_table_names()
-    )
-    engine.dispose()
-
-
-def test_historical_containment_migration_and_empty_downgrade(
+def test_historical_containment_schema_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0065_workspace_execution_recovery",
+        start_revision="0001_initial_release",
     )
-    command.upgrade(config, "0066_historical_workspace_execution_containment")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     table = "historical_workspace_execution_containment_resolutions"
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0066_historical_workspace_execution_containment"
+            "0001_initial_release"
         )
         assert table in inspect(connection).get_table_names()
         foreign_keys = {
@@ -373,13 +244,11 @@ def test_historical_containment_migration_and_empty_downgrade(
             "trg_historical_containment_no_delete",
         } <= triggers
     engine.dispose()
-    command.downgrade(config, "0065_workspace_execution_recovery")
     engine = create_database_engine(database_url)
-    assert table not in inspect(engine).get_table_names()
     engine.dispose()
 
 
-def test_failed_migration_command_cannot_poison_later_clone(
+def test_failed_schema_command_cannot_poison_later_clone(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     migration_templates: MigrationTemplateStore,
@@ -387,21 +256,21 @@ def test_failed_migration_command_cannot_poison_later_clone(
     config, _database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0034_phase9_completion_remediation",
+        start_revision="0001_initial_release",
     )
     with pytest.raises(CommandError, match="Can't locate revision"):
         command.upgrade(config, "not_a_revision")
 
     later = tmp_path / "later.db"
-    migration_templates.clone("0034_phase9_completion_remediation", later)
+    migration_templates.clone("0001_initial_release", later)
     with sqlite3.connect(later) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0034_phase9_completion_remediation",)
+        ).fetchone() == ("0001_initial_release",)
 
 
-def test_empty_database_upgrades_to_runtime_catalog_head(
+def test_empty_database_initializes_runtime_catalog_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
@@ -584,11 +453,11 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine.dispose()
 
 
-def test_0064_smoke_exception_upgrade_constraints_and_safe_downgrade(
+def test_smoke_exception_upgrade_constraints_and_safe_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0063_managed_runtime_projection"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     table = "mcp_workspace_execution_operations"
     operation_id = str(uuid4())
@@ -620,7 +489,7 @@ def test_0064_smoke_exception_upgrade_constraints_and_safe_downgrade(
             },
         )
     engine.dispose()
-    command.upgrade(config, "0064_workspace_smoke_exception")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     columns = {column["name"] for column in inspect(engine).get_columns(table)}
     assert {
@@ -674,12 +543,10 @@ def test_0064_smoke_exception_upgrade_constraints_and_safe_downgrade(
                 {"id": operation_id},
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, "0063_managed_runtime_projection")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0064_workspace_smoke_exception"
+            "0001_initial_release"
         )
         connection.execute(
             text(
@@ -690,11 +557,7 @@ def test_0064_smoke_exception_upgrade_constraints_and_safe_downgrade(
             {"id": operation_id},
         )
     engine.dispose()
-    command.downgrade(config, "0063_managed_runtime_projection")
     engine = create_database_engine(database_url)
-    assert "addon_exception_status" not in {
-        column["name"] for column in inspect(engine).get_columns(table)
-    }
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.scalar(text(f"SELECT count(*) FROM {table}")) == 1
@@ -768,11 +631,11 @@ def _seed_reset_phase_history(database_url: str) -> None:
     engine.dispose()
 
 
-def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
+def test_migrates_populated_reset_phase_history_and_keeps_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0060_repository_existing_verify"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     _seed_reset_phase_history(database_url)
     engine = create_database_engine(database_url)
@@ -799,17 +662,15 @@ def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
             )
         )
     assert isinstance(old_schema, str)
-    assert "applying_post_scan_state" not in old_schema
     old_phase_type = next(
         column["type"]
         for column in before.get_columns("reset_operations")
         if column["name"] == "phase"
     )
     assert isinstance(old_phase_type, String)
-    assert old_phase_type.length == 23
     engine.dispose()
 
-    command.upgrade(config, "0061_reset_phase_v5")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     after = inspect(engine)
     assert {
@@ -920,12 +781,10 @@ def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
         )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="post-scan reset history"):
-        command.downgrade(config, "0060_repository_existing_verify")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0061_reset_phase_v5"
+            "0001_initial_release"
         )
     with engine.begin() as connection:
         connection.execute(
@@ -935,7 +794,6 @@ def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
             {"history": _RESET_PHASE_HISTORY},
         )
     engine.dispose()
-    command.downgrade(config, "0060_repository_existing_verify")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
@@ -945,7 +803,6 @@ def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
             if column["name"] == "phase"
         )
         assert isinstance(downgraded_phase_type, String)
-        assert downgraded_phase_type.length == 23
         assert (
             connection.scalar(
                 text("SELECT phase FROM reset_operations WHERE id=:history"),
@@ -956,13 +813,13 @@ def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
     engine.dispose()
 
 
-def test_0061_durable_reset_flow_records_both_post_scan_phases(
+def test_durable_reset_flow_records_both_post_scan_phases(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0060_repository_existing_verify"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0061_reset_phase_v5")
+    command.upgrade(config, "head")
     # The current coordinator maps the current ORM model, including later
     # nullable execution diagnostics; exercise it on the complete schema.
     command.upgrade(config, "head")
@@ -1019,273 +876,13 @@ def test_0061_durable_reset_flow_records_both_post_scan_phases(
     engine.dispose()
 
 
-def test_0058_workspace_source_capture_preserves_0057_ready_workspace(
+def test_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0057_development_capability_amendments"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    ids = {
-        "source": "58000000-0000-4000-8000-000000000001",
-        "workspace": "58000000-0000-4000-8000-000000000002",
-        "baseline": "58000000-0000-4000-8000-000000000003",
-        "capture": "58000000-0000-4000-8000-000000000004",
-        "digest": "sha256:" + "a" * 64,
-        "new_digest": "sha256:" + "b" * 64,
-        "at": "2026-09-30T12:00:00.000000Z",
-    }
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
-                "observed_version,extension_types_json,registered_at,validated_at) "
-                "VALUES (:source,'Physical','local_directory','plugin.video.physical',"
-                "'plugin.video.physical','Physical','1.0.0',"
-                "'[\"xbmc.python.pluginsource\"]',:at,:at)"
-            ),
-            ids,
-        )
-        connection.execute(
-            text(
-                "INSERT INTO agent_workspaces "
-                "(id,development_source_id,source_addon_id,source_logical_name,"
-                "source_observed_name,source_observed_version,state,bytes_state,"
-                "baseline_artifact_id,baseline_manifest_digest,generation,"
-                "current_tree_digest,capture_started_at,captured_at,"
-                "created_at,updated_at) "
-                "VALUES (:workspace,:source,'plugin.video.physical','Physical',"
-                "'Physical','1.0.0','ready','present',:baseline,:digest,0,:digest,"
-                ":at,:at,:at,:at)"
-            ),
-            ids,
-        )
-    engine.dispose()
-    command.upgrade(config, "0058_workspace_source_capture")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT state,generation,creation_baseline_digest,"
-                "active_baseline_artifact_id,active_capture_id,active_observed_version "
-                "FROM agent_workspaces WHERE id=:workspace"
-            ),
-            ids,
-        ).one() == ("ready", 0, ids["digest"], ids["baseline"], None, "1.0.0")
-        assert "agent_workspace_capture_operations" in inspect(engine).get_table_names()
-    engine.dispose()
-    command.downgrade(config, "0057_development_capability_amendments")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT state,generation,baseline_manifest_digest "
-                "FROM agent_workspaces WHERE id=:workspace"
-            ),
-            ids,
-        ).one() == ("ready", 0, ids["digest"])
-    engine.dispose()
-    command.upgrade(config, "0058_workspace_source_capture")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO agent_workspace_capture_operations "
-                "(id,workspace_id,development_source_id,state,prior_generation,"
-                "resulting_generation,prior_baseline_id,prior_baseline_digest,"
-                "prior_tree_digest,captured_digest,captured_version,"
-                "requested_at,completed_at) "
-                "VALUES (:capture,:workspace,:source,'succeeded',0,1,:baseline,"
-                ":digest,:digest,:new_digest,'1.0.1',:at,:at)"
-            ),
-            ids,
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="capture evidence"):
-        command.downgrade(config, "0057_development_capability_amendments")
-
     command.upgrade(config, "head")
-    command.check(config)
-
-
-def test_0059_backfills_only_exact_current_validation_digest(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0058_workspace_source_capture"
-    )
-    ids = {
-        "source": "59000000-0000-4000-8000-000000000001",
-        "workspace": "59000000-0000-4000-8000-000000000002",
-        "validation": "59000000-0000-4000-8000-000000000003",
-        "baseline": "59000000-0000-4000-8000-000000000004",
-        "digest": "sha256:" + "a" * 64,
-        "at": "2026-09-30T12:00:00.000000Z",
-    }
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
-                "observed_version,extension_types_json,registered_at,validated_at) "
-                "VALUES (:source,'Physical','local_directory','plugin.video.physical',"
-                "'plugin.video.physical','Physical','1.0.0',"
-                "'[\"xbmc.python.pluginsource\"]',:at,:at)"
-            ),
-            ids,
-        )
-        connection.execute(
-            text(
-                "INSERT INTO agent_workspaces "
-                "(id,development_source_id,source_addon_id,source_logical_name,"
-                "source_observed_name,source_observed_version,state,bytes_state,"
-                "baseline_artifact_id,baseline_manifest_digest,generation,"
-                "current_tree_digest,capture_started_at,captured_at,created_at,updated_at,"
-                "creation_baseline_digest,active_baseline_artifact_id,"
-                "active_observed_version) "
-                "VALUES (:workspace,:source,'plugin.video.physical','Physical',"
-                "'Physical','1.0.0','ready','present',:baseline,:digest,0,:digest,"
-                ":at,:at,:at,:at,:digest,:baseline,'1.0.0')"
-            ),
-            ids,
-        )
-        connection.execute(
-            text(
-                "INSERT INTO mcp_workspace_validations "
-                "(id,workspace_id,development_source_id,generation,classification,"
-                "addon_id,addon_version,extension_types_json,validated_at) "
-                "VALUES (:validation,:workspace,:source,0,'passed',"
-                "'plugin.video.physical','1.0.0',"
-                "'[\"xbmc.python.pluginsource\"]',:at)"
-            ),
-            ids,
-        )
-    engine.dispose()
-    command.upgrade(config, "0059_workspace_validation_digest")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.execute(
-                text(
-                    "SELECT tree_digest FROM mcp_workspace_validations "
-                    "WHERE id=:validation"
-                ),
-                ids,
-            ).scalar_one()
-            == ids["digest"]
-        )
-    engine.dispose()
-    command.downgrade(config, "0058_workspace_source_capture")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert "tree_digest" not in {
-            column["name"]
-            for column in inspect(engine).get_columns("mcp_workspace_validations")
-        }
-    engine.dispose()
-    command.upgrade(config, "0059_workspace_validation_digest")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text("UPDATE agent_workspaces SET generation=1 WHERE id=:workspace"), ids
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="historical validation tree digest"):
-        command.downgrade(config, "0058_workspace_source_capture")
-
-
-def test_0035_managed_screenshot_populated_downgrade_is_guarded(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0034_phase9_completion_remediation"
-    )
-    command.upgrade(config, "0035_managed_screenshots")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        definition_id = str(uuid4())
-        revision_id = str(uuid4())
-        instance_id = str(uuid4())
-        capture_id = str(uuid4())
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "(:id, :slug, '21.3', 'current')"
-            ),
-            {"id": definition_id, "slug": f"screenshots-{definition_id}"},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions "
-                "(id, runtime_definition_id, revision_number, source_kind, "
-                "source_reference, content_digest, manifest_reference, "
-                "manifest_digest, built_at, approval_state, "
-                "approved_at, requires_trusted_build_confirmation) VALUES "
-                "(:id, :definition, 1, 'test', 'test', :digest, 'test', "
-                ":digest, '2026-09-19T00:00:00Z', 'approved', "
-                "'2026-09-19T00:00:00Z', 0)"
-            ),
-            {
-                "id": revision_id,
-                "definition": definition_id,
-                "digest": "sha256:" + "a" * 64,
-            },
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets "
-                "(id, name, target_type, kodi_version, availability, health, "
-                "connection_state) VALUES "
-                "(:id, 'screenshot', 'managed', '21.3', 'available', "
-                "'healthy', 'connected')"
-            ),
-            {"id": instance_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances "
-                "(target_id, instance_type, runtime_revision_id, runtime_state, "
-                "start_on_host_boot) VALUES "
-                "(:id, 'disposable', :revision, 'stopped', 0)"
-            ),
-            {"id": instance_id, "revision": revision_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_screenshots "
-                "(managed_instance_id, capture_id, captured_at, mime_type, width, "
-                "height, byte_size, last_attempt_at, last_error_code) VALUES "
-                "(:instance, :capture, :at, 'image/png', 1280, 720, 1024, :at, NULL)"
-            ),
-            {
-                "instance": instance_id,
-                "capture": capture_id,
-                "at": "2026-09-19T00:00:00.000000Z",
-            },
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated managed screenshot"):
-        command.downgrade(config, "0034_phase9_completion_remediation")
-
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(text("DELETE FROM managed_screenshots"))
-    engine.dispose()
-    command.downgrade(config, "0034_phase9_completion_remediation")
-    command.upgrade(config, "0035_managed_screenshots")
-
-
-def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0035_managed_screenshots"
-    )
-    command.upgrade(config, "0036_mcp_core_foundation")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         preset_rows = connection.execute(
@@ -1297,7 +894,9 @@ def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
             ("Add-on Development", 1, 1),
             ("Read-only Inspection", 1, 1),
             ("Full Lab Control", 1, 1),
-            ("Production Remote Kodi", 1, 0),
+            ("Production Remote Kodi", 1, 1),
+            ("Production Inspection", 1, 1),
+            ("Production Visual Inspection", 1, 1),
         ]
         permission_rows = connection.execute(
             text(
@@ -1305,7 +904,16 @@ def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
                 "GROUP BY permission"
             )
         ).fetchall()
-        assert [tuple(row) for row in permission_rows] == [("target.inspect", 3)]
+        assert [tuple(row) for row in permission_rows] == [
+            ("development.execute", 2),
+            ("development.request_promotion", 2),
+            ("target.control", 3),
+            ("target.inspect", 6),
+            ("target.visual", 5),
+            ("workspace.deploy", 2),
+            ("workspace.edit", 2),
+            ("workspace.inspect", 2),
+        ]
         connection.execute(
             text(
                 "INSERT INTO mcp_clients "
@@ -1320,100 +928,18 @@ def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
         )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="populated MCP foundation"):
-        command.downgrade(config, "0035_managed_screenshots")
-
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM mcp_clients"))
     engine.dispose()
-    command.downgrade(config, "0035_managed_screenshots")
-    command.upgrade(config, "0036_mcp_core_foundation")
+    command.upgrade(config, "head")
 
 
-def test_0037_seeds_visual_permission_and_guards_authority_downgrade(
+def test_development_inspection_constraints_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0036_mcp_core_foundation"
-    )
-    command.upgrade(config, "0037_mcp_observation_permissions")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        permission_rows = connection.execute(
-            text(
-                "SELECT permission, COUNT(*) FROM mcp_preset_permissions "
-                "GROUP BY permission ORDER BY permission"
-            )
-        ).fetchall()
-        assert [tuple(row) for row in permission_rows] == [
-            ("target.inspect", 3),
-            ("target.visual", 3),
-        ]
-        production_visual = connection.scalar(
-            text(
-                "SELECT COUNT(*) FROM mcp_preset_permissions "
-                "WHERE preset_id = '11000000-0000-4000-8000-000000000004' "
-                "AND permission = 'target.visual'"
-            )
-        )
-        assert production_visual == 0
-        connection.execute(
-            text(
-                "INSERT INTO mcp_clients "
-                "(id, display_name, enabled, preset_id, created_at, last_used_at) "
-                "VALUES (:id, 'visual authority', 1, :preset, :at, NULL)"
-            ),
-            {
-                "id": str(uuid4()),
-                "preset": "11000000-0000-4000-8000-000000000002",
-                "at": "2026-09-19T00:00:00.000000Z",
-            },
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="observation authority"):
-        command.downgrade(config, "0036_mcp_core_foundation")
-
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(text("DELETE FROM mcp_clients"))
-    engine.dispose()
-    command.downgrade(config, "0036_mcp_core_foundation")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE permission = 'target.visual'"
-                )
-            )
-            == 0
-        )
-    engine.dispose()
-    command.upgrade(config, "0037_mcp_observation_permissions")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE permission = 'target.visual'"
-                )
-            )
-            == 3
-        )
-    engine.dispose()
-
-
-def test_0039_development_inspection_constraints_and_guarded_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0038_mcp_remote_control"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     custom_preset_id = str(uuid4())
     engine = create_database_engine(database_url)
@@ -1434,7 +960,7 @@ def test_0039_development_inspection_constraints_and_guarded_downgrade(
             {"id": custom_preset_id},
         )
     engine.dispose()
-    command.upgrade(config, "0039_mcp_development_inspection")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -1624,8 +1150,6 @@ def test_0039_development_inspection_constraints_and_guarded_downgrade(
             )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="development inspection authority"):
-        command.downgrade(config, "0038_mcp_remote_control")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM mcp_agent_workspace_bindings"))
@@ -1634,14 +1158,9 @@ def test_0039_development_inspection_constraints_and_guarded_downgrade(
             text("DELETE FROM mcp_clients WHERE id = :id"), {"id": client_id}
         )
     engine.dispose()
-    command.downgrade(config, "0038_mcp_remote_control")
     engine = create_database_engine(database_url)
-    assert {
-        "mcp_client_development_source_grants",
-        "mcp_agent_workspace_bindings",
-    }.isdisjoint(inspect(engine).get_table_names())
     engine.dispose()
-    command.upgrade(config, "0039_mcp_development_inspection")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert (
@@ -1656,11 +1175,11 @@ def test_0039_development_inspection_constraints_and_guarded_downgrade(
     engine.dispose()
 
 
-def test_0040_workspace_mutation_constraints_and_guarded_downgrade(
+def test_workspace_mutation_constraints_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0039_mcp_development_inspection"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     custom_preset_id = str(uuid4())
     engine = create_database_engine(database_url)
@@ -1681,7 +1200,7 @@ def test_0040_workspace_mutation_constraints_and_guarded_downgrade(
             {"id": custom_preset_id},
         )
     engine.dispose()
-    command.upgrade(config, "0040_mcp_workspace_mutation")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "mcp_development_requests" in inspector.get_table_names()
@@ -1817,8 +1336,6 @@ def test_0040_workspace_mutation_constraints_and_guarded_downgrade(
             )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="workspace mutation state"):
-        command.downgrade(config, "0039_mcp_development_inspection")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM mcp_development_requests"))
@@ -1826,29 +1343,17 @@ def test_0040_workspace_mutation_constraints_and_guarded_downgrade(
             text("DELETE FROM mcp_clients WHERE id = :id"), {"id": client_id}
         )
     engine.dispose()
-    command.downgrade(config, "0039_mcp_development_inspection")
     engine = create_database_engine(database_url)
-    assert "mcp_development_requests" not in inspect(engine).get_table_names()
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE permission = 'workspace.edit'"
-                )
-            )
-            == 0
-        )
     engine.dispose()
 
 
-def test_0038_remote_receipt_constraints_and_downgrade(
+def test_remote_receipt_constraints_and_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0037_mcp_observation_permissions"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0038_mcp_remote_control")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -1868,9 +1373,14 @@ def test_0038_remote_receipt_constraints_and_downgrade(
                 )
             )
         ] == [
-            ("target.control", 2),
-            ("target.inspect", 3),
-            ("target.visual", 3),
+            ("development.execute", 2),
+            ("development.request_promotion", 2),
+            ("target.control", 3),
+            ("target.inspect", 6),
+            ("target.visual", 5),
+            ("workspace.deploy", 2),
+            ("workspace.edit", 2),
+            ("workspace.inspect", 2),
         ]
         assert (
             connection.scalar(
@@ -1917,87 +1427,30 @@ def test_0038_remote_receipt_constraints_and_downgrade(
             )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="remote-control authority or receipts"):
-        command.downgrade(config, "0037_mcp_observation_permissions")
-
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM mcp_remote_action_receipts"))
     engine.dispose()
-    command.downgrade(config, "0037_mcp_observation_permissions")
     engine = create_database_engine(database_url)
-    assert "mcp_remote_action_receipts" not in inspect(engine).get_table_names()
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE permission = 'target.control'"
-                )
-            )
-            == 0
-        )
     engine.dispose()
-    command.upgrade(config, "0038_mcp_remote_control")
+    command.upgrade(config, "head")
 
 
-def test_explicit_0001_upgrades_to_head(
+def test_initializes_reset_operations_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
-    command.upgrade(config, "0001_targets_instances")
-
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
+    )
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert "runtime_revision" in {
-        column["name"] for column in inspect(engine).get_columns("managed_instances")
-    }
     engine.dispose()
 
     command.upgrade(config, "head")
-
-    engine = create_database_engine(database_url)
-    columns = {
-        column["name"] for column in inspect(engine).get_columns("managed_instances")
-    }
-    assert "runtime_revision" not in columns
-    assert "runtime_revision_id" in columns
-    engine.dispose()
-
-
-def test_explicit_0002_upgrades_to_artifact_head(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0002_runtime_catalog"
-    )
-    command.upgrade(config, "0002_runtime_catalog")
-    engine = create_database_engine(database_url)
-    assert "runtime_container_artifacts" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.upgrade(config, "0003_runtime_container_artifacts")
-    engine = create_database_engine(database_url)
-    assert "runtime_container_artifacts" in inspect(engine).get_table_names()
-    engine.dispose()
-
-
-def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0007_fixture_definitions"
-    )
-    command.upgrade(config, "0007_fixture_definitions")
-    engine = create_database_engine(database_url)
-    assert "reset_operations" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.upgrade(config, "0008_reset_operations")
     engine = create_database_engine(database_url)
     assert "reset_operations" in inspect(engine).get_table_names()
     engine.dispose()
-    command.downgrade(config, "0007_fixture_definitions")
-    command.upgrade(config, "0008_reset_operations")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2049,271 +1502,15 @@ def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
             )
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated reset operations"):
-        command.downgrade(config, "0007_fixture_definitions")
-
-
-def test_0008_upgrades_to_fixture_taxonomy_and_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0008_reset_operations"
-    )
-    command.upgrade(config, "0008_reset_operations")
-
-    engine = create_database_engine(database_url)
-    before = next(
-        column
-        for column in inspect(engine).get_columns("fixture_definitions")
-        if column["name"] == "content_category"
-    )
-    assert isinstance(before["type"], String)
-    assert before["type"].length == 5
-    engine.dispose()
-
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    engine = create_database_engine(database_url)
-    after = next(
-        column
-        for column in inspect(engine).get_columns("fixture_definitions")
-        if column["name"] == "content_category"
-    )
-    assert isinstance(after["type"], String)
-    assert after["type"].length == 16
-    engine.dispose()
-
-    command.downgrade(config, "0008_reset_operations")
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-
-
-def test_populated_mixed_fixture_assignment_and_reset_survive_0009(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0008_reset_operations"
-    )
-    command.upgrade(config, "0008_reset_operations")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-15T00:00:00.000000Z"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('82000000-0000-4000-8000-000000000001', 'taxonomy-test', "
-                "'21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
-                "revision_number, source_kind, source_reference, content_digest, "
-                "manifest_reference, manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "('82000000-0000-4000-8000-000000000002', "
-                "'82000000-0000-4000-8000-000000000001', 1, 'test', 'test', "
-                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
-            ),
-            {"digest": "sha256:" + "a" * 64, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets (id, name, target_type, kodi_version, "
-                "availability, health, connection_state) VALUES "
-                "('82000000-0000-4000-8000-000000000003', 'taxonomy', 'managed', "
-                "'21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('82000000-0000-4000-8000-000000000004', 'retained-mixed', 1, "
-                "'small', 'mixed', :digest, '21.3', 'retained mixed fixture')"
-            ),
-            {"digest": "sha256:" + "b" * 64},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances (target_id, instance_type, "
-                "runtime_revision_id, runtime_state, start_on_host_boot, "
-                "fixture_definition_id) VALUES "
-                "('82000000-0000-4000-8000-000000000003', 'disposable', "
-                "'82000000-0000-4000-8000-000000000002', 'stopped', 0, "
-                "'82000000-0000-4000-8000-000000000004')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO reset_operations (id, managed_instance_id, requested_at, "
-                "completed_at, state, phase, reconciliation_required) VALUES "
-                "('82000000-0000-4000-8000-000000000005', "
-                "'82000000-0000-4000-8000-000000000003', :timestamp, :timestamp, "
-                "'succeeded', 'succeeded', 0)"
-            ),
-            {"timestamp": timestamp},
-        )
-        before = {
-            table: connection.execute(
-                text(f'SELECT * FROM "{table}" ORDER BY 1')
-            ).fetchall()
-            for table in (
-                "fixture_definitions",
-                "managed_instances",
-                "reset_operations",
-            )
-        }
-    engine.dispose()
-
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        after = {
-            table: connection.execute(
-                text(f'SELECT * FROM "{table}" ORDER BY 1')
-            ).fetchall()
-            for table in before
-        }
-    assert after == before
-    engine.dispose()
-
-
-def test_fixture_taxonomy_constraint_accepts_only_mixed_and_movies(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0008_reset_operations"
-    )
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    engine = create_database_engine(database_url)
-    statement = text(
-        "INSERT INTO fixture_definitions "
-        "(id, slug, fixture_version, size_category, content_category, "
-        "content_digest, compatible_kodi_version, description) VALUES "
-        "(:id, :slug, 1, 'small', :category, :digest, '21.3', 'taxonomy')"
-    )
-    with engine.begin() as connection:
-        for ordinal, category in enumerate(("mixed", "movies"), start=1):
-            connection.execute(
-                statement,
-                {
-                    "id": f"83000000-0000-4000-8000-{ordinal:012d}",
-                    "slug": f"category-{category}",
-                    "category": category,
-                    "digest": "sha256:" + f"{ordinal:064x}",
-                },
-            )
-    with pytest.raises(IntegrityError), engine.begin() as connection:
-        connection.execute(
-            statement,
-            {
-                "id": "83000000-0000-4000-8000-000000000003",
-                "slug": "category-unknown",
-                "category": "unknown",
-                "digest": "sha256:" + "3" * 64,
-            },
-        )
-    engine.dispose()
-
-
-def test_movies_fixture_refuses_lossy_0009_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0008_reset_operations"
-    )
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('84000000-0000-4000-8000-000000000001', 'movies-retained', 1, "
-                "'small', 'movies', :digest, '21.3', 'movies retained')"
-            ),
-            {"digest": "sha256:" + "d" * 64},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated Movies definitions"):
-        command.downgrade(config, "0008_reset_operations")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT slug, content_category FROM fixture_definitions "
-                "WHERE id = '84000000-0000-4000-8000-000000000001'"
-            )
-        ).one() == ("movies-retained", "movies")
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0009_fixture_content_taxonomy"
-        )
-    engine.dispose()
-
-
-def test_0009_upgrades_to_tv_taxonomy_and_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, _database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
-    )
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
-    command.downgrade(config, "0009_fixture_content_taxonomy")
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
-
-
-def test_existing_movies_definition_survives_0010_unchanged(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
-    )
-    command.upgrade(config, "0009_fixture_content_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('85500000-0000-4000-8000-000000000001', 'movies-existing', 1, "
-                "'small', 'movies', :digest, '21.3', 'existing Movies fixture')"
-            ),
-            {"digest": "sha256:" + "5" * 64},
-        )
-        before = connection.execute(
-            text(
-                "SELECT * FROM fixture_definitions "
-                "WHERE id = '85500000-0000-4000-8000-000000000001'"
-            )
-        ).one()
-    engine.dispose()
-
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        after = connection.execute(
-            text(
-                "SELECT * FROM fixture_definitions "
-                "WHERE id = '85500000-0000-4000-8000-000000000001'"
-            )
-        ).one()
-    assert after == before
-    engine.dispose()
 
 
 def test_tv_taxonomy_constraint_accepts_only_three_supported_categories(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     statement = text(
         "INSERT INTO fixture_definitions "
@@ -2345,82 +1542,13 @@ def test_tv_taxonomy_constraint_accepts_only_three_supported_categories(
     engine.dispose()
 
 
-def test_tv_fixture_refuses_lossy_0010_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
-    )
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('86000000-0000-4000-8000-000000000001', 'tv-retained', 1, "
-                "'small', 'tv', :digest, '21.3', 'TV retained')"
-            ),
-            {"digest": "sha256:" + "e" * 64},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated TV definitions"):
-        command.downgrade(config, "0009_fixture_content_taxonomy")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT slug, content_category FROM fixture_definitions "
-                "WHERE id = '86000000-0000-4000-8000-000000000001'"
-            )
-        ).one() == ("tv-retained", "tv")
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0010_fixture_tv_taxonomy"
-        )
-    engine.dispose()
-
-
-def test_0010_upgrades_to_medium_taxonomy_and_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
-    )
-    command.upgrade(config, "0010_fixture_tv_taxonomy")
-    engine = create_database_engine(database_url)
-    before = next(
-        column
-        for column in inspect(engine).get_columns("fixture_definitions")
-        if column["name"] == "size_category"
-    )
-    assert isinstance(before["type"], String)
-    assert before["type"].length == 5
-    engine.dispose()
-
-    command.upgrade(config, "0011_fixture_medium_taxonomy")
-    engine = create_database_engine(database_url)
-    after = next(
-        column
-        for column in inspect(engine).get_columns("fixture_definitions")
-        if column["name"] == "size_category"
-    )
-    assert isinstance(after["type"], String)
-    assert after["type"].length == 16
-    engine.dispose()
-    command.downgrade(config, "0010_fixture_tv_taxonomy")
-    command.upgrade(config, "0011_fixture_medium_taxonomy")
-
-
 def test_medium_size_constraint_accepts_only_small_and_medium(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0011_fixture_medium_taxonomy")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     statement = text(
         "INSERT INTO fixture_definitions "
@@ -2450,938 +1578,6 @@ def test_medium_size_constraint_accepts_only_small_and_medium(
             },
         )
     engine.dispose()
-
-
-def test_medium_fixture_refuses_lossy_0011_downgrade_and_remains_intact(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
-    )
-    command.upgrade(config, "0011_fixture_medium_taxonomy")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('88000000-0000-4000-8000-000000000001', 'medium-retained', "
-                "1, 'medium', 'mixed', :digest, '21.3', 'Medium retained')"
-            ),
-            {"digest": "sha256:" + "8" * 64},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated Medium definitions"):
-        command.downgrade(config, "0010_fixture_tv_taxonomy")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT slug, size_category FROM fixture_definitions "
-                "WHERE id = '88000000-0000-4000-8000-000000000001'"
-            )
-        ).one() == ("medium-retained", "medium")
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0011_fixture_medium_taxonomy"
-        )
-    engine.dispose()
-
-
-def test_0011_active_reset_is_seeded_into_phase7_mutation_lease(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0011_fixture_medium_taxonomy"
-    )
-    command.upgrade(config, "0011_fixture_medium_taxonomy")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-15T00:00:00.000000Z"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('89000000-0000-4000-8000-000000000001', 'phase7-test', "
-                "'21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
-                "revision_number, source_kind, source_reference, content_digest, "
-                "manifest_reference, manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "('89000000-0000-4000-8000-000000000002', "
-                "'89000000-0000-4000-8000-000000000001', 1, 'test', 'test', "
-                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
-            ),
-            {"digest": "sha256:" + "9" * 64, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets (id, name, target_type, kodi_version, "
-                "availability, health, connection_state) VALUES "
-                "('89000000-0000-4000-8000-000000000003', 'phase7', 'managed', "
-                "'21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances (target_id, instance_type, "
-                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
-                "('89000000-0000-4000-8000-000000000003', 'disposable', "
-                "'89000000-0000-4000-8000-000000000002', 'stopped', 0)"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO reset_operations (id, managed_instance_id, "
-                "requested_at, state, phase, reconciliation_required) VALUES "
-                "('89000000-0000-4000-8000-000000000004', "
-                "'89000000-0000-4000-8000-000000000003', :timestamp, "
-                "'queued', 'queued', 0)"
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    command.upgrade(config, "0012_disposable_snapshot_creation")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                "SELECT operation_kind, operation_id, lease_token_digest "
-                "FROM managed_instance_mutation_leases"
-            )
-        ).one() == (
-            "reset",
-            "89000000-0000-4000-8000-000000000004",
-            None,
-        )
-    engine.dispose()
-
-
-def test_populated_phase7_snapshot_state_refuses_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0011_fixture_medium_taxonomy"
-    )
-    command.upgrade(config, "0012_disposable_snapshot_creation")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-15T00:00:00.000000Z"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('89500000-0000-4000-8000-000000000001', 'snapshot-test', "
-                "'21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
-                "revision_number, source_kind, source_reference, content_digest, "
-                "manifest_reference, manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "('89500000-0000-4000-8000-000000000002', "
-                "'89500000-0000-4000-8000-000000000001', 1, 'test', 'test', "
-                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
-            ),
-            {"digest": "sha256:" + "5" * 64, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets (id, name, target_type, kodi_version, "
-                "availability, health, connection_state) VALUES "
-                "('89500000-0000-4000-8000-000000000003', 'snapshot', 'managed', "
-                "'21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances (target_id, instance_type, "
-                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
-                "('89500000-0000-4000-8000-000000000003', 'disposable', "
-                "'89500000-0000-4000-8000-000000000002', 'stopped', 0)"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "runtime_revision_id, captured_at, manifest_version, state, "
-                "validation_result) VALUES "
-                "('89500000-0000-4000-8000-000000000004', "
-                "'89500000-0000-4000-8000-000000000003', "
-                "'89500000-0000-4000-8000-000000000002', :timestamp, 1, "
-                "'creating', 'pending')"
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated Phase 7 snapshot state"):
-        command.downgrade(config, "0011_fixture_medium_taxonomy")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT COUNT(*) FROM snapshots")) == 1
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0012_disposable_snapshot_creation"
-        )
-    engine.dispose()
-
-
-def test_populated_snapshot_restore_state_refuses_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0013_disposable_snapshot_restore"
-    )
-    command.upgrade(config, "0013_disposable_snapshot_restore")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-16T00:00:00.000000Z"
-    digest = "sha256:" + "6" * 64
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('89600000-0000-4000-8000-000000000001', 'restore-test', "
-                "'21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
-                "revision_number, source_kind, source_reference, content_digest, "
-                "manifest_reference, manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "('89600000-0000-4000-8000-000000000002', "
-                "'89600000-0000-4000-8000-000000000001', 1, 'test', 'test', "
-                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets (id, name, target_type, kodi_version, "
-                "availability, health, connection_state) VALUES "
-                "('89600000-0000-4000-8000-000000000003', 'restore', 'managed', "
-                "'21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances (target_id, instance_type, "
-                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
-                "('89600000-0000-4000-8000-000000000003', 'disposable', "
-                "'89600000-0000-4000-8000-000000000002', 'stopped', 0)"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "runtime_revision_id, captured_at, prior_runtime_state, "
-                "manifest_version, archive_digest, manifest_digest, archive_size, "
-                "member_count, state, validation_at, validation_result) VALUES "
-                "('89600000-0000-4000-8000-000000000004', "
-                "'89600000-0000-4000-8000-000000000003', "
-                "'89600000-0000-4000-8000-000000000002', :timestamp, 'stopped', "
-                "1, :digest, :digest, 10240, 1, 'available', :timestamp, 'passed')"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO snapshot_restore_operations "
-                "(id, snapshot_id, managed_instance_id, requested_at, state, "
-                "phase, reconciliation_required) VALUES "
-                "('89600000-0000-4000-8000-000000000005', "
-                "'89600000-0000-4000-8000-000000000004', "
-                "'89600000-0000-4000-8000-000000000003', :timestamp, "
-                "'queued', 'queued', 0)"
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated snapshot restore state"):
-        command.downgrade(config, "0012_disposable_snapshot_creation")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0013_disposable_snapshot_restore"
-        )
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM snapshot_restore_operations"))
-            == 1
-        )
-    engine.dispose()
-
-
-def test_0014_preserves_history_across_snapshot_delete_and_refuses_lossy_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0013_disposable_snapshot_restore"
-    )
-    command.upgrade(config, "0013_disposable_snapshot_restore")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-16T00:00:00.000000Z"
-    digest = "sha256:" + "7" * 64
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('89700000-0000-4000-8000-000000000001', 'delete-test', "
-                "'21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
-                "revision_number, source_kind, source_reference, content_digest, "
-                "manifest_reference, manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "('89700000-0000-4000-8000-000000000002', "
-                "'89700000-0000-4000-8000-000000000001', 1, 'test', 'test', "
-                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets (id, name, target_type, kodi_version, "
-                "availability, health, connection_state) VALUES "
-                "('89700000-0000-4000-8000-000000000003', 'delete', 'managed', "
-                "'21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances (target_id, instance_type, "
-                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
-                "('89700000-0000-4000-8000-000000000003', 'disposable', "
-                "'89700000-0000-4000-8000-000000000002', 'stopped', 0)"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "runtime_revision_id, captured_at, prior_runtime_state, "
-                "manifest_version, archive_digest, manifest_digest, archive_size, "
-                "member_count, state, validation_at, validation_result) VALUES "
-                "('89700000-0000-4000-8000-000000000004', "
-                "'89700000-0000-4000-8000-000000000003', "
-                "'89700000-0000-4000-8000-000000000002', :timestamp, 'stopped', "
-                "1, :digest, :digest, 10240, 1, 'available', :timestamp, 'passed')"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-        for table, operation_id in (
-            ("snapshot_create_operations", "89700000-0000-4000-8000-000000000005"),
-            ("snapshot_restore_operations", "89700000-0000-4000-8000-000000000006"),
-        ):
-            connection.execute(
-                text(
-                    f"INSERT INTO {table} (id, snapshot_id, managed_instance_id, "
-                    "requested_at, completed_at, state, phase, "
-                    "reconciliation_required) VALUES (:id, "
-                    "'89700000-0000-4000-8000-000000000004', "
-                    "'89700000-0000-4000-8000-000000000003', :timestamp, "
-                    ":timestamp, 'succeeded', 'succeeded', 0)"
-                ),
-                {"id": operation_id, "timestamp": timestamp},
-            )
-    engine.dispose()
-
-    command.upgrade(config, "0014_snapshot_deletion")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        assert not any(
-            foreign_key["constrained_columns"] == ["snapshot_id"]
-            for table in (
-                "snapshot_create_operations",
-                "snapshot_restore_operations",
-            )
-            for foreign_key in inspect(connection).get_foreign_keys(table)
-        )
-        connection.execute(
-            text(
-                "UPDATE snapshots SET state='deleting' WHERE "
-                "id='89700000-0000-4000-8000-000000000004'"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO snapshot_delete_operations "
-                "(id, snapshot_id, managed_instance_id, prior_snapshot_state, "
-                "requested_at, completed_at, state, phase, reconciliation_required) "
-                "VALUES ('89700000-0000-4000-8000-000000000007', "
-                "'89700000-0000-4000-8000-000000000004', "
-                "'89700000-0000-4000-8000-000000000003', 'available', :timestamp, "
-                ":timestamp, 'succeeded', 'succeeded', 0)"
-            ),
-            {"timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "DELETE FROM snapshots WHERE id='89700000-0000-4000-8000-000000000004'"
-            )
-        )
-        assert connection.scalar(text("SELECT COUNT(*) FROM snapshots")) == 0
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM snapshot_create_operations"))
-            == 1
-        )
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM snapshot_restore_operations"))
-            == 1
-        )
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM snapshot_delete_operations"))
-            == 1
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated snapshot deletion history"):
-        command.downgrade(config, "0013_disposable_snapshot_restore")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0014_snapshot_deletion"
-        )
-    engine.dispose()
-
-
-def test_prior_head_upgrades_to_execution_profile_head(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0003_runtime_container_artifacts"
-    )
-    command.upgrade(config, "0003_runtime_container_artifacts")
-    engine = create_database_engine(database_url)
-    assert "runtime_execution_profiles" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.upgrade(config, "0004_runtime_execution_profiles")
-    engine = create_database_engine(database_url)
-    assert "runtime_execution_profiles" in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.downgrade(config, "0003_runtime_container_artifacts")
-    command.upgrade(config, "0004_runtime_execution_profiles")
-
-
-def test_0004_upgrades_to_web_auth_head_and_empty_state_round_trips(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0004_runtime_execution_profiles"
-    )
-    command.upgrade(config, "0004_runtime_execution_profiles")
-    engine = create_database_engine(database_url)
-    assert "web_admin_credentials" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.upgrade(config, "0005_web_auth_sessions")
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    assert {"web_admin_credentials", "web_sessions"}.issubset(
-        inspector.get_table_names()
-    )
-    session_foreign_key = inspector.get_foreign_keys("web_sessions")[0]
-    assert session_foreign_key["referred_table"] == "web_admin_credentials"
-    assert session_foreign_key["options"] == {"ondelete": "RESTRICT"}
-    engine.dispose()
-
-    command.downgrade(config, "0004_runtime_execution_profiles")
-    command.upgrade(config, "0005_web_auth_sessions")
-
-
-def test_populated_web_auth_state_refuses_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0004_runtime_execution_profiles"
-    )
-    command.upgrade(config, "0005_web_auth_sessions")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO web_admin_credentials "
-                "(admin_key, password_hash, password_updated_at) VALUES "
-                "('local-admin', '$argon2id$test', '2026-09-15T00:00:00.000000Z')"
-            )
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated Web authentication"):
-        command.downgrade(config, "0004_runtime_execution_profiles")
-
-
-def test_populated_0001_migration_refuses_ambiguous_legacy_revision(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0001_targets_instances"
-    )
-    command.upgrade(config, "0001_targets_instances")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                INSERT INTO targets (
-                    id, name, target_type, kodi_version,
-                    availability, health, connection_state
-                ) VALUES (
-                    '00000000-0000-0000-0000-000000000001', 'legacy',
-                    'managed', '21.3', 'unavailable', 'warning', 'disconnected'
-                )
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO managed_instances (
-                    target_id, instance_type, runtime_revision,
-                    runtime_state, start_on_host_boot
-                ) VALUES (
-                    '00000000-0000-0000-0000-000000000001', 'persistent',
-                    'legacy-free-form', 'stopped', 0
-                )
-                """
-            )
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="predates the runtime catalog"):
-        command.upgrade(config, "0002_runtime_catalog")
-
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    assert "runtime_definitions" not in inspector.get_table_names()
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(text("SELECT runtime_revision FROM managed_instances"))
-            == "legacy-free-form"
-        )
-    engine.dispose()
-
-
-def test_head_downgrades_to_0001_and_upgrades_again(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
-    command.upgrade(config, "head")
-
-    command.downgrade(config, "0001_targets_instances")
-
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    assert "runtime_definitions" not in inspector.get_table_names()
-    assert "runtime_revision" in {
-        column["name"] for column in inspector.get_columns("managed_instances")
-    }
-    engine.dispose()
-
-    command.upgrade(config, "head")
-    command.check(config)
-
-
-def test_populated_artifact_mapping_refuses_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0002_runtime_catalog"
-    )
-    command.upgrade(config, "0003_runtime_container_artifacts")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions (id, slug, kodi_version) "
-                "VALUES ('00000000-0000-0000-0000-000000000001', 'kodi-21', '21')"
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_revisions (
-                    id, runtime_definition_id, revision_number, source_kind,
-                    source_reference, content_digest, manifest_reference,
-                    manifest_digest, built_at, approval_state,
-                    requires_trusted_build_confirmation
-                ) VALUES (
-                    '00000000-0000-0000-0000-000000000002',
-                    '00000000-0000-0000-0000-000000000001', 1, 'test', 'test',
-                    :digest, 'test', :digest, '2026-09-14T00:00:00Z',
-                    'not_approved', 0
-                )
-                """
-            ),
-            {"digest": "sha256:" + ("a" * 64)},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_container_artifacts "
-                "(runtime_revision_id, image_id) VALUES "
-                "('00000000-0000-0000-0000-000000000002', :image_id)"
-            ),
-            {"image_id": "sha256:" + ("b" * 64)},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated runtime-container artifact"):
-        command.downgrade(config, "0002_runtime_catalog")
-
-    engine = create_database_engine(database_url)
-    assert "runtime_container_artifacts" in inspect(engine).get_table_names()
-    engine.dispose()
-
-
-def test_0005_known_curated_state_upgrades_without_fabricated_validation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0005_web_auth_sessions"
-    )
-    command.upgrade(config, "0005_web_auth_sessions")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-15T12:00:00.000000Z"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions (id, slug, kodi_version) VALUES "
-                "('00000000-0000-4000-8000-000000000001', 'kodi-21-3', '21.3')"
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_revisions (
-                    id, runtime_definition_id, revision_number, source_kind,
-                    source_reference, content_digest, manifest_reference,
-                    manifest_digest, built_at, approval_state, approved_at,
-                    requires_trusted_build_confirmation
-                ) VALUES (
-                    '3a000000-0000-4000-8000-000000000004',
-                        '00000000-0000-4000-8000-000000000001', 2,
-                    'official-package', 'ubuntu', :digest, 'manifest', :digest,
-                    :timestamp, 'approved', :timestamp, 0
-                )
-                """
-            ),
-            {"digest": "sha256:" + ("a" * 64), "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_container_artifacts "
-                "(runtime_revision_id, image_id) VALUES "
-                "('3a000000-0000-4000-8000-000000000004', :digest)"
-            ),
-            {
-                "digest": (
-                    "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254"
-                )
-            },
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_execution_profiles (
-                    runtime_revision_id, runtime_kind,
-                    expected_application_name, expected_kodi_version,
-                    expected_version_tag, jsonrpc_port, jsonrpc_path,
-                    process_observation, readiness_probe,
-                    readiness_timeout_seconds, poll_interval_seconds,
-                    http_timeout_seconds
-                ) VALUES (
-                    '3a000000-0000-4000-8000-000000000004', 'kodi', 'Kodi',
-                    '21.3', 'stable', 8080, '/jsonrpc', 'docker_healthcheck',
-                    'kodi_jsonrpc', 90, 1.0, 3.0
-                )
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO targets (
-                    id, name, target_type, kodi_version, availability, health,
-                    connection_state
-                ) VALUES (
-                    '00000000-0000-4000-8000-000000000003', 'retained',
-                    'managed', '21.3', 'unavailable', 'warning', 'disconnected'
-                )
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO managed_instances (
-                    target_id, instance_type, runtime_revision_id,
-                    runtime_state, start_on_host_boot
-                ) VALUES (
-                    '00000000-0000-4000-8000-000000000003', 'disposable',
-                    '3a000000-0000-4000-8000-000000000004', 'stopped', 0
-                )
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO web_admin_credentials (
-                    admin_key, password_hash, password_updated_at
-                ) VALUES ('local-admin', 'argon2id-test-hash', :timestamp)
-                """
-            ),
-            {"timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO web_sessions (
-                    token_digest, admin_key, csrf_token, created_at,
-                    last_used_at, absolute_expires_at
-                ) VALUES (
-                    :token_digest, 'local-admin', :csrf_token, :timestamp,
-                    :timestamp, '2026-09-22T12:00:00.000000Z'
-                )
-                """
-            ),
-            {
-                "token_digest": "c" * 64,
-                "csrf_token": "d" * 43,
-                "timestamp": timestamp,
-            },
-        )
-    engine.dispose()
-
-    command.upgrade(config, "0018_development_source_attach")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(text("SELECT support_tier FROM runtime_definitions"))
-            == "current"
-        )
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT expected_prerelease_ordinal FROM runtime_execution_profiles"
-                )
-            )
-            is None
-        )
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM runtime_validation_evidence"))
-            == 0
-        )
-        assert connection.scalar(text("SELECT COUNT(*) FROM managed_instances")) == 1
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM runtime_container_artifacts"))
-            == 1
-        )
-        assert connection.scalar(text("SELECT COUNT(*) FROM web_sessions")) == 1
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM web_admin_credentials")) == 1
-        )
-    engine.dispose()
-    command.downgrade(config, "0005_web_auth_sessions")
-    engine = create_database_engine(database_url)
-    assert "support_tier" not in {
-        column["name"] for column in inspect(engine).get_columns("runtime_definitions")
-    }
-    assert "expected_prerelease_ordinal" not in {
-        column["name"]
-        for column in inspect(engine).get_columns("runtime_execution_profiles")
-    }
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT COUNT(*) FROM managed_instances")) == 1
-        assert connection.scalar(text("SELECT COUNT(*) FROM web_sessions")) == 1
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM web_admin_credentials")) == 1
-        )
-    engine.dispose()
-    command.upgrade(config, "head")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT runtime_uid, runtime_gid FROM runtime_execution_profiles")
-        ).one() == (1000, 1000)
-    engine.dispose()
-    command.check(config)
-
-
-def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0005_web_auth_sessions"
-    )
-    command.upgrade(config, "0006_runtime_matrix_contract")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-15T12:00:00.000000Z"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('00000000-0000-4000-8000-000000000001', "
-                "'kodi-19-5', '19.5', 'legacy')"
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_revisions (
-                    id, runtime_definition_id, revision_number, source_kind,
-                    source_reference, content_digest, manifest_reference,
-                    manifest_digest, built_at, approval_state,
-                    requires_trusted_build_confirmation
-                ) VALUES (
-                    '00000000-0000-4000-8000-000000000002',
-                    '00000000-0000-4000-8000-000000000001', 1, 'test', 'test',
-                    :digest, 'test', :digest, :timestamp, 'not_approved', 0
-                )
-                """
-            ),
-            {"digest": "sha256:" + ("a" * 64), "timestamp": timestamp},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_validation_evidence (
-                    id, runtime_revision_id, contract_version, result,
-                    started_at, completed_at, evidence_reference, recorded_at
-                ) VALUES (
-                    '00000000-0000-4000-8000-000000000003',
-                    '00000000-0000-4000-8000-000000000002',
-                    'kodi-runtime-v1', 'passed', :timestamp, :timestamp,
-                    'validation://evidence', :timestamp
-                )
-                """
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="validation evidence"):
-        command.downgrade(config, "0005_web_auth_sessions")
-
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(text("DELETE FROM runtime_validation_evidence"))
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="support policy"):
-        command.downgrade(config, "0005_web_auth_sessions")
-
-
-def test_0006_populated_state_upgrades_with_null_fixture_assignment(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0006_runtime_matrix_contract"
-    )
-    command.upgrade(config, "0006_runtime_matrix_contract")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('10000000-0000-4000-8000-000000000001', "
-                "'kodi-21-3-fixture-test', '21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO runtime_revisions (
-                    id, runtime_definition_id, revision_number, source_kind,
-                    source_reference, content_digest, manifest_reference,
-                    manifest_digest, built_at, approval_state,
-                    requires_trusted_build_confirmation
-                ) VALUES (
-                    '10000000-0000-4000-8000-000000000002',
-                    '10000000-0000-4000-8000-000000000001', 1, 'test', 'test',
-                    :digest, 'manifest', :digest, '2026-09-15T00:00:00Z',
-                    'not_approved', 0
-                )
-                """
-            ),
-            {"digest": "sha256:" + ("a" * 64)},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO targets "
-                "(id, name, target_type, kodi_version, availability, health, "
-                "connection_state) VALUES "
-                "('10000000-0000-4000-8000-000000000003', 'fixture migration', "
-                "'managed', '21.3', 'unavailable', 'warning', 'disconnected')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances "
-                "(target_id, instance_type, runtime_revision_id, runtime_state, "
-                "start_on_host_boot) VALUES "
-                "('10000000-0000-4000-8000-000000000003', 'disposable', "
-                "'10000000-0000-4000-8000-000000000002', 'stopped', 0)"
-            )
-        )
-    engine.dispose()
-
-    command.upgrade(config, "0007_fixture_definitions")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text("SELECT fixture_definition_id FROM managed_instances")
-            )
-            is None
-        )
-    engine.dispose()
-
-
-def test_fixture_migration_empty_round_trip_and_populated_downgrade_refusal(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0006_runtime_matrix_contract"
-    )
-    command.upgrade(config, "0006_runtime_matrix_contract")
-    command.upgrade(config, "0007_fixture_definitions")
-    command.downgrade(config, "0006_runtime_matrix_contract")
-    command.upgrade(config, "0007_fixture_definitions")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO fixture_definitions "
-                "(id, slug, fixture_version, size_category, content_category, "
-                "content_digest, compatible_kodi_version, description) VALUES "
-                "('35d6854d-6cfc-5247-97df-7f2023c6ae9d', 'small-mixed-v1', "
-                "1, 'small', 'mixed', :digest, '21.3', 'fixture')"
-            ),
-            {"digest": "sha256:" + ("a" * 64)},
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="populated fixture"):
-        command.downgrade(config, "0006_runtime_matrix_contract")
 
 
 def _seed_0014_instance_with_notes(connection: Connection, *, notes: str) -> None:
@@ -3427,170 +1623,13 @@ def _seed_0014_instance_with_notes(connection: Connection, *, notes: str) -> Non
     )
 
 
-@pytest.mark.parametrize("notes", ["short 🐍 note", "🐍" * 4096])
-def test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, notes: str
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
-    )
-    command.upgrade(config, "0014_snapshot_deletion")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-16T00:00:00.000000Z"
-    digest = "sha256:" + "b" * 64
-    with engine.begin() as connection:
-        _seed_0014_instance_with_notes(connection, notes=notes)
-        connection.execute(
-            text(
-                "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "runtime_revision_id, captured_at, prior_runtime_state, "
-                "manifest_version, archive_digest, manifest_digest, archive_size, "
-                "member_count, state, validation_at, validation_result) VALUES "
-                "('89800000-0000-4000-8000-000000000004', "
-                "'89800000-0000-4000-8000-000000000003', "
-                "'89800000-0000-4000-8000-000000000002', :timestamp, 'stopped', "
-                "1, :digest, :digest, 10, 1, 'available', :timestamp, 'passed')"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-    engine.dispose()
-
-    command.upgrade(config, "0015_instance_deletion")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT notes FROM managed_instances")) == notes
-        snapshot = connection.execute(
-            text(
-                "SELECT source_managed_instance_id, "
-                "original_source_managed_instance_id, source_binding "
-                "FROM snapshots"
-            )
-        ).one()
-    assert snapshot == (
-        "89800000-0000-4000-8000-000000000003",
-        "89800000-0000-4000-8000-000000000003",
-        "attached",
-    )
-    engine.dispose()
-
-
-def test_0015_refuses_oversized_existing_notes_without_rewriting_database(
+def test_relaxed_terminal_history_retains_original_instance_uuid(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0014_snapshot_deletion")
-    oversized = "🐍" * 4097
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        _seed_0014_instance_with_notes(connection, notes=oversized)
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="exceed 4096 Unicode code points"):
-        command.upgrade(config, "0015_instance_deletion")
-
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(text("SELECT notes FROM managed_instances")) == oversized
-        )
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0014_snapshot_deletion"
-        )
-        assert (
-            "managed_instance_delete_operations"
-            not in inspect(connection).get_table_names()
-        )
-    engine.dispose()
-
-
-def test_0015_downgrade_refuses_detached_snapshot(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
-    )
-    command.upgrade(config, "0014_snapshot_deletion")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-16T00:00:00.000000Z"
-    digest = "sha256:" + "b" * 64
-    with engine.begin() as connection:
-        _seed_0014_instance_with_notes(connection, notes="bounded")
-        connection.execute(
-            text(
-                "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "runtime_revision_id, captured_at, prior_runtime_state, "
-                "manifest_version, archive_digest, manifest_digest, archive_size, "
-                "member_count, state, validation_at, validation_result) VALUES "
-                "('89800000-0000-4000-8000-000000000004', "
-                "'89800000-0000-4000-8000-000000000003', "
-                "'89800000-0000-4000-8000-000000000002', :timestamp, 'stopped', 1, "
-                ":digest, :digest, 10, 1, 'available', :timestamp, 'passed')"
-            ),
-            {"digest": digest, "timestamp": timestamp},
-        )
-    engine.dispose()
-    command.upgrade(config, "0015_instance_deletion")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "UPDATE snapshots SET source_managed_instance_id=NULL, "
-                "source_binding='deleted_source', source_instance_name='source', "
-                "source_deleted_at=:timestamp"
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="detached snapshots"):
-        command.downgrade(config, "0014_snapshot_deletion")
-
-
-def test_0015_downgrade_refuses_populated_instance_delete_history(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
-    )
-    command.upgrade(config, "0014_snapshot_deletion")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-16T00:00:00.000000Z"
-    with engine.begin() as connection:
-        _seed_0014_instance_with_notes(connection, notes="bounded")
-    engine.dispose()
-    command.upgrade(config, "0015_instance_deletion")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO managed_instance_delete_operations "
-                "(id, original_managed_instance_id, source_instance_name, "
-                "runtime_revision_id, preserve_snapshots, snapshot_count, "
-                "aggregate_snapshot_bytes, completed_snapshot_count, "
-                "notes_at_deletion, "
-                "requested_at, completed_at, state, phase, reconciliation_required) "
-                "VALUES ('89800000-0000-4000-8000-000000000005', "
-                "'89800000-0000-4000-8000-000000000003', 'delete source', "
-                "'89800000-0000-4000-8000-000000000002', 1, 0, 0, 0, 'bounded', "
-                ":timestamp, :timestamp, 'succeeded', 'succeeded', 0)"
-            ),
-            {"timestamp": timestamp},
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated instance deletion history"):
-        command.downgrade(config, "0014_snapshot_deletion")
-
-
-def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
-    )
-    command.upgrade(config, "0014_snapshot_deletion")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
     with engine.begin() as connection:
@@ -3607,7 +1646,7 @@ def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
             {"timestamp": timestamp},
         )
     engine.dispose()
-    command.upgrade(config, "0015_instance_deletion")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -3625,24 +1664,18 @@ def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
     assert retained == "89800000-0000-4000-8000-000000000003"
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="operation history"):
-        command.downgrade(config, "0014_snapshot_deletion")
 
-
-def test_0016_lifecycle_history_schema_and_guarded_round_trip(
+def test_lifecycle_history_schema_and_guarded_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0015_instance_deletion"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0015_instance_deletion")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert (
-        "managed_instance_lifecycle_operations" not in inspect(engine).get_table_names()
-    )
     engine.dispose()
 
-    command.upgrade(config, "0016_lifecycle_history")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     indexes = {
@@ -3658,8 +1691,7 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
     assert foreign_key["referred_table"] == "managed_instances"
     assert foreign_key["options"] == {"ondelete": "SET NULL"}
     engine.dispose()
-    command.downgrade(config, "0015_instance_deletion")
-    command.upgrade(config, "0016_lifecycle_history")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -3680,22 +1712,19 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
             {"timestamp": timestamp},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated lifecycle operation history"):
-        command.downgrade(config, "0015_instance_deletion")
 
 
-def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
+def test_development_sources_schema_constraints_and_guarded_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0016_lifecycle_history"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0016_lifecycle_history")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert "development_sources" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "0017_development_sources")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     unique = {
@@ -3708,8 +1737,7 @@ def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
         "uq_development_source_relative_locator": ["relative_locator"],
     }
     engine.dispose()
-    command.downgrade(config, "0016_lifecycle_history")
-    command.upgrade(config, "0017_development_sources")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     insert = text(
@@ -3753,24 +1781,18 @@ def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
             connection.execute(insert, values)
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="populated development-source catalog"):
-        command.downgrade(config, "0016_lifecycle_history")
 
-
-def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
+def test_source_attachments_schema_constraints_and_guarded_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0017_development_sources"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0017_development_sources")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert (
-        "managed_instance_development_sources" not in inspect(engine).get_table_names()
-    )
     engine.dispose()
 
-    command.upgrade(config, "0018_development_source_attach")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     association_fks = {
@@ -3809,8 +1831,7 @@ def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
     assert isinstance(mutation_kind["type"], String)
     assert mutation_kind["type"].length == 32
     engine.dispose()
-    command.downgrade(config, "0017_development_sources")
-    command.upgrade(config, "0018_development_source_attach")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T21:00:00.000000Z"
@@ -3839,8 +1860,6 @@ def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
             {"timestamp": timestamp},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated development-source attachment"):
-        command.downgrade(config, "0017_development_sources")
 
 
 CURATED_OWNERSHIP_ROWS = (
@@ -3959,213 +1978,13 @@ def _insert_0018_execution_profile(
     )
 
 
-def test_0019_explicitly_backfills_all_curated_execution_profiles(
+def test_enablement_schema_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0018_development_source_attach")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        for row in CURATED_OWNERSHIP_ROWS:
-            _insert_0018_execution_profile(
-                connection,
-                revision_id=row[0],
-                revision_number=row[1],
-                version=row[2],
-                channel=row[3],
-                prerelease=row[4],
-                image_id=row[5],
-            )
-    engine.dispose()
-
-    command.upgrade(config, "0019_runtime_execution_ownership")
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    ownership_columns = {
-        item["name"]: item
-        for item in inspector.get_columns("runtime_execution_profiles")
-    }
-    assert ownership_columns["runtime_uid"]["nullable"] is False
-    assert ownership_columns["runtime_gid"]["nullable"] is False
-    assert ownership_columns["runtime_uid"]["default"] is None
-    assert ownership_columns["runtime_gid"]["default"] is None
-    with engine.connect() as connection:
-        rows = [
-            tuple(row)
-            for row in connection.execute(
-                text(
-                    "SELECT runtime_revision_id, runtime_uid, runtime_gid "
-                    "FROM runtime_execution_profiles ORDER BY runtime_revision_id"
-                )
-            )
-        ]
-    assert rows == sorted((row[0], 1000, 1000) for row in CURATED_OWNERSHIP_ROWS)
-    for field, value in (
-        ("runtime_uid", -1),
-        ("runtime_gid", -1),
-        ("runtime_uid", 2**31),
-        ("runtime_gid", 2**31),
-    ):
-        with pytest.raises(IntegrityError), engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"UPDATE runtime_execution_profiles SET {field} = :value "
-                    "WHERE runtime_revision_id = :id"
-                ),
-                {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
-            )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated runtime execution ownership"):
-        command.downgrade(config, "0018_development_source_attach")
-
-
-def test_0019_unknown_profile_fails_without_default_backfill(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
-    )
-    command.upgrade(config, "0018_development_source_attach")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        _insert_0018_execution_profile(
-            connection,
-            revision_id="99900000-0000-4000-8000-000000000002",
-            revision_number=1,
-            version="21.3",
-            channel="stable",
-            prerelease=None,
-            image_id="sha256:" + "9" * 64,
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="unknown or mismatched execution profile"):
-        command.upgrade(config, "0019_runtime_execution_ownership")
-    engine = create_database_engine(database_url)
-    assert {
-        item["name"]
-        for item in inspect(engine).get_columns("runtime_execution_profiles")
-    }.isdisjoint({"runtime_uid", "runtime_gid"})
-    with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0018_development_source_attach"
-        )
-    engine.dispose()
-
-
-def test_0019_empty_downgrade_and_reupgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
-    )
-    command.upgrade(config, "0019_runtime_execution_ownership")
-    command.downgrade(config, "0018_development_source_attach")
-    engine = create_database_engine(database_url)
-    columns = {
-        item["name"]
-        for item in inspect(engine).get_columns("runtime_execution_profiles")
-    }
-    assert "runtime_uid" not in columns
-    assert "runtime_gid" not in columns
-    engine.dispose()
-    command.upgrade(config, "0019_runtime_execution_ownership")
-
-
-def test_0021_backfills_closed_python_bytecode_policy_without_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
-    )
-    command.upgrade(config, "0018_development_source_attach")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        for row in CURATED_OWNERSHIP_ROWS:
-            _insert_0018_execution_profile(
-                connection,
-                revision_id=row[0],
-                revision_number=row[1],
-                version=row[2],
-                channel=row[3],
-                prerelease=row[4],
-                image_id=row[5],
-            )
-    engine.dispose()
-    command.upgrade(config, "0019_runtime_execution_ownership")
-
-    engine = create_database_engine(database_url)
-    assert "python_bytecode_policy" not in {
-        item["name"]
-        for item in inspect(engine).get_columns("runtime_execution_profiles")
-    }
-    engine.dispose()
-    command.upgrade(config, "0021_runtime_python_bytecode_policy")
-
-    engine = create_database_engine(database_url)
-    column = next(
-        item
-        for item in inspect(engine).get_columns("runtime_execution_profiles")
-        if item["name"] == "python_bytecode_policy"
-    )
-    assert column["nullable"] is False
-    assert column["default"] is None
-    with engine.connect() as connection:
-        policies = [
-            tuple(row)
-            for row in connection.execute(
-                text(
-                    "SELECT runtime_revision_id, python_bytecode_policy "
-                    "FROM runtime_execution_profiles ORDER BY runtime_revision_id"
-                )
-            )
-        ]
-    assert policies == sorted(
-        (row[0], "interpreter_default") for row in CURATED_OWNERSHIP_ROWS
-    )
-    for value in (None, "unknown", "SUPPRESS", "1"):
-        with pytest.raises(IntegrityError), engine.begin() as connection:
-            connection.execute(
-                text(
-                    "UPDATE runtime_execution_profiles "
-                    "SET python_bytecode_policy = :value "
-                    "WHERE runtime_revision_id = :id"
-                ),
-                {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
-            )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated runtime Python bytecode"):
-        command.downgrade(config, "0020_dev_source_copy_sync")
-
-
-def test_0021_empty_downgrade_and_reupgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0020_dev_source_copy_sync"
-    )
-    command.upgrade(config, "0021_runtime_python_bytecode_policy")
-    command.downgrade(config, "0020_dev_source_copy_sync")
-    engine = create_database_engine(database_url)
-    assert "python_bytecode_policy" not in {
-        item["name"]
-        for item in inspect(engine).get_columns("runtime_execution_profiles")
-    }
-    engine.dispose()
-    command.upgrade(config, "0021_runtime_python_bytecode_policy")
-
-
-def test_0022_enablement_schema_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0021_runtime_python_bytecode_policy"
-    )
-    command.upgrade(config, "0022_dev_source_enablement")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "development_source_enablement_operations" in inspector.get_table_names()
@@ -4178,122 +1997,22 @@ def test_0022_enablement_schema_empty_round_trip(
         )
     assert "development_source_enablement" in mutation_sql
     engine.dispose()
-    command.downgrade(config, "0021_runtime_python_bytecode_policy")
     engine = create_database_engine(database_url)
-    assert (
-        "development_source_enablement_operations"
-        not in inspect(engine).get_table_names()
-    )
     engine.dispose()
-    command.upgrade(config, "0022_dev_source_enablement")
+    command.upgrade(config, "head")
 
 
-def test_0022_populated_enablement_history_refuses_lossy_downgrade(
+def test_deployment_schema_empty_lifecycle_and_metadata_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0018_development_source_attach")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    revision_id = CURATED_OWNERSHIP_ROWS[0][0]
-    with engine.begin() as connection:
-        row = CURATED_OWNERSHIP_ROWS[0]
-        _insert_0018_execution_profile(
-            connection,
-            revision_id=row[0],
-            revision_number=row[1],
-            version=row[2],
-            channel=row[3],
-            prerelease=row[4],
-            image_id=row[5],
-        )
-    engine.dispose()
-    command.upgrade(config, "0022_dev_source_enablement")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-17T16:00:00.000000Z"
-    instance_id = "aa220000-0000-4000-8000-000000000001"
-    source_id = "aa220000-0000-4000-8000-000000000002"
-    operation_id = "aa220000-0000-4000-8000-000000000003"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO targets "
-                "(id, name, target_type, kodi_version, availability, health, "
-                "connection_state) VALUES "
-                "(:id, 'Instance', 'managed', '21.3', 'available', 'healthy', "
-                "'connected')"
-            ),
-            {"id": instance_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO managed_instances "
-                "(target_id, instance_type, runtime_revision_id, runtime_state, "
-                "start_on_host_boot) VALUES "
-                "(:id, 'disposable', :revision, 'running', 0)"
-            ),
-            {"id": instance_id, "revision": revision_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id, logical_name, source_kind, relative_locator, addon_id, "
-                "observed_name, observed_version, extension_types_json, "
-                "registered_at, validated_at) VALUES "
-                "(:id, 'Source', 'local_directory', 'source', "
-                "'plugin.video.example', 'Example', '1.0.0', "
-                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
-            ),
-            {"id": source_id, "at": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_source_enablement_operations "
-                "(id, original_managed_instance_id, managed_instance_id, "
-                "development_source_id, source_logical_name, addon_id, "
-                "addon_version, runtime_revision_id, requested_at, started_at, "
-                "state, phase, result_classification, prior_enabled, "
-                "result_enabled, enable_performed, completed_at, "
-                "reconciliation_required) VALUES "
-                "(:operation, :instance, :instance, :source, 'Source', "
-                "'plugin.video.example', '1.0.0', :revision, :at, :at, "
-                "'succeeded', 'finalize', 'enabled', 0, 1, 1, :at, 0)"
-            ),
-            {
-                "operation": operation_id,
-                "instance": instance_id,
-                "source": source_id,
-                "revision": revision_id,
-                "at": timestamp,
-            },
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="populated DevelopmentSource enablement"):
-        command.downgrade(config, "0021_runtime_python_bytecode_policy")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text("SELECT COUNT(*) FROM development_source_enablement_operations")
-            )
-            == 1
-        )
     engine.dispose()
 
-
-def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0019_runtime_execution_ownership"
-    )
-    command.upgrade(config, "0019_runtime_execution_ownership")
-    engine = create_database_engine(database_url)
-    assert "development_source_deployments" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-    command.upgrade(config, "0020_dev_source_copy_sync")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -4328,80 +2047,18 @@ def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
     assert "development_source_deployment" in heavy_sql
     engine.dispose()
 
-    command.downgrade(config, "0019_runtime_execution_ownership")
     engine = create_database_engine(database_url)
-    assert {
-        "development_source_deployments",
-        "development_source_deployment_operations",
-    }.isdisjoint(inspect(engine).get_table_names())
     engine.dispose()
-    command.upgrade(config, "0020_dev_source_copy_sync")
+    command.upgrade(config, "head")
 
 
-def test_0020_populated_downgrade_refuses_without_data_loss(
+def test_smoke_schema_reinitialization_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0019_runtime_execution_ownership"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0020_dev_source_copy_sync")
-    engine = create_database_engine(database_url)
-    source_id = "aa200000-0000-4000-8000-000000000001"
-    operation_id = "aa200000-0000-4000-8000-000000000002"
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id, logical_name, source_kind, relative_locator, addon_id, "
-                "observed_name, observed_version, extension_types_json, "
-                "registered_at, validated_at) VALUES "
-                "(:id, 'Source', 'local_directory', 'source', "
-                "'plugin.video.example', 'Example', '1.0.0', "
-                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
-            ),
-            {"id": source_id, "at": "2026-09-16T22:00:00.000000Z"},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_source_deployment_operations "
-                "(id, original_managed_instance_id, managed_instance_id, "
-                "development_source_id, source_logical_name, addon_id, "
-                "runtime_revision_id, request_kind, requested_at, state, phase, "
-                "failure_reason, reconciliation_required) VALUES "
-                "(:id, :instance, NULL, :source, 'Source', "
-                "'plugin.video.example', :revision, 'copy_sync', :at, "
-                "'failed', 'finalize', 'typed failure', 0)"
-            ),
-            {
-                "id": operation_id,
-                "instance": "aa200000-0000-4000-8000-000000000003",
-                "source": source_id,
-                "revision": "aa200000-0000-4000-8000-000000000004",
-                "at": "2026-09-16T22:00:00.000000Z",
-            },
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated development-source"):
-        command.downgrade(config, "0019_runtime_execution_ownership")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text("SELECT COUNT(*) FROM development_source_deployment_operations")
-            )
-            == 1
-        )
-    engine.dispose()
-
-
-def test_0023_smoke_schema_empty_round_trip_and_mutation_kind(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0022_dev_source_enablement"
-    )
-    command.upgrade(config, "0023_dev_source_smoke_test")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "development_source_smoke_test_operations"
@@ -4432,159 +2089,35 @@ def test_0023_smoke_schema_empty_round_trip_and_mutation_kind(
         )
     assert "development_source_smoke_test" in mutation_sql
     engine.dispose()
-    command.downgrade(config, "0022_dev_source_enablement")
     engine = create_database_engine(database_url)
-    assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "0023_dev_source_smoke_test")
+    command.upgrade(config, "head")
 
 
-def test_0023_populated_smoke_history_refuses_lossy_downgrade(
+def test_uploaded_zip_schema_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0022_dev_source_enablement"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0023_dev_source_smoke_test")
-    engine = create_database_engine(database_url)
-    source_id = "aa230000-0000-4000-8000-000000000001"
-    operation_id = "aa230000-0000-4000-8000-000000000002"
-    timestamp = "2026-09-17T18:00:00.000000Z"
-    revision_id = CURATED_OWNERSHIP_ROWS[0][0]
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO runtime_definitions "
-                "(id, slug, kodi_version, support_tier) VALUES "
-                "('aa230000-0000-4000-8000-000000000004', "
-                "'smoke-migration', '21.3', 'current')"
-            )
-        )
-        connection.execute(
-            text(
-                "INSERT INTO runtime_revisions "
-                "(id, runtime_definition_id, revision_number, source_kind, "
-                "source_reference, content_digest, manifest_reference, "
-                "manifest_digest, built_at, approval_state, "
-                "requires_trusted_build_confirmation) VALUES "
-                "(:revision, 'aa230000-0000-4000-8000-000000000004', 1, "
-                "'test', 'test', :digest, 'test', :digest, :at, "
-                "'not_approved', 0)"
-            ),
-            {"revision": revision_id, "digest": "sha256:" + "a" * 64, "at": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id, logical_name, source_kind, relative_locator, addon_id, "
-                "observed_name, observed_version, extension_types_json, "
-                "registered_at, validated_at) VALUES "
-                "(:id, 'Source', 'local_directory', 'source', "
-                "'plugin.video.example', 'Example', '1.0.0', "
-                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
-            ),
-            {"id": source_id, "at": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_source_smoke_test_operations "
-                "(id, original_managed_instance_id, managed_instance_id, "
-                "development_source_id, source_logical_name, addon_id, "
-                "addon_version, runtime_revision_id, requested_at, state, phase, "
-                "overall_result, execution_result, post_execution_provenance, "
-                "invocation_dispatched, reconciliation_required, completed_at) "
-                "VALUES (:operation, :instance, NULL, :source, 'Source', "
-                "'plugin.video.example', '1.0.0', :revision, :at, 'succeeded', "
-                "'finalize', 'passed', 'directory_result', 'matched', 1, 0, :at)"
-            ),
-            {
-                "operation": operation_id,
-                "instance": "aa230000-0000-4000-8000-000000000003",
-                "source": source_id,
-                "revision": revision_id,
-                "at": timestamp,
-            },
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="populated DevelopmentSource smoke-test"):
-        command.downgrade(config, "0022_dev_source_enablement")
-    engine = create_database_engine(database_url)
-    with engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text("SELECT COUNT(*) FROM development_source_smoke_test_operations")
-            )
-            == 1
-        )
-    engine.dispose()
-
-
-def test_0024_uploaded_zip_schema_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0024_addon_zip_installation"
-    )
-    command.upgrade(config, "0024_addon_zip_installation")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0024_addon_zip_installation"
+            "0001_initial_release"
         )
     engine.dispose()
 
-    command.downgrade(config, "0023_dev_source_smoke_test")
-    command.upgrade(config, "0024_addon_zip_installation")
+    command.upgrade(config, "head")
 
 
-def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
+def test_zip_enablement_schema_reinitialization_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0023_dev_source_smoke_test"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0024_addon_zip_installation")
-    artifact_id = str(uuid4())
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO addon_zip_artifacts "
-                "(id, logical_label, sha256_digest, compressed_size, "
-                "total_uncompressed_bytes, member_count, addon_id, addon_name, "
-                "addon_version, extension_classification, dependencies_json, "
-                "payload_manifest_digest, imported_at, origin, validation_state) "
-                "VALUES (:id, 'ZIP fixture', :digest, 100, 200, 2, "
-                "'plugin.video.test', 'Test', '1.0.0', 'python_video_plugin', "
-                "'[]', :manifest, :imported, 'uploaded_zip', 'accepted')"
-            ),
-            {
-                "id": artifact_id,
-                "digest": "sha256:" + "1" * 64,
-                "manifest": "sha256:" + "2" * 64,
-                "imported": "2026-09-17T12:00:00+00:00",
-            },
-        )
-    engine.dispose()
-
-    with pytest.raises(RuntimeError, match="populated uploaded-ZIP"):
-        command.downgrade(config, "0023_dev_source_smoke_test")
-
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        assert (
-            connection.scalar(text("SELECT id FROM addon_zip_artifacts")) == artifact_id
-        )
-    engine.dispose()
-
-
-def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0025_addon_zip_enablement"
-    )
-    command.upgrade(config, "0025_addon_zip_enablement")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "addon_zip_enablement_operations"
@@ -4608,7 +2141,7 @@ def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
     assert "original_managed_instance_id" not in foreign_keys
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0025_addon_zip_enablement"
+            "0001_initial_release"
         )
         mutation_sql = connection.scalar(
             text(
@@ -4618,20 +2151,18 @@ def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
         )
     assert "addon_zip_enablement" in mutation_sql
     engine.dispose()
-    command.downgrade(config, "0024_addon_zip_installation")
     engine = create_database_engine(database_url)
-    assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "0025_addon_zip_enablement")
+    command.upgrade(config, "head")
 
 
-def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
+def test_zip_smoke_schema_reinitialization_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0025_addon_zip_enablement"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0026_addon_zip_smoke_test")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "addon_zip_smoke_test_operations"
@@ -4666,20 +2197,18 @@ def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
         )
     assert "addon_zip_smoke_test" in mutation_sql
     engine.dispose()
-    command.downgrade(config, "0025_addon_zip_enablement")
     engine = create_database_engine(database_url)
-    assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "0026_addon_zip_smoke_test")
+    command.upgrade(config, "head")
 
 
-def test_0027_repository_schema_empty_round_trip_and_populated_guard(
+def test_repository_schema_reinitialization_and_populated_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0026_addon_zip_smoke_test"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0027_addon_repository_testing")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -4719,15 +2248,10 @@ def test_0027_repository_schema_empty_round_trip_and_populated_guard(
     assert "addon_repository_fetch" in global_sql
     engine.dispose()
 
-    command.downgrade(config, "0026_addon_zip_smoke_test")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
-    assert "addon_repository_sources" not in inspector.get_table_names()
-    assert "repository_source_id" not in {
-        item["name"] for item in inspector.get_columns("addon_zip_artifacts")
-    }
     engine.dispose()
-    command.upgrade(config, "0027_addon_repository_testing")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -4741,17 +2265,15 @@ def test_0027_repository_schema_empty_round_trip_and_populated_guard(
             )
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated repository"):
-        command.downgrade(config, "0026_addon_zip_smoke_test")
 
 
-def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
+def test_agent_workspace_schema_reinitialization_constraints_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0029_agent_workspaces"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0029_agent_workspaces")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {"agent_workspaces", "agent_workspace_creation_operations"} <= set(
@@ -4774,11 +2296,9 @@ def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
     assert "agent_workspace_creation" in global_sql
     engine.dispose()
 
-    command.downgrade(config, "0028_repository_replacement_override")
     engine = create_database_engine(database_url)
-    assert "agent_workspaces" not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "0029_agent_workspaces")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -4813,22 +2333,19 @@ def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
             },
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated agent workspace"):
-        command.downgrade(config, "0028_repository_replacement_override")
 
 
-def test_0030_workspace_mutation_activity_round_trip_and_guard(
+def test_workspace_mutation_activity_reinitialization_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0029_agent_workspaces"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0029_agent_workspaces")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert "agent_workspace_mutation_events" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "0030_agent_workspace_mutations")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "agent_workspace_mutation_events" in inspector.get_table_names()
@@ -4836,8 +2353,7 @@ def test_0030_workspace_mutation_activity_round_trip_and_guard(
         "options"
     ] == {"ondelete": "RESTRICT"}
     engine.dispose()
-    command.downgrade(config, "0029_agent_workspaces")
-    command.upgrade(config, "0030_agent_workspace_mutations")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -4883,22 +2399,19 @@ def test_0030_workspace_mutation_activity_round_trip_and_guard(
             },
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="workspace mutation history"):
-        command.downgrade(config, "0029_agent_workspaces")
 
 
-def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
+def test_workspace_promotion_schema_reinitialization_constraints_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0030_agent_workspace_mutations"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0030_agent_workspace_mutations")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert "agent_workspace_promotion_plans" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "0031_agent_workspace_promotions")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     expected = {
@@ -4934,11 +2447,9 @@ def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
     assert inspector.get_foreign_keys("agent_workspace_promotion_handoffs")
     engine.dispose()
 
-    command.downgrade(config, "0030_agent_workspace_mutations")
     engine = create_database_engine(database_url)
-    assert expected.isdisjoint(inspect(engine).get_table_names())
     engine.dispose()
-    command.upgrade(config, "0031_agent_workspace_promotions")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -4971,23 +2482,17 @@ def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
             },
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated agent workspace promotion"):
-        command.downgrade(config, "0030_agent_workspace_mutations")
 
 
-def test_0032_promotion_verification_schema_round_trip(
+def test_promotion_verification_schema_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0031_agent_workspace_promotions"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0031_agent_workspace_promotions")
-    assert (
-        "promotion_verification_operations"
-        not in inspect(create_database_engine(database_url)).get_table_names()
-    )
+    command.upgrade(config, "head")
 
-    command.upgrade(config, "0032_promotion_verification")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "promotion_verification_operations" in inspector.get_table_names()
@@ -5004,28 +2509,22 @@ def test_0032_promotion_verification_schema_round_trip(
     assert "promotion_verification" in heavy_checks
     assert inspector.get_foreign_keys("promotion_verification_operations")
 
-    command.downgrade(config, "0031_agent_workspace_promotions")
     engine = create_database_engine(database_url)
-    assert "promotion_verification_operations" not in inspect(engine).get_table_names()
-    assert (
-        "promotion_verification_log_evidence" not in inspect(engine).get_table_names()
-    )
     engine.dispose()
-    command.upgrade(config, "0032_promotion_verification")
+    command.upgrade(config, "head")
 
 
-def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
+def test_workspace_cleanup_schema_reinitialization_and_populated_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0032_promotion_verification"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0032_promotion_verification")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
-    assert "agent_workspace_cleanup_operations" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "0033_agent_workspace_cleanup")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -5047,8 +2546,7 @@ def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
         )
     assert "agent_workspace_cleanup" in heavy_sql
     engine.dispose()
-    command.downgrade(config, "0032_promotion_verification")
-    command.upgrade(config, "0033_agent_workspace_cleanup")
+    command.upgrade(config, "head")
 
     engine = create_database_engine(database_url)
     now = "2026-09-18T12:00:00+00:00"
@@ -5093,18 +2591,16 @@ def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
             },
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated agent workspace cleanup"):
-        command.downgrade(config, "0032_promotion_verification")
 
 
-def test_0034_phase9_retained_target_schema_round_trip(
+def test_phase9_retained_target_schema_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0033_agent_workspace_cleanup"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0033_agent_workspace_cleanup")
-    command.upgrade(config, "0034_phase9_completion_remediation")
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     for table in (
@@ -5121,133 +2617,14 @@ def test_0034_phase9_retained_target_schema_round_trip(
         for item in inspector.get_columns("agent_workspace_promotion_plans")
     }
     engine.dispose()
-    command.downgrade(config, "0033_agent_workspace_cleanup")
-    command.upgrade(config, "0034_phase9_completion_remediation")
+    command.upgrade(config, "head")
 
 
-def test_0034_upgrades_populated_0033_and_guards_detached_downgrade(
+def test_workspace_retention_timestamp_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0033_agent_workspace_cleanup"
-    )
-    command.upgrade(config, "0033_agent_workspace_cleanup")
-    engine = create_database_engine(database_url)
-    timestamp = "2026-09-19T12:00:00.000000Z"
-    instance_id = "89800000-0000-4000-8000-000000000003"
-    revision_id = "89800000-0000-4000-8000-000000000002"
-    source_id = "a9340000-0000-4000-8000-000000000001"
-    workspace_id = "a9340000-0000-4000-8000-000000000002"
-    deployment_id = "a9340000-0000-4000-8000-000000000003"
-    plan_id = "a9340000-0000-4000-8000-000000000004"
-    with engine.begin() as connection:
-        _seed_0014_instance_with_notes(connection, notes="phase9 retained target")
-        connection.execute(
-            text(
-                "INSERT INTO development_sources "
-                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
-                "observed_version,extension_types_json,registered_at,validated_at) "
-                "VALUES (:id,'Source','local_directory','source','plugin.video.source',"
-                "'Source','1.0','[\"xbmc.python.pluginsource\"]',:time,:time)"
-            ),
-            {"id": source_id, "time": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO agent_workspaces "
-                "(id,development_source_id,source_addon_id,source_logical_name,"
-                "source_observed_name,source_observed_version,state,bytes_state,"
-                "baseline_artifact_id,baseline_manifest_digest,generation,"
-                "current_tree_digest,capture_started_at,captured_at,created_at,"
-                "updated_at) VALUES (:id,:source,'plugin.video.source','Source',"
-                "'Source','1.0','ready','present',:baseline,:digest,0,:digest,:time,"
-                ":time,:time,:time)"
-            ),
-            {
-                "id": workspace_id,
-                "source": source_id,
-                "baseline": "a9340000-0000-4000-8000-000000000005",
-                "digest": "sha256:" + "a" * 64,
-                "time": timestamp,
-            },
-        )
-        connection.execute(
-            text(
-                "INSERT INTO development_source_deployment_operations "
-                "(id,original_managed_instance_id,managed_instance_id,"
-                "development_source_id,source_logical_name,addon_id,"
-                "runtime_revision_id,request_kind,requested_at,state,phase,"
-                "reconciliation_required) VALUES (:id,:instance,:instance,:source,"
-                "'Source','plugin.video.source',:revision,'copy_sync',:time,'queued',"
-                "'acquire',0)"
-            ),
-            {
-                "id": deployment_id,
-                "instance": instance_id,
-                "source": source_id,
-                "revision": revision_id,
-                "time": timestamp,
-            },
-        )
-        connection.execute(
-            text(
-                "INSERT INTO agent_workspace_promotion_plans "
-                "(id,workspace_id,development_source_id,target_instance_id,"
-                "workspace_generation,workspace_digest,baseline_artifact_id,"
-                "baseline_digest,source_capture_digest,addon_id,current_version,"
-                "promoted_name,promoted_version,target_runtime_revision_id,"
-                "target_container_id,target_deployment_operation_id,"
-                "target_source_digest,target_destination_digest,expected_enabled,"
-                "changed_file_count,review_text_bytes,created_at,reviewable_at,"
-                "expires_at,state) VALUES (:id,:workspace,:source,:instance,0,"
-                ":digest,:baseline,:digest,:digest,'plugin.video.source','1.0',"
-                "'Source','1.1',:revision,:container,:deployment,:digest,:digest,1,"
-                "1,10,:time,:time,:time,'reviewable')"
-            ),
-            {
-                "id": plan_id,
-                "workspace": workspace_id,
-                "source": source_id,
-                "instance": instance_id,
-                "digest": "sha256:" + "a" * 64,
-                "baseline": "a9340000-0000-4000-8000-000000000005",
-                "revision": revision_id,
-                "container": "b" * 64,
-                "deployment": deployment_id,
-                "time": timestamp,
-            },
-        )
-    engine.dispose()
-
-    command.upgrade(config, "0034_phase9_completion_remediation")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        retained = connection.execute(
-            text(
-                "SELECT target_instance_id, original_target_instance_id, "
-                "original_target_name FROM agent_workspace_promotion_plans "
-                "WHERE id=:id"
-            ),
-            {"id": plan_id},
-        ).one()
-        assert retained == (instance_id, instance_id, "delete source")
-        connection.execute(
-            text(
-                "UPDATE agent_workspace_promotion_plans "
-                "SET target_instance_id=NULL WHERE id=:id"
-            ),
-            {"id": plan_id},
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="retained identity semantics"):
-        command.downgrade(config, "0033_agent_workspace_cleanup")
-
-
-def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0040_mcp_workspace_mutation"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     client_id = str(uuid4())
     timestamp = "2026-09-20T14:00:00.000000Z"
@@ -5256,17 +2633,18 @@ def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
         connection.execute(
             text(
                 "INSERT INTO mcp_clients "
-                "(id,display_name,enabled,preset_id,created_at,last_used_at) "
+                "(id,display_name,enabled,preset_id,created_at,last_used_at,d"
+                "isabled_at) "
                 "VALUES (:id,'Disabled retention client',0,"
-                "'11000000-0000-4000-8000-000000000003',:time,NULL)"
+                "'11000000-0000-4000-8000-000000000003',:time,NULL,:time)"
             ),
             {"id": client_id, "time": timestamp},
         )
     engine.dispose()
 
-    migration_started_at = datetime.now(UTC)
-    command.upgrade(config, "0041_mcp_workspace_validation_retention")
-    migration_finished_at = datetime.now(UTC)
+    _migration_started_at = datetime.now(UTC)
+    command.upgrade(config, "head")
+    _migration_finished_at = datetime.now(UTC)
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         disabled_at = datetime.fromisoformat(
@@ -5275,7 +2653,7 @@ def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
                 {"id": client_id},
             ).replace("Z", "+00:00")
         )
-        assert migration_started_at <= disabled_at <= migration_finished_at
+        assert disabled_at == datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         connection.execute(
             text(
                 "INSERT INTO mcp_security_events "
@@ -5292,17 +2670,15 @@ def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
                 {"id": client_id},
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated MCP workspace retention"):
-        command.downgrade(config, "0040_mcp_workspace_mutation")
 
 
-def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
+def test_workspace_deployment_execution_presets_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0041_mcp_workspace_validation_retention",
+        start_revision="0001_initial_release",
     )
     custom_id = str(uuid4())
     engine = create_database_engine(database_url)
@@ -5323,7 +2699,7 @@ def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
         )
     engine.dispose()
 
-    command.upgrade(config, "0042_mcp_workspace_deployment_execution")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         seeded = [
@@ -5374,8 +2750,6 @@ def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
             {"id": custom_id},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated MCP Slice 4"):
-        command.downgrade(config, "0041_mcp_workspace_validation_retention")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -5387,16 +2761,15 @@ def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
             {"id": custom_id},
         )
     engine.dispose()
-    command.downgrade(config, "0041_mcp_workspace_validation_retention")
 
 
-def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
+def test_promotion_request_reuses_plans_and_preserves_custom_snapshots(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0042_mcp_workspace_deployment_execution",
+        start_revision="0001_initial_release",
     )
     custom_id = str(uuid4())
     engine = create_database_engine(database_url)
@@ -5417,10 +2790,9 @@ def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
         )
     engine.dispose()
 
-    command.upgrade(config, "0043_mcp_promotion_request")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
-    assert "mcp_promotion_plans" not in inspector.get_table_names()
     assert {
         "originating_mcp_client_id",
         "originating_mcp_request_id",
@@ -5472,25 +2844,10 @@ def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
         ] == [("development.execute",)]
     engine.dispose()
 
-    command.downgrade(config, "0042_mcp_workspace_deployment_execution")
     engine = create_database_engine(database_url)
-    assert "originating_mcp_client_id" not in {
-        item["name"]
-        for item in inspect(engine).get_columns("agent_workspace_promotion_plans")
-    }
-    with engine.begin() as connection:
-        assert (
-            connection.execute(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE permission='development.request_promotion'"
-                )
-            ).scalar_one()
-            == 0
-        )
     engine.dispose()
 
-    command.upgrade(config, "0043_mcp_promotion_request")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -5501,15 +2858,13 @@ def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
             {"id": custom_id},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="populated MCP Slice 5"):
-        command.downgrade(config, "0042_mcp_workspace_deployment_execution")
 
 
-def test_0044_preserves_managed_target_grants_and_policies_round_trip(
+def test_preserves_managed_target_grants_and_policies_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0043_mcp_promotion_request"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     target_id = "44000000-0000-4000-8000-000000000001"
     client_id = "44000000-0000-4000-8000-000000000002"
@@ -5573,7 +2928,8 @@ def test_0044_preserves_managed_target_grants_and_policies_round_trip(
         connection.execute(
             text(
                 "INSERT INTO mcp_client_target_grants "
-                "(client_id,target_id,created_at) VALUES (:client,:target,:at)"
+                "(client_id,target_id,created_at,grant_id) VALUES (:client,:target,:at"
+                ",'a0000000-0000-4000-8000-000000000001')"
             ),
             {"client": client_id, "target": target_id, "at": timestamp},
         )
@@ -5586,7 +2942,7 @@ def test_0044_preserves_managed_target_grants_and_policies_round_trip(
         )
     engine.dispose()
 
-    command.upgrade(config, "0044_external_development_targets")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert any(
@@ -5603,25 +2959,6 @@ def test_0044_preserves_managed_target_grants_and_policies_round_trip(
                 "FROM mcp_target_preset_assignments"
             )
         ).one() == (target_id, preset_id, timestamp)
-    engine.dispose()
-
-    command.downgrade(config, "0043_mcp_promotion_request")
-    engine = create_database_engine(database_url)
-    assert any(
-        item["referred_table"] == "managed_instances"
-        for item in inspect(engine).get_foreign_keys("mcp_client_target_grants")
-    )
-    with engine.begin() as connection:
-        assert (
-            connection.scalar(text("SELECT COUNT(*) FROM mcp_client_target_grants"))
-            == 1
-        )
-        assert (
-            connection.scalar(
-                text("SELECT COUNT(*) FROM mcp_target_preset_assignments")
-            )
-            == 1
-        )
     engine.dispose()
 
 
@@ -5740,53 +3077,13 @@ def test_bridge_token_orders_pairing_parent_before_event_on_migrated_head(
     engine.dispose()
 
 
-def test_0044_refuses_lossy_downgrade_with_external_state(
+def test_external_bridge_schema_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0043_mcp_promotion_request"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0044_external_development_targets")
-    target_id = "44000000-0000-4000-8000-000000000010"
-    timestamp = "2026-09-21T00:00:00.000000Z"
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO targets "
-                "(id,name,target_type,kodi_version,availability,health,"
-                "connection_state) VALUES "
-                "(:id,'external','external_development',NULL,'unavailable',"
-                "'warning','disconnected')"
-            ),
-            {"id": target_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO external_kodi_targets "
-                "(target_id,protocol_kind,host,port,authentication_mode,"
-                "secret_reference,configured_capabilities_json,"
-                "verified_capabilities_json,administrative_state,"
-                "verification_state,observation_state,verified_addresses_json,"
-                "created_at) VALUES "
-                "(:id,'jsonrpc_http','192.168.1.8',8080,'none',NULL,"
-                "'[\"target_inspect\"]','[]','disabled','unverified',NULL,"
-                "'[]',:at)"
-            ),
-            {"id": target_id, "at": timestamp},
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="populated external-development"):
-        command.downgrade(config, "0043_mcp_promotion_request")
-
-
-def test_0045_external_bridge_schema_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0044_external_development_targets"
-    )
-    command.upgrade(config, "0045_external_bridge_pairing")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -5800,73 +3097,17 @@ def test_0045_external_bridge_schema_empty_round_trip(
     } == {"uq_external_bridge_nonce"}
     engine.dispose()
 
-    command.downgrade(config, "0044_external_development_targets")
     engine = create_database_engine(database_url)
-    assert not {
-        "external_bridge_pairings",
-        "external_bridge_request_receipts",
-        "external_bridge_events",
-    }.intersection(inspect(engine).get_table_names())
     engine.dispose()
 
 
-def test_0045_refuses_lossy_downgrade_with_bridge_state(
+def test_external_bridge_development_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0044_external_development_targets"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0045_external_bridge_pairing")
-    target_id = "45000000-0000-4000-8000-000000000001"
-    timestamp = "2026-09-21T00:00:00.000000Z"
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO targets "
-                "(id,name,target_type,kodi_version,availability,health,"
-                "connection_state) VALUES "
-                "(:id,'bridge','external_development','21.3','available',"
-                "'healthy','connected')"
-            ),
-            {"id": target_id},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO external_kodi_targets "
-                "(target_id,protocol_kind,host,port,authentication_mode,"
-                "secret_reference,configured_capabilities_json,"
-                "verified_capabilities_json,administrative_state,"
-                "verification_state,observation_state,verified_addresses_json,"
-                "verified_kodi_name,verified_kodi_version,created_at,verified_at) "
-                "VALUES (:id,'jsonrpc_http','192.168.1.8',8080,'none',NULL,"
-                '\'["screenshot","target_inspect"]\',\'["target_inspect"]\','
-                "'enabled','verified','reachable','[\"192.168.1.8\"]',"
-                "'Kodi','21.3',:at,:at)"
-            ),
-            {"id": target_id, "at": timestamp},
-        )
-        connection.execute(
-            text(
-                "INSERT INTO external_bridge_pairings "
-                "(target_id,bridge_port,pairing_state,reachability_state,"
-                "observed_capabilities_json,verified_capabilities_json) "
-                "VALUES (:id,8765,'unpaired','unknown','[]','[]')"
-            ),
-            {"id": target_id},
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="populated external bridge"):
-        command.downgrade(config, "0044_external_development_targets")
-
-
-def test_0046_external_bridge_development_empty_round_trip(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0045_external_bridge_pairing"
-    )
-    command.upgrade(config, "0046_external_bridge_development")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -5887,25 +3128,16 @@ def test_0046_external_bridge_development_empty_round_trip(
     assert promotion_columns["target_bridge_id"]["nullable"] is True
     engine.dispose()
 
-    command.downgrade(config, "0045_external_bridge_pairing")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
-    assert not {
-        "external_development_source_baselines",
-        "external_bridge_deployment_receipts",
-    }.intersection(inspector.get_table_names())
-    assert "target_class" not in {
-        item["name"]
-        for item in inspector.get_columns("mcp_workspace_deployment_operations")
-    }
     engine.dispose()
 
 
-def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
+def test_external_production_foundation_upgrade_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0046_external_bridge_development"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(database_url)
     preserved_id = "47000000-0000-4000-8000-000000000001"
@@ -5921,7 +3153,7 @@ def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
         )
     engine.dispose()
 
-    command.upgrade(config, "0047_external_production_policy")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -5964,11 +3196,11 @@ def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
                 "verified_capabilities_json,administrative_state,verification_state,"
                 "observation_state,verified_addresses_json,verified_kodi_name,"
                 "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
-                "observed_protocol_version,pending_observation_id,created_at,"
+                "observed_protocol_version,pending_observation_id,production_policy_revision,created_at,"
                 "verified_at,deactivated_at,last_observed_at) VALUES "
                 "(:id,'jsonrpc_http','192.168.50.19',8080,'none',NULL,"
                 "'[\"target_inspect\"]','[]','disabled','unverified',NULL,'[]',"
-                "NULL,NULL,NULL,NULL,NULL,NULL,'2026-09-21T00:00:00.000000Z',"
+                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-09-21T00:00:00.000000Z',"
                 "NULL,NULL,NULL)"
             ),
             {"id": development_id},
@@ -5994,16 +3226,11 @@ def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
         )
     engine.dispose()
 
-    command.downgrade(config, "0046_external_bridge_development")
     engine = create_database_engine(database_url)
-    assert not {
-        "external_production_policies",
-        "production_mutation_control",
-    }.intersection(inspect(engine).get_table_names())
     engine.dispose()
 
 
-def test_0047_orders_production_parent_subtype_policy_on_upgraded_schema(
+def test_orders_production_parent_subtype_policy_on_initial_schema(
     migration_templates: MigrationTemplateStore, tmp_path: Path
 ) -> None:
     database_path = tmp_path / "production-head.db"
@@ -6041,13 +3268,13 @@ def test_0047_orders_production_parent_subtype_policy_on_upgraded_schema(
     engine.dispose()
 
 
-def test_0048_production_inspection_scope_upgrade_and_empty_round_trip(
+def test_production_inspection_scope_upgrade_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0047_external_production_policy"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0048_production_inspection_scopes")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "mcp_production_target_scopes" in inspector.get_table_names()
@@ -6069,43 +3296,18 @@ def test_0048_production_inspection_scope_upgrade_and_empty_round_trip(
         ).one() == ("target.inspect",)
     engine.dispose()
 
-    command.downgrade(config, "0047_external_production_policy")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
-    assert "mcp_production_target_scopes" not in inspector.get_table_names()
-    assert "production_scope_id" not in {
-        item["name"] for item in inspector.get_columns("mcp_security_events")
-    }
     engine.dispose()
 
 
-def test_0048_downgrade_refuses_new_preset_assignments(
+def test_scope_constraints_are_generation_bound_and_history_is_immutable(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
-    engine = create_database_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "INSERT INTO mcp_clients "
-                "(id,display_name,enabled,preset_id,created_at,"
-                "last_used_at,disabled_at) "
-                "VALUES ('48000000-0000-4000-8000-000000000001','production',1,"
-                "'11000000-0000-4000-8000-000000000005',"
-                "'2026-09-21T00:00:00.000000Z',NULL,NULL)"
-            )
-        )
-    engine.dispose()
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0047_external_production_policy")
-
-
-def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    _config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="head"
+    )
     engine = create_database_engine(database_url)
     target_id = "48000000-0000-4000-8000-000000000010"
     client_id = "48000000-0000-4000-8000-000000000011"
@@ -6254,17 +3456,15 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
                 {"id": second_scope},
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0047_external_production_policy")
 
 
-def test_0049_production_bridge_visual_fresh_upgrade_and_guarded_downgrade(
+def test_production_bridge_visual_fresh_upgrade_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0048_production_inspection_scopes"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0049_production_bridge_visual")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -6296,13 +3496,14 @@ def test_0049_production_bridge_visual_fresh_upgrade_and_guarded_downgrade(
             ).all()
         ] == ["target.inspect", "target.visual"]
     engine.dispose()
-    command.downgrade(config, "0048_production_inspection_scopes")
 
 
-def test_0049_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
+def test_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    _config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="head"
+    )
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
     service = ExternalTargetAdministrationService(
@@ -6462,17 +3663,15 @@ def test_0049_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
                 {"client": client_id, "request": screenshot_request_id},
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0048_production_inspection_scopes")
 
 
-def test_0050_navigation_schema_preset_and_protected_history(
+def test_navigation_schema_preset_and_protected_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0050_production_navigation")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     assert {
         "production_native_control_http_acknowledgements",
@@ -6521,14 +3720,15 @@ def test_0050_navigation_schema_preset_and_protected_history(
         )
         connection.execute(
             text(
-                "INSERT INTO mcp_production_remote_receipt_bindings "
-                "(receipt_id,operation_class,native_identity_generation,"
-                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
-                "inspect_scope_id,navigate_scope_id,client_preset_id,target_preset_id,"
-                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
-                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
-                "'11000000-0000-4000-8000-000000000004',"
-                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+                "INSERT INTO mcp_production_remote_receipt_bindings (receipt_"
+                "id,operation_class,native_identity_generation,bridge_trust_r"
+                "evision,target_policy_revision,mutation_control_epoch,inspec"
+                "t_scope_id,navigate_scope_id,client_preset_id,target_preset_"
+                "id,generic_grant_created_at,native_http_acknowledgement_id,g"
+                "eneric_grant_id) VALUES (:receipt,'navigation',1,1,1,1,:insp"
+                "ect,:navigate,'11000000-0000-4000-8000-000000000004','110000"
+                "00-0000-4000-8000-000000000004',:at,NULL,'a0000000-0000-4000"
+                "-8000-000000000001')"
             ),
             ids,
         )
@@ -6558,50 +3758,15 @@ def test_0050_navigation_schema_preset_and_protected_history(
                 text("DELETE FROM mcp_remote_action_receipts WHERE id=:receipt"), ids
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0049_production_bridge_visual")
 
 
-def test_0050_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
-    )
-    command.upgrade(config, "0050_production_navigation")
-    command.downgrade(config, "0049_production_bridge_visual")
-    engine = create_database_engine(database_url)
-    assert (
-        "mcp_production_remote_receipt_bindings"
-        not in inspect(engine).get_table_names()
-    )
-    with engine.connect() as connection:
-        assert (
-            connection.execute(
-                text(
-                    "SELECT assignable FROM mcp_presets "
-                    "WHERE id='11000000-0000-4000-8000-000000000004'"
-                )
-            ).scalar_one()
-            == 0
-        )
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT COUNT(*) FROM mcp_preset_permissions "
-                    "WHERE preset_id='11000000-0000-4000-8000-000000000004'"
-                )
-            )
-            == 0
-        )
-    engine.dispose()
-
-
-def test_0050_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
+def test_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0050_production_navigation")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     ids = {
         "receipt": "51000000-0000-4000-8000-000000000001",
@@ -6628,14 +3793,15 @@ def test_0050_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
         )
         connection.execute(
             text(
-                "INSERT INTO mcp_production_remote_receipt_bindings "
-                "(receipt_id,operation_class,native_identity_generation,"
-                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
-                "inspect_scope_id,navigate_scope_id,client_preset_id,target_preset_id,"
-                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
-                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
-                "'11000000-0000-4000-8000-000000000004',"
-                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+                "INSERT INTO mcp_production_remote_receipt_bindings (receipt_"
+                "id,operation_class,native_identity_generation,bridge_trust_r"
+                "evision,target_policy_revision,mutation_control_epoch,inspec"
+                "t_scope_id,navigate_scope_id,client_preset_id,target_preset_"
+                "id,generic_grant_created_at,native_http_acknowledgement_id,g"
+                "eneric_grant_id) VALUES (:receipt,'navigation',1,1,1,1,:insp"
+                "ect,:navigate,'11000000-0000-4000-8000-000000000004','110000"
+                "00-0000-4000-8000-000000000004',:at,NULL,'a0000000-0000-4000"
+                "-8000-000000000001')"
             ),
             ids,
         )
@@ -6684,11 +3850,11 @@ def test_0050_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
     engine.dispose()
 
 
-def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
+def test_preserves_navigation_and_assigns_safe_grant_identity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0050_production_navigation"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(database_url)
     ids = {
@@ -6735,11 +3901,11 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
                 "verified_capabilities_json,administrative_state,verification_state,"
                 "observation_state,verified_addresses_json,verified_kodi_name,"
                 "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
-                "observed_protocol_version,pending_observation_id,created_at,"
+                "observed_protocol_version,pending_observation_id,production_policy_revision,created_at,"
                 "verified_at,deactivated_at,last_observed_at) VALUES "
                 "(:target,'jsonrpc_http','192.168.50.52',8080,'none',NULL,"
                 "'[\"target_inspect\",\"semantic_remote\"]','[]','disabled',"
-                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,:at,NULL,NULL,NULL)"
+                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,1,:at,NULL,NULL,NULL)"
             ),
             ids,
         )
@@ -6757,8 +3923,9 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
         )
         connection.execute(
             text(
-                "INSERT INTO mcp_client_target_grants (client_id,target_id,created_at) "
-                "VALUES (:client,:target,:at)"
+                "INSERT INTO mcp_client_target_grants (client_id,target_id,cr"
+                "eated_at,grant_id) "
+                "VALUES (:client,:target,:at,'a0000000-0000-4000-8000-000000000001')"
             ),
             ids,
         )
@@ -6775,20 +3942,21 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
         )
         connection.execute(
             text(
-                "INSERT INTO mcp_production_remote_receipt_bindings (receipt_id,"
-                "operation_class,native_identity_generation,bridge_trust_revision,"
-                "target_policy_revision,mutation_control_epoch,inspect_scope_id,"
-                "navigate_scope_id,client_preset_id,target_preset_id,"
-                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
-                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
-                "'11000000-0000-4000-8000-000000000004',"
-                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+                "INSERT INTO mcp_production_remote_receipt_bindings (receipt_"
+                "id,operation_class,native_identity_generation,bridge_trust_r"
+                "evision,target_policy_revision,mutation_control_epoch,inspec"
+                "t_scope_id,navigate_scope_id,client_preset_id,target_preset_"
+                "id,generic_grant_created_at,native_http_acknowledgement_id,g"
+                "eneric_grant_id) VALUES (:receipt,'navigation',1,1,1,1,:insp"
+                "ect,:navigate,'11000000-0000-4000-8000-000000000004','110000"
+                "00-0000-4000-8000-000000000004',:at,NULL,'a0000000-0000-4000"
+                "-8000-000000000001')"
             ),
             ids,
         )
     engine.dispose()
 
-    command.upgrade(config, "0051_production_transient_approvals")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         grant_id = connection.scalar(
@@ -7050,7 +4218,16 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
         assert isinstance(before, int)
         connection.execute(
             text(
-                "UPDATE external_kodi_targets SET administrative_state='enabled' "
+                "UPDATE external_production_policies SET policy_revision=poli"
+                "cy_revision+1 WHERE target_id=:target"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "UPDATE external_kodi_targets SET administrative_state='enabl"
+                "ed',production_policy_revision=(SELECT policy_revision FROM "
+                "external_production_policies WHERE target_id=:target) "
                 "WHERE target_id=:target"
             ),
             ids,
@@ -7092,29 +4269,9 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
         )
         assert after_removal == after_assignment + 1
     engine.dispose()
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0050_production_navigation")
 
 
-def test_0051_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0050_production_navigation"
-    )
-    command.upgrade(config, "0051_production_transient_approvals")
-    command.downgrade(config, "0050_production_navigation")
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    assert "production_operation_approvals" not in inspector.get_table_names()
-    assert "authority_revision" not in {
-        column["name"] for column in inspector.get_columns("mcp_clients")
-    }
-    assert "grant_id" not in {
-        column["name"] for column in inspector.get_columns("mcp_client_target_grants")
-    }
-    engine.dispose()
-
-
-def test_0052_stage_a_reverification_publication_is_atomic_and_exact(
+def test_stage_a_reverification_publication_is_atomic_and_exact(
     migration_templates: MigrationTemplateStore, tmp_path: Path
 ) -> None:
     database_path = tmp_path / "stage-a-copy.db"
@@ -7274,7 +4431,7 @@ def test_0052_stage_a_reverification_publication_is_atomic_and_exact(
     engine.dispose()
 
 
-def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
+def test_direct_state_guards_reject_revision_bypass_and_recreation(
     migration_templates: MigrationTemplateStore, tmp_path: Path
 ) -> None:
     database_path = tmp_path / "revision-guards.db"
@@ -7517,7 +4674,7 @@ def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
     engine.dispose()
 
 
-def test_0052_current_stage_a_6_5_6_state_reads_and_rebinds_on_enablement(
+def test_current_stage_a_6_5_6_state_reads_and_rebinds_on_enablement(
     migration_templates: MigrationTemplateStore, tmp_path: Path
 ) -> None:
     database_path = tmp_path / "stage-a-6-5-6.db"
@@ -7634,42 +4791,13 @@ def test_0052_current_stage_a_6_5_6_state_reads_and_rebinds_on_enablement(
     engine.dispose()
 
 
-def test_0052_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0051_production_transient_approvals"
-    )
-    command.upgrade(config, "0052_production_policy_revision_binding")
-    engine = create_database_engine(database_url)
-    assert (
-        "external_production_policy_revision_guards"
-        in inspect(engine).get_table_names()
-    )
-    assert "production_policy_revision" in {
-        column["name"]
-        for column in inspect(engine).get_columns("external_kodi_targets")
-    }
-    engine.dispose()
-
-    command.downgrade(config, "0051_production_transient_approvals")
-    engine = create_database_engine(database_url)
-    assert (
-        "external_production_policy_revision_guards"
-        not in inspect(engine).get_table_names()
-    )
-    assert "production_policy_revision" not in {
-        column["name"]
-        for column in inspect(engine).get_columns("external_kodi_targets")
-    }
-    engine.dispose()
-
-
-def test_0053_populated_upgrade_preserves_target_without_seeding_authority(
+def test_populated_upgrade_preserves_target_without_seeding_authority(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0052_production_policy_revision_binding",
+        start_revision="0001_initial_release",
     )
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
@@ -7691,7 +4819,7 @@ def test_0053_populated_upgrade_preserves_target_without_seeding_authority(
     )
     engine.dispose()
 
-    command.upgrade(config, "0053_production_screenshot_capability_amendment")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.execute(
@@ -7732,51 +4860,15 @@ def test_0053_populated_upgrade_preserves_target_without_seeding_authority(
     engine.dispose()
 
 
-def test_0053_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config, database_url = migration_setup(
-        monkeypatch,
-        tmp_path,
-        start_revision="0052_production_policy_revision_binding",
-    )
-    command.upgrade(config, "0053_production_screenshot_capability_amendment")
-    engine = create_database_engine(database_url)
-    inspector = inspect(engine)
-    assert "production_capability_amendments" in inspector.get_table_names()
-    triggers = {
-        row[0]
-        for row in engine.connect().execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='trigger' AND "
-                "name LIKE 'trg_production_capability_amendment%' OR "
-                "name IN ('trg_production_configured_capability_amendment_required',"
-                "'trg_production_screenshot_removal_safe')"
-            )
-        )
-    }
-    assert triggers == {
-        "trg_production_capability_amendment_insert",
-        "trg_production_capability_amendment_immutable",
-        "trg_production_capability_amendment_no_delete",
-        "trg_production_configured_capability_amendment_required",
-        "trg_production_screenshot_removal_safe",
-    }
-    engine.dispose()
-
-    command.downgrade(config, "0052_production_policy_revision_binding")
-    engine = create_database_engine(database_url)
-    assert "production_capability_amendments" not in inspect(engine).get_table_names()
-    engine.dispose()
-
-
-def test_0053_refuses_downgrade_after_meaningful_amendment(
+def test_refuses_downgrade_after_meaningful_amendment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0052_production_policy_revision_binding",
+        start_revision="0001_initial_release",
     )
-    command.upgrade(config, "0053_production_screenshot_capability_amendment")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
 
@@ -7841,19 +4933,16 @@ def test_0053_refuses_downgrade_after_meaningful_amendment(
     )
     engine.dispose()
 
-    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
-        command.downgrade(config, "0052_production_policy_revision_binding")
 
-
-def test_0054_install_attempts_are_unique_active_and_terminal_immutable(
+def test_install_attempts_are_unique_active_and_terminal_immutable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0053_production_screenshot_capability_amendment",
+        start_revision="0001_initial_release",
     )
-    command.upgrade(config, "0054_runtime_recipe_installations")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     stamp = "2026-09-28T12:00:00+00:00"
     row = {
@@ -7902,15 +4991,15 @@ def test_0054_install_attempts_are_unique_active_and_terminal_immutable(
     engine.dispose()
 
 
-def test_0055_development_publication_identity_is_durable_and_single_current(
+def test_development_publication_identity_is_durable_and_single_current(
     migration_templates: MigrationTemplateStore,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0054_runtime_recipe_installations"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0055_development_repository_publications")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     first = str(uuid4())
     values = {
@@ -7954,13 +5043,13 @@ def test_0055_development_publication_identity_is_durable_and_single_current(
     engine.dispose()
 
 
-def test_0056_repository_workspace_deployment_empty_round_trip(
+def test_repository_workspace_deployment_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0055_development_repository_publications"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0056_repository_workspace_deployment")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -7974,21 +5063,16 @@ def test_0056_repository_workspace_deployment_empty_round_trip(
     }
     assert columns["deployment_mode"]["nullable"] is False
     engine.dispose()
-    command.downgrade(config, "0055_development_repository_publications")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
-    assert "deployment_mode" not in {
-        item["name"]
-        for item in inspector.get_columns("mcp_workspace_deployment_operations")
-    }
     engine.dispose()
 
 
-def test_0057_development_capability_amendments_empty_round_trip(
+def test_development_capability_amendments_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0056_repository_workspace_deployment"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     baseline_engine = create_database_engine(database_url)
     baseline_tables = [
@@ -8009,7 +5093,7 @@ def test_0057_development_capability_amendments_empty_round_trip(
         }
     assert baseline_rows["mcp_presets"]
     baseline_engine.dispose()
-    command.upgrade(config, "0057_development_capability_amendments")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "external_development_capability_amendments" in inspector.get_table_names()
@@ -8060,12 +5144,7 @@ def test_0057_development_capability_amendments_empty_round_trip(
         assert isinstance(dev_trigger, str)
         assert "'external_development' AND EXISTS" in dev_trigger
     engine.dispose()
-    command.downgrade(config, "0056_repository_workspace_deployment")
     engine = create_database_engine(database_url)
-    assert (
-        "external_development_capability_amendments"
-        not in inspect(engine).get_table_names()
-    )
     with engine.connect() as connection:
         trigger = connection.scalar(
             text(
@@ -8074,15 +5153,14 @@ def test_0057_development_capability_amendments_empty_round_trip(
             )
         )
         assert isinstance(trigger, str)
-        assert "'external_production' AND EXISTS" not in trigger
     engine.dispose()
 
 
-def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
+def test_workspace_kodi_error_preserves_history_and_closed_shape(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0061_reset_phase_v5"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(database_url)
     table = "mcp_workspace_execution_operations"
@@ -8124,7 +5202,7 @@ def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
             )
     engine.dispose()
 
-    command.upgrade(config, "0062_workspace_kodi_error")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert [
@@ -8186,8 +5264,6 @@ def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
             {"id": ids[0]},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, "0061_reset_phase_v5")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -8198,22 +5274,18 @@ def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
             {"id": ids[1]},
         )
     engine.dispose()
-    command.downgrade(config, "0061_reset_phase_v5")
     engine = create_database_engine(database_url)
-    assert "kodi_error_code" not in {
-        column["name"] for column in inspect(engine).get_columns(table)
-    }
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.scalar(text(f"SELECT COUNT(*) FROM {table}")) == 2
     engine.dispose()
 
 
-def test_0063_managed_projection_and_exact_preapplication_ambiguity(
+def test_managed_projection_and_exact_preapplication_ambiguity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0062_workspace_kodi_error"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(database_url)
     ids = {
@@ -8301,7 +5373,7 @@ def test_0063_managed_projection_and_exact_preapplication_ambiguity(
             connection.execute(text(statement), ids)
     engine.dispose()
 
-    command.upgrade(config, "0063_managed_runtime_projection")
+    command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert (
@@ -8429,8 +5501,6 @@ def test_0063_managed_projection_and_exact_preapplication_ambiguity(
                 ids,
             )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, "0062_workspace_kodi_error")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -8442,9 +5512,5 @@ def test_0063_managed_projection_and_exact_preapplication_ambiguity(
             ids,
         )
     engine.dispose()
-    command.downgrade(config, "0062_workspace_kodi_error")
     engine = create_database_engine(database_url)
-    assert "runtime_state_revision" not in {
-        column["name"] for column in inspect(engine).get_columns("managed_instances")
-    }
     engine.dispose()

@@ -13,13 +13,13 @@ from kodi_lab.storage.metadata import Base
 from tests.application import test_workspace_source_capture as capture_fixture
 from tests.application.test_workspace_imports import _environment, _request
 from tests.application.test_workspace_source_capture import WORKSPACE_ID
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-REVISION = "0073_workspace_imports"
-PREDECESSOR = "0072_kodi_log_capability"
+REVISION = "0001_initial_release"
+PREDECESSOR = "0001_initial_release"
 
 
 def test_import_empty_upgrade_and_downgrade_preserve_existing_schema(
@@ -36,13 +36,12 @@ def test_import_empty_upgrade_and_downgrade_preserve_existing_schema(
     with engine.connect() as connection:
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == before
     command.upgrade(config, REVISION)
     engine.dispose()
 
 
-def test_real_import_receipt_on_upgraded_schema_refuses_lossy_downgrade(
+def test_real_import_receipt_on_initial_schema_preserves_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -67,8 +66,6 @@ def test_real_import_receipt_on_upgraded_schema_refuses_lossy_downgrade(
     assert (
         workspaces.read_file(WORKSPACE_ID, "default.py").content == "migrated import\n"
     )
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
@@ -116,7 +113,5 @@ def test_reviewed_tombstone_receipt_runs_on_existing_migrated_schema(
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     assert tools.workspace_import(principal, operation) == result
     engine.dispose()

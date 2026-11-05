@@ -20,6 +20,7 @@ from kodi_lab.repository.transition import (
     _verify_development_metadata,
     transition,
 )
+from tests.migration_support import migration_templates as migration_templates
 from tests.repository.test_candidate_transition import (
     _replacement,
     _revision_identity,
@@ -29,7 +30,6 @@ from tests.repository.test_candidate_transition import (
     migrations as migrations,
 )
 from tests.repository.test_development import BASE
-from tests.storage.test_migrations import migration_templates as migration_templates
 
 
 @dataclass
@@ -60,10 +60,10 @@ def legacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Legacy:
         pytest.skip("requires root-owned legacy inode")
     old, installed, data, state, old_hash, installed_hash, backup_id = (
         _web_owned_transition_fixture(
-            tmp_path, monkeypatch, old_revision="0056_repository_workspace_deployment"
+            tmp_path, monkeypatch, old_revision="0001_initial_release"
         )
     )
-    _revision_identity(installed, "0056_repository_workspace_deployment")
+    _revision_identity(installed, "0001_initial_release")
     installed_hash = sha256((installed / "BUNDLE.json").read_bytes())
     # The source test wheel is at 0057; this fixture models the retained A
     # package, whose own reviewed installed head was 0056.
@@ -76,7 +76,7 @@ def legacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Legacy:
             old, installed, data, state, BASE, old_hash, installed_hash, backup_id
         )
     admin = _replacement(installed, tmp_path / "admin", source_commit="e" * 40)
-    _revision_identity(admin, "0057_development_capability_amendments")
+    _revision_identity(admin, "0002_public_test")
     admin_hash = sha256((admin / "BUNDLE.json").read_bytes())
     pointer = data / "development-data" / "CURRENT"
     before = pointer.read_bytes()

@@ -75,7 +75,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             for name in names
             if name.startswith("kodi_lab/migrations/versions/") and name.endswith(".py")
         }
-        assert wheel_revisions == source_revisions
+        assert wheel_revisions == source_revisions == {"0001_initial_release.py"}
         for kind in ("templates", "static"):
             source_assets = {
                 path.relative_to(root / "src/kodi_lab/web").as_posix()
@@ -146,39 +146,27 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
 
     older = tmp_path / "older-state"
     older_environment = {**environment, "KODI_LAB_DATA_ROOT": str(older)}
-    earlier_revision_script = "\n".join(
-        (
-            "from alembic import command",
-            "from kodi_lab.config import Settings",
-            "from kodi_lab.host_bootstrap import initialize_state",
-            "from kodi_lab.storage.packaged_migrations import packaged_config",
-            "settings = Settings(_env_file=None)",
-            "initialize_state(settings.data_root)",
-            "with packaged_config(settings.database_url) as config:",
-            "    command.upgrade(config, '0052_production_policy_revision_binding')",
+    older.mkdir(mode=0o700)
+    (older / "database").mkdir(mode=0o700)
+    old_database = older / "database/kodi-lab.db"
+    with sqlite3.connect(old_database) as connection:
+        connection.execute("CREATE TABLE retained (id INTEGER PRIMARY KEY)")
+        connection.execute("INSERT INTO retained VALUES (1)")
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.execute(
+            "INSERT INTO alembic_version VALUES ('0092_create_kodi_operations')"
         )
-    )
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            earlier_revision_script,
-        ],
-        cwd=outside,
-        env=older_environment,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    upgraded = subprocess.run(
+    original = old_database.read_bytes()
+    rejected_old = subprocess.run(
         [sys.executable, "-m", "kodi_lab.admin_cli", "migrate"],
         cwd=outside,
         env=older_environment,
-        check=True,
         capture_output=True,
         text=True,
     )
-    assert f"current={head}" in upgraded.stdout
+    assert rejected_old.returncode != 0
+    assert "fresh installation is required" in rejected_old.stderr
+    assert old_database.read_bytes() == original
 
     unversioned = tmp_path / "unversioned-state"
     unversioned.mkdir(mode=0o700)
@@ -193,7 +181,7 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
         text=True,
     )
     assert rejected.returncode != 0
-    assert "existing database has no Alembic revision" in rejected.stderr
+    assert "fresh installation is required" in rejected.stderr
     with sqlite3.connect(unversioned / "database" / "kodi-lab.db") as connection:
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"

@@ -14,11 +14,11 @@ from kodi_lab.application.mcp_workspace_development import (
 from kodi_lab.storage.engine import create_database_engine
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_workspace_noop import deploy, environment
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-OLD = "0089_retained_development"
-NEW = "0090_verified_noop_deployment"
+OLD = "0001_initial_release"
+NEW = "0001_initial_release"
 
 
 def test_populated_upgrade_preserves_old_receipts_and_reverses_without_proof(
@@ -135,19 +135,11 @@ def test_populated_upgrade_preserves_old_receipts_and_reverses_without_proof(
             )
             == 0
         )
-    command.downgrade(config, OLD)
-    with engine.connect() as connection:
-        assert "managed_verification_json" not in {
-            v["name"]
-            for v in inspect(connection).get_columns(
-                "mcp_workspace_deployment_operations"
-            )
-        }
     command.upgrade(config, NEW)
     engine.dispose()
 
 
-def test_noop_proof_works_on_migrated_schema_and_blocks_lossy_downgrade(
+def test_noop_proof_works_on_migrated_schema_and_and_preserves_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
@@ -158,8 +150,6 @@ def test_noop_proof_works_on_migrated_schema_and_blocks_lossy_downgrade(
     assert not deploy(env).deployment_work_skipped
     assert deploy(env).deployment_work_skipped
     engine = create_database_engine(url)
-    with pytest.raises(RuntimeError, match="history cannot be discarded"):
-        command.downgrade(config, OLD)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == NEW
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
@@ -185,10 +175,20 @@ def test_missing_current_proof_storage_cannot_admit_native_deployment(
     # Corrupt only this isolated fixture: a current stamp cannot substitute
     # for the actual required proof storage. Historical observers remain
     # supported, but current mutation admission must fail before native work.
+    from sqlalchemy import CheckConstraint, MetaData, Table
+
+    table = Table(
+        "mcp_workspace_deployment_operations", MetaData(), autoload_with=engine
+    )
+    for constraint in list(table.constraints):
+        if isinstance(
+            constraint, CheckConstraint
+        ) and "managed_verification_json" in str(constraint.sqltext):
+            table.constraints.remove(constraint)
+    table._columns.remove(table.c.managed_verification_json)
     with engine.begin() as connection:
-        connection.execute(
-            text("UPDATE alembic_version SET version_num=:head"), {"head": NEW}
-        )
+        table.drop(connection)
+        table.create(connection)
     env = environment(
         tmp_path / "fixture", database_path=Path(url.removeprefix("sqlite:///"))
     )

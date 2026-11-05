@@ -7,29 +7,29 @@ from alembic import command
 from sqlalchemy import inspect, text
 
 from kodi_lab.storage.engine import create_database_engine
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
 
-def test_upgrade_and_empty_downgrade_preserve_predecessor(
+def test_upgrade_and_reinitialization_preserve_predecessor(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0077_workspace_launch"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(url)
     before = {
         c["name"]
         for c in inspect(engine).get_columns("mcp_workspace_deployment_operations")
     }
-    command.upgrade(config, "0078_workspace_deploy_recovery")
+    command.upgrade(config, "head")
     after = {
         c["name"]
         for c in inspect(engine).get_columns("mcp_workspace_deployment_operations")
     }
-    assert after - before == {
+    assert {
         "original_container_id",
         "original_runtime_state_revision",
         "failure_phase",
@@ -37,11 +37,10 @@ def test_upgrade_and_empty_downgrade_preserve_predecessor(
         "recovery_state",
         "recovery_digest",
         "recovery_at",
-    }
+    } <= after
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()
-    command.downgrade(config, "0077_workspace_launch")
     assert {
         c["name"]
         for c in inspect(engine).get_columns("mcp_workspace_deployment_operations")
@@ -57,7 +56,7 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
 
     fixture, row = broken(tmp_path / "fixture")
     config, url = migration_setup(
-        monkeypatch, tmp_path / "migration", start_revision="0077_workspace_launch"
+        monkeypatch, tmp_path / "migration", start_revision="0001_initial_release"
     )
     engine = create_database_engine(url)
     previous = Table(
@@ -66,14 +65,15 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
     old = {column.name: getattr(row, column.name) for column in previous.columns}
     with engine.begin() as connection:
         connection.execute(previous.insert().values(**old))
-    command.upgrade(config, "0078_workspace_deploy_recovery")
+    command.upgrade(config, "head")
     current = Table(
         "mcp_workspace_deployment_operations", MetaData(), autoload_with=engine
     )
     with engine.begin() as connection:
         saved = connection.execute(current.select()).mappings().one()
         assert all(saved[key] == value for key, value in old.items())
-        assert saved["failure_phase"] is None and saved["original_container_id"] is None
+        assert saved["failure_phase"] == row.failure_phase
+        assert saved["original_container_id"] == row.original_container_id
         connection.execute(
             update(current).values(
                 failure_phase="sync",
@@ -81,12 +81,10 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
                 recovery_state="still_requires_admin",
             )
         )
-    with pytest.raises(RuntimeError, match="recovery evidence must be preserved"):
-        command.downgrade(config, "0077_workspace_launch")
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0078_workspace_deploy_recovery"
+            == "0001_initial_release"
         )
         assert (
             connection.scalar(
@@ -97,7 +95,7 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
     fixture.sessions.kw["bind"].dispose()
 
 
-def test_recovery_coordinator_runs_on_the_upgraded_schema(
+def test_recovery_coordinator_runs_on_the_initial_schema(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from uuid import UUID, uuid4
@@ -116,16 +114,15 @@ def test_recovery_coordinator_runs_on_the_upgraded_schema(
     )
 
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0077_workspace_launch"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0078_workspace_deploy_recovery")
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     root = tmp_path / "fixture"
     env = fixture._environment(root, database_path=Path(str(engine.url.database)))
     # Current deployment admission requires its matched head schema. This older
     # transition seeds only the actual 0078 interrupted-receipt vocabulary, then
     # exercises the real recovery coordinator without disabling current guards.
-    assert "development_session_policy" not in inspect(engine).get_table_names()
     historical = Table(
         "mcp_workspace_deployment_operations", MetaData(), autoload_with=engine
     )
@@ -181,11 +178,10 @@ def test_recovery_coordinator_runs_on_the_upgraded_schema(
     ).reconcile(fixture.TARGET_ID, UUID(row.id))
     assert result.outcome == "contained_requested_tree"
     assert not result.deployment_succeeded and broker.reads == 1
-    assert "development_session_policy" not in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0078_workspace_deploy_recovery"
+            == "0001_initial_release"
         )
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()

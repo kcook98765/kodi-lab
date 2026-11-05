@@ -39,7 +39,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import DevelopmentSourceSmokeTestOperationRepository
 from tests.application import test_development_source_smoke_tests as fixtures
 from tests.application.test_development_source_smoke_tests import factory as factory
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_templates as migration_templates
 
 
 class Clock:
@@ -511,7 +511,7 @@ def test_selected_smoke_completes_on_actual_upgraded_schema(
         RuntimeExecutionProfileRow,
         TargetRow,
     )
-    from tests.storage.test_migrations import migration_setup
+    from tests.migration_support import migration_setup
 
     config, url = migration_setup(
         monkeypatch, tmp_path / "migration", start_revision="head"

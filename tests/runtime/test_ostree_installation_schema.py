@@ -11,9 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from kodi_lab.host_bootstrap import generate_master_key
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.runtime.test_ostree_installation import ready
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
 
 
 @pytest.mark.parametrize(
@@ -43,7 +43,7 @@ def test_existing_head_accepts_preview_and_refuses_terminal_mutation(
                 connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar()
-                == "0092_create_kodi_operations"
+                == "0001_initial_release"
             )
         with (
             pytest.raises(IntegrityError, match="terminal_immutable"),

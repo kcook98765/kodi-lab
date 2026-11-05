@@ -11,8 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from kodi_lab.application.novnc_control import HumanViewerOwnership
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.web.conftest import INSTANCE_ID, REVISION_ID, seed_instance
 
 
@@ -20,7 +20,7 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0086_addon_settings"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
@@ -40,7 +40,7 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     seed_instance(sessions)
     event.remove(sessions, "before_flush", omit_existing)
     prior = set(inspect(engine).get_table_names())
-    command.upgrade(config, "0087_novnc_control")
+    command.upgrade(config, "head")
     assert set(inspect(engine).get_table_names()) == prior | {
         "novnc_sessions",
         "managed_remote_guards",
@@ -61,18 +61,15 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
             ),
             dict(instance=str(INSTANCE_ID), invocation=str(uuid4())),
         )
-    with pytest.raises(RuntimeError, match="ownership"):
-        command.downgrade(config, "0086_addon_settings")
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0087_novnc_control"
+            == "0001_initial_release"
         )
         assert connection.scalar(text("SELECT count(*) FROM novnc_sessions")) == 1
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
     ownership.revoke(INSTANCE_ID, attempt, owner)
-    command.downgrade(config, "0086_addon_settings")
     assert set(inspect(engine).get_table_names()) == prior
-    command.upgrade(config, "0087_novnc_control")
+    command.upgrade(config, "head")
     engine.dispose()

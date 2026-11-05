@@ -323,12 +323,20 @@ def test_populated_historical_containment_refuses_downgrade(
     engine = env.sessions.kw["bind"]
     config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", str(engine.url))
-    command.stamp(config, "0066_historical_workspace_execution_containment")
-    with pytest.raises(RuntimeError, match="persisted historical containment"):
-        command.downgrade(config, "0065_workspace_execution_recovery")
+    # This test-local ORM database is deliberately unversioned. Its current
+    # baseline identity is an explicit fixture, not a product adoption path.
+    with engine.begin() as connection:
+        connection.execute(
+            text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)")
+        )
+        connection.execute(
+            text("INSERT INTO alembic_version VALUES ('0001_initial_release')")
+        )
+    with pytest.raises(RuntimeError, match="history must be preserved"):
+        command.downgrade(config, "base")
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0066_historical_workspace_execution_containment"
+            "0001_initial_release"
         )
         assert (
             connection.scalar(

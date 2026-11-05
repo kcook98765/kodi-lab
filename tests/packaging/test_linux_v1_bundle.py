@@ -36,7 +36,7 @@ canonical = bundle_tool["canonical"]
 digest = bundle_tool["digest"]
 
 
-TEST_MIGRATION_HEAD = "0059_workspace_validation_digest"
+TEST_MIGRATION_HEAD = "0001_initial_release"
 
 
 def _archive(
@@ -194,11 +194,9 @@ def bundle(tmp_path: Path) -> Path:
             "per_install_generation": True,
             "development_manifest": "repository/DEVELOPMENT.json",
             "development_generator": "kodi-lab-development-repository-v1",
-            "publication_migration": "0055_development_repository_publications",
-            "workspace_deployment_migration": "0056_repository_workspace_deployment",
-            "development_capability_amendment_migration": (
-                "0057_development_capability_amendments"
-            ),
+            "publication_migration": "0001_initial_release",
+            "workspace_deployment_migration": "0001_initial_release",
+            "development_capability_amendment_migration": ("0001_initial_release"),
             "candidate_transition": "explicit-reviewed-a-b-v1",
             "migration_head": TEST_MIGRATION_HEAD,
         },
@@ -364,7 +362,7 @@ def test_bundle_rejects_changed_migration_head_even_when_rehashed(
     bundle: Path,
 ) -> None:
     document = json.loads((bundle / "BUNDLE.json").read_bytes())
-    document["repository"]["migration_head"] = "0056_repository_workspace_deployment"
+    document["repository"]["migration_head"] = "0002_unreviewed"
     (bundle / "BUNDLE.json").write_bytes(canonical(document))
     _checksums(bundle, document["files"])
     with pytest.raises(ValueError, match="migration identity differs"):

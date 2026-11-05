@@ -12,7 +12,7 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.storage.models import ExternalProductionPolicyRow
 from tests.application.test_production_bridges import _pair_production_bridge
 from tests.kodi.fake_external_bridge import FakeExternalBridge
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )

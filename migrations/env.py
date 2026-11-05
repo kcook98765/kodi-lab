@@ -1,10 +1,14 @@
+import sqlite3
 from logging.config import fileConfig
+from typing import cast
 
 from alembic import context
+from alembic.script import ScriptDirectory
 from sqlalchemy import engine_from_config, pool
 
 from kodi_lab.config import Settings
 from kodi_lab.storage import metadata
+from kodi_lab.storage.schema_compatibility import check_database
 
 config = context.config
 if config.config_file_name is not None:
@@ -35,6 +39,13 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        check_database(
+            cast(sqlite3.Connection, connection.connection.driver_connection),
+            {
+                revision.revision
+                for revision in ScriptDirectory.from_config(config).walk_revisions()
+            },
+        )
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

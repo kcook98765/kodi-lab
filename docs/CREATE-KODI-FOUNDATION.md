@@ -30,7 +30,7 @@ startup or status polling.
 
 ## Record and admission
 
-Migration `0092_create_kodi_operations` adds one table. Its immutable intent is
+The canonical `0001_initial_release` schema includes `create_kodi_operations` (originally introduced by prerelease revision 0092). Its immutable intent is
 the parent UUID, request UUID, canonical target UUID, stable generation, packaged
 reviewed recipe ID/revision/digest, `create_native_v1` scope and approval time.
 `CreateKodiService.accept()` requires explicit approval and resolves a new

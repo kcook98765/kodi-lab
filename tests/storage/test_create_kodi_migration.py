@@ -12,14 +12,14 @@ from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import ManagedInstanceLifecycleOperationRepository
 from tests.create_kodi_support import FakeChildren, accept, continue_one, service
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-OLD = "0091_managed_start_authorization"
-NEW = "0092_create_kodi_operations"
+OLD = "0001_initial_release"
+NEW = "0001_initial_release"
 
 
-def test_upgrade_is_additive_matches_orm_and_empty_downgrade(
+def test_upgrade_is_additive_matches_orm_and_reinitialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -61,15 +61,10 @@ def test_upgrade_is_additive_matches_orm_and_empty_downgrade(
         assert checks == expected
         assert c.scalar(text("PRAGMA integrity_check")) == "ok"
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, OLD)
-    with engine.connect() as c:
-        assert "create_kodi_operations" not in inspect(c).get_table_names()
     command.upgrade(config, NEW)
     # Use the production repository against the migrated, not ORM-created, table.
     op = accept(service(url))
     assert service(url).get(op.id) == op
-    with pytest.raises(RuntimeError, match="history cannot be discarded"):
-        command.downgrade(config, OLD)
     with engine.connect() as c:
         assert c.scalar(text("SELECT version_num FROM alembic_version")) == NEW
         assert c.scalar(text("SELECT count(*) FROM create_kodi_operations")) == 1

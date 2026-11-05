@@ -18,7 +18,6 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from alembic.script import ScriptDirectory
 
 from kodi_lab import remote_lifecycle
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
@@ -75,25 +74,26 @@ from tests.repository.test_development import fixture_zip, phase2_candidate
 
 
 def _head_revision() -> str:
-    config = Config()
-    config.set_main_option(
-        "script_location", str(Path(__file__).parents[2] / "migrations")
-    )
-    head = ScriptDirectory.from_config(config).get_current_head()
-    assert head is not None
-    return head
+    return "0002_future_test"
 
 
 @pytest.fixture(autouse=True)
-def repository_migrations(monkeypatch: pytest.MonkeyPatch) -> None:
+def repository_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exercise the real tree while the installed-wheel path has its own tests."""
+
+    tree = tmp_path / "future-migrations"
+    shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
+    (tree / "versions/0002_future_test.py").write_text(
+        "from alembic import op\n"
+        "revision='0002_future_test'\ndown_revision='0001_initial_release'\n"
+        "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
+        "def downgrade(): op.execute('DROP TABLE future_marker')\n"
+    )
 
     @contextmanager
     def config_for(database_url: str) -> Iterator[Config]:
         config = Config()
-        config.set_main_option(
-            "script_location", str(Path(__file__).parents[2] / "migrations")
-        )
+        config.set_main_option("script_location", str(tree))
         config.set_main_option("sqlalchemy.url", database_url)
         yield config
 
@@ -105,13 +105,13 @@ def _url(root: Path) -> str:
     return f"sqlite:///{root / 'database' / 'kodi-lab.db'}"
 
 
-def _historical(root: Path) -> None:
+def _baseline(root: Path) -> None:
     initialize_state(root)
     generate_master_key(root)
     previous_umask = os.umask(0o077)
     try:
         with packaged_migrations.packaged_config(_url(root)) as config:
-            command.upgrade(config, "0052_production_policy_revision_binding")
+            command.upgrade(config, "0001_initial_release")
     finally:
         os.umask(previous_umask)
 
@@ -351,11 +351,11 @@ def test_pending_and_completed_repository_deployment_backup_restore(
     recover_and_check(completed_backup, "succeeded")
 
 
-def test_historical_transition_and_matching_rollback(
+def test_forward_transition_and_matching_rollback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
     before = _revision(root / "database" / "kodi-lab.db")
     key = _key_digest(root)
     previous, current, identifier = upgrade(root, _url(root))
@@ -403,7 +403,7 @@ def test_failed_migration_blocks_startup_and_restore_recovers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
 
     def fail(*_args: object) -> tuple[str, str]:
         raise RuntimeError("injected migration failure")
@@ -415,14 +415,14 @@ def test_failed_migration_blocks_startup_and_restore_recovers(
     with pytest.raises(HostBootstrapError, match="incomplete"):
         validate(root, _url(root), require_head=True)
     restored, _ = restore(root, _url(root), receipt["backup_id"], receipt["backup_id"])
-    assert restored == "0052_production_policy_revision_binding"
+    assert restored == "0001_initial_release"
 
 
 def test_failed_backup_prevents_migration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
 
     def fail(*_args: object) -> str:
         raise RuntimeError("injected backup failure")
@@ -430,10 +430,7 @@ def test_failed_backup_prevents_migration(
     monkeypatch.setattr("kodi_lab.remote_lifecycle.backup", fail)
     with pytest.raises(RuntimeError, match="injected backup failure"):
         upgrade(root, _url(root))
-    assert (
-        _revision(root / "database" / "kodi-lab.db")
-        == "0052_production_policy_revision_binding"
-    )
+    assert _revision(root / "database" / "kodi-lab.db") == "0001_initial_release"
     assert not (root / ".upgrade-pending.json").exists()
 
 
@@ -441,7 +438,7 @@ def test_rollback_excludes_snapshot_and_preserves_web_artifact_modes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
     snapshots = root / "snapshots"
     snapshots.mkdir(mode=0o750)
     artifact = snapshots / "broker-owned-proof"
@@ -503,7 +500,7 @@ def test_rollback_rejects_changed_snapshot_dependencies_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
     observed = {
         "90000000-0000-4000-8000-000000000102": {
             "manifest.json": "a" * 64,
@@ -722,15 +719,15 @@ def test_clean_recovery_rejects_untrusted_snapshot_root(tmp_path: Path) -> None:
     assert not (fresh / ".recovery-pending.json").exists()
 
 
-def test_onboarding_locks_allow_historical_backup_upgrade_and_restore(
+def test_onboarding_locks_allow_forward_backup_upgrade_and_restore(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "state"
-    _historical(root)
+    _baseline(root)
     previous_umask = os.umask(0o077)
     try:
         with packaged_migrations.packaged_config(_url(root)) as config:
-            command.upgrade(config, "0071_household_onboarding")
+            command.upgrade(config, "0001_initial_release")
     finally:
         os.umask(previous_umask)
     lock_root = root / "locks"
@@ -747,11 +744,11 @@ def test_onboarding_locks_allow_historical_backup_upgrade_and_restore(
     # or the old repository candidate identity.
     first_backup = backup(root, _url(root))
     manifest = _verify_backup(root, first_backup)
-    assert manifest["revision"] == "0071_household_onboarding"
+    assert manifest["revision"] == "0001_initial_release"
     assert not (root / "backups" / first_backup / "locks").exists()
 
     previous, current, identifier = upgrade(root, _url(root))
-    assert previous == "0071_household_onboarding"
+    assert previous == "0001_initial_release"
     assert current == _head_revision()
     assert identifier is not None
     later_lock = onboarding / f"{uuid4()}.lock"

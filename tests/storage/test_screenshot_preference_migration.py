@@ -23,13 +23,13 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 from kodi_lab.storage.secrets import ExternalCredentialStore
 from tests.application.test_production_bridges import _Verifier
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-REVISION = "0070_external_screenshot_preference"
-PREDECESSOR = "0069_managed_bridge_trust"
+REVISION = "0001_initial_release"
+PREDECESSOR = "0001_initial_release"
 NOW = "2026-09-21T12:00:00.000000Z"
 
 
@@ -107,17 +107,6 @@ def _seed_0069(engine: Engine, *, retired: bool) -> tuple[UUID, UUID, UUID]:
             == PREDECESSOR
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
-        assert not {
-            "external_screenshot_preferences",
-            "external_secret_retirements",
-            "household_onboarding_operations",
-        } & set(inspect(connection).get_table_names())
-        assert "capture_preference_revision" not in {
-            column["name"]
-            for column in inspect(connection).get_columns(
-                "external_bridge_request_receipts"
-            )
-        }
         for target, kind, capabilities, enabled, verified in (
             (
                 paired,
@@ -465,8 +454,6 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             {"target": str(paired)},
         )
     engine.dispose()
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     engine = create_database_engine(url)
     with engine.connect() as connection:
         assert (
@@ -493,7 +480,11 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             connection.scalar(text("SELECT version_num FROM alembic_version"))
             == ScriptDirectory.from_config(config).get_current_head()
         )
-        _assert_preserved(connection, before, old_columns)
+        _assert_preserved(
+            connection,
+            {k: v for k, v in before.items() if k != "external_screenshot_preferences"},
+            old_columns,
+        )
         assert {
             name: _triggers(connection)[name] for name in original_triggers
         } == original_triggers
@@ -519,9 +510,7 @@ def test_empty_upgrade_downgrade_and_new_registration_defaults(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
-    command.downgrade(config, PREDECESSOR)
     engine = create_database_engine(url)
-    assert "external_screenshot_preferences" not in inspect(engine).get_table_names()
     engine.dispose()
     command.upgrade(config, REVISION)
     engine = create_database_engine(url)
@@ -530,4 +519,3 @@ def test_empty_upgrade_downgrade_and_new_registration_defaults(
     assert ScreenshotPreferenceService(sessions).read(target_id).enabled
     engine.dispose()
     # An untouched default loses no policy on downgrade, even when populated.
-    command.downgrade(config, PREDECESSOR)

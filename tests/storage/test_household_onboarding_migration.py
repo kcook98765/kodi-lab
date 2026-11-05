@@ -30,7 +30,7 @@ from tests.application.test_household_onboarding import (
 from tests.application.test_household_onboarding import (
     live_application as _base_live_application,
 )
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
@@ -59,11 +59,11 @@ def live_application(
 
 
 env = _environment
-REVISION = "0071_household_onboarding"
-PREDECESSOR = "0070_external_screenshot_preference"
+REVISION = "0001_initial_release"
+PREDECESSOR = "0001_initial_release"
 
 
-def test_upgrade_empty_downgrade_and_schema_match(
+def test_upgrade_reinitialization_and_schema_match(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -76,13 +76,11 @@ def test_upgrade_empty_downgrade_and_schema_match(
         for column in inspect(engine).get_columns("household_onboarding_operations")
     }
     assert columns == set(HouseholdOnboardingRow.__table__.columns.keys())
-    command.downgrade(config, PREDECESSOR)
-    assert "household_onboarding_operations" not in inspect(engine).get_table_names()
     command.upgrade(config, REVISION)
     engine.dispose()
 
 
-def test_real_coordinator_on_migrated_schema_and_populated_downgrade_refusal(
+def test_real_coordinator_on_migrated_schema_and_durable_history(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     env: Environment,
@@ -134,9 +132,6 @@ def test_real_coordinator_on_migrated_schema_and_populated_downgrade_refusal(
     )
     # Step back through the unused later features before exercising 0071's
     # original populated-data downgrade guard in its own transaction.
-    command.downgrade(config, REVISION)
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
@@ -266,8 +261,6 @@ def test_pending_retirement_constraints_and_downgrade_refusal(
                 created_at="2026-10-07T00:00:00.000000Z",
             )
         )
-    with pytest.raises(RuntimeError, match="Pending external secret retirement"):
-        command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))

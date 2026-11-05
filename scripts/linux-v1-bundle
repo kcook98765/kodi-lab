@@ -908,10 +908,10 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "per_install_generation": True,
             "development_manifest": DEVELOPMENT_MANIFEST,
             "development_generator": "kodi-lab-development-repository-v1",
-            "publication_migration": "0055_development_repository_publications",
-            "workspace_deployment_migration": "0056_repository_workspace_deployment",
+            "publication_migration": "0001_initial_release",
+            "workspace_deployment_migration": "0001_initial_release",
             "development_capability_amendment_migration": (
-                "0057_development_capability_amendments"
+                "0001_initial_release"
             ),
             "candidate_transition": "explicit-reviewed-a-b-v1",
             "migration_head": migration_head,
@@ -996,10 +996,10 @@ def verify(
         "per_install_generation": True,
         "development_manifest": DEVELOPMENT_MANIFEST,
         "development_generator": "kodi-lab-development-repository-v1",
-        "publication_migration": "0055_development_repository_publications",
-        "workspace_deployment_migration": "0056_repository_workspace_deployment",
+        "publication_migration": "0001_initial_release",
+        "workspace_deployment_migration": "0001_initial_release",
         "development_capability_amendment_migration": (
-            "0057_development_capability_amendments"
+            "0001_initial_release"
         ),
         "candidate_transition": "explicit-reviewed-a-b-v1",
         "migration_head": migration_head,

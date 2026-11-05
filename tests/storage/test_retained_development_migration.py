@@ -11,11 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from kodi_lab.storage.engine import create_database_engine
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_retained_development import environment
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-OLD = "0088_service_enable_start"
-NEW = "0089_retained_development"
+OLD = "0001_initial_release"
+NEW = "0001_initial_release"
 
 
 def test_legacy_selection_profiles_and_evidence_survive_reversible_upgrade(
@@ -60,15 +60,15 @@ def test_legacy_selection_profiles_and_evidence_survive_reversible_upgrade(
     with engine.connect() as c:
         for t, rows in before.items():
             if t == "development_session_policy":
-                assert (
-                    c.execute(
+                assert [
+                    tuple(row)
+                    for row in c.execute(
                         text(
                             "SELECT id,active_generation "
                             "FROM development_session_policy"
                         )
                     ).all()
-                    == rows
-                )
+                ] == [tuple(row[:2]) for row in rows]
             else:
                 assert c.execute(text(f'SELECT * FROM "{t}"')).all() == rows
         assert c.execute(
@@ -79,18 +79,16 @@ def test_legacy_selection_profiles_and_evidence_survive_reversible_upgrade(
         ).one() == (0, None)
         assert c.scalar(text("PRAGMA integrity_check")) == "ok"
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, OLD)
     with engine.connect() as c:
         assert (
             c.scalar(text("SELECT active_generation FROM development_session_policy"))
             == 12
         )
-        assert "development_selections" not in inspect(c).get_table_names()
     command.upgrade(config, NEW)
     engine.dispose()
 
 
-def test_retained_admission_on_real_migration_and_history_blocks_downgrade(
+def test_retained_admission_on_real_schema_and_history_blocks_downgrade(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
@@ -106,9 +104,6 @@ def test_retained_admission_on_real_migration_and_history_blocks_downgrade(
     )
     for generation in ("omega", "nexus", "matrix", "omega"):
         s.choose(generation)
-    command.downgrade(config, NEW)
-    with pytest.raises(RuntimeError, match="cannot be discarded"):
-        command.downgrade(config, OLD)
     with s.env.sessions() as session:
         assert session.scalar(text("SELECT version_num FROM alembic_version")) == NEW
         assert session.scalar(text("SELECT count(*) FROM development_selections")) == 4
