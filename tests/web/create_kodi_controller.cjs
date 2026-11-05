@@ -306,6 +306,96 @@ async function approved(app) {
   assert.equal(native.nodes.screen.href, `/instances/${target}/novnc-phase1`);
   assert.equal(native.timers.size, 0, "completed operations stay completed");
 
+  const visibility = boot(); await approved(visibility);
+  const sameParent = JSON.parse(visibility.storage.get("kodi-lab.create-kodi.v1.omega")).operation_id;
+  visibility.document.hidden = true; visibility.document.dispatchEvent({type:"visibilitychange"});
+  const hiddenRequests = visibility.requests.length;
+  visibility.document.hidden = false; visibility.document.dispatchEvent({type:"visibilitychange"});
+  assert.equal(visibility.requests.length,hiddenRequests+1,"visibility return must passively reconcile");
+  assert.equal(visibility.requests.at(-1).options.method,"GET");
+  await reply(visibility.requests.at(-1),status());
+  assert.equal(await visibility.tick(),800,"same-tab acknowledged active operation resumes without a click");
+  assert.equal(posts(visibility).at(-1).url,`/api/create-kodi/operations/${sameParent}/continue`);
+  assert.deepEqual(JSON.parse(posts(visibility).at(-1).options.body),{version:0});
+
+  const setHidden = (app, hidden) => { app.document.hidden=hidden; app.document.dispatchEvent({type:"visibilitychange"}); };
+  const hiddenRead = await waiting(); await hiddenRead.tick();
+  const heldRead=hiddenRead.requests.at(-1), writesBeforeHide=posts(hiddenRead).length;
+  setHidden(hiddenRead,true); await reply(heldRead,dispatched);
+  assert.equal(posts(hiddenRead).length,writesBeforeHide,"a GET finishing while hidden cannot dispatch a POST");
+  setHidden(hiddenRead,false); await reply(hiddenRead.requests.at(-1),dispatched);
+  assert(hiddenRead.timers.size>0);
+  assert.equal(posts(hiddenRead).length,writesBeforeHide,"visibility reconciliation itself is read only");
+
+  const hiddenPost=boot(); await approved(hiddenPost); await hiddenPost.tick();
+  const heldPost=posts(hiddenPost).at(-1), pendingRequests=hiddenPost.requests.length;
+  setHidden(hiddenPost,true); setHidden(hiddenPost,false);
+  assert.equal(hiddenPost.requests.length,pendingRequests,"visibility waits for the original in-flight POST");
+  await reply(heldPost,status(1,{checkpoint:"planned"}));
+  assert.equal(hiddenPost.requests.at(-1).options.method,"GET");
+  await reply(hiddenPost.requests.at(-1),status(1,{checkpoint:"planned"}));
+  await hiddenPost.tick();
+  assert.deepEqual(JSON.parse(posts(hiddenPost).at(-1).options.body),{version:1},"known acknowledgement advances the same original operation");
+  assert.equal(posts(hiddenPost).filter(r=>r.url.endsWith('/operations')).length,1);
+
+  const hiddenAcceptance=boot(); await reply(hiddenAcceptance.requests[0]); hiddenAcceptance.submit();
+  await reply(hiddenAcceptance.requests.at(-1)); await reply(hiddenAcceptance.requests.at(-1),snapshot);
+  const heldAcceptance=posts(hiddenAcceptance).at(-1);
+  setHidden(hiddenAcceptance,true); setHidden(hiddenAcceptance,false);
+  await reply(heldAcceptance,status());
+  assert.equal(hiddenAcceptance.requests.at(-1).options.method,"GET");
+  await reply(hiddenAcceptance.requests.at(-1),status());
+  assert.equal(await hiddenAcceptance.tick(),800);
+  assert.equal(posts(hiddenAcceptance).filter(r=>r.url.endsWith('/operations')).length,1);
+
+  const ambiguousVisibility=boot(); await approved(ambiguousVisibility); await ambiguousVisibility.tick();
+  const lostVisibilityPost=posts(ambiguousVisibility).at(-1);
+  setHidden(ambiguousVisibility,true); setHidden(ambiguousVisibility,false);
+  lostVisibilityPost.reject(new Error("lost")); await flush();
+  await reply(ambiguousVisibility.requests.at(-1),status(1,{checkpoint:"planned"}));
+  assert.equal(ambiguousVisibility.timers.size,0,"lost POST acknowledgement revokes visibility continuation authority");
+
+  for (const outcome of ["changed","attention","auth"]) {
+    const fenced=boot(); await approved(fenced); setHidden(fenced,true); setHidden(fenced,false);
+    if (outcome==="auth") await reply(fenced.requests.at(-1),{error:{code:"unauthorized"}},401);
+    else await reply(fenced.requests.at(-1),status(outcome==="changed"?1:0,outcome==="attention"?{next_action:"needs_attention",checkpoint:"needs_attention"}:{}));
+    assert.equal(fenced.timers.size,0,"changed, attention or unauthenticated status cannot resume automatically");
+    assert.equal(posts(fenced).length,1);
+  }
+  const passiveVisibility=boot(app.storage); await reply(passiveVisibility.requests[0],dispatched);
+  setHidden(passiveVisibility,true); setHidden(passiveVisibility,false);
+  await reply(passiveVisibility.requests.at(-1),dispatched);
+  assert.equal(passiveVisibility.timers.size,0,"a reload/new-tab controller has no automatic continuation authority");
+  assert.equal(posts(passiveVisibility).length,0);
+
+  const crossStorage=boot(); await approved(crossStorage); await crossStorage.tick();
+  const latePost=posts(crossStorage).at(-1);
+  setHidden(crossStorage,true);
+  crossStorage.storage.set(storageKey,other); crossStorage.window.dispatchEvent({type:"storage",key:storageKey});
+  await reply(latePost,status(1));
+  assert.equal(crossStorage.storage.get(storageKey),other,"late mutation acknowledgement cannot overwrite another tab's record");
+  await reply(crossStorage.requests.at(-1),status(1,{operation_id:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",status_url:"/api/create-kodi/operations/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}));
+  setHidden(crossStorage,false);
+  assert.equal(crossStorage.timers.size,0);
+
+  const hideBudget=boot(); await approved(hideBudget);
+  const readsBeforeBudget=hideBudget.requests.length;
+  for(let i=0;i<240;i++) {
+    setHidden(hideBudget,true); setHidden(hideBudget,false);
+    await reply(hideBudget.requests.at(-1),status());
+  }
+  assert.equal(hideBudget.timers.size,0,"hide/return cannot reset the cumulative observation budget");
+  const afterBudget=hideBudget.requests.length;
+  setHidden(hideBudget,true); setHidden(hideBudget,false);
+  assert.equal(hideBudget.requests.length,afterBudget);
+  assert.equal(afterBudget-readsBeforeBudget,240);
+  assert.equal(posts(hideBudget).length,1,"repeated visibility never creates a replacement parent");
+
+  const stepBudget=boot(); await approved(stepBudget);
+  for(let i=1;i<=40;i++) { await stepBudget.tick(); await reply(posts(stepBudget).at(-1),status(i)); }
+  assert.equal(stepBudget.timers.size,0,"continuation POST budget remains finite");
+  assert.equal(posts(stepBudget).length,41);
+
   const hidden = boot(); await approved(hidden);
   hidden.document.hidden = true; hidden.document.dispatchEvent({type:"visibilitychange"});
   assert.equal(hidden.timers.size, 0);

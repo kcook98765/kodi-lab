@@ -40,8 +40,13 @@ or into a replacement installation. Check status first. Server request/canonical
 uniqueness and SQLite version/child claims remain the concurrency authority, including
 independent tabs or application processes.
 
-Reload, BFCache restoration, another tab's storage update and hidden-page pauses
-require status/explicit Resume. They do not dispatch a child from GET. A completed
+Reload, BFCache restoration and another tab's storage update retain passive
+recovery until explicit Resume. A hidden tab passively reconciles on return;
+only its original acknowledged active controller can automatically continue
+the unchanged operation/version/stage/checkpoint. Lost responses, storage
+changes, failure/attention and server-version changes revoke that authority.
+A successful original POST acknowledgement may establish the known state even
+if it arrives while hidden. GET itself never dispatches a child. A completed
 or Needs attention parent never starts lifecycle execution again.
 
 ## Orphaned browser setup
@@ -72,8 +77,11 @@ can then receive one explicit, version-fenced continuation to inspect its saved
 child or recheck native readiness. GET itself never advances it.
 
 Backoff resets at a changed stage/checkpoint. A foreground run is capped at 40
-continuations and 20 consecutive paced inspections; it then requires Check status
-and Resume. Hidden/unloaded pages cancel their continuation timer. There is no
+continuations, 240 cumulative observation cycles (including visibility returns),
+and 20 consecutive paced inspections; it then requires Check status
+and Resume. Hide/return does not reset these budgets. Hidden/unloaded pages cancel their
+continuation timer, and a GET finishing while hidden cannot dispatch a POST.
+There is no
 server scheduler, new worker, new authority or persistent queue.
 
 HTTP failure, stale conflict, invalid response or timeout stops automatic progress

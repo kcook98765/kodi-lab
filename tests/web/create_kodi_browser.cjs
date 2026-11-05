@@ -70,6 +70,44 @@ async function mobile(page) {
 (async () => {
   browser = await chromium.launch({headless:true, executablePath:process.argv[3]});
   browser.on("disconnected", () => { if (pending.size) process.exitCode = 1; });
+  if (process.argv[5] === "visibility-continuation") {
+    const fixture=await context("omega"), page=fixture.page;
+    await control("pending_install");
+    await page.locator("[data-create-approve]").evaluate(button=>{button.click();button.click();});
+    let before;
+    for(let i=0;i<30;i++) {
+      before=await control("summary");
+      if(before.launches===1&&before.checkpoint==="dispatched") break;
+      await page.waitForTimeout(200);
+    }
+    assert.equal(before.launches,1); assert.equal(before.checkpoint,"dispatched");
+    const tab=await fixture.ctx.newPage(); await tab.goto(base+"/kodi"); await tab.bringToFront();
+    const actualHidden=await page.evaluate(()=>document.hidden);
+    // Headless Chromium can keep all pages visible. Exercise the document event
+    // contract explicitly in that environment and record this distinction.
+    if(!actualHidden) await page.evaluate(()=>{
+      window.fixtureHidden=true;
+      Object.defineProperty(document,"hidden",{configurable:true,get:()=>window.fixtureHidden});
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.waitForTimeout(200);
+    const writesWhileHidden=continuations();
+    await control("finish_install"); await page.waitForTimeout(250);
+    assert.equal(continuations(),writesWhileHidden,"hidden controller performs no extra continuation");
+    await page.bringToFront();
+    if(!actualHidden) await page.evaluate(()=>{window.fixtureHidden=false;document.dispatchEvent(new Event("visibilitychange"));});
+    await page.locator("[data-create-screen]:visible").waitFor({timeout:40000});
+    const summary=await control("summary");
+    assert.equal(summary.operation_id,before.operation_id);
+    assert.equal(summary.installation_id,before.installation_id);
+    assert.equal(summary.parents,1); assert.equal(summary.launches,1); assert.equal(summary.provisions,1); assert.equal(summary.starts,1);
+    assert(summary.provision_id&&summary.start_id);
+    assert.equal(requests.filter(r=>r.method==="POST"&&r.url.endsWith("/api/create-kodi/operations")).length,1);
+    assert.deepEqual(consoleErrors,[]);
+    await screenshot(page,"visibility-ready-desktop"); await mobile(page); await screenshot(page,"visibility-ready-mobile");
+    await control("done",{result:{scenario:"same-tab hidden/visible approved continuation without extra clicks",actualChromiumVisibility:actualHidden,simulatedDocumentVisibility:!actualHidden,before,summary,requests,consoleErrors,resourceErrors}});
+    await fixture.ctx.close(); await browser.close(); process.stdin.destroy(); return;
+  }
   if (process.argv[5] === "orphan-recovery") {
     const fixture = await context("omega"), page = fixture.page;
     drop = "accept";
