@@ -17,6 +17,7 @@ def test_records_are_closed_schema_and_files_are_bounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     logger = logging.getLogger(diagnostics.LOGGER)
+    monkeypatch.setattr(logger, "disabled", False)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(logger, "propagate", False)
     monkeypatch.setattr(logger, "level", logging.INFO)
@@ -84,6 +85,7 @@ def test_unavailable_diagnostic_storage_does_not_break_viewing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     logger = logging.getLogger(diagnostics.LOGGER)
+    monkeypatch.setattr(logger, "disabled", False)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(logger, "propagate", False)
     monkeypatch.setattr(logger, "level", logging.INFO)

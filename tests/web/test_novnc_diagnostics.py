@@ -40,6 +40,8 @@ def test_relay_terminal_evidence_preserves_cleanup(
     outcome: str,
     category: str,
 ) -> None:
+    # Alembic logging configuration may have disabled this logger earlier.
+    monkeypatch.setattr(logging.getLogger(LOGGER), "disabled", False)
     monkeypatch.setattr(logging.getLogger(LOGGER), "propagate", True)
     caplog.set_level(logging.INFO, logger=LOGGER)
 
