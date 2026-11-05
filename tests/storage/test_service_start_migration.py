@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import ProductionMutationControlRow
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.web.conftest import INSTANCE_ID, REVISION_ID, seed_instance
 from tests.web.test_development_sources import SOURCE_A, _seed_sources
 
@@ -21,7 +21,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0087_novnc_control"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
@@ -65,7 +65,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     legacy_status = ManagedInstanceReconciliationService(sessions).status(INSTANCE_ID)
     assert legacy_status.blocking
     before = set(inspect(engine).get_table_names())
-    command.upgrade(config, "0088_service_enable_start")
+    command.upgrade(config, "head")
     assert set(inspect(engine).get_table_names()) == before
     with engine.connect() as connection:
         assert (
@@ -88,12 +88,10 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
             ),
             dict(id=operation),
         )
-    with pytest.raises(RuntimeError, match="authority history"):
-        command.downgrade(config, "0087_novnc_control")
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0088_service_enable_start"
+            == "0001_initial_release"
         )
         assert (
             connection.scalar(
@@ -111,12 +109,5 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
             text("DELETE FROM development_source_enablement_operations WHERE id=:id"),
             dict(id=operation),
         )
-    command.downgrade(config, "0087_novnc_control")
-    assert "service_start_authorized" not in {
-        column["name"]
-        for column in inspect(engine).get_columns(
-            "development_source_enablement_operations"
-        )
-    }
-    command.upgrade(config, "0088_service_enable_start")
+    command.upgrade(config, "head")
     engine.dispose()

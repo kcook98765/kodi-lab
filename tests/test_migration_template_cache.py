@@ -23,7 +23,7 @@ def test_imported_fixtures_build_one_store_and_keep_private_clones(
     second = tmp_path / "test_b.py"
     first.write_text("""
 import sqlite3
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_templates as migration_templates
 
 def test_first(migration_templates, tmp_path, request):
     request.config.shared_migration_store = migration_templates
@@ -34,7 +34,7 @@ def test_first(migration_templates, tmp_path, request):
 """)
     second.write_text("""
 import sqlite3
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_templates as migration_templates
 
 def test_second(migration_templates, tmp_path, request):
     assert migration_templates is request.config.shared_migration_store
@@ -78,7 +78,7 @@ def test_failed_store_construction_is_not_cached(
     from types import SimpleNamespace
     from typing import cast
 
-    from tests.storage import test_migrations as module
+    from tests import migration_support as module
 
     config = SimpleNamespace(stash=pytest.Stash())
     request = cast(pytest.FixtureRequest, SimpleNamespace(config=config))
@@ -99,7 +99,7 @@ def test_failed_store_construction_is_not_cached(
 def test_migration_clone_closes_verification_handle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.storage.test_migrations import MigrationTemplateStore
+    from tests.migration_support import MigrationTemplateStore
 
     source = tmp_path / "template.db"
     with closing(sqlite3.connect(source)) as connection:
@@ -122,3 +122,37 @@ def test_migration_clone_closes_verification_handle(
     assert len(opened) == 1
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         opened[0].execute("SELECT 1")
+
+
+@pytest.mark.parametrize("case", ["changed", "symlink", "sidecar", "destination"])
+def test_template_clone_rejects_changed_or_shared_state(
+    tmp_path: Path, case: str
+) -> None:
+    from tests.migration_support import MigrationTemplateStore
+
+    source = tmp_path / "head.db"
+    with closing(sqlite3.connect(source)) as db:
+        db.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        db.execute("INSERT INTO alembic_version VALUES ('revision')")
+        db.commit()
+    store = MigrationTemplateStore(
+        tmp_path, {"revision": source}, head_revision="revision"
+    )
+    destination = tmp_path / "clone.db"
+    if case == "changed":
+        with closing(sqlite3.connect(source)) as db:
+            db.execute("CREATE TABLE tampered (id INTEGER)")
+    elif case == "symlink":
+        original = tmp_path / "original.db"
+        source.rename(original)
+        source.symlink_to(original)
+    elif case == "sidecar":
+        Path(f"{source}-wal").touch()
+    else:
+        destination.write_bytes(b"retain existing destination")
+    with pytest.raises((RuntimeError, FileExistsError)):
+        store.clone("head", destination)
+    if case == "destination":
+        assert destination.read_bytes() == b"retain existing destination"
+    else:
+        assert not destination.exists()

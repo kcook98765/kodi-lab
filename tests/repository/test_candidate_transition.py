@@ -63,33 +63,52 @@ from tests.application.test_repository_workspace_deployment import (
 from tests.application.test_repository_workspace_deployment import (
     _version as workspace_source_version,
 )
+from tests.migration_support import MigrationTemplateStore
+from tests.migration_support import migration_templates as migration_templates
 from tests.repository.test_development import (
     BASE,
-    current_migration_head,
     fixture_zip,
     phase2_candidate,
 )
-from tests.storage.test_migrations import MigrationTemplateStore
-from tests.storage.test_migrations import migration_templates as migration_templates
 
-CURRENT_HEAD = current_migration_head()
+CURRENT_HEAD = "0002_public_test"
 _state_templates: MigrationTemplateStore | None = None
 HISTORICAL_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
 
 
 @pytest.fixture(autouse=True)
 def migrations(
-    monkeypatch: pytest.MonkeyPatch, migration_templates: MigrationTemplateStore
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    migration_templates: MigrationTemplateStore,
 ) -> None:
     from collections.abc import Iterator
     from contextlib import contextmanager
 
+    tree = tmp_path / "forward-migrations"
+    shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
+    (tree / "versions/0002_public_test.py").write_text(
+        "from alembic import op\n"
+        "revision='0002_public_test'\ndown_revision='0001_initial_release'\n"
+        "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
+        "def downgrade(): op.execute('DROP TABLE future_marker')\n"
+    )
+    original_candidate = phase2_candidate
+
+    def future_candidate(*args: object, **kwargs: object) -> Path:
+        path = original_candidate(*args, **kwargs)  # type: ignore[arg-type]
+        _revision_identity(path, CURRENT_HEAD)
+        return path
+
+    monkeypatch.setitem(globals(), "phase2_candidate", future_candidate)
+    monkeypatch.setitem(
+        repository_workspace_setup.__globals__, "phase2_candidate", future_candidate
+    )
+
     @contextmanager
     def source_config(database_url: str) -> Iterator[Config]:
         config = Config()
-        config.set_main_option(
-            "script_location", str(Path(__file__).parents[2] / "migrations")
-        )
+        config.set_main_option("script_location", str(tree))
         config.set_main_option("sqlalchemy.url", database_url)
         yield config
 
@@ -108,7 +127,9 @@ def _initialize_fixture(
     generate_master_key(root)
     database = root / remote_lifecycle.DATABASE
     assert not database.exists()
-    templates.clone(CURRENT_HEAD, database)
+    templates.clone("head", database)
+    with packaged_migrations.packaged_config(database_url) as config:
+        command.upgrade(config, "head")
     database.chmod(0o600)
     # Historical transition fixtures must retain the migration default. Only
     # explicit fresh-initialization parity fixtures apply today's first-run policy.
@@ -445,21 +466,21 @@ def test_forward_migration_transition_before_application_upgrade(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
-        "0056_repository_workspace_deployment"
+        "0001_initial_release"
     )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
-    assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
+    assert receipt["old_migration_revision"] == "0001_initial_release"
     assert receipt["new_migration_revision"] == CURRENT_HEAD
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
-        "0056_repository_workspace_deployment"
+        "0001_initial_release"
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     assert upgrade(state, url)[:2] == (
-        "0056_repository_workspace_deployment",
+        "0001_initial_release",
         CURRENT_HEAD,
     )
     assert remote_lifecycle.validate(state, url, require_head=True) == (CURRENT_HEAD)
@@ -474,7 +495,7 @@ def _web_owned_transition_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    old_revision: str = "0056_repository_workspace_deployment",
+    old_revision: str = "0001_initial_release",
 ) -> tuple[Path, Path, Path, Path, str, str, str]:
     old, new, data, state, old_hash, new_hash, _ = _setup(
         tmp_path,
@@ -518,12 +539,12 @@ def test_packaged_transition_preserves_web_owned_repository_for_upgrade(
     previous_stable_inode = (data / "CURRENT").stat().st_ino
 
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
-    assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
+    assert receipt["old_migration_revision"] == "0001_initial_release"
     assert receipt["new_migration_revision"] == CURRENT_HEAD
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     with _identity(web_uid, web_gid):
         assert upgrade(state, url)[:2] == (
-            "0056_repository_workspace_deployment",
+            "0001_initial_release",
             CURRENT_HEAD,
         )
         assert remote_lifecycle.verify_candidate_transition_completion(state, url)
@@ -593,9 +614,7 @@ def test_packaged_transition_preserves_web_owned_repository_for_upgrade(
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", old_hash)
     with _identity(web_uid, web_gid):
-        assert restore(state, url, backup_id, backup_id)[0] == (
-            "0056_repository_workspace_deployment"
-        )
+        assert restore(state, url, backup_id, backup_id)[0] == ("0001_initial_release")
     assert (development / "CURRENT").stat().st_uid == web_uid
     assert stable_pointer.stat().st_uid == 0
 
@@ -718,11 +737,11 @@ def test_retained_0056_bundle_migration_marker_is_accepted(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
         legacy_old=True,
     )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
-    assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
+    assert receipt["old_migration_revision"] == "0001_initial_release"
     assert receipt["new_migration_revision"] == CURRENT_HEAD
 
 
@@ -732,7 +751,7 @@ def test_completion_rejects_tampered_receipt_and_missing_upgrade(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -764,7 +783,7 @@ def test_missing_transition_receipt_blocks_upgrade_and_completion(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -775,7 +794,7 @@ def test_missing_transition_receipt_blocks_upgrade_and_completion(
     with pytest.raises(HostBootstrapError, match="transition receipt is missing"):
         upgrade(state, url)
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
-        "0056_repository_workspace_deployment"
+        "0001_initial_release"
     )
     receipt_path.write_bytes(original)
     receipt_path.chmod(0o600)
@@ -799,11 +818,17 @@ def test_forward_transition_rejects_wrong_live_revision_before_switch(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     with sqlite3.connect(state / remote_lifecycle.DATABASE) as connection:
         connection.execute("UPDATE alembic_version SET version_num=?", (wrong,))
-    with pytest.raises(ValueError, match="live database revision"):
+    expected_error = ValueError if wrong == CURRENT_HEAD else RuntimeError
+    message = (
+        "live database revision"
+        if wrong == CURRENT_HEAD
+        else "fresh installation is required"
+    )
+    with pytest.raises(expected_error, match=message):
         transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert load_current(data, expected_bundle_sha256=old_hash)
     assert not (data / "TRANSITION.json").exists()
@@ -815,7 +840,7 @@ def test_forward_transition_rejects_unrelated_reviewed_revision(
     old, new, data, state, old_hash, _, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     _revision_identity(new, "0054_repository_phase1")
     new_hash = sha256((new / "BUNDLE.json").read_bytes())
@@ -832,7 +857,7 @@ def test_forward_transition_rejects_nonancestor_old_revision(
         tmp_path,
         monkeypatch,
         old_revision="0058_unrelated_schema",
-        live_revision="0056_repository_workspace_deployment",
+        live_revision="0001_initial_release",
     )
     with pytest.raises(ValueError, match="unrelated or branched"):
         transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -847,7 +872,7 @@ def test_forward_migration_transition_interruption_is_resumable(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     with pytest.raises(RuntimeError, match="injected interruption"):
         transition(
@@ -863,13 +888,13 @@ def test_forward_migration_transition_interruption_is_resumable(
         )
     assert (data / "TRANSITION.json").exists()
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
-    assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
+    assert receipt["old_migration_revision"] == "0001_initial_release"
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
-        "0056_repository_workspace_deployment"
+        "0001_initial_release"
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     assert upgrade(state, f"sqlite:///{state / 'database/kodi-lab.db'}")[:2] == (
-        "0056_repository_workspace_deployment",
+        "0001_initial_release",
         CURRENT_HEAD,
     )
 
@@ -881,7 +906,7 @@ def test_forward_migration_rollback_to_verified_a_backup(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -892,9 +917,7 @@ def test_forward_migration_rollback_to_verified_a_backup(
         new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", old_hash)
-    assert restore(state, url, backup_id, backup_id)[0] == (
-        "0056_repository_workspace_deployment"
-    )
+    assert restore(state, url, backup_id, backup_id)[0] == ("0001_initial_release")
     assert load_current(data, expected_bundle_sha256=old_hash)
     assert (
         load_development_current(data / "development-data")[1]["bundle_sha256"]
@@ -909,7 +932,7 @@ def test_0057_evidence_refuses_downgrade_but_a_backup_can_be_restored(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -1033,24 +1056,19 @@ def test_0057_evidence_refuses_downgrade_but_a_backup_can_be_restored(
         packaged_migrations.packaged_config(
             f"sqlite:///{downgrade_database}"
         ) as config,
-        pytest.raises(RuntimeError, match="refusing to discard"),
+        pytest.raises(RuntimeError, match="history must be preserved"),
     ):
-        command.downgrade(config, "0056_repository_workspace_deployment")
-    assert remote_lifecycle._revision(downgrade_database) == (
-        "0057_development_capability_amendments"
-    )
+        command.downgrade(config, "base")
+    assert remote_lifecycle._revision(downgrade_database) == ("0001_initial_release")
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     transition(
         new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", old_hash)
-    assert restore(state, url, backup_id, backup_id)[0] == (
-        "0056_repository_workspace_deployment"
-    )
+    assert restore(state, url, backup_id, backup_id)[0] == ("0001_initial_release")
     with sqlite3.connect(state / remote_lifecycle.DATABASE) as connection:
         assert connection.execute(
-            "SELECT count(*) FROM sqlite_master WHERE name="
-            "'external_development_capability_amendments'"
+            "SELECT count(*) FROM external_development_capability_amendments"
         ).fetchone() == (0,)
 
 
@@ -1060,7 +1078,7 @@ def test_later_same_head_transition_rollback_preserves_prior_upgrade_evidence(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -1098,7 +1116,7 @@ def test_interrupted_application_upgrade_restores_intermediate_binding(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -1119,11 +1137,11 @@ def test_interrupted_application_upgrade_restores_intermediate_binding(
     pending = json.loads((state / ".upgrade-pending.json").read_bytes())
     monkeypatch.setattr(remote_lifecycle, "_write_json", original_write)
     assert restore(state, url, pending["backup_id"], pending["backup_id"])[0] == (
-        "0056_repository_workspace_deployment"
+        "0001_initial_release"
     )
     assert (state / ".repository-candidate-transition.json").exists()
     assert upgrade(state, url)[:2] == (
-        "0056_repository_workspace_deployment",
+        "0001_initial_release",
         CURRENT_HEAD,
     )
     assert remote_lifecycle.verify_candidate_transition_completion(state, url)
@@ -1135,7 +1153,7 @@ def test_rollback_refuses_unrestored_application_upgrade(
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
         tmp_path,
         monkeypatch,
-        old_revision="0056_repository_workspace_deployment",
+        old_revision="0001_initial_release",
     )
     transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     (state / ".upgrade-pending.json").write_bytes(canonical({"backup_id": backup_id}))
@@ -1317,6 +1335,7 @@ def test_workspace_deployment_linkage_survives_transition(
     )
     approve_workspace_publication(env, pending)
     old = deployment_root / "candidate/candidate"
+    _revision_identity(old, CURRENT_HEAD)
     new = _replacement(old, tmp_path / "replacement")
     data = repository.root.parent
     old_hash = sha256((old / "BUNDLE.json").read_bytes())
@@ -1526,7 +1545,7 @@ def test_successor_preflight_requires_authoritative_schema_upgrade_completion(
     from scripts.install import SUCCESSOR_CHECK
 
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
-        tmp_path, monkeypatch, old_revision="0056_repository_workspace_deployment"
+        tmp_path, monkeypatch, old_revision="0001_initial_release"
     )
     monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(state))
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)

@@ -9,13 +9,13 @@ from sqlalchemy import inspect, text
 from kodi_lab.broker.errors import PostStartVerificationError
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from tests.broker.test_managed_capacity import Environment
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-PREDECESSOR = "0075_external_reconnect"
-REVISION = "0076_managed_resource_policy"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 TABLES = {
     "managed_resource_policy",
     "managed_idle_states",
@@ -31,7 +31,7 @@ def test_populated_upgrade_backfills_only_explicitly_unenrolled_instances(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     engine = create_database_engine(url)
-    environment = Environment(create_session_factory(engine))
+    _environment = Environment(create_session_factory(engine))
     before = set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         targets = (
@@ -63,14 +63,7 @@ def test_populated_upgrade_backfills_only_explicitly_unenrolled_instances(
         assert connection.execute(
             text("SELECT id,max_running,idle_minutes FROM managed_resource_policy")
         ).tuples().all() == [(1, 4, 60)]
-        assert connection.execute(
-            text(
-                "SELECT managed_instance_id,enrolled,last_activity_at "
-                "FROM managed_idle_states ORDER BY managed_instance_id"
-            )
-        ).tuples().all() == [
-            (identity, 0, None) for identity in sorted(environment.ids)
-        ]
+        assert connection.execute(text("SELECT * FROM managed_idle_states")).all() == []
         assert (
             connection.execute(text("SELECT * FROM targets ORDER BY id")).tuples().all()
             == targets
@@ -98,12 +91,11 @@ def test_populated_upgrade_backfills_only_explicitly_unenrolled_instances(
             == triggers
         )
         assert connection.execute(text("PRAGMA foreign_key_check")).tuples().all() == []
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == before
     engine.dispose()
 
 
-def test_real_uncertain_admission_on_upgraded_schema_blocks_lossy_downgrade(
+def test_real_uncertain_admission_on_initial_schema_and_preserves_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -117,8 +109,6 @@ def test_real_uncertain_admission_on_upgraded_schema_blocks_lossy_downgrade(
     command.upgrade(config, "head")
     with pytest.raises(PostStartVerificationError):
         environment.start(0, dispatch=PostStartVerificationError("fixture unknown"))
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))

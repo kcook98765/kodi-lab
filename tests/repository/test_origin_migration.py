@@ -22,9 +22,9 @@ from kodi_lab.repository.origin_migration import PENDING, migrate_origin
 from kodi_lab.repository.server import RepositoryHandler
 from kodi_lab.repository.transition import transition
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from tests.migration_support import migration_templates as migration_templates
 from tests.repository import test_candidate_transition as candidate_fixtures
 from tests.repository.test_development import BASE, fixture_zip
-from tests.storage.test_migrations import migration_templates as migration_templates
 
 migrations = candidate_fixtures.migrations
 NEW = "http://kodi-lab.home.arpa:18120"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -12,7 +11,7 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import inspect, select, text
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session, defer, sessionmaker
 
 from kodi_lab.application.lifecycle_status import (
@@ -83,7 +82,6 @@ from kodi_lab.domain import (
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.models import (
-    DevelopmentSourceEnablementOperationRow,
     GlobalHeavyOperationLeaseRow,
     HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
@@ -1456,52 +1454,8 @@ class StaleOperationReconciliationDispatcher:
             raise CoordinationCorruptionError("Expired global ownership changed.")
 
 
-_PRE_SETTINGS_REVISIONS = frozenset(
-    {
-        "0077_workspace_launch",
-        "0078_workspace_deploy_recovery",
-        "0079_native_zip_installation",
-        "0080_development_sessions",
-        "0081_managed_diagnostic_captures",
-        "0082_session_replacement_reviews",
-        "0083_managed_runtime_retirements",
-        "0084_session_replacements",
-        "0085_session_source_copy_admissions",
-    }
-)
-
-
-_PRE_SETTINGS_LEASE_KINDS = frozenset(
-    {
-        "addon_repository_attachment",
-        "addon_repository_installation",
-        "addon_zip_enablement",
-        "addon_zip_installation",
-        "addon_zip_smoke_test",
-        "agent_workspace_promotion",
-        "development_source_attachment",
-        "development_source_deployment",
-        "development_source_enablement",
-        "development_source_smoke_test",
-        "fixture_assignment",
-        "instance_delete",
-        "lifecycle",
-        "mcp_workspace_deployment",
-        "mcp_workspace_execution",
-        "mcp_workspace_launch",
-        "promotion_verification",
-        "repository_replacement",
-        "reset",
-        "runtime_reassignment",
-        "snapshot_create",
-        "snapshot_restore",
-        "workspace_execution_recovery",
-    }
-)
-
-
 def _legacy_service_start_authority(session: Session) -> bool:
-    """Only recognized complete predecessor storage can lack startup authority.
+    """Require the canonical service startup authority storage.
 
     This affects reading historical blockers only; it never grants admission,
     supplies an empty fence, migrates, or probes storage by writing.
@@ -1515,50 +1469,6 @@ def _legacy_service_start_authority(session: Session) -> bool:
     columns = {column["name"] for column in inspector.get_columns(table)}
     if "service_start_authorized" in columns:
         return False
-    revisions = (
-        list(session.scalars(text("SELECT version_num FROM alembic_version")))
-        if inspector.has_table("alembic_version")
-        else []
-    )
-    checks = (
-        inspector.get_check_constraints("managed_instance_mutation_leases")
-        if inspector.has_table("managed_instance_mutation_leases")
-        else []
-    )
-    kinds_sql = [
-        item["sqltext"]
-        for item in checks
-        if item["name"]
-        in {
-            "managed_instance_mutation_kind",
-            "ck_managed_instance_mutation_leases_managed_instance_mutation_kind",
-        }
-    ]
-    match = (
-        re.fullmatch(
-            r"operation_kind\s+IN\s*\(\s*((?:'[a-z_]+'\s*,\s*)*'[a-z_]+'\s*)\)",
-            kinds_sql[0].strip(),
-        )
-        if len(kinds_sql) == 1
-        else None
-    )
-    kinds = re.findall(r"'([a-z_]+)'", match.group(1)) if match is not None else []
-    revision = revisions[0] if len(revisions) == 1 else None
-    post_settings = revision in {"0086_addon_settings", "0087_novnc_control"}
-    expected_kinds = _PRE_SETTINGS_LEASE_KINDS | (
-        {"mcp_addon_settings", "reconstruction"} if post_settings else set()
-    )
-    if (
-        revision
-        in _PRE_SETTINGS_REVISIONS | {"0086_addon_settings", "0087_novnc_control"}
-        and columns
-        == set(DevelopmentSourceEnablementOperationRow.__table__.columns.keys())
-        - {"service_start_authorized"}
-        and len(kinds) == len(set(kinds))
-        and frozenset(kinds) == expected_kinds
-        and inspector.has_table("mcp_addon_settings_operations") == post_settings
-    ):
-        return True
     raise CoordinationCorruptionError(
         "Service startup authority storage is unavailable."
     )
@@ -1568,48 +1478,13 @@ def _settings_reconciliation_rows(
     session: Session,
     instance_id: UUID,
 ) -> list[McpAddonSettingsOperationRow]:
-    """Historical recovery may inspect a known schema before settings existed.
+    """Require settings storage even when an older revision was stamped.
 
     Missing settings storage at current/unknown schema is corruption, never an
     empty fence. Do not manufacture tables or stamp/migrate during observation.
     """
     inspector = inspect(session.connection())
     if not inspector.has_table("mcp_addon_settings_operations"):
-        revisions = (
-            list(session.scalars(text("SELECT version_num FROM alembic_version")))
-            if inspector.has_table("alembic_version")
-            else []
-        )
-        checks = (
-            inspector.get_check_constraints("managed_instance_mutation_leases")
-            if inspector.has_table("managed_instance_mutation_leases")
-            else []
-        )
-        kind_checks = [
-            item["sqltext"]
-            for item in checks
-            if item["name"]
-            in {
-                "managed_instance_mutation_kind",
-                "ck_managed_instance_mutation_leases_managed_instance_mutation_kind",
-            }
-        ]
-        match = (
-            re.fullmatch(
-                r"operation_kind\s+IN\s*\(\s*((?:'[a-z_]+'\s*,\s*)*'[a-z_]+'\s*)\)",
-                kind_checks[0].strip(),
-            )
-            if len(kind_checks) == 1
-            else None
-        )
-        kinds = re.findall(r"'([a-z_]+)'", match.group(1)) if match is not None else []
-        if (
-            len(revisions) == 1
-            and revisions[0] in _PRE_SETTINGS_REVISIONS
-            and len(kinds) == len(set(kinds))
-            and frozenset(kinds) == _PRE_SETTINGS_LEASE_KINDS
-        ):
-            return []
         raise CoordinationCorruptionError(
             "Settings reconciliation storage is unavailable."
         )

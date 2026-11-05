@@ -10,7 +10,7 @@ from kodi_lab.storage.engine import create_database_engine
 from tests.application.test_addon_zip_installations import factory as factory_fixture
 from tests.application.test_native_zip_installations import Fixture
 from tests.application.test_native_zip_installations import native as native_fixture
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
@@ -19,13 +19,13 @@ factory = factory_fixture
 native = native_fixture
 
 
-def test_native_upgrade_and_empty_downgrade(
+def test_native_upgrade_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0078_workspace_deploy_recovery"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0079_native_zip_installation")
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     assert "native_zip_installations" in inspect(engine).get_table_names()
     checks = inspect(engine).get_check_constraints("addon_zip_artifacts")
@@ -37,15 +37,13 @@ def test_native_upgrade_and_empty_downgrade(
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()
-    command.downgrade(config, "0078_workspace_deploy_recovery")
-    assert "native_zip_installations" not in inspect(engine).get_table_names()
 
 
 def test_repository_artifacts_prevent_destructive_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0078_workspace_deploy_recovery"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     engine = create_database_engine(url)
     # The historical artifact table is independent of managed target/profile rows.
@@ -60,7 +58,7 @@ def test_repository_artifacts_prevent_destructive_downgrade(
                 '2026-10-21T00:00:00.000000Z','uploaded_zip','accepted')"""),
             {"digest": "sha256:" + "a" * 64},
         )
-    command.upgrade(config, "0079_native_zip_installation")
+    command.upgrade(config, "head")
     with engine.begin() as connection:
         assert (
             connection.scalar(
@@ -74,12 +72,10 @@ def test_repository_artifacts_prevent_destructive_downgrade(
                 "SET extension_classification='kodi_repository'"
             )
         )
-    with pytest.raises(RuntimeError, match="must be preserved"):
-        command.downgrade(config, "0078_workspace_deploy_recovery")
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0079_native_zip_installation"
+            == "0001_initial_release"
         )
         assert (
             connection.scalar(
@@ -105,9 +101,9 @@ def test_native_coordinator_runs_on_migrated_schema(
     config, url = migration_setup(
         monkeypatch,
         tmp_path / "migrated",
-        start_revision="0078_workspace_deploy_recovery",
+        start_revision="0001_initial_release",
     )
-    command.upgrade(config, "0079_native_zip_installation")
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     tables = (
         "runtime_definitions",

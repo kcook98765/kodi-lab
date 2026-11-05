@@ -18,13 +18,13 @@ from kodi_lab.application.remote_observations import (
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.ui_state import UiObservation, WindowState
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-REVISION = "0074_remote_observations"
-PREDECESSOR = "0073_workspace_imports"
+REVISION = "0001_initial_release"
+PREDECESSOR = "0001_initial_release"
 NOW = datetime(2026, 10, 19, tzinfo=UTC)
 STAMP = "2026-10-19T00:00:00.000000Z"
 RECEIPT = "73000000-0000-4000-8000-000000000001"
@@ -42,13 +42,12 @@ def test_empty_observation_upgrade_and_downgrade(
     assert set(inspect(engine).get_table_names()) == before | {
         "mcp_remote_observations"
     }
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == before
     command.upgrade(config, REVISION)
     engine.dispose()
 
 
-def test_observation_service_on_upgraded_schema_preserves_receipt_and_retention(
+def test_observation_service_on_initial_schema_preserves_receipt_and_retention(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -106,8 +105,6 @@ def test_observation_service_on_upgraded_schema_preserves_receipt_and_retention(
         == first
     )
     assert calls == [1]
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with engine.begin() as connection:
         assert (
             connection.scalar(
@@ -127,5 +124,4 @@ def test_observation_service_on_upgraded_schema_preserves_receipt_and_retention(
         assert (
             connection.scalar(text("SELECT count(*) FROM mcp_remote_observations")) == 0
         )
-    command.downgrade(config, PREDECESSOR)
     engine.dispose()

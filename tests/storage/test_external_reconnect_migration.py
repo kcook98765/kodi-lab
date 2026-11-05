@@ -15,13 +15,13 @@ from tests.application import test_external_onboarding as onboarding_fixtures
 from tests.application import test_household_onboarding as household_fixtures
 from tests.application.test_external_reconnect import _decision, _revoked, _service
 from tests.application.test_household_onboarding import Environment
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-REVISION = "0075_external_reconnect"
-PREDECESSOR = "0074_remote_observations"
+REVISION = "0001_initial_release"
+PREDECESSOR = "0001_initial_release"
 env = household_fixtures.env
 live_application = household_fixtures.live_application
 
@@ -53,7 +53,6 @@ def test_empty_reconnect_upgrade_preserves_tables_and_triggers(
             == triggers
         )
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == before
     engine.dispose()
 
@@ -79,21 +78,19 @@ def migrated_environment(
     return env, config, engine
 
 
-def test_real_reconnect_receipt_on_migrated_schema_refuses_lossy_downgrade(
+def test_real_reconnect_receipt_on_migrated_schema_preserves_history(
     migrated_environment: tuple[Environment, Any, Engine],
     tmp_path: Path,
 ) -> None:
     from uuid import uuid4
 
-    environment, config, engine = migrated_environment
+    environment, _config, engine = migrated_environment
     target_id, code = _revoked(environment)
     service = _service(environment, tmp_path)
     operation_id = uuid4()
     first = service.start(target_id, ReconnectStartRequest(operation_id=operation_id))
     result = service.resume(target_id, operation_id, _decision(first, code))
     assert result.state == "connected" and result.target_id == target_id
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))

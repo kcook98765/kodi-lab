@@ -25,18 +25,18 @@ from kodi_lab.storage.models import ManagedRuntimeRetirementRow
 from kodi_lab.storage.repositories import ManagedInstanceLifecycleOperationRepository
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_runtime_retirement_receipts import build, scope
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.storage.session_review_fixtures import (
     load_historical_review,
     save_historical_review,
 )
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
 
-PREDECESSOR = "0082_session_replacement_reviews"
-REVISION = "0083_managed_runtime_retirements"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
-def test_empty_retirement_migration_adds_only_one_table_and_round_trips(
+def test_empty_retirement_schema_adds_only_one_table_and_reinitializations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -46,7 +46,6 @@ def test_empty_retirement_migration_adds_only_one_table_and_round_trips(
     assert set(inspect(engine).get_table_names()) == prior | {
         "managed_runtime_retirements"
     }
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == prior
     command.upgrade(config, REVISION)
     with engine.connect() as connection:
@@ -69,7 +68,6 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
     )
     try:
         request = case.env.request()
-        command.downgrade(config, PREDECESSOR)
         review = save_historical_review(case.env, request=request)
         capture = case.env.retained.read(case.env.capture.capture_id)
         old_operation = ManagedInstanceLifecycleOperation(
@@ -129,10 +127,6 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
         ):
             with pytest.raises(IntegrityError), case.sessions.begin() as session:
                 session.execute(text(statement), params)
-        with pytest.raises(
-            RuntimeError, match="retirement history cannot be safely downgraded"
-        ):
-            command.downgrade(config, PREDECESSOR)
         with case.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))

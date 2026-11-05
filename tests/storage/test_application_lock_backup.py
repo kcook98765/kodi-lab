@@ -21,7 +21,7 @@ from kodi_lab.host_bootstrap import (
     generate_master_key,
     initialize_state,
 )
-from tests.storage.test_migrations import (
+from tests.migration_support import (
     MigrationTemplateStore,
     migration_templates,
 )
@@ -43,7 +43,7 @@ def historical_state(
         generate_master_key(root)
         database = root / lifecycle.DATABASE
         assert not database.exists()
-        migration_templates.clone("0052_production_policy_revision_binding", database)
+        migration_templates.clone("0001_initial_release", database)
         # Match the original prefix's umask-created private database permissions.
         database.chmod(0o600)
 
@@ -264,7 +264,7 @@ def test_lock_fixture_keeps_keys_and_database_mutations_private(
         assert database.stat().st_nlink == 1
         with sqlite3.connect(database) as db:
             assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-                "0052_production_policy_revision_binding",
+                "0001_initial_release",
             )
     assert (
         _identity(first / lifecycle.DATABASE)[:2]

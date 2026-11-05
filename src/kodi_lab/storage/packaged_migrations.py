@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from importlib import resources
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from alembic.script import ScriptDirectory
 
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.managed_activity import ManagedResourcePolicyValue
+from kodi_lab.storage.schema_compatibility import check_database
 
 
 @contextmanager
@@ -33,37 +34,28 @@ def packaged_config(database_url: str) -> Iterator[Config]:
         yield config
 
 
+def database_is_empty(database_path: Path, config: Config) -> bool:
+    """Read-only compatibility preflight, also used before installed startup."""
+    if not (database_path.exists() or database_path.is_symlink()):
+        return True
+    if not stat.S_ISREG(database_path.lstat().st_mode):
+        raise RuntimeError("database path is not a regular file")
+    supported = {
+        revision.revision
+        for revision in ScriptDirectory.from_config(config).walk_revisions()
+    }
+    with closing(sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True)) as db:
+        return check_database(db, supported)
+
+
 def migrate_database(database_path: Path, database_url: str) -> tuple[str, str]:
     """Initialize/upgrade under the caller's exclusive host lifecycle lock.
 
-    Historical migrations keep their original defaults. Only a database with
-    no tables at entry receives today's first-install policy, before startup.
-    An interrupted initialization is not mistaken for a fresh database later.
+    Only an empty database receives today's first-install policy. Unsupported
+    prerelease state is refused before Alembic can write anything.
     """
-
-    new_database = True
-    if database_path.exists() or database_path.is_symlink():
-        metadata = database_path.lstat()
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError("database path is not a regular file")
-        with sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True) as db:
-            tables = {
-                name
-                for (name,) in db.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name NOT LIKE 'sqlite_%'"
-                )
-            }
-            new_database = not tables
-            if tables and "alembic_version" not in tables:
-                raise RuntimeError("existing database has no Alembic revision")
-            if (
-                "alembic_version" in tables
-                and db.execute("SELECT version_num FROM alembic_version").fetchone()
-                is None
-            ):
-                raise RuntimeError("existing database has no Alembic revision")
     with packaged_config(database_url) as config:
+        new_database = database_is_empty(database_path, config)
         head = ScriptDirectory.from_config(config).get_current_head()
         if head is None:
             raise RuntimeError("installed migration tree has no head")

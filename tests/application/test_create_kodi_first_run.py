@@ -4,7 +4,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from alembic import command
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -13,7 +12,6 @@ from kodi_lab.domain import ManagedInstanceLifecycleOperationState
 from kodi_lab.domain.create_kodi import CreateCheckpoint, CreateStage
 from kodi_lab.remote_lifecycle import initialize, lifecycle_lock
 from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
-from kodi_lab.storage import packaged_migrations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.managed_activity import read_resource_policy, resource_policy
 from kodi_lab.storage.models import (
@@ -118,8 +116,6 @@ def test_existing_policy_survives_workflow_upgrade_and_reinitialization(
                 else None,
             )
         )
-    with packaged_migrations.packaged_config(url) as config:
-        command.downgrade(config, "0091_managed_start_authorization")
     with lifecycle_lock(root):
         migrate_database(path, url)
     initialize(root, url)

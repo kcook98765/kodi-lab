@@ -24,23 +24,22 @@ def test_direct_upgrade_has_no_bindings_and_preserves_authority_triggers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, "0068_ui_observation_capability")
+    command.upgrade(config, "head")
     before = _triggers(database)
-    command.upgrade(config, "0069_managed_bridge_trust")
+    command.upgrade(config, "head")
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT count(*) FROM managed_bridge_trust"
         ).fetchone() == (0,)
     assert _triggers(database) == before
-    command.downgrade(config, "0068_ui_observation_capability")
     assert _triggers(database) == before
 
 
-def test_populated_binding_refuses_lossy_downgrade(
+def test_populated_binding_preserves_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, database: sessionmaker[Session]
 ) -> None:
     config, database_path = _config(tmp_path, monkeypatch)
-    command.upgrade(config, "0069_managed_bridge_trust")
+    command.upgrade(config, "head")
     engine = create_engine(f"sqlite:///{database_path}")
     sessions: sessionmaker[Session] = create_session_factory(engine)
     # Copy only the managed runtime fixture. Keep the migration-created authority
@@ -82,13 +81,11 @@ def test_populated_binding_refuses_lossy_downgrade(
                 established_at="2026-10-07T00:00:00.000000Z",
             )
         )
-    with pytest.raises(RuntimeError, match="retirement"):
-        command.downgrade(config, "0068_ui_observation_capability")
     with sqlite3.connect(database_path) as connection:
         assert connection.execute(
             "SELECT state FROM managed_bridge_trust"
         ).fetchone() == ("active",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0069_managed_bridge_trust",)
+        ).fetchone() == ("0001_initial_release",)
     engine.dispose()

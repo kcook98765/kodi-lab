@@ -41,7 +41,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import DevelopmentSourceRepository
 from tests.application import test_mcp_workspace_development as fixtures
 from tests.application import test_workspace_launch as launch_fixtures
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )

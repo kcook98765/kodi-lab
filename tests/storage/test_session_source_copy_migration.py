@@ -27,11 +27,11 @@ from kodi_lab.storage.models import (
 from tests.application import test_development_source_deployments as fixtures
 from tests.application.test_development_source_deployments import factory as factory
 from tests.application.test_session_source_copy import bind
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-PREDECESSOR = "0084_session_replacements"
-REVISION = "0085_session_source_copy_admissions"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
 def test_empty_transition_is_additive_and_reversible(
@@ -49,7 +49,6 @@ def test_empty_transition_is_additive_and_reversible(
     assert [
         (fk["constrained_columns"], fk["referred_table"]) for fk in foreign_keys
     ] == [(["session_generation"], "development_sessions")]
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == before
     command.upgrade(config, REVISION)
     with engine.connect() as connection:
@@ -119,8 +118,6 @@ def test_populated_predecessor_produces_atomic_admission_and_retains_history(
     for sql in statements:
         with pytest.raises(IntegrityError), migrated.begin() as session:
             session.execute(text(sql))
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with migrated() as session:
         row = session.get(SessionSourceCopyAdmissionRow, str(receipt.request_id))
         assert row is not None and row.container_id == fixtures.CONTAINER_ID

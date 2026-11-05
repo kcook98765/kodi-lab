@@ -36,7 +36,7 @@ from kodi_lab.storage.models import (
 )
 from tests.application import test_development_source_enablements as fixtures
 from tests.application.test_development_source_enablements import factory as factory
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_templates as migration_templates
 
 
 def bind(factory: sessionmaker[Session], *, defect: str = "") -> None:
@@ -416,7 +416,7 @@ def test_selected_enablement_and_owned_markers_run_on_actual_migrated_head(
         RuntimeExecutionProfileRow,
         TargetRow,
     )
-    from tests.storage.test_migrations import migration_setup
+    from tests.migration_support import migration_setup
 
     config, url = migration_setup(
         monkeypatch, tmp_path / "migration", start_revision="head"

@@ -65,41 +65,24 @@ storage reserves, explicit overrides and invalid-value refusal are unchanged.
 
 ## Migration fixture architecture
 
-Migration tests use a session-scoped `MigrationTemplateStore`. At session start,
-one SQLite database advances through the Alembic graph in revision order. After
-each successful transition, the closed database is integrity-checked, its exact
-`alembic_version` is verified, and it is copied to a revision-specific pristine
-template. No connection, engine, session, WAL file, or shared writable database
-survives template construction.
+Current-schema integrity tests use one session-scoped Alembic head template
+from `tests/migration_support.py`. Construction closes all connections, checks
+integrity/foreign keys and the exact version, and hashes a read-only template.
+Each case gets an exclusive private copy with integrity/version verification.
+Mutation, changed-template, sidecar, existing-destination and failed-construction
+regressions protect the fixture boundary. No writable database or credential
+state is shared. The fixture lives outside collected test modules, avoiding
+separate Python identities and duplicate stores.
 
-Each test names its starting revision explicitly through `migration_setup`. The
-store makes an ordinary file copy of the closed template into that test's private
-temporary directory, then verifies integrity and revision again. Tests mutate
-only their private copy. Regressions prove that independent paths do not share
-mutations, the pristine template remains unchanged, a failed Alembic command
-cannot poison a later clone, and copied version rows are exact.
+The prerelease 92-revision graph and its per-revision templates were retired in
+#209. Current schema, security, lifecycle and installed-runtime contracts remain.
+Fresh initialization and byte-exact schema parity are tested separately from
+cloned fixtures. Ordinary ORM fixture templates below remain unseeded and do
+not stand in for the full Alembic schema or its migration-only triggers.
 
-Migration tests fall into three categories:
-
-1. Global history tests start without a template and prove the complete
-   base-to-head path, or start at head and prove the canonical full downgrade and
-   re-upgrade invariant.
-2. Migration-specific tests clone the immediate predecessor, apply only the
-   migration under test, verify its schema or data transformation, and exercise
-   its permitted downgrade or populated-data refusal directly.
-3. Tests that only need the current schema may clone `head`; they must not use
-   this category to stand in for a migration transition.
-
-When adding a migration, add its direct predecessor-to-new-revision proof and
-the appropriate downgrade proof. Use a populated predecessor fixture for data
-backfills. Keep lossy-downgrade refusal assertions at the new revision and verify
-that the version row and relevant data remain intact after refusal. Add another
-full-history test only when the invariant genuinely spans multiple revisions.
-
-Closed persisted enum/check vocabularies need a migration when application
-values are added. Test the durable coordinator against the migrated schema as
-well as testing process-local observers or fresh ORM-created tables; the latter
-do not prove that an existing deployment accepts the new values.
+For future public migrations, test the actual direct predecessor transition and
+its backfill/downgrade guarantees on isolated databases. Do not restore retired
+prerelease templates. See [the canonical migration policy](../migrations/README.md).
 
 ## Other test-only acceleration
 
@@ -221,7 +204,7 @@ time decreased from 48.2s to 25.7s. Peak pytest process RSS for that portion was
 372,272 KiB before and 271,916 KiB after. These are single local matched runs,
 not a full-suite or native-host performance claim. Existing closed-template
 integrity/mutation-isolation/handle/sidecar checks remain authoritative. No
-Alembic transition, production initialization or authentication cost was changed.
+Alembic transition, production initialization or authentication cost was changed in that pilot.
 See [the #54 ledger](PROGRAM-54-LEDGER.md) for the source pin and retained evidence.
 
 ## Idle-host baseline (2026-09-28)
@@ -330,7 +313,7 @@ passed. Wall times were 72.02/69.85/67.17/67.51s. Enabled reporting showed no
 measurable overhead within that spread; this is a bounded local measurement,
 not a universal overhead guarantee or complete-release speedup.
 
-## Shared migration templates for imported fixtures (#119)
+## Historical shared migration templates (#119, superseded by #209)
 
 Importing the same session fixture into multiple modules creates separate pytest
 fixture definitions. Those definitions previously rebuilt the entire verified
@@ -340,7 +323,7 @@ case still copies and verifies its own private database. No test body, transitio
 seed, assertion, parameter selection or production file changed. Verification
 connections now close explicitly; failed construction cannot publish a cache.
 
-The canonical imported fixture family shares one store per pytest Config. With
+Before #209, the canonical imported fixture family shared one store per pytest Config. With
 pytest's current prepend imports, the self-collected `test_migrations` module
 and `tests.storage.test_migrations` are separate Python module identities
 (`tests/storage` is not a package). The complete suite therefore retains two

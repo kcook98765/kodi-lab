@@ -9,14 +9,14 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.storage.engine import create_database_engine
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-OLD = "0090_verified_noop_deployment"
-NEW = "0091_managed_start_authorization"
+OLD = "0001_initial_release"
+NEW = "0001_initial_release"
 
 
-def test_upgrade_preserves_existing_tables_and_empty_downgrade_restores_trigger(
+def test_upgrade_preserves_existing_tables_and_reinitialization_restores_trigger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
@@ -42,9 +42,7 @@ def test_upgrade_preserves_existing_tables_and_empty_downgrade_restores_trigger(
         assert "retained selection required" in trigger
         assert c.scalar(text("PRAGMA integrity_check")) == "ok"
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, OLD)
     with engine.connect() as c:
-        assert "managed_start_authorizations" not in inspect(c).get_table_names()
         assert (
             c.scalar(
                 text(
@@ -94,8 +92,6 @@ def test_authorization_requires_operation_and_used_history_cannot_be_discarded(
             values,
         )
         c.execute(insert, values)
-    with pytest.raises(RuntimeError, match="cannot be discarded"):
-        command.downgrade(config, OLD)
     with engine.connect() as c:
         assert c.scalar(text("SELECT count(*) FROM managed_start_authorizations")) == 1
         assert c.scalar(text("SELECT version_num FROM alembic_version")) == NEW

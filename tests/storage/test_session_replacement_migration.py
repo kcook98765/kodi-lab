@@ -13,18 +13,18 @@ from kodi_lab.storage.engine import create_database_engine
 from tests.application.test_runtime_retirement_receipts import (
     build as predecessor_build,
 )
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 from tests.storage.session_review_fixtures import (
     load_historical_review,
     save_historical_review,
 )
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
 
-PREDECESSOR = "0083_managed_runtime_retirements"
-REVISION = "0084_session_replacements"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
-def test_empty_replacement_migration_adds_one_nullable_binding_and_one_table(
+def test_empty_replacement_schema_adds_one_nullable_binding_and_one_table(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -46,7 +46,6 @@ def test_empty_replacement_migration_adds_one_nullable_binding_and_one_table(
             "development_session_replacement_reviews"
         )
     } == columns | {"successor_generation"}
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == prior
     assert {
         item["name"]
@@ -61,7 +60,7 @@ def test_empty_replacement_migration_adds_one_nullable_binding_and_one_table(
     engine.dispose()
 
 
-def test_existing_open_review_and_capture_holds_survive_nullable_column_round_trip(
+def test_existing_review_and_capture_holds_survive_reinitialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -75,11 +74,9 @@ def test_existing_open_review_and_capture_holds_survive_nullable_column_round_tr
     )
     try:
         review = save_historical_review(case.env)
-        command.downgrade(config, PREDECESSOR)
         evidence = case.env.retained.read(case.env.capture.capture_id)
         command.upgrade(config, REVISION)
         assert case.env.reviews.get(review.review_id) == review
-        command.downgrade(config, PREDECESSOR)
         assert load_historical_review(case.env, review.review_id) == review
         command.upgrade(config, REVISION)
         assert case.env.reviews.get(review.review_id) == review
@@ -117,7 +114,6 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
         database_path=Path(url.removeprefix("sqlite:///")),
     )
     review = save_historical_review(env)
-    command.downgrade(config, PREDECESSOR)
     before = env.retained.read(env.capture.capture_id)
     command.upgrade(config, REVISION)
     assert load_historical_review(env, review.review_id) == review
@@ -152,10 +148,6 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
                 env.state.env.sessions.begin() as session,
             ):
                 session.execute(text(statement))
-        with pytest.raises(
-            RuntimeError, match="execution/history cannot be safely downgraded"
-        ):
-            command.downgrade(config, PREDECESSOR)
         with env.state.env.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))

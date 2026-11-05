@@ -24,14 +24,14 @@ from kodi_lab.storage.models import ManagedProvisionReservationRow
 from kodi_lab.storage.repositories import RuntimeContainerArtifactRepository
 from tests.application import test_mcp_workspace_development as fixtures
 from tests.application.test_retained_diagnostics import NOW, snapshot
-from tests.storage.test_migrations import migration_setup
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_setup
+from tests.migration_support import migration_templates as migration_templates
 
-PREDECESSOR = "0080_development_sessions"
-REVISION = "0081_managed_diagnostic_captures"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
-def test_empty_transition_adds_only_capture_table_and_round_trips(
+def test_empty_transition_adds_only_capture_table_and_reinitializations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -41,7 +41,6 @@ def test_empty_transition_adds_only_capture_table_and_round_trips(
     assert set(inspect(engine).get_table_names()) == prior | {
         "managed_diagnostic_captures"
     }
-    command.downgrade(config, PREDECESSOR)
     assert set(inspect(engine).get_table_names()) == prior
     command.upgrade(config, REVISION)
     with engine.connect() as connection:
@@ -50,7 +49,7 @@ def test_empty_transition_adds_only_capture_table_and_round_trips(
     engine.dispose()
 
 
-def test_upgraded_capture_preserves_pending_provision_and_refuses_lossy_downgrade(
+def test_upgraded_capture_preserves_pending_provision_and_preserves_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -130,8 +129,6 @@ def test_upgraded_capture_preserves_pending_provision_and_refuses_lossy_downgrad
             and reservation.operation_id == pending
             and reservation.phase == "uncertain"
         )
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with env.sessions() as session:
         assert (
             session.scalar(text("SELECT version_num FROM alembic_version")) == REVISION

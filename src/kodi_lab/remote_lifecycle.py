@@ -35,7 +35,11 @@ from kodi_lab.repository.development import (
 )
 from kodi_lab.repository.stable import load_current as load_stable_current
 from kodi_lab.snapshot.recovery import published_snapshot_inventory
-from kodi_lab.storage.packaged_migrations import migrate_database, packaged_config
+from kodi_lab.storage.packaged_migrations import (
+    database_is_empty,
+    migrate_database,
+    packaged_config,
+)
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
     ExternalCredentialStore,
@@ -447,6 +451,8 @@ def validate(
         _private(root / directory, directory=True)
     digest = _key_digest(root)
     revision = _revision(root / DATABASE)
+    with packaged_config(database_url) as config:
+        database_is_empty(root / DATABASE, config)
     marker = root / ".state.json"
     if marker.exists() or marker.is_symlink():
         metadata = _read_json(marker)

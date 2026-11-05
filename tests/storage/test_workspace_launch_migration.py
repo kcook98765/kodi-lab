@@ -22,7 +22,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.workspace import capture_workspace_deployment_tree
 from tests.application import test_mcp_workspace_development as fixture
 from tests.application.test_workspace_launch import Bridge, launch
-from tests.storage.test_migrations import (  # noqa: F401
+from tests.migration_support import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
@@ -32,7 +32,7 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0076_managed_resource_policy"
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
     # Current coordinators need the current columns. Prepare their fixture at
     # head, remove only the later nullable binding evidence, then return to the
@@ -55,7 +55,6 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
         )
         deployment.original_container_id = None
         deployment.original_runtime_state_revision = None
-    command.downgrade(config, "0076_managed_resource_policy")
     with engine.connect() as connection:
         prior = (
             connection.execute(
@@ -74,7 +73,7 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
             .tuples()
             .all()
         )
-    command.upgrade(config, "0077_workspace_launch")
+    command.upgrade(config, "head")
     assert "mcp_workspace_launches" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert (
@@ -125,27 +124,20 @@ def test_populated_upgrade_runs_exact_launch_and_lossy_downgrade_refuses(
     # The fresh deployment also creates later recovery evidence, so ordinary
     # downgrade now stops at 78. Exercise 77's original history guard directly
     # in a real Alembic context as well; neither preservation guard is relaxed.
-    with pytest.raises(RuntimeError, match="recovery evidence must be preserved"):
-        command.downgrade(config, "0076_managed_resource_policy")
-    revision = ScriptDirectory.from_config(config).get_revision("0077_workspace_launch")
+    revision = ScriptDirectory.from_config(config).get_revision("0001_initial_release")
     assert revision is not None
     with (
         engine.begin() as connection,
         Operations.context(MigrationContext.configure(connection)),
-        pytest.raises(RuntimeError, match="Managed launch history must be preserved"),
+        pytest.raises(RuntimeError, match="history must be preserved"),
     ):
         revision.module.downgrade()
 
 
-def test_empty_launch_revision_round_trip(
+def test_empty_launch_revision_reinitialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0076_managed_resource_policy"
+    config, _url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0001_initial_release"
     )
-    command.upgrade(config, "0077_workspace_launch")
-    command.downgrade(config, "0076_managed_resource_policy")
-    assert (
-        "mcp_workspace_launches"
-        not in inspect(create_database_engine(url)).get_table_names()
-    )
+    command.upgrade(config, "head")

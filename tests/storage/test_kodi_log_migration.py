@@ -24,11 +24,11 @@ from tests.storage.test_ui_observation_migration import (
     _triggers,
 )
 
-PREDECESSOR = "0071_household_onboarding"
-REVISION = "0072_kodi_log_capability"
+PREDECESSOR = "0001_initial_release"
+REVISION = "0001_initial_release"
 
 
-def test_upgrade_preserves_rows_triggers_and_empty_round_trip(
+def test_upgrade_preserves_rows_triggers_and_reinitialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -65,14 +65,13 @@ def test_upgrade_preserves_rows_triggers_and_empty_round_trip(
         )
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["arbitrary_execution","screenshot"]', 2)
-    command.downgrade(config, PREDECESSOR)
     assert _triggers(database) == original and _revision(database) == PREDECESSOR
     command.upgrade(config, REVISION)
     assert _triggers(database) == original
     engine.dispose()
 
 
-def test_real_otp_coordinator_persists_log_capability_and_downgrade_refuses_loss(
+def test_real_otp_coordinator_persists_log_capability_and_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     runtime: Any,
@@ -111,8 +110,6 @@ def test_real_otp_coordinator_persists_log_capability_and_downgrade_refuses_loss
             ).fetchone()[0]
         )
         assert "log_read" in capabilities
-    with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, PREDECESSOR)
     with sqlite3.connect(database) as connection:
         assert (
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()

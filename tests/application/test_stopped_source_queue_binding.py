@@ -29,7 +29,7 @@ from kodi_lab.storage.repositories import (
 )
 from tests.application import test_development_source_deployments as fixtures
 from tests.application.test_development_source_deployments import factory as factory
-from tests.storage.test_migrations import migration_templates as migration_templates
+from tests.migration_support import migration_templates as migration_templates
 
 
 def test_queue_persists_the_observed_stopped_profile_before_worker_claim(
@@ -325,7 +325,7 @@ def test_queue_pin_and_claim_work_on_actual_upgraded_schema(
         RuntimeExecutionProfileRow,
         TargetRow,
     )
-    from tests.storage.test_migrations import migration_setup
+    from tests.migration_support import migration_setup
 
     config, url = migration_setup(
         monkeypatch, tmp_path / "migration", start_revision="head"
