@@ -1,5 +1,10 @@
 # Phase 4 localhost Web security and execution contract
 
+The milestone sections below are historical implementation records. Their ports,
+loopback-only scope and deferred transports are not the current installation
+contract. For current local HTTP, explicit LAN HTTP and HTTPS/WSS modes, use
+[Web networking](WEB-NETWORKING.md) and [the security policy](../SECURITY.md).
+
 This executable supplement records the approved first Phase 4 slice.
 `V1-SPEC.md` remains authoritative and is not amended.
 

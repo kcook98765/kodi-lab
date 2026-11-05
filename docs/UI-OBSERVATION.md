@@ -23,12 +23,12 @@ are true/false. Snapshots are bounded and non-atomic. Identity checks invalidate
 associations after window/dialog/focus changes. Changes between identical boundary
 identities cannot all be detected. Structured fields are authoritative.
 
-Bridge 1.1.15 collects direct window/dialog/focus and player facts, guarded focus
+The reviewed stable Bridge 1.1.31 collects direct window/dialog/focus and player facts, guarded focus
 wrapper classification, and GUI-dispatched curated InfoLabels/conditions. Generic
 direct Python ListItem reads are prohibited. The same collector profile supports
 qualified Kodi 19.4, 20.5 and 21.3, without Kodi-major branches. Screensaver uses
 the fixed `System.ScreenSaverActive` condition.
-The separately reviewed Bridge 1.1.16 provides this collection on Kodi 22 RC1.
+The separately reviewed Bridge 1.1.32 provides this collection on Kodi 22 RC1.
 
 Managed observation consumes lifecycle-owned trust in `managed_bridge_trust`.
 The runtime start/readiness lifecycle prepares an installed, enabled approved
@@ -54,8 +54,8 @@ explicit lifecycle `prepare(..., replace=True)`; observation cannot do this.
 A failed local provisioning write leaves the add-on disabled and trust inactive;
 controlled lifecycle replacement can recover it without starting unpaired onboarding.
 
-Existing instances migrate with no trust record or credential backfill. Native
-managed operations remain available. Absent trust or a temporarily unreachable
+Native managed operations remain available without resident Bridge trust.
+Absent trust or a temporarily unreachable
 resident service permits only the conservative authorized native observation;
 revoked/stale trust and authentication failures are refused. The lifecycle owns
 credential cleanup; closing/removing an observation consumer leaves trust intact.
@@ -77,9 +77,8 @@ Paths, artwork, arbitrary labels/conditions, visible items and detailed playback
 metadata are intentionally excluded. Collection-provider provenance (Bridge
 versus native) is not returned.
 
-Normal application upgrade applies migrations `0068_ui_observation_capability`
-and `0069_managed_bridge_trust`.
-It extends the closed Bridge capability inventory while preserving existing
-pairing/review records and authority triggers. It grants no new permission or
-reviewed-build trust. Install the current Bridge through existing administrator
+The initial-release schema includes UI observation capabilities, managed Bridge
+trust storage and authority triggers in `0001_initial_release`. Initialization
+does not grant agent permissions or establish reviewed-build trust. Install the
+current Bridge through existing administrator
 workflows when full container/item association is needed.

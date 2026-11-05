@@ -157,11 +157,11 @@ UI/skin/dialog, TLS, catalog/API version selection and native installed-file
 normalization must be qualified on actual runtimes. Isolated fakes prove Lab
 behavior and boundaries, not native Kodi acceptance.
 
-Deployment needs a rebuilt application/broker bundle and migration
-`0079_native_zip_installation`, normal backup/upgrade/rollback review and explicit
-delivery-origin configuration. No Bridge or runtime image change is needed.
-The broker advertises 38 fixed operations; older Web packages accept at most 37.
-Upgrade Web and broker as one compatible bundle even while delivery is disabled.
-Downgrade refuses to discard repository artifacts, native operation evidence,
-or installed `addon.install` policy state. Use the supported stopped-service
-backup/restore workflow for rollback; do not run an old binary on the new schema.
+Use a matching Web/broker application bundle and configure the explicit delivery
+origin. Fresh initialization includes native ZIP storage in
+`0001_initial_release`; no separate prerelease migration is required. No Bridge
+or runtime image change is needed. Keep Web and broker compatible even while
+delivery is disabled. For future application transitions, retain repository
+artifacts, native operation evidence and installed `addon.install` policy state.
+Use the supported stopped-service backup/restore workflow for rollback; do not
+run an incompatible binary against retained state.
