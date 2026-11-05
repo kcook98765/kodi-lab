@@ -17,7 +17,7 @@ def check_database(connection: sqlite3.Connection, supported: Collection[str]) -
     """
     objects = list(
         connection.execute(
-            "SELECT type,name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"
+            "SELECT type,name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'"
         )
     )
     if not objects:

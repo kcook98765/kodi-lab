@@ -11,7 +11,7 @@ from alembic import command
 from alembic.script import ScriptDirectory
 
 from kodi_lab.storage.engine import create_database_engine
-from kodi_lab.storage.packaged_migrations import migrate_database
+from kodi_lab.storage.packaged_migrations import database_is_empty, migrate_database
 from tests.migration_support import migration_config
 from tests.schema_manifest import schema_manifest
 
@@ -113,6 +113,26 @@ def test_unsupported_database_is_refused_byte_for_byte(
             migrate_database(database, f"sqlite:///{database}")
     assert hashlib.sha256(database.read_bytes()).digest() == before
     assert sorted(p.name for p in tmp_path.iterdir()) == ["old.db"]
+
+
+@pytest.mark.parametrize("name", ["sqlite", "sqlitex_retained_data", "SQLITEZ_data"])
+@pytest.mark.parametrize("entry", ["alembic", "installed_preflight"])
+def test_sqlite_like_user_tables_are_not_mistaken_for_empty_databases(
+    tmp_path: Path, name: str, entry: str
+) -> None:
+    database = tmp_path / "retained.db"
+    with sqlite3.connect(database) as db:
+        db.execute(f'CREATE TABLE "{name}" (id INTEGER PRIMARY KEY, value TEXT)')
+        db.execute(f'INSERT INTO "{name}" VALUES (1, ?)', ("retained data",))
+    before = database.read_bytes()
+    config = migration_config(database)
+    with pytest.raises(RuntimeError, match="fresh installation is required"):
+        if entry == "alembic":
+            command.upgrade(config, "head")
+        else:
+            database_is_empty(database, config)
+    assert database.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["retained.db"]
 
 
 def test_normal_forward_migration_after_baseline(tmp_path: Path) -> None:
