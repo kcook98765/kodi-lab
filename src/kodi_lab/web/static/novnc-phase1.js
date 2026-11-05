@@ -76,7 +76,7 @@ async function post(action, body) {
     }
     return response.json();
 }
-async function end(expected = attempt) {
+async function end(expected = attempt, disconnected = false) {
     if (expected !== attempt) return;
     const endingEpoch = ++cleanupEpoch;
     const old = attempt;
@@ -89,7 +89,8 @@ async function end(expected = attempt) {
     switching = false;
     if (previousRfb) previousRfb.disconnect();
     buttons();
-    status.textContent = identityRetired ? 'This environment changed. Open Current Kodi before viewing again.' : 'Viewing is off.';
+    status.textContent = identityRetired ? 'This environment changed. Open Current Kodi before viewing again.' :
+        disconnected ? 'Viewing disconnected unexpectedly. Start Viewing to reconnect.' : 'Viewing is off.';
     const placeholder = main.querySelector('[data-viewer-placeholder]');
     if (placeholder) placeholder.hidden = false;
     if (old) {
@@ -132,8 +133,12 @@ function connect(current, result) {
     });
     client.addEventListener('disconnect', event => {
         diagnostic('rfb_disconnected', current, {elapsed_ms: elapsed(), clean: event?.detail?.clean});
-        if (rfb === client) rfbConnected = false;
-        end(current);
+        if (attempt !== current || rfb !== client) return;
+        // noVNC has already disconnected this exact client. Retire it before
+        // common cleanup, retaining the original attempt's server Stop.
+        rfb = null;
+        rfbConnected = false;
+        end(current, true);
     });
 }
 start.onclick = async () => {
