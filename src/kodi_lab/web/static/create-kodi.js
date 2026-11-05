@@ -20,12 +20,13 @@
   let generation = snapshot.generation, saved = null, op = null, busy = false;
   let running = false, timer = null, epoch = 0, reconciled = false, ready = false;
   let orphan = null, approvedRequest = null;
+  let visibilityResume = null, visibilityPending = false, visibilityEpoch = 0, storageRevision = 0, observations = 0;
   let storageOK = true, suspended = false, steps = 0, waits = 0, remainingWait = 0;
   const key = () => `kodi-lab.create-kodi.v1.${generation}`;
   const text = (name, value) => { if (find(name).textContent !== value) find(name).textContent = value; };
   const error = message => { text("error", message); find("error").hidden = !message; };
   function pause(message = "") {
-    running = false;
+    running = false; visibilityResume = null; visibilityPending = false;
     clearTimeout(timer); timer = null;
     remainingWait = 0;
     if (message) text("notice", message);
@@ -194,7 +195,7 @@
     } catch (failure) {
       if (ticket === epoch) error(explanation(failure, "Saved status is unavailable. Check status before continuing."));
     } finally {
-      if (ticket === epoch) { busy = false; controls(); }
+      if (ticket === epoch) { busy = false; controls(); maybeVisible(); }
     }
   }
   async function discard() {
@@ -222,9 +223,41 @@
       if (ticket === epoch) error(explanation(failure, "Saved setup could not be discarded safely. Check status again."));
     } finally { if (ticket === epoch) { busy = false; render(); } }
   }
+  function visibilityAuthority() {
+    if (!op || op.complete || attention() || !available() || !storageOK) return null;
+    try {
+      const raw = stored();
+      return raw === JSON.stringify(saved) && readSaved(raw)?.operation_id === op.operation_id
+        ? {operation:op, raw, storageRevision} : null;
+    } catch (_) { return null; }
+  }
+  function maybeVisible() {
+    if (visibilityPending && !document.hidden && !busy) void returnVisible();
+  }
+  async function returnVisible() {
+    if (document.hidden || busy) return;
+    const authority = visibilityResume, ticket = epoch, serial = visibilityEpoch;
+    visibilityResume = null; visibilityPending = false;
+    if (observations >= 240 || steps >= 40) {
+      pause("Setup observation limit reached. Check status, then Resume setup."); reconciled = false; controls(); return;
+    }
+    let unchanged = false;
+    try { unchanged = !!authority && stored() === authority.raw; } catch (_) { /* passive recovery only */ }
+    observations++;
+    await reconnect(); // This read alone never grants continuation authority.
+    if (ticket !== epoch || serial !== visibilityEpoch || document.hidden || busy) return;
+    const known = authority?.operation;
+    if (unchanged && authority.storageRevision === storageRevision && reconciled &&
+        op && known && op.operation_id === known.operation_id && op.version === known.version &&
+        op.stage === known.stage && op.checkpoint === known.checkpoint &&
+        !op.complete && !attention() && available() && visibilityAuthority()) {
+      running = true; suspended = false; error(""); text("notice", ""); render(); schedule();
+    }
+    maybeVisible();
+  }
   function schedule() {
     if (!running || busy || document.hidden || !op || op.complete || attention() || !available()) return;
-    if (steps >= 40 || (waits >= 20 && remainingWait === 0)) {
+    if (steps >= 40 || observations >= 240 || (waits >= 20 && remainingWait === 0)) {
       pause("Setup is taking longer than expected. Check status, then Resume setup when you’re ready.");
       reconciled = false; controls(); return;
     }
@@ -240,11 +273,13 @@
   async function advance(inspect = null) {
     if (!running || busy || document.hidden) return;
     busy = true; controls();
-    const ticket = epoch;
+    const ticket = epoch, readFence = storageRevision;
     try {
       if (inspect) {
+        observations++;
         const current = validate(await json(inspect.status_url));
         if (ticket !== epoch) return;
+        if (readFence !== storageRevision) throw new SetupError("Setup changed in another tab. Check status.");
         attach(current);
         if (current.version !== inspect.version || current.checkpoint !== inspect.checkpoint || current.stage !== inspect.stage) {
           pause("Setup changed elsewhere. Check status, then Resume setup."); reconciled = false; return;
@@ -254,19 +289,23 @@
       }
       // Only the preceding known response / explicit Resume establishes this
       // continuation. A passive GET never starts a run or permits redispatch.
+      if (!running || suspended || document.hidden) return;
       remainingWait = 0; steps++;
-      const previous = op;
+      const previous = op, mutationFence = storageRevision;
       const result = await json(op.status_url + "/continue", "POST", {version:op.version});
       if (ticket !== epoch) return;
+      if (mutationFence !== storageRevision) throw new SetupError("Setup changed in another tab. Check status.");
+      if (result.version < previous.version) throw new SetupError("Setup version changed unexpectedly. Check status.");
       if (result.stage !== previous.stage || result.checkpoint !== previous.checkpoint) waits = 0;
       attach(result); reconciled = true;
+      if (visibilityPending && mutationFence === storageRevision) visibilityResume = visibilityAuthority();
     } catch (failure) {
       if (ticket !== epoch) return;
       pause(); error(explanation(failure, "The setup response was lost. Check status before continuing."));
       busy = false;
       await reconnect(true); // Observe first. Never automatically repeat the POST.
     } finally {
-      if (ticket === epoch) { busy = false; render(); schedule(); }
+      if (ticket === epoch) { busy = false; render(); schedule(); maybeVisible(); }
     }
   }
   async function approve(replay = false) {
@@ -294,17 +333,21 @@
       save({generation, approval, operation_id:null}, true); // Commit BEFORE POST.
       approvedRequest = approval.request_id;
       reconciled = false;
+      const mutationFence = storageRevision;
       const accepted = await json(api, "POST", approval);
       if (ticket !== epoch) return;
+      if (mutationFence !== storageRevision) throw new SetupError("Setup changed in another tab. Check status.");
       attach(accepted); reconciled = true;
-      running = !suspended && !document.hidden; steps = waits = 0; error("");
+      running = !suspended && !document.hidden; steps = waits = observations = 0;
+      if (visibilityPending && !running && mutationFence === storageRevision) visibilityResume = visibilityAuthority();
+      error("");
       if (running) text("notice", "");
       find("phase").focus();
     } catch (failure) {
       if (ticket !== epoch) return;
       pause(); error(explanation(failure, "The approval response was lost. Check status before continuing."));
       busy = false; await reconnect(true);
-    } finally { if (ticket === epoch) { busy = false; render(); schedule(); } }
+    } finally { if (ticket === epoch) { busy = false; render(); schedule(); maybeVisible(); } }
   }
   function requirements(value) {
     if (value.generation !== generation || !generations.has(generation) || !uuid(value.target_id) ||
@@ -382,7 +425,7 @@
   find("resume").addEventListener("click", () => {
     if (busy || running || !resumable()) return;
     if (!op) { void approve(true); return; }
-    running = true; suspended = false; steps = waits = 0; error(""); text("notice", ""); controls(); schedule();
+    running = true; suspended = false; steps = waits = observations = 0; error(""); text("notice", ""); controls(); schedule();
   });
   find("generation").addEventListener("change", () => {
     if (busy || running || (op && !op.complete) || (saved?.approval && !op?.complete)) return;
@@ -395,11 +438,17 @@
   });
   window.addEventListener("storage", event => {
     if ((event.key !== null && event.key !== key()) || op?.complete) return;
+    storageRevision++; visibilityEpoch++;
     suspended = true; orphan = null; approvedRequest = null;
     pause("Setup changed in another tab. Check status before resuming."); reconciled = false; controls();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && !op?.complete) { suspended = true; pause("Automatic setup is paused in this tab. Check status when you return."); reconciled = false; controls(); }
+    if (document.hidden && !op?.complete) {
+      const authority = running && reconciled && !suspended ? visibilityAuthority() : null;
+      visibilityEpoch++; suspended = true;
+      pause("Automatic setup is paused while this tab is hidden.");
+      visibilityResume = authority; visibilityPending = true; reconciled = false; controls();
+    } else if (!document.hidden) maybeVisible();
   });
   window.addEventListener("pagehide", () => { pause(); ++epoch; busy = false; reconciled = false; });
   window.addEventListener("pageshow", event => { if (event.persisted) void reconnect(); });

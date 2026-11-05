@@ -68,6 +68,7 @@ def main() -> None:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--empty-navigation", action="store_true")
     parser.add_argument("--orphan-recovery", action="store_true")
+    parser.add_argument("--visibility-continuation", action="store_true")
     args = parser.parse_args()
     args.evidence.mkdir(parents=True, exist_ok=True)
 
@@ -144,7 +145,9 @@ def main() -> None:
                 args.browser_module,
                 args.browser_executable,
                 str(args.evidence),
-                "orphan-recovery"
+                "visibility-continuation"
+                if args.visibility_continuation
+                else "orphan-recovery"
                 if args.orphan_recovery
                 else "empty-navigation"
                 if args.empty_navigation
@@ -183,6 +186,15 @@ def main() -> None:
                                 "native": len(env.transport.methods),
                                 "operation_id": rows[0].id if rows else None,
                                 "checkpoint": rows[0].checkpoint if rows else None,
+                                "installation_id": rows[0].installation_operation_id
+                                if rows
+                                else None,
+                                "provision_id": rows[0].provision_operation_id
+                                if rows
+                                else None,
+                                "start_id": rows[0].start_operation_id
+                                if rows
+                                else None,
                             }
                     elif request.get("action"):
                         assert env
