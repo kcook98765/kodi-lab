@@ -180,7 +180,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0090_verified_noop_deployment",)
+        ).fetchone() == ("0092_create_kodi_operations",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -444,6 +444,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_idle_states",
         "managed_instance_uses",
         "managed_start_reservations",
+        "managed_start_authorizations",
+        "create_kodi_operations",
         "managed_provision_reservations",
         "development_sessions",
         "development_selections",

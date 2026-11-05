@@ -202,6 +202,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "managed_idle_states",
         "managed_instance_uses",
         "managed_start_reservations",
+        "managed_start_authorizations",
+        "create_kodi_operations",
         "managed_provision_reservations",
         "development_sessions",
         "development_session_policy",
