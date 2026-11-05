@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import sys
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -178,16 +180,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not (data_root / "database" / "kodi-lab.db").is_file():
         parser.error("database is missing; run kodi-lab-admin migrate first")
 
-    password = getpass.getpass("New Kodi Lab administrator password: ")
-    confirmation = getpass.getpass("Confirm password: ")
-    if not secrets_match(password, confirmation):
-        parser.error("passwords do not match")
-
     engine = create_database_engine(settings.database_url)
     try:
-        WebAuthenticationService(create_session_factory(engine)).set_password(password)
-    except InvalidPasswordError as error:
-        parser.error(str(error))
+        authentication = WebAuthenticationService(create_session_factory(engine))
+        for attempt in range(3):
+            try:
+                # getpass warns before falling back to echoed input. Refuse that
+                # fallback before it reads a secret from an unsuitable terminal.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", getpass.GetPassWarning)
+                    password = getpass.getpass("New Kodi Lab administrator password: ")
+                    confirmation = getpass.getpass("Confirm password: ")
+            except (EOFError, KeyboardInterrupt):
+                parser.error("password entry cancelled; password unchanged")
+            except getpass.GetPassWarning:
+                parser.error(
+                    "hidden password input unavailable; use an interactive terminal"
+                )
+            if not secrets_match(password, confirmation):
+                feedback = "passwords do not match"
+            else:
+                try:
+                    authentication.set_password(password)
+                except InvalidPasswordError as error:
+                    feedback = str(error)
+                else:
+                    break
+            if attempt == 2:
+                parser.error(
+                    f"{feedback}; three password attempts exhausted; password unchanged"
+                )
+            print(f"{feedback}. Please enter both fields again.", file=sys.stderr)
     finally:
         engine.dispose()
     print("Kodi Lab administrator password updated; existing sessions invalidated.")
@@ -197,7 +220,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def secrets_match(left: str, right: str) -> bool:
     import secrets
 
-    return secrets.compare_digest(left, right)
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 if __name__ == "__main__":
