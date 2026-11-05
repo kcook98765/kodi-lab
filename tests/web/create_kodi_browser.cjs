@@ -70,6 +70,55 @@ async function mobile(page) {
 (async () => {
   browser = await chromium.launch({headless:true, executablePath:process.argv[3]});
   browser.on("disconnected", () => { if (pending.size) process.exitCode = 1; });
+  if (process.argv[5] === "orphan-recovery") {
+    const fixture = await context("omega"), page = fixture.page;
+    drop = "accept";
+    await page.locator("[data-create-approve]").click();
+    await page.locator("[data-create-resume]:visible").waitFor();
+    const previous = await control("summary");
+    assert.equal(previous.parents,1); assert.equal(continuations(),0);
+    const before = await page.evaluate(() => localStorage.getItem("kodi-lab.create-kodi.v1.omega"));
+    assert.equal(JSON.parse(before).operation_id,previous.operation_id);
+    await page.evaluate(() => {
+      localStorage.setItem("unrelated.fixture","keep");
+      localStorage.setItem("kodi-lab.create-kodi.v1.nexus","keep-nexus");
+    });
+    // A genuinely fresh isolated database at exactly the same browser origin.
+    const replacement = await control("reset",{generation:"omega"});
+    await page.goto(base+"/login");
+    await page.locator('input[name="password"]').fill(replacement.password);
+    await page.evaluate(async () => {
+      await fetch("/login",{method:"POST",redirect:"manual",body:new URLSearchParams(new FormData(document.querySelector("form")))});
+    });
+    await page.goto(base+"/create-kodi");
+    await page.locator("[data-create-discard]:visible").waitFor();
+    assert(await page.locator("[data-create-approve]").isDisabled());
+    assert.equal((await control("summary")).parents,0);
+    await screenshot(page,"orphan-desktop"); await mobile(page); await screenshot(page,"orphan-mobile");
+    const tab = await fixture.ctx.newPage();
+    await tab.goto(base+"/create-kodi");
+    await tab.locator("[data-create-discard]:visible").waitFor();
+    await page.bringToFront();
+    await page.locator("[data-create-discard]").evaluate(button=>{button.click();button.click();});
+    await page.locator("[data-create-approve]:enabled").waitFor();
+    await tab.locator("[data-create-discard]").waitFor({state:"hidden"});
+    const preserved = await page.evaluate(() => ({
+      omega:localStorage.getItem("kodi-lab.create-kodi.v1.omega"),
+      unrelated:localStorage.getItem("unrelated.fixture"), nexus:localStorage.getItem("kodi-lab.create-kodi.v1.nexus"),
+    }));
+    assert.deepEqual(preserved,{omega:null,unrelated:"keep",nexus:"keep-nexus"});
+    assert.equal((await control("summary")).parents,0,"discard makes no server mutation");
+    drop="accept";
+    await page.locator("[data-create-approve]").evaluate(button=>{button.click();button.click();});
+    await page.locator("[data-create-resume]:visible").waitFor();
+    const summary=await control("summary");
+    assert.equal(summary.parents,1); assert.notEqual(summary.operation_id,previous.operation_id);
+    assert.equal(summary.launches+summary.provisions+summary.starts,0);
+    assert.equal(continuations(),0);
+    assert.deepEqual(consoleErrors,[]);
+    await control("done",{result:{scenario:"same-origin fresh database, explicit scoped orphan discard, two tabs, duplicate clicks, fresh approval",previousOperation:previous.operation_id,summary,preserved,requests,consoleErrors,resourceErrors}});
+    await fixture.ctx.close(); await browser.close(); process.stdin.destroy(); return;
+  }
   if (process.argv[5] === "empty-navigation") {
     const empty = await context("omega"), page = empty.page;
     for (const generation of ["nexus", "matrix", "omega"]) {

@@ -17,7 +17,7 @@ class Element {
 const flush = async () => { for (let i = 0; i < 25; i++) await Promise.resolve(); };
 function boot(storage = new Map(), denied = false, config = {}) {
   const root = new Element(), component = new Element(), refresh = new Element(), document = new Element(), window = new Element();
-  const names = ["form", "generation", "approve", "check", "resume", "review", "progress", "phase", "message", "wait", "screen", "start", "manage", "recovery", "version", "reason", "notice", "error", "summary", "blockers", "another"];
+  const names = ["form", "generation", "approve", "check", "resume", "review", "progress", "phase", "message", "wait", "screen", "start", "manage", "recovery", "version", "reason", "notice", "error", "summary", "blockers", "another", "discard"];
   const nodes = Object.fromEntries(names.map(name => [name, new Element()]));
   root.querySelector = selector => selector === "[data-kodi-prerequisites]" ? component : nodes[selector.match(/data-create-([\w-]+)/)[1]];
   component.querySelector = () => refresh;
@@ -52,7 +52,7 @@ function boot(storage = new Map(), denied = false, config = {}) {
 }
 async function reply(request, value = null, code = value ? 200 : request.url.includes('/by-target/') ? 204 : 404) {
   assert(request); request.resolve({ok:code < 400, status:code, json:async () => {
-    assert.notEqual(code,204,'No Content must not be parsed as JSON'); return value;
+    assert.notEqual(code,204,'No Content must not be parsed as JSON'); return value ?? (code === 404 ? {error:{code:"create_operation_not_found"}} : null);
   }}); await flush();
 }
 const posts = app => app.requests.filter(r => r.options.method === "POST");
@@ -61,6 +61,7 @@ async function approved(app) {
   app.submit(); app.submit();
   assert.equal(posts(app).length, 0);
   await reply(app.requests.at(-1));
+  await reply(app.requests.at(-1), snapshot);
   assert.equal(posts(app).length, 1);
   const body = JSON.parse(posts(app)[0].options.body);
   assert.equal(JSON.parse(app.storage.get("kodi-lab.create-kodi.v1.omega")).approval.request_id, body.request_id, "UUID committed before acceptance POST");
@@ -156,12 +157,115 @@ async function approved(app) {
 
   const acceptance = boot(); await reply(acceptance.requests[0]); acceptance.submit();
   await reply(acceptance.requests.at(-1));
+  await reply(acceptance.requests.at(-1), snapshot);
   const original = JSON.parse(posts(acceptance)[0].options.body);
   posts(acceptance)[0].reject(new Error("lost")); await flush();
   await reply(acceptance.requests.at(-1));
   assert.equal(acceptance.timers.size, 0);
-  acceptance.click("resume"); await reply(acceptance.requests.at(-1));
+  acceptance.click("resume"); await reply(acceptance.requests.at(-1)); await reply(acceptance.requests.at(-1),snapshot);
   assert.deepEqual(JSON.parse(posts(acceptance)[1].options.body), original, "lost acceptance reuses exact approved UUID and recipe");
+
+  const storageKey = "kodi-lab.create-kodi.v1.omega", lastKey = "kodi-lab.create-kodi.v1.last-generation";
+  const stale = JSON.stringify({generation:"omega", operation_id:id, approval:original});
+  async function orphaned(storage = new Map([[storageKey,stale],[lastKey,"omega"],["unrelated","keep"],["kodi-lab.create-kodi.v1.nexus","keep-nexus"]])) {
+    const app = boot(storage);
+    await reply(app.requests[0]); await reply(app.requests.at(-1));
+    assert.equal(app.nodes.discard.hidden,false,"expected saved-ID absence plus canonical 204 offers explicit discard");
+    assert(app.nodes.approve.disabled); assert(app.nodes.resume.hidden);
+    assert.equal(posts(app).length,0);
+    return app;
+  }
+  const orphan = await orphaned();
+  orphan.click("discard"); orphan.click("discard");
+  const discardRead = orphan.requests.at(-1);
+  assert.equal(discardRead.url,status().status_url);
+  await reply(discardRead); await reply(orphan.requests.at(-1));
+  await reply(orphan.requests.at(-1),snapshot);
+  assert(!orphan.storage.has(storageKey)); assert(!orphan.storage.has(lastKey));
+  assert.equal(orphan.storage.get("unrelated"),"keep");
+  assert.equal(orphan.storage.get("kodi-lab.create-kodi.v1.nexus"),"keep-nexus");
+  assert(!orphan.nodes.approve.disabled); assert(orphan.nodes.discard.hidden);
+  orphan.submit(); orphan.submit();
+  await reply(orphan.requests.at(-1)); await reply(orphan.requests.at(-1),snapshot);
+  assert.equal(posts(orphan).length,1);
+  const replacement = JSON.parse(posts(orphan)[0].options.body);
+  assert.notEqual(replacement.request_id, original.request_id,"explicit new approval cannot replay discarded approval");
+
+  const pendingDuringDiscard = await orphaned();
+  pendingDuringDiscard.click("discard"); await reply(pendingDuringDiscard.requests.at(-1));
+  await reply(pendingDuringDiscard.requests.at(-1),status());
+  assert(pendingDuringDiscard.storage.has(storageKey));
+  assert(pendingDuringDiscard.nodes.discard.hidden); assert(!pendingDuringDiscard.nodes.resume.hidden);
+  assert.equal(posts(pendingDuringDiscard).length,0,"server operation discovered during discard is attached passively");
+
+  const changed = await orphaned(); changed.click("discard");
+  await reply(changed.requests.at(-1));
+  const other = JSON.stringify({generation:"omega",operation_id:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"});
+  changed.storage.set(storageKey,other);
+  await reply(changed.requests.at(-1));
+  assert.equal(changed.storage.get(storageKey),other,"another tab's generation record must survive discard");
+  assert(changed.nodes.approve.disabled);
+
+  const crossTab = await orphaned();
+  crossTab.window.dispatchEvent({type:"storage",key:storageKey});
+  assert(crossTab.nodes.discard.hidden);
+  const requestCount = crossTab.requests.length; crossTab.click("discard");
+  assert.equal(crossTab.requests.length,requestCount,"storage event invalidates stale discard authority");
+
+  const pending = boot(new Map([[storageKey,stale]]));
+  await reply(pending.requests[0]); await reply(pending.requests.at(-1),status());
+  assert(pending.nodes.discard.hidden); assert(!pending.nodes.resume.hidden);
+
+  for (const [body,code,where] of [
+    [{detail:"router missing"},404,"saved"], [null,200,"saved"], [{error:{code:"unauthorized"}},401,"saved"],
+    [{error:{code:"forbidden"}},403,"target"], [{error:{code:"create_operation_not_found"}},404,"target"], [null,200,"target"],
+  ]) {
+    const uncertain = boot(new Map([[storageKey,stale]]));
+    if (where === "target") await reply(uncertain.requests[0]);
+    await reply(uncertain.requests.at(-1),body,code);
+    assert(uncertain.nodes.discard.hidden,"unexpected/error response never proves absence");
+    assert(uncertain.nodes.approve.disabled); assert.equal(posts(uncertain).length,0);
+  }
+  const offline = boot(new Map([[storageKey,stale]]));
+  offline.requests[0].reject(new Error("offline-private")); await flush();
+  assert(offline.nodes.discard.hidden); assert(!offline.nodes.error.textContent.includes("private"));
+
+  const oldApproval = boot(new Map([[storageKey,JSON.stringify({generation:"omega",operation_id:null,approval:original})]]));
+  await reply(oldApproval.requests[0]);
+  oldApproval.click("resume"); oldApproval.submit();
+  assert.equal(posts(oldApproval).length,0,"persisted approval alone cannot authorize replay in a replacement installation");
+  assert(oldApproval.nodes.resume.hidden); assert(oldApproval.nodes.approve.disabled);
+
+  const replacedBeforeApproval = await orphaned();
+  replacedBeforeApproval.click("discard"); await reply(replacedBeforeApproval.requests.at(-1)); await reply(replacedBeforeApproval.requests.at(-1));
+  await reply(replacedBeforeApproval.requests.at(-1),snapshot);
+  replacedBeforeApproval.submit(); await reply(replacedBeforeApproval.requests.at(-1));
+  replacedBeforeApproval.storage.set(storageKey,other);
+  await reply(replacedBeforeApproval.requests.at(-1),snapshot);
+  assert.equal(posts(replacedBeforeApproval).length,0,"new approval rechecks storage after server reads");
+
+  const unparseable = boot(new Map([[storageKey,stale]]));
+  unparseable.requests[0].resolve({ok:false,status:404,json:async()=>{throw new SyntaxError("private html");}}); await flush();
+  assert(unparseable.nodes.discard.hidden); assert(unparseable.nodes.approve.disabled);
+  assert(!unparseable.nodes.error.textContent.includes("private"));
+
+  const blocked = await orphaned(); blocked.click("discard");
+  await reply(blocked.requests.at(-1)); await reply(blocked.requests.at(-1));
+  await reply(blocked.requests.at(-1),{...snapshot,checks:snapshot.checks.map(item=>item.key==="activity"?{...item,status:"existing"}:item)});
+  assert(!blocked.storage.has(storageKey)); assert(blocked.nodes.approve.disabled,"existing canonical Kodi without a Create record still blocks new approval");
+
+  const shared = new Map([[storageKey,stale]]), left = await orphaned(shared), right = await orphaned(shared);
+  left.click("discard"); right.click("discard");
+  await reply(left.requests.at(-1)); await reply(right.requests.at(-1));
+  await reply(left.requests.at(-1)); await reply(right.requests.at(-1));
+  await reply(left.requests.at(-1),snapshot);
+  shared.set(storageKey,other);
+  await reply(right.requests.at(-1),snapshot);
+  assert.equal(shared.get(storageKey),other,"second tab cannot discard a newer generation record");
+  assert.equal(posts(left).length+posts(right).length,0);
+  const cleared = await orphaned();
+  cleared.window.dispatchEvent({type:"storage",key:null});
+  assert(cleared.nodes.discard.hidden,"cross-tab clear invalidates the pending discard action");
 
   const second = boot(app.storage);
   await reply(second.requests[0], dispatched);
@@ -209,11 +313,12 @@ async function approved(app) {
   hidden.window.dispatchEvent({type:"pageshow", persisted:true});
   assert.equal(hidden.requests.at(-1).options.method, "GET", "BFCache restoration reconnects without execution");
 
-  const denied = boot(new Map(), true); await reply(denied.requests[0]);
+  const denied = boot(new Map(), true); await flush();
   assert(denied.nodes.approve.disabled); assert(denied.nodes.error.textContent.includes("storage"));
   denied.submit(); assert.equal(posts(denied).length, 0);
   const interrupted = boot(); await reply(interrupted.requests[0]); interrupted.submit();
   await reply(interrupted.requests.at(-1));
+  await reply(interrupted.requests.at(-1),snapshot);
   interrupted.window.dispatchEvent({type:"pagehide"});
   await reply(posts(interrupted)[0], status());
   assert.equal(interrupted.timers.size, 0, "late approval cannot revive a hidden/unloaded page");
