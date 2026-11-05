@@ -78,14 +78,14 @@ HISTORICAL_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c9
 
 @pytest.fixture(autouse=True)
 def migrations(
-    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
     migration_templates: MigrationTemplateStore,
 ) -> None:
     from collections.abc import Iterator
     from contextlib import contextmanager
 
-    tree = tmp_path / "forward-migrations"
+    tree = tmp_path_factory.mktemp("forward-migrations") / "migrations"
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
     (tree / "versions/0002_public_test.py").write_text(
         "from alembic import op\n"

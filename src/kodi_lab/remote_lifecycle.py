@@ -450,9 +450,9 @@ def validate(
     ):
         _private(root / directory, directory=True)
     digest = _key_digest(root)
-    revision = _revision(root / DATABASE)
     with packaged_config(database_url) as config:
         database_is_empty(root / DATABASE, config)
+    revision = _revision(root / DATABASE)
     marker = root / ".state.json"
     if marker.exists() or marker.is_symlink():
         metadata = _read_json(marker)

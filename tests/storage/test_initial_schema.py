@@ -136,3 +136,45 @@ def test_normal_forward_migration_after_baseline(tmp_path: Path) -> None:
         ]
         assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
     command.downgrade(config, BASELINE)
+
+
+@pytest.mark.parametrize("state", ["old", "unversioned", "empty", "multiple"])
+def test_installed_startup_requires_fresh_install_for_unsupported_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+
+    from alembic.config import Config
+
+    from kodi_lab import remote_lifecycle
+    from kodi_lab.storage import packaged_migrations
+
+    root = tmp_path / "state"
+    database = root / "database/kodi-lab.db"
+    url = f"sqlite:///{database}"
+
+    @contextmanager
+    def source_config(_url: str) -> Iterator[Config]:
+        yield migration_config(database)
+
+    monkeypatch.setattr(packaged_migrations, "packaged_config", source_config)
+    monkeypatch.setattr(remote_lifecycle, "packaged_config", source_config)
+    remote_lifecycle.initialize(root, url)
+    with sqlite3.connect(database) as db:
+        if state == "old":
+            db.execute(
+                "UPDATE alembic_version SET version_num='0092_create_kodi_operations'"
+            )
+        elif state == "unversioned":
+            db.execute("DROP TABLE alembic_version")
+        elif state == "empty":
+            db.execute("DELETE FROM alembic_version")
+        else:
+            db.execute(
+                "INSERT INTO alembic_version VALUES ('0092_create_kodi_operations')"
+            )
+    before = database.read_bytes()
+    with pytest.raises(RuntimeError, match="fresh installation is required"):
+        remote_lifecycle.validate(root, url, require_head=True, require_marker=True)
+    assert database.read_bytes() == before
