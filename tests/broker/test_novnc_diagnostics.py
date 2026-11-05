@@ -21,6 +21,8 @@ def test_helper_terminal_evidence_is_correlated_and_sanitized(
     caplog: pytest.LogCaptureFixture,
     ending: str,
 ) -> None:
+    # Alembic logging configuration may have disabled this logger earlier.
+    monkeypatch.setattr(logging.getLogger(LOGGER), "disabled", False)
     monkeypatch.setattr(logging.getLogger(LOGGER), "propagate", True)
     caplog.set_level(logging.INFO, logger=LOGGER)
 

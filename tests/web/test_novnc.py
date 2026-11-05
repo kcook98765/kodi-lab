@@ -360,6 +360,8 @@ def test_websocket_rejects_missing_ticket_wrong_origin_and_query(
 
     from kodi_lab.viewer_diagnostics import LOGGER
 
+    # Alembic logging configuration may have disabled this logger earlier.
+    monkeypatch.setattr(logging.getLogger(LOGGER), "disabled", False)
     monkeypatch.setattr(logging.getLogger(LOGGER), "propagate", True)
     caplog.set_level(logging.INFO, logger=LOGGER)
     login(enabled_client)

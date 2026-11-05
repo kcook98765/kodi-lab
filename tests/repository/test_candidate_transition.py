@@ -45,6 +45,7 @@ from kodi_lab.repository.stable import (
 from kodi_lab.repository.transition import _identity, transition
 from kodi_lab.storage import packaged_migrations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.managed_activity import ManagedResourcePolicyValue
 from kodi_lab.storage.models import (
     ExternalBridgePairingRow,
     ExternalDevelopmentCapabilityAmendmentRow,
@@ -97,8 +98,10 @@ def migrations(
     monkeypatch.setattr(remote_lifecycle, "packaged_config", source_config)
 
 
-def _initialize_fixture(root: Path, database_url: str) -> str:
-    """Construct private current state; actual transitions remain test subjects."""
+def _initialize_fixture(
+    root: Path, database_url: str, *, first_run: bool = False
+) -> str:
+    """Construct private migrated state, optionally with today's fresh policy."""
     templates = _state_templates
     assert templates is not None and not root.exists()
     initialize_state(root)
@@ -107,6 +110,14 @@ def _initialize_fixture(root: Path, database_url: str) -> str:
     assert not database.exists()
     templates.clone(CURRENT_HEAD, database)
     database.chmod(0o600)
+    # Historical transition fixtures must retain the migration default. Only
+    # explicit fresh-initialization parity fixtures apply today's first-run policy.
+    if first_run:
+        with sqlite3.connect(database) as db:
+            db.execute(
+                "UPDATE managed_resource_policy SET max_running=? WHERE id=1",
+                (ManagedResourcePolicyValue().max_running,),
+            )
     remote_lifecycle._write_json(
         root / ".state.json",
         {
@@ -1365,7 +1376,7 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
 
     assert initialize(virgin, url(virgin)) == CURRENT_HEAD
     for root in (first, sibling):
-        assert _initialize_fixture(root, url(root)) == CURRENT_HEAD
+        assert _initialize_fixture(root, url(root), first_run=True) == CURRENT_HEAD
         assert stat.S_IMODE((root / remote_lifecycle.DATABASE).stat().st_mode) == 0o600
         assert (
             remote_lifecycle.validate(
@@ -1434,7 +1445,7 @@ def test_transition_fixture_matches_real_initialization_and_keeps_state_private(
     with sqlite3.connect(first / remote_lifecycle.DATABASE) as db:
         db.execute("CREATE TABLE private_transition_fixture_probe (value TEXT)")
     assert contents(sibling) == before
-    assert _initialize_fixture(later, url(later)) == CURRENT_HEAD
+    assert _initialize_fixture(later, url(later), first_run=True) == CURRENT_HEAD
     assert contents(later) == before
     assert (later / "master-key").read_bytes() not in keys
 
