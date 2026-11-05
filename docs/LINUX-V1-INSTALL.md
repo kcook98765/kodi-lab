@@ -11,8 +11,8 @@ For installation starting with a GitHub clone, first follow
 
 ## Platform and contents
 
-Use native Linux amd64 Docker Engine with Compose V2, a Docker administrator,
-Python 3.12 and `sha256sum`. The application supports Python 3.12
+Use native Linux amd64 Docker Engine with Compose V2 (2.24.4 or newer), Docker
+administrator access, Python 3.12 and `sha256sum`. The application supports Python 3.12
 (`>=3.12,<3.13`); its container images provide their own interpreter. Check that `10.250.0.0/24` conflicts with
 neither host routes nor another Docker network before enabling the managed lab.
 The Web port defaults to `127.0.0.1:18100`.
@@ -28,7 +28,7 @@ The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
-documents. It also contains `bridge/service.kodi_lab_bridge-1.1.15.zip` and its
+documents. It also contains `bridge/service.kodi_lab_bridge-1.1.31.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
 both installed images. Kodi 22 Piers RC1 is an additional Development-only
@@ -134,7 +134,8 @@ Fresh local HTTP needs no certificate or proxy. For private-LAN HTTP or a
 user-managed HTTPS proxy, see [advanced networking](https://github.com/kcook98765/kodi-lab/blob/main/docs/WEB-NETWORKING.md).
 Web has no Docker
 socket. Its remote-target functions need no managed Kodi image. The runtime
-matrix shows three supported but unacquired generations at this point.
+matrix lists stable Matrix, Nexus and Omega plus Development-only Piers RC1
+Preview; none is acquired by installing Kodi Lab.
 
 ## Install and pair a remote Kodi bridge
 
@@ -148,9 +149,16 @@ shell access or an already-paired bridge. Kodi may require its normal explicit
 permission/warning for HTTP sources; do not disable unrelated protections.
 Private-LAN HTTP does not authenticate the server against a malicious LAN actor.
 
-The exact `bridge/service.kodi_lab_bridge-1.1.15.zip` remains a manual fallback.
+The exact `bridge/service.kodi_lab_bridge-1.1.31.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
 before transferring it. The stable feed serves these identical reviewed bytes.
+
+For ordinary Home or Development onboarding, open **Add Kodi** in Web and
+follow its Bridge installation, Kodi HTTP authentication and pairing steps.
+Compatible official Bridge builds are recognized automatically. The advanced
+registration and production-provenance steps below are for operators who need
+explicit administration. Native read-only JSON-RPC inspection does not require
+Bridge pairing.
 
 ## Optional development repository
 
@@ -212,7 +220,7 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    independent bridge credential, and displays the authenticated bridge
    identity. If the response is uncertain, use **Resume pairing**; do not
    submit the code a second time. Check the observed UUID, add-on version
-   `1.1.15`, protocol `1`, Kodi version, and capabilities under **Connected
+   `1.1.31`, protocol `1`, Kodi version, and capabilities under **Connected
    Kodi targets**. Advanced external target administration supports explicit
    target approval and capability limits before development deployment.
 4. For a production target, use **Production targets** instead. Register and
@@ -381,7 +389,9 @@ Read `UPGRADE-ROLLBACK.md` and `MANAGED-STATE-RECOVERY.md` before backup,
 upgrade, or restore. A restored record does not recreate a missing Docker
 image; explicitly reacquire that generation.
 
-After `recover-clean`, a restored instance keeps its old exact revision pin.
+Restore only a backup compatible with the installed schema; see the baseline
+restriction in `UPGRADE-ROLLBACK.md`. After `recover-clean`, a restored instance
+keeps its exact revision pin.
 When its image is missing, provisioning fails `runtime_image_unavailable`.
 Run the reviewed installer again, record the new revision UUID it prints, then
 stop Web and explicitly change only that generation's unprovisioned pin:
@@ -406,9 +416,8 @@ Repeat explicitly for Nexus or Omega if their restored images are missing.
 
 ## Paired development target and narrow MCP administration
 
-After installing a candidate with migration 0057, sign in to the loopback Web
-administrator page. Open **External development targets**, select the paired
-target, and expand **Amend development capability maximum**. Review the target,
+Sign in to the Web administrator page in Development view. Open **External
+development targets**, select the paired target, and expand **Amend development capability maximum**. Review the target,
 bridge UUID/version/protocol/fingerprint and current set. Select the exact new
 set and confirm. Kodi Lab performs fresh native and authenticated bridge checks
 before committing the new maximum and immutable receipt. For a repository-mode

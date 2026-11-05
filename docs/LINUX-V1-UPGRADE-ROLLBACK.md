@@ -1,5 +1,21 @@
 # Linux V1 application upgrade and rollback reference
 
+## Applicability before the first public release
+
+The initial-release database has one revision: `0001_initial_release`. The current
+application refuses unsupported prerelease databases and backups; it does not
+convert or stamp them. Preserve unsupported state separately and use a fresh,
+independent installation. Never erase state to bypass a refusal. See the
+[migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
+
+The general backup, transition and rollback safeguards below remain relevant
+for compatible state and future releases. Exact historical A/B bundles, schema
+0071/0078/0088, lock repairs and helper workarounds are retained engineering
+records, not an installation or upgrade path to this baseline. Apply a recovery
+procedure only to the exact source/schema for which it was qualified.
+
+## Compatible-state backup
+
 These commands use the source-free `compose.release.yaml` from an unpacked
 bundle. Keep the prior verified application image/archive and the same named
 state volumes. Do not change Kodi runtime images or the managed network during
@@ -330,7 +346,7 @@ the full release suite was not repeated for this qualification.
 
 ### Preserve recovery artifacts before cutover
 
-Use [the installation guide](LINUX-V1-INSTALL.md#install-kodi-lab-with-no-kodi-image)
+Use [the installation guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/LINUX-V1-INSTALL.md#install-kodi-lab-with-no-kodi-image)
 to verify each retained bundle (`SHA256SUMS`, BUNDLE and application archive).
 Record the actual per-service image IDs, source commit/tree labels, installed
 package digests and migration heads; historical overlays can make the deployed
@@ -420,7 +436,7 @@ production resources.
 
 ## Windows successor site configuration
 
-Optional Windows HTTPS uses the [Windows successor procedure](WINDOWS-WSL2-INSTALL.md#adopt-an-existing-installation-disable-or-roll-back).
+Optional Windows HTTPS uses the [Windows successor procedure](https://github.com/kcook98765/kodi-lab/blob/main/docs/WINDOWS-WSL2-INSTALL.md#adopt-an-existing-installation-disable-or-roll-back).
 The fresh installer cannot upgrade an initialized database. A separately staged,
 verified and configured successor under `NEW_SITE/bundle` can receive a new
 `SITE.json` using the approved successor source's `install.py configure-successor`.

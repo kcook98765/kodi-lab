@@ -1,7 +1,7 @@
 # Linux amd64 V1 local deployment candidate contract
 
 The V1 bundle distributes Kodi Lab application images, the reviewed bridge
-1.1.25 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
+1.1.31 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
 The candidate is local and unpublished. `BUNDLE.json` records the exact source
 Git commit/tree, application image identities, bridge artifact identity, recipe
 metadata, and every distributed file. `SHA256SUMS`
@@ -11,10 +11,10 @@ download checks integrity but does not establish publisher identity.
 | Class | Distributed files | Authority |
 | --- | --- | --- |
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
-| Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
-| Reviewed runtime inputs | `runtime-recipes/matrix-19.4-r2.json`, `nexus-20.5-r2.json`, `omega-21.3-r2.json` | File hashes and installed wheel recipe digests; provider, suite, version |
-| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.25.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
-| Stable Kodi feed input | `repository/STABLE.json`, installed repository generator/server | Reviewed ID/version/bridge hash; generated bootstrap and feed bytes have separate per-install provenance |
+| Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `compose.lan-http.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
+| Reviewed runtime inputs | `runtime-recipes/matrix-19.4-display-r3.json`, `nexus-20.5-display-r3.json`, `omega-21.3-display-r5.json` | File hashes and installed wheel recipe digests; provider, suite, version |
+| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.31.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
+| Kodi feed inputs | `repository/STABLE.json`, `repository/DEVELOPMENT.json`, installed repository generator/server | Reviewed repository/Bridge identities; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
 | Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `PRODUCTION-OPERATIONS.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
 
@@ -26,36 +26,46 @@ claim is not made. The local candidate's clean committed `HEAD` contains exactly
 the recorded `HEAD^{tree}`. Staging verifies that copied recipe bytes match the
 installed wheel's reviewed recipe digests.
 
-Current reviewed managed-runtime recipes use revision 2. Their startup verifies
-that display-99 lock/socket artifacts are stale before removing only those
-artifacts from the container's private writable layer. Historical revision 1
-recipes and assets remain in the installed wheel for exact existing pins.
-Application upgrade never changes an existing managed container image or its
-profile; a current revision must be explicitly acquired and selected through
-the documented runtime lifecycle.
+Current standard-viewer recipes are Matrix 19.4 revision 3, Nexus 20.5 revision 3
+and Omega 21.3 revision 5. Historical resources remain in the wheel for exact
+pins and provenance; acquiring a recipe does not change a registered instance's
+image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
 
-The V1 set is Matrix 19.4 on Ubuntu Jammy, Nexus 20.5 on Ubuntu Noble, and
-Omega 21.3 on Ubuntu Resolute. Kodi 22 Piers has no accepted binary recipe in
-this candidate and is outside the stable V1 installable set. A later optional
-preview would require its own review. Windows/macOS hosts and ARM64/Apple
-Silicon are post-V1.
-The historical private archive bootstrap and four-runtime catalog remain in
-the development checkout for compatibility; neither is a release prerequisite.
+The stable set is Matrix on Ubuntu Jammy, Nexus on Ubuntu Noble and Omega on
+Ubuntu Resolute. Piers 22 RC1 is an additional Development-only Preview option.
+Its reviewed OSTree recipe, trust key, support closure and assembly assets are
+wheel resources rather than loose `runtime-recipes/` files. No Kodi executable
+or managed runtime image is bundled.
 
-Kodi Lab-created V1 managed instances are disposable. Provisioning creates a
+Native Ubuntu 24.04 amd64 is the qualified baseline. Windows 11 uses the
+maintained WSL2/Ubuntu/Docker Desktop installation path, with an owner-accepted
+installation/Omega result and separate remaining native acceptance checks.
+macOS and ARM64 hosts are not qualified. Historical private archive bootstrap
+resources are not release prerequisites.
+
+The sole initial-release migration is `0001_initial_release`, included in both
+sdist and wheel. Unsupported prerelease databases are refused; there is no
+conversion or stamping path. Alembic remains available for future forward
+migrations. See the [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
+
+Managed profiles may be disposable or explicitly retained for per-version
+development. Retention keeps a container's writable profile when switching; it
+is not a backup. Provisioning creates a
 stopped container from an exact pinned runtime revision; stopping retains that
 container and its writable layer. Deprovisioning removes the container and
 layer while retaining the managed record and durable Kodi Lab state. Reset
 returns it to the assigned deterministic fixture, and Snapshots provide
 bounded preservation, including the existing confirmed deletion/preservation
-policy. Persistent managed-container storage is deferred under D-0381.
+policy. Retained profiles still use the container writable layer; deprovisioning
+removes that layer. There is no automatic profile reconstruction.
 External/production Kodi targets may be long-lived installations and remain
 under their separate registration, onboarding, and bridge policies.
 
 Kodi Lab installs from the bundle offline. First acquisition of a managed Kodi
 runtime needs the reviewed upstream packages and pinned base image unless
-already cached. The installed worker verifies signed APT metadata, exact
-critical package versions/hashes, image identity, behavior, and HMAC-bound
+already cached. The installed worker verifies signed APT metadata for stable
+generations or exact signed OSTree inputs for Piers, critical package
+versions/hashes, image identity, behavior, and HMAC-bound
 local evidence before eligibility. It cannot fall back to a source build,
 different version, alternate provider, or private artifact. Users acquire only
 the generations they choose.

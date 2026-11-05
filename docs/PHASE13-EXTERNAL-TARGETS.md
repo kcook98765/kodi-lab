@@ -1,5 +1,10 @@
 # Phase 13 — External targets
 
+This is a historical phase record. Its production exclusions, migration history
+and version lists describe that checkpoint, not the current product. For current
+Home/Development onboarding, use [external Kodi setup](LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge)
+and the [Bridge contract](BRIDGE.md).
+
 ## Status
 
 **Phase 13 — Remote targets: COMPLETE.** Independent formal review accepted

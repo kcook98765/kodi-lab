@@ -32,26 +32,34 @@ using MCP-compatible coding agents.
 
 ![Kodi Lab architecture and data flow](docs/images/kodi-lab-architecture.svg)
 
-The diagram illustrates how the **Web UI** and **MCP-compatible agents** use
-Kodi Lab's common control and permissions layer to work with both existing
-external Kodi installations and isolated, on-demand managed Kodi runtimes.
-Managed instances provide browser viewing through noVNC and lightweight
-screen previews. External targets use Kodi JSON-RPC and, where installed,
-the optional Narrow Bridge add-on; Kodi Lab does not obtain OS-level access
-to external Kodi hosts.
+Web and MCP share Kodi Lab's control and permissions layer. The restricted
+broker manages containers; external Kodi uses its authorized interfaces.
+The diagram is a conceptual overview. See [architecture](docs/ARCHITECTURE.md)
+and [security](SECURITY.md) for the implementation boundaries.
 
-This is a conceptual overview, not a network-port inventory or a security
-boundary specification. See [architecture](docs/ARCHITECTURE.md),
-[security](SECURITY.md) and [standard noVNC](docs/STANDARD-NOVNC.md)
-for implementation details.
+## Managed and external Kodi
+
+**Managed Kodi** runs in isolated Docker containers on the Kodi Lab server.
+Choose a reviewed version when you need it; the first setup downloads and
+validates Kodi. For add-on development, **Current Kodi** keeps one workspace
+and selected profile. Explicitly enable **Retained Kodi versions** to preserve
+per-version profiles when switching; see the
+[walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+
+**External Kodi** runs on your own device. **Add Kodi** connects it through
+Kodi JSON-RPC and pairs the optional Narrow Bridge for additional capabilities.
+Home inspection, screenshots, control and development have separate permission
+requirements. Kodi Lab provides no general-purpose shell or OS access to that
+device; see [external setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
 
 ## Requirements
 
 - **Ubuntu 24.04 on 64-bit Intel/AMD (x86_64/amd64)** is the qualified host baseline.
-- **Docker Engine and Compose V2**, with Docker access for your user. Follow
+- **Docker Engine and Compose V2 (2.24.4 or newer)**, with Docker access for
+  your user. Follow
   [Docker's Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/).
   Rootless Docker is not qualified for managed runtimes.
-- **Python 3.12, Git, sha256sum and [uv](https://docs.astral.sh/uv/getting-started/installation/)**.
+- **Python 3.12, Git, Bash, iproute2, sha256sum and [uv](https://docs.astral.sh/uv/getting-started/installation/)**.
   The Ubuntu download example also uses `curl`; a browser download works too.
 - Internet access for Python packages, container images and upstream Kodi downloads.
 - Capacity for application images and each Kodi instance. RC1 requires at least
@@ -61,24 +69,19 @@ for implementation details.
 Setup installs Python build/test packages automatically; editors and AI clients
 are optional.
 
-Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has a reported working
-configuration, including managed Nexus/Omega and MCP. Follow the maintained
-[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md); fresh-host qualification
-remains pending under [issue #8](https://github.com/kcook98765/kodi-lab/issues/8).
+Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has an owner-accepted
+installation and native Omega result using the maintained
+[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). Broader Windows
+qualification and the [password-prompt](https://github.com/kcook98765/kodi-lab/issues/222)
+and [Firefox setup](https://github.com/kcook98765/kodi-lab/issues/226)
+acceptance checks remain separate.
 macOS and ARM64 hosts are not qualified. An existing Kodi target can be on another
 computer; these requirements apply to the Kodi Lab server.
 
-For daily add-on development, follow the
-[Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
-Existing installations may need to explicitly enable **Retained Kodi versions**;
-profile reuse and runtime/viewer eligibility depend on the installed version.
-See [standard noVNC viewing](docs/STANDARD-NOVNC.md) for the exact supported
-runtime revisions and older-profile limitations.
-
 ## Quick Start — Install Kodi Lab
 
-These steps are for a fresh installation. For an existing installation, use the
-[upgrade and rollback guide](docs/LINUX-V1-UPGRADE-ROLLBACK.md).
+These steps install Kodi Lab for the first time. Kodi is acquired separately
+when you choose **Create Kodi** after signing in.
 
 With the prerequisites installed, download and run one installer script.
 On **Ubuntu**, use Bash:
@@ -112,68 +115,8 @@ forwarding setup.
 
 ### Manual installation
 
-These steps are for operators who prefer manual installation. Most new users
-should use the installer above. Both paths use the same verified bundle and
-initialization commands.
-
-**1. Clone and build the application bundle.** Run these commands in Bash as
-your ordinary user, with the prerequisites above installed:
-
-```sh
-git clone https://github.com/kcook98765/kodi-lab.git
-cd kodi-lab
-uv sync --locked --dev
-./scripts/stage-linux-v1-bundle ../kodi-lab-bundle
-cd ../kodi-lab-bundle
-sha256sum -c SHA256SUMS
-python3 linux-v1-bundle verify .
-docker image load --input kodi-lab-application-images.tar
-```
-
-Keep your clone unedited and use a new, empty bundle folder. It contains the Kodi
-Lab installation, not Kodi. GitHub access is required.
-
-**2. Configure the add-on repository.** Kodi devices download the Bridge and
-other Kodi Lab add-ons from this address. Enter this server's reachable private
-LAN IPv4 address (on your home network), not `127.0.0.1`. Choose an unused port;
-this example uses `18120`. It does not serve Kodi executables.
-Check that ports `18100` and `18120` are available and that Kodi Lab's private
-container network (`10.250.0.0/24`) does not conflict with your LAN, VPN or Docker
-networks.
-
-```sh
-read -r -p "This server's private LAN IPv4 address: " repository_ip
-python3 linux-v1-bundle configure . \
-  --repository-bind "$repository_ip" --repository-port 18120 \
-  --repository-base-url "http://${repository_ip}:18120"
-docker compose -f compose.release.yaml config --quiet
-```
-
-**3. Initialize data, set your password and start services.** Initialization
-creates Kodi Lab's private data store. The password command prompts for your Web
-administrator password; there is no default password.
-
-```sh
-docker compose -f compose.release.yaml --profile repository-init \
-  run --rm --no-deps repository-init
-docker compose -f compose.release.yaml run --rm --no-deps \
-  --entrypoint kodi-lab-repository repository verify
-docker compose -f compose.release.yaml run --rm --no-deps \
-  --entrypoint kodi-lab-admin web initialize
-docker compose -f compose.release.yaml run --rm --no-deps \
-  --entrypoint kodi-lab-admin web set-password
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --entrypoint kodi-lab-runtime broker network-ensure
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  up -d --wait --no-build web broker repository
-```
-
-Keep the bundle and its generated configuration. The last command starts services
-in the background; reuse it from that directory for future restarts.
-
-**4. Open http://127.0.0.1:18100/login on this computer and sign in.**
-For ports, capacity planning and troubleshooting, see the
-[full Linux installation guide](docs/LINUX-SOURCE-INSTALL.md).
+Operators who want to run each bundle step themselves can use the
+[manual Linux installation guide](docs/LINUX-SOURCE-INSTALL.md#clone-and-stage-the-application).
 
 ### Web access and optional HTTPS
 
@@ -191,12 +134,9 @@ traffic. Never expose it to the public Internet. Windows/WSL2 uses its separate
 [networking guidance](docs/WINDOWS-WSL2-INSTALL.md).
 
 <a id="web-https-prerequisite"></a>
-Existing HTTPS installations continue to require trusted HTTPS/WSS after upgrade;
-they do not automatically switch to local HTTP. Preserve their proxy and
-certificate configuration. See
+In HTTPS mode, login and viewing require a trusted HTTPS/WSS proxy; see
 [HTTPS configuration](docs/WEB-NETWORKING.md#https-with-a-user-managed-proxy).
-The separately configured Kodi add-on repository address is not the Web login
-address.
+The Kodi add-on repository has its own address and network configuration.
 
 ## First-Time Setup
 
@@ -210,7 +150,7 @@ address.
 4. Select **Open screen → Start Viewing** to see Kodi. Viewing starts view-only;
    an agent, Bridge pairing and a development workspace are not required.
 
-Only one managed Kodi runs at a time by default. Connecting an agent is optional
+Only one managed Kodi runs at a time. Connecting an agent is optional
 and can wait until Kodi is ready. For add-on development, follow the
 [Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
 Manual runtime administration, including the Piers prerelease, remains under
@@ -293,8 +233,10 @@ on demand, not included in Kodi Lab. Piers RC1 is not a stable Home recommendati
 Standard noVNC viewing is qualified only for
 [exact reviewed recipe revisions](docs/STANDARD-NOVNC.md), not automatically for
 older profiles. Kodi Lab remains a prerelease development/testing project.
-Earlier [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical
-qualification records, not a live test-status report.
+Known prerelease concerns include the
+[Nexus first-viewer disconnect](docs/STANDARD-NOVNC.md#known-first-connection-limitation)
+and the Windows acceptance items above. Earlier
+[RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical records.
 
 ## Documentation
 

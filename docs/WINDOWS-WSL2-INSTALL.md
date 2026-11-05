@@ -3,14 +3,15 @@
 Kodi Lab works on Windows 11 through Ubuntu 24.04 under WSL2 and Docker Desktop's
 Linux engine, including managed Kodi and MCP access. The installer below uses
 that configuration. Native Ubuntu 24.04 amd64 remains the qualified baseline;
-new installer revisions have their own fresh-install acceptance checks. This
+new installer revisions and individual fixes need their own acceptance checks. This
 guide covers Windows-hosted Linux containers, not native Windows server execution.
 
 ## Observed working configuration
 
 [Issue #8](https://github.com/kcook98765/kodi-lab/issues/8) records this workstation
-on **2026-10-17**. These are observed versions, not minimum requirements or proof
-that this new installer was used:
+on **2026-10-17**, followed by owner-accepted maintained-installer operation
+on **2026-11-04**. The table records the earlier observed versions, not minimum
+requirements or a current qualification matrix:
 
 | Component | Observed version |
 | --- | --- |
@@ -25,8 +26,16 @@ that this new installer was used:
 The report includes authenticated Windows browser access, broker/repository
 services, managed lifecycle, JSON-RPC, screenshots, MCP and agent workspace
 development. It used private Compose/launcher helpers. The project entry points
-below replace that dependency for future installation attempts; their native
-Windows acceptance remains pending.
+below remove that dependency. The November 4 result used the maintained
+PowerShell frontend at `0ac2b1d3b9c43dd2cb457a6d6d0c0b9b9293abcc`: installation,
+login, repository delivery, native Omega acquisition and view-only graphics
+were accepted by the owner. That result used the retired prerelease schema,
+not the current initial-release baseline. Managed Stop/Start, authorized/denied
+MCP, backup/restore and a separate clean account/host were not tested in that run.
+[Issue #8 is closed by owner acceptance](https://github.com/kcook98765/kodi-lab/issues/8#issuecomment-6647085960);
+[password-prompt acceptance #222](https://github.com/kcook98765/kodi-lab/issues/222)
+and [Firefox Create continuation #226](https://github.com/kcook98765/kodi-lab/issues/226)
+remain open. Linux fixtures do not establish those native results.
 
 ## Prepare Windows and Ubuntu
 
@@ -139,9 +148,9 @@ for your computer; review the script rather than disabling policy globally.
 
 For a fresh default installation, open **http://127.0.0.1:18100/login** in
 Windows and sign in. Local HTTP and standard noVNC/WS need no certificate or
-proxy. This new default does not change an existing HTTPS installation; omitted
-legacy mode settings retain HTTPS enforcement and Secure cookies. Native
-Windows acceptance of the new default is still pending. The optional Caddy path
+proxy. HTTPS mode requires trusted HTTPS/WSS and Secure cookies. Native
+Windows local HTTP operation is covered by the owner-accepted result above;
+current-revision qualification remains separate. The optional Caddy path
 below selects HTTPS and keeps direct HTTP login disabled, including matching
 HTTP Origin requests. Readiness checks do not replace authenticated browser
 acceptance. MCP inspection still requires a client and target grant.
@@ -278,9 +287,10 @@ may reject a request earlier. Keep existing MCP credentials and target grants.
 
 An initialized installation must use a **successor bundle**, not another fresh
 install. Preserve its original `INSTALLATION.json`, bundle, private configuration
-and all evidence. The existing `kodi-lab-3d6d2c021c52` project, volumes,
-credentials, repository origin/runtime configuration and schema
-`0090_verified_noop_deployment` must survive. This change adds no migration.
+and all evidence. Preserve its recorded Compose project, volumes, credentials,
+repository origin and runtime configuration. This procedure applies only to
+compatible baseline state; it cannot adopt a retired prerelease database. See
+the [schema applicability restriction](LINUX-V1-UPGRADE-ROLLBACK.md#applicability-before-the-first-public-release).
 
 After owner release authorization, stage and verify the approved successor in a
 new private directory containing only `bundle/`. Load its reviewed images and
@@ -338,74 +348,9 @@ LAN restrictions, state/credential preservation, stop/start, Desktop restart,
 network recreation with the same addresses/CA, and rollback. Linux source tests
 and the isolated Caddy fixture do not establish any of those native results.
 
-### Correct a configured successor's management helper
-
-If successor activation fails with `wildcard Web bind requires explicit allowed
-hosts` **after** the verified repository transition and explicit administrator
-upgrade succeeded, use the reviewed helper correction independently of the
-application bundle. The Web image supplies `KODI_LAB_WEB_BIND_HOST=0.0.0.0`;
-the validation-only `repository-transition` invocation also needs the normal Web
-service's exact `KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]`. The correction passes
-that setting only to this invocation. It changes no validator, schema, proxy
-peer, application image or bundle file.
-
-The existing management interface accepts an explicit `--directory`; it does
-not require execution from the installed helper's path. Use a separately retained
-helper rather than overwriting `SITE/kodi-lab.py`. `SITE.json` binds the bundle's
-source/manifest/verifier, engine/project, configuration and previous receipt,
-not the external helper's bytes. Record the correction's separate approved source
-commit and trusted SHA-256; never relabel the bundle as built from that commit.
-This procedure supports only the reviewed two-argument preflight correction to
-the PR #186 helper, not arbitrary helper/application version mixing.
-
-After owner approval, transfer the exact reviewed `scripts/install.py` to a new
-private directory **outside** the site and bundle. Obtain its expected SHA-256
-from the owner's trusted review/delivery record, independently of the downloaded
-file. In ordinary-user WSL Ubuntu, set the actual paths and trusted digest:
-
-```sh
-set -eu
-SITE="$HOME/kodi-lab-successor"         # existing configured site
-FIX="$HOME/kodi-lab-helper-correction" # new private delivery directory
-HELPER="$FIX/install.py"               # transferred reviewed bytes
-EXPECTED_HELPER_SHA256='REPLACE_WITH_TRUSTED_REVIEWED_SHA256'
-printf '%s  %s\n' "$EXPECTED_HELPER_SHA256" "$HELPER" | sha256sum --check --strict
-cp -p -- "$SITE/kodi-lab.py" "$FIX/original-kodi-lab.py"
-sha256sum "$SITE/SITE.json" "$SITE/kodi-lab.py" \
-  "$SITE/compose.windows.yaml" "$SITE/Caddyfile" \
-  "$SITE/bundle/BUNDLE.json" "$SITE/bundle/.env" > "$FIX/site-before.sha256"
-python3 "$HELPER" status --directory "$SITE"
-```
-
-Stop on any checksum, site, ancestry, engine, image, configuration or state
-discrepancy. Confirm application services are still stopped and retain the
-successful transition/upgrade outputs, original receipts, backup and recovery
-proof. The unchanged-schema administrator upgrade is validation-only and need
-not create a new `.last-upgrade.json`. Do not reconfigure the successor, rerun a
-transition/upgrade, initialize state or edit evidence to clear this error.
-
-Before activation, run only the corrected helper's existing check in the same
-network-disabled, socket-free service as application UID/GID 10001:
-
-```sh
-CHECK="$(python3 -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["SUCCESSOR_CHECK"])' "$HELPER")"
-python3 "$HELPER" compose --directory "$SITE" -- run --rm --no-deps \
-  --user 10001:10001 \
-  --env KODI_LAB_REPOSITORY_DATA_ROOT=/srv/kodi-lab-repository \
-  --env 'KODI_LAB_WEB_ALLOWED_HOSTS=["127.0.0.1"]' \
-  --entrypoint python repository-transition -c "$CHECK"
-sha256sum --check --strict "$FIX/site-before.sha256"
-```
-
-Retain the exact command, exit status and output; require success from the
-existing state and transition-completion validators. This is validation only,
-not native Windows activation acceptance. After separate activation approval,
-run `python3 "$HELPER" start --directory "$SITE"`; it repeats the hash-bound
-ancestry and completion preflight before service startup. Complete the existing
-Windows HTTPS/login/WSS and preservation acceptance before repointing sign-in
-startup to this separately recorded helper. On failure, leave services stopped,
-retain both helpers and use the documented recovery procedure. No application
-image or deployment-bundle rebuild is required for this external-helper fix.
+Historical prerelease helper qualification is retained in the
+[Windows update triage record](WINDOWS-UPDATE-TRIAGE.md#historical-successor-helper-correction).
+It is not required for a fresh installation.
 
 ## Repository LAN access and external targets
 
@@ -525,8 +470,9 @@ exact Windows/WSL/Ubuntu/Desktop/Engine/Compose versions, source commit, bundle
 and image identities. Verify initialization, Windows login, repository LAN
 reachability, one cold managed runtime acquisition, lifecycle/screenshots,
 authorized and denied MCP inspection, stop/start, backup/restore and optional
-startup if enabled. The previously reported workstation result does not replace
-this new-installer acceptance. Native Windows Kodi targets have their own
+startup if enabled. The owner-accepted installer result above covers only its
+recorded revision and tested steps; it does not replace this broader
+qualification. Native Windows Kodi targets have their own
 [Bridge portability evidence](WINDOWS-DIRECT-INSTALL.md).
 
 Use the [fresh-install acceptance receipt](qualification/windows-wsl2/ACCEPTANCE-TEMPLATE.md)

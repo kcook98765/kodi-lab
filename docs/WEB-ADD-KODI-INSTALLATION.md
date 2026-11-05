@@ -1,9 +1,14 @@
 # Add Kodi installation instructions
 
-This uncommitted presentation slice adds one native disclosure, **Install Kodi
+This historical presentation slice adds one native disclosure, **Install Kodi
 Lab Bridge**, above the unified mode selector. It applies to both Home and
 Development. The existing pairing scripts, recovery keys, endpoints, target
 classes and authorization are unchanged.
+
+This implementation record retains the observed private origin and Bridge
+versions from its original qualification. Use the URL shown in your own Web
+**Add Kodi** page and the [current installation guide](LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge)
+for first-time setup; the version gap below is historical.
 
 ## Verified existing delivery
 
