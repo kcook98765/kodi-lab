@@ -4,7 +4,7 @@ const source = fs.readFileSync(process.argv[2], 'utf8').replace("import('./vendo
 const nodes = Object.fromEntries(['#expand', '#start', '#stop', '#status', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing'].map(key => [key, {addEventListener() {}}]));
 const main = {dataset:{instance:'fixture', viewerClockMs:String(Date.now())}, querySelector:key => nodes[key] || null};
 const clients = [], sockets = [], requests = [];
-let elapsed = 0;
+let elapsed = 0, holdNextStop = false, heldStop = null;
 class Socket {
     constructor(url, protocols) { this.events = {}; sockets.push(this); assert.deepEqual(Array.from(protocols), ['novnc', 'view.ticket-secret']); }
     addEventListener(name, fn) { this.events[name] = fn; }
@@ -20,7 +20,14 @@ vm.runInNewContext(source, {
     document:{hidden:false, querySelector:key => key === '[data-novnc-viewer]' ? main : {content:'csrf-secret'}, addEventListener() {}},
     window:{addEventListener() {}}, location:{href:'https://lab.test/screen', protocol:'https:'}, URL,
     WebSocket:Socket, RFBFixture:RFB, crypto:require('node:crypto').webcrypto, performance:{now:() => elapsed},
-    fetch:async (url, options) => { requests.push({url, body:JSON.parse(options.body)}); return {ok:true, json:async () => ({ticket:'ticket-secret', mode:'view-only'})}; },
+    fetch:async (url, options) => {
+        requests.push({url, body:JSON.parse(options.body)});
+        if (url.endsWith('-stop') && holdNextStop) {
+            holdNextStop = false;
+            return new Promise((resolve, reject) => { heldStop = {resolve, reject}; });
+        }
+        return {ok:true, json:async () => ({ticket:'ticket-secret', mode:'view-only'})};
+    },
 });
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 (async () => {
@@ -38,6 +45,8 @@ const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve()
     assert.equal(main.viewerDiagnostics.find(r => r.event === 'rfb_connected').elapsed_ms, 125);
     assert.equal(main.viewerDiagnostics.find(r => r.event === 'ws_close').code, 1000);
     assert.equal(main.viewerDiagnostics.find(r => r.event === 'ws_close').clean, true);
+    assert.equal(clients[0].disconnects, 1, 'requested Stop still disconnects once');
+    assert.equal(nodes['#status'].textContent, 'Viewing is off.');
     const snapshot = main.viewerDiagnostics;
     snapshot[0].attempt = 'mutated'; snapshot.length = 0;
     assert.ok(main.viewerDiagnostics[0].attempt !== 'mutated', 'support snapshots cannot mutate retention');
@@ -48,18 +57,44 @@ const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve()
     clients[1].emit('disconnect', {detail:{clean:false, reason:'rfb-secret'}});
     sockets[1].emit('close', {code:1006, wasClean:false, reason:'close-secret'});
     await flush();
-    assert.equal(clients[1].disconnects, 1, 'existing cleanup call remains unchanged');
-    assert.equal(clients[1].warnings, 1, 'secondary disconnected-state warning is preserved, not misclassified as initiator');
+    assert.equal(clients[1].disconnects, 0, 'already disconnected RFB must not be disconnected again');
+    assert.equal(clients[1].warnings, 0, 'cleanup must not produce a secondary disconnected-state warning');
+    assert.equal(nodes['#status'].textContent, 'Viewing disconnected unexpectedly. Start Viewing to reconnect.');
     assert.equal(requests.filter(r => r.url.endsWith('-stop')).length, 2);
     assert.equal(clients.length, 2, 'diagnostics never reconnect');
     assert.equal(main.viewerDiagnostics.filter(r => r.event === 'rfb_connected').length, 1);
     assert.equal(main.viewerDiagnostics.at(-1).code, 1006);
     await nodes['#start'].onclick();
-    clients[1].emit('disconnect', {detail:{clean:false}});
+    const newerStatus = nodes['#status'].textContent;
+    clients[1].emit('disconnect', {detail:{clean:false, reason:'private-rfb-reason'}});
+    clients[1].emit('connect');
     await flush();
     assert.equal(clients[2].disconnects, 0, 'stale callback cannot stop current attempt');
+    assert.equal(nodes['#status'].textContent, newerStatus, 'stale callbacks cannot replace current status');
     assert.equal(requests.filter(r => r.url.endsWith('-stop')).length, 2);
     await nodes['#stop'].onclick();
+
+    await nodes['#start'].onclick(); clients.at(-1).emit('connect');
+    const unexpectedAttempt = requests.at(-1).body.attempt;
+    holdNextStop = true;
+    clients.at(-1).emit('disconnect', {detail:{clean:true, reason:'private-reason'}});
+    await flush();
+    assert.equal(requests.at(-1).body.attempt, unexpectedAttempt, 'cleanup retains the exact disconnected server attempt');
+    const oldStop = heldStop;
+    await nodes['#start'].onclick(); clients.at(-1).emit('connect');
+    const currentStatus = nodes['#status'].textContent;
+    oldStop.reject(new Error('private-stop-failure')); await flush();
+    assert.equal(nodes['#status'].textContent, currentStatus, 'late failed Stop cannot overwrite the newer viewer status');
+    assert.equal(clients.at(-1).disconnects, 0);
+    await nodes['#stop'].onclick();
+
+    await nodes['#start'].onclick(); clients.at(-1).emit('connect');
+    holdNextStop = true;
+    clients.at(-1).emit('disconnect', {detail:{clean:false, reason:'private-reason'}});
+    await flush();
+    heldStop.reject(new Error('private-stop-failure')); await flush();
+    assert.equal(nodes['#status'].textContent, 'Stopping. Input stays reserved until the server verifies release.', 'failed cleanup keeps the existing reservation warning');
+    assert.equal(clients.at(-1).disconnects, 0);
 
     for (let i = 0; i < 30; i++) {
         await nodes['#start'].onclick(); sockets.at(-1).emit('open'); clients.at(-1).emit('connect');
