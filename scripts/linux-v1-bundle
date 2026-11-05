@@ -13,12 +13,14 @@ import os
 import pathlib
 import re
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
 import tomllib
 import xml.etree.ElementTree as ET
 import zipfile
+from contextlib import ExitStack
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -685,6 +687,44 @@ def stage_recipes(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     _recipes(bundle)
 
 
+def public_bundle_modes(bundle: pathlib.Path) -> None:
+    """Finalize only the closed, public staging inventory, never installed state."""
+    files = RELEASE_FILES | {"BUNDLE.json", "SHA256SUMS"}
+    directories = {".", "bridge", "repository", "runtime-recipes"}
+    if (
+        bundle.is_symlink()
+        or _inventory(bundle) != files
+        or {p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_dir()}
+        != directories - {"."}
+    ):
+        raise ValueError("public staging inventory differs")
+    # Open and validate every object before changing any mode. Never follow a
+    # symlink or relax a hardlinked file outside this public staging directory.
+    with ExitStack() as stack:
+        opened = []
+        for name in sorted(files | directories):
+            is_directory = name in directories
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            if is_directory:
+                flags |= os.O_DIRECTORY
+            descriptor = os.open(bundle / name, flags)
+            stack.callback(os.close, descriptor)
+            info = os.fstat(descriptor)
+            if info.st_uid != os.geteuid() or (
+                not is_directory
+                and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1)
+            ):
+                raise ValueError("unsafe public staging artifact")
+            opened.append(
+                (
+                    descriptor,
+                    0o755 if is_directory or name == "linux-v1-bundle" else 0o644,
+                )
+            )
+        for descriptor, mode in opened:
+            os.fchmod(descriptor, mode)
+
+
 def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     version = tomllib.loads((repository / "pyproject.toml").read_text())["project"][
         "version"
@@ -885,6 +925,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             for name in sorted((*RELEASE_FILES, "BUNDLE.json"))
         )
     )
+    public_bundle_modes(bundle)
 
 
 def verify(
