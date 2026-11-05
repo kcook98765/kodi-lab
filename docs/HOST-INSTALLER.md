@@ -108,6 +108,13 @@ separate first-run check below.
 
 ## First run and authorized inspection
 
+The hidden administrator password step allows three total attempts. A mismatch
+or a policy rejection lets you enter both fields again in the same install run.
+Ctrl+C, EOF, unavailable hidden input or three unsuccessful attempts stop setup
+without changing credentials. The installer preserves the database and its
+`database_initialized` receipt stage; follow the partial-install guidance below
+rather than deleting state or rerunning initialization.
+
 Open **http://127.0.0.1:18100/login** on the installation computer and use your
 chosen password. Fresh installation records `local-http`; no certificate or
 proxy is needed. Standard noVNC works over HTTP/WebSocket. Cookies retain
