@@ -45,6 +45,16 @@ policies. Default Reset leaves the new profile stopped; `restart: true` requests
 native Start. Bridge pairing, profile-bound deployment evidence and any disposed
 Current Kodi selection are invalidated; complete their existing preparation
 before fresh deployment. See [clean Reset and recovery](MANAGED-CLEAN-RESET.md).
+Reset of the selected Current Kodi closes that selection. The existing MCP
+selection tools cannot bootstrap it again: an administrator must select the
+replacement/workspace while all Kodi are stopped, copy a fresh source baseline,
+prepare reviewed Bridge trust and enable the add-on. The administrator closes
+viewers and releases their own Web keep-awake/recent use (zero), or Stops before
+the agent begins; this does not clear an agent hold or prove Stop by itself.
+Existing grants survive but
+do not supply these preparation powers. Then resume the authorized workspace
+validate/deploy/launch loop. See the [exact post-Reset sequence and reasons](ISSUE-238-INTEGRATED-REVIEW.md#development-after-reset).
+
 Never replace an uncertain request with a new UUID.
 See [version lifecycle recovery and limits](MANAGED-VERSION-LIFECYCLE.md).
 

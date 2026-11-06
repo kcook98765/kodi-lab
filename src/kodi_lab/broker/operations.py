@@ -2342,7 +2342,10 @@ def build_foundation_registry(
                 "and unresolved operations, before starting another version."
                 if error.code == "managed_capacity_full"
                 else error.slot_message
-                or "Managed start capacity requires identity or operation reconciliation.",
+                or (
+                    "Managed start capacity requires identity or operation "
+                    "reconciliation."
+                ),
                 audit_fields={
                     **audit_fields,
                     "capacity_used": error.used,
