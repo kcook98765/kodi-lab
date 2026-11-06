@@ -7715,3 +7715,31 @@ running admission cap remains one.
 Do not silently migrate old profiles. Automatic switching, separately authorized
 destructive Reset and four-version ordinary Web controls remain subsequent
 phases. See [the lifecycle contract](MANAGED-VERSION-LIFECYCLE.md).
+
+
+## Agent-controlled clean Reset (issue #238, phase 3, 2026-11-06)
+
+Require separate explicit `managed.reset` plus `managed.versions`, exact canonical
+target policy and client grant. One immutable principal/request/version/restart
+parent composes resource Stop, exact retirement receipts, clean stopped provision
+and optional ordinary native Start. Reuse the approved cached pin and existing
+broker; no download, repin, fixture restoration, arbitrary Docker control or
+implicit source/workspace/Bridge authority.
+
+Retirement requires original identity-bound successful removal evidence. Unknown
+Stop/removal/create remains fenced without time-based escape, repeated removal
+or successor adoption. Once retirement is confirmed, a known failed replacement
+can be recovered through a new authorized preparation intent without destruction.
+Referenced child history remains inspectable. Invalidation closes only the
+proved disposed Current Kodi selection, retires Bridge credentials in the
+configured root, stales source/ZIP evidence and clears current screenshots.
+Container/epoch-bound history is preserved; fresh deployment requires new proof.
+Sources, workspaces, Git, grants and retained independent diagnostics survive.
+
+Add SQLite ownership fences across Reset stages, including viewer/input admission
+and Web keep-awake refusal, while retaining native lifecycle leases and broker
+admission. Late screenshot publication checks the original observation token
+inside its writer transaction. Default Reset leaves a new stopped clean profile;
+optional Start remains separate from native and Bridge/agent readiness. Do not
+automatically switch versions or redesign ordinary Web controls in this phase.
+See [the clean Reset contract](MANAGED-CLEAN-RESET.md).

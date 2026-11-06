@@ -30,8 +30,17 @@ automatically opt in. The administrator must prepare an approved cached runtime;
 Start never downloads, approves, repins or silently adopts an old profile.
 
 To switch versions, safely Stop the current version first with its own grant.
-Automatic switching and agent clean Reset are not implemented in this phase.
-Never invent a Reset tool or replace an uncertain request with a new UUID.
+Automatic switching remains a separate phase. For a clean Kodi environment,
+explicitly authorized agents can call
+`managed_reset({version: "omega", request_id: "<new UUID>", restart: false})`.
+This deliberately replaces only Kodi's writable profile from its existing
+approved cached image, preserving independent source/workspace/Git/evidence.
+It also requires separate `managed.reset` authority in both client and target
+policies. Default Reset leaves the new profile stopped; `restart: true` requests
+native Start. Bridge pairing, profile-bound deployment evidence and any disposed
+Current Kodi selection are invalidated; complete their existing preparation
+before fresh deployment. See [clean Reset and recovery](MANAGED-CLEAN-RESET.md).
+Never replace an uncertain request with a new UUID.
 See [version lifecycle recovery and limits](MANAGED-VERSION-LIFECYCLE.md).
 
 Use this loop for an existing authorized **managed disposable development**

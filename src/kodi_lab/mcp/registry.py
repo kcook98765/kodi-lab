@@ -138,6 +138,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "development.request_promotion",
                 "managed.lifecycle",
                 "managed.versions",
+                "managed.reset",
                 "development.settings.write",
             }
         )
@@ -194,12 +195,14 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 scope=ToolScope.WORKSPACE_TARGET,
             )
         )
-    for name in ("managed_status", "managed_start", "managed_stop"):
+    for name in ("managed_status", "managed_start", "managed_stop", "managed_reset"):
         registry.register(
             McpToolDefinition(
                 name=name,
                 schema_revision=1,
-                permissions=frozenset({"managed.versions"}),
+                permissions=frozenset({"managed.versions", "managed.reset"})
+                if name == "managed_reset"
+                else frozenset({"managed.versions"}),
                 effect=ToolEffect.READ_ONLY
                 if name == "managed_status"
                 else ToolEffect.MUTATING,

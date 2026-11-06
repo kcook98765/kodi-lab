@@ -12,6 +12,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
@@ -47,11 +48,16 @@ from kodi_lab.kodi.screenshots import (
 )
 from kodi_lab.runtime.live_preview import reviewed_live_preview_prerequisites
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
+from kodi_lab.storage.managed_clean_reset import active_clean_reset
 from kodi_lab.storage.models import (
     ManagedScreenshotRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
+)
+from kodi_lab.storage.repositories import (
+    ManagedRuntimeObservationToken,
+    ManagedRuntimeProjectionRepository,
 )
 
 LOGGER = logging.getLogger("kodi_lab.screenshot.audit")
@@ -270,6 +276,17 @@ class ManagedScreenshotService:
         self._coordinator.acquire(instance_id)
         published = False
         try:
+            with self._session_factory() as session:
+                capture_token = ManagedRuntimeProjectionRepository(
+                    session
+                ).observation_token(instance_id)
+                if (
+                    capture_token is None
+                    or active_clean_reset(session, str(instance_id)) is not None
+                ):
+                    raise ScreenshotIdentityChangedError(
+                        "screenshot_identity_changed", "Runtime replacement is pending."
+                    )
             container_id = self._eligible_container(instance_id)
             frame = self._capture_validated_frame(
                 instance_id=instance_id,
@@ -293,6 +310,7 @@ class ManagedScreenshotService:
                 width=frame.width,
                 height=frame.height,
                 byte_size=frame.byte_size,
+                expected_token=capture_token,
             )
             if old_capture_id is not None and old_capture_id != capture_id:
                 remove_published_png(self._data_root, instance_id, old_capture_id)
@@ -666,9 +684,21 @@ class ManagedScreenshotService:
         width: int,
         height: int,
         byte_size: int,
+        expected_token: ManagedRuntimeObservationToken,
     ) -> None:
         timestamp = self._timestamp_to_text(captured_at)
         with self._session_factory.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            if active_clean_reset(session, str(instance_id)) is not None or (
+                ManagedRuntimeProjectionRepository(session).observation_token(
+                    instance_id
+                )
+                != expected_token
+            ):
+                raise ScreenshotIdentityChangedError(
+                    "screenshot_identity_changed",
+                    "Runtime changed before screenshot publication.",
+                )
             row = session.get(ManagedScreenshotRow, str(instance_id))
             if row is None:
                 row = ManagedScreenshotRow(managed_instance_id=str(instance_id))

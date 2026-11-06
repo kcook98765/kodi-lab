@@ -12,6 +12,7 @@ from kodi_lab.domain.lifecycle_operations import ManagedInstanceLifecycleKind
 from kodi_lab.domain.snapshots import ManagedInstanceMutationKind
 from kodi_lab.storage.models import (
     ManagedAgentLifecycleRequestRow,
+    ManagedCleanResetRow,
     ManagedIdleStateRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
@@ -152,6 +153,13 @@ def record_operation_activity(
                 if version.action != "start":
                     return
                 actor = f"mcp:{version.client_id}"
+            reset = session.scalar(
+                select(ManagedCleanResetRow).where(
+                    ManagedCleanResetRow.start_id == str(operation_id)
+                )
+            )
+            if reset is not None:
+                actor = f"mcp:{reset.client_id}"
             lifecycle = session.get(
                 ManagedInstanceLifecycleOperationRow, str(operation_id)
             )

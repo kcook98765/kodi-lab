@@ -83,6 +83,7 @@ from kodi_lab.storage.repositories import (
     RuntimeExecutionProfileRepository,
     TargetRepository,
 )
+from kodi_lab.storage.secrets import ExternalBridgeSecretStore
 
 
 class LifecycleConflictError(RuntimeError):
@@ -530,6 +531,9 @@ class ManagedRuntimeLifecycleService:
         *,
         expected_scope: RuntimeRetirementScope | None = None,
         operation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
     ) -> ManagedRuntimeStatus:
@@ -557,6 +561,8 @@ class ManagedRuntimeLifecycleService:
         ) -> None:
             if expected_scope is not None:
                 confirm_retirement_receipt(session, operation, expected_scope)
+            if on_terminal is not None:
+                on_terminal(session, operation)
 
         return self._run(
             instance_id,
@@ -566,8 +572,11 @@ class ManagedRuntimeLifecycleService:
             ),
             operation_id=operation_id,
             precondition=protect,
+            before_dispatch=before_dispatch,
             on_claim=claimed,
-            on_terminal=None if expected_scope is None else terminal,
+            on_terminal=terminal
+            if expected_scope is not None or on_terminal is not None
+            else None,
         )
 
     def _deprovision(
@@ -593,7 +602,20 @@ class ManagedRuntimeLifecycleService:
         with self._session_factory.begin() as session:
             invalidate_development_source_deployments(session, instance_id)
             invalidate_addon_zip_installation_evidence(session, instance_id)
-            invalidate_managed_bridge_trust(session, instance_id)
+            invalidate_managed_bridge_trust(
+                session,
+                instance_id,
+                secrets=session.info.get("managed_bridge_secrets")
+                or (
+                    self._bridge_trust.secrets
+                    if self._bridge_trust is not None
+                    else ExternalBridgeSecretStore(
+                        self._data_root / "secrets/external-bridges",
+                        master_key=None,
+                        key_version=1,
+                    )
+                ),
+            )
         try:
             result = self._broker.deprovision_managed_container(
                 managed_instance_id=str(instance_id),

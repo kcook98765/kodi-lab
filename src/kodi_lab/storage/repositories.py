@@ -166,6 +166,7 @@ from kodi_lab.storage.models import (
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     HistoricalWorkspaceExecutionContainmentResolutionRow,
+    ManagedCleanResetRow,
     ManagedInstanceAddonRepositorySourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceDevelopmentSourceRow,
@@ -6548,6 +6549,18 @@ class ManagedInstanceLifecycleOperationRepository:
                 ),
                 ~ManagedInstanceLifecycleOperationRow.id.in_(
                     select(ManagedRuntimeRetirementRow.operation_id)
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedCleanResetRow.stop_id)
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedCleanResetRow.remove_id)
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedCleanResetRow.provision_id)
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedCleanResetRow.start_id)
                 ),
                 ~ManagedInstanceLifecycleOperationRow.id.in_(
                     select(ManagedVersionOperationRow.provision_operation_id).where(
