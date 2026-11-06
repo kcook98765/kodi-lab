@@ -7,11 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier, Event, RLock
+from threading import Event, RLock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.docker_inventory import (
@@ -39,6 +38,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedStartReservationRow,
+    RuntimeDefinitionRow,
 )
 from kodi_lab.storage.repositories import TargetRepository
 from tests.broker.test_authorization_dispatch import request
@@ -105,9 +105,17 @@ class Environment:
         self.records: dict[str, ManagedContainerRecord] = {}
         self.lock = RLock()
         with sessions.begin() as session:
-            revision = make_runtime(session)
             for number in range(6):
-                target = make_target(f"Capacity fixture {number}")
+                revision = make_runtime(session)
+                version = f"{19 + number}.0"
+                definition = session.get(
+                    RuntimeDefinitionRow, str(revision.runtime_definition_id)
+                )
+                assert definition is not None
+                definition.kodi_version = version
+                target = replace(
+                    make_target(f"Capacity fixture {number}"), kodi_version=version
+                )
                 TargetRepository(session).create(target)
                 session.add(
                     ManagedInstanceRow(
@@ -185,7 +193,7 @@ def env(tmp_path: Path) -> Iterator[Environment]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'capacity.db'}")
     Base.metadata.create_all(engine)
     sessions = create_session_factory(engine)
-    # These cases exercise an explicitly configured multi-Kodi installation.
+    # Older settings survive, but cannot override the new one-running policy.
     with sessions.begin() as session:
         resource_policy(session).max_running = 4
     yield Environment(sessions)
@@ -203,55 +211,46 @@ def test_unrecorded_default_enforces_one_active_kodi(env: Environment) -> None:
         assert resource_policy(session).max_running == 1
 
 
-def test_four_parallel_start_reservations_block_fifth_until_capacity_is_free(
+def test_parallel_start_reservation_blocks_another_version_until_capacity_is_free(
     env: Environment,
 ) -> None:
-    entered = Barrier(5)
-    release = Event()
+    entered, release = Event(), Event()
+    record = env.records[env.ids[0]]
 
-    def run(index: int) -> StartManagedContainerRecord:
-        record = env.records[env.ids[index]]
+    def dispatch() -> StartManagedContainerRecord:
+        entered.set()
+        assert release.wait(timeout=10)
+        env.state(0, ContainerRuntimeState.RUNNING)
+        return StartManagedContainerRecord(
+            managed_instance_id=record.managed_instance_id,
+            container_id=record.container_id,
+            runtime_state=ContainerRuntimeState.RUNNING,
+            start_performed=True,
+        )
 
-        def dispatch() -> StartManagedContainerRecord:
-            entered.wait(timeout=10)
-            assert release.wait(timeout=10)
-            env.state(index, ContainerRuntimeState.RUNNING)
-            return StartManagedContainerRecord(
-                managed_instance_id=record.managed_instance_id,
-                container_id=record.container_id,
-                runtime_state=ContainerRuntimeState.RUNNING,
-                start_performed=True,
-            )
-
-        assert record.runtime_revision_id is not None
-        return env.admission.run_start(
+    assert record.runtime_revision_id is not None
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        future = workers.submit(
+            env.admission.run_start,
             instance_id=record.managed_instance_id,
             container_id=record.container_id,
             revision_id=record.runtime_revision_id,
             dispatch=dispatch,
         )
-
-    with ThreadPoolExecutor(max_workers=4) as workers:
-        futures = [workers.submit(run, index) for index in range(4)]
         try:
-            entered.wait(timeout=10)
+            assert entered.wait(timeout=10)
             with pytest.raises(
                 ManagedCapacityError, match="managed_capacity_full"
             ) as error:
-                env.start(4)
-            assert (error.value.used, error.value.limit) == (4, 4)
-            assert (
-                env.records[env.ids[4]].runtime_state is ContainerRuntimeState.STOPPED
-            )
+                env.start(1)
+            assert (error.value.used, error.value.limit) == (1, 1)
         finally:
             release.set()
-        assert all(future.result(timeout=10).start_performed for future in futures)
-    with env.sessions() as session:
-        assert list(session.scalars(select(ManagedStartReservationRow))) == []
+        assert future.result(timeout=10).start_performed
     with pytest.raises(ManagedCapacityError, match="managed_capacity_full"):
-        env.start(4)
+        env.start(1)
     env.state(0, ContainerRuntimeState.STOPPED)
-    assert env.start(4).start_performed
+    assert env.start(1).start_performed
 
 
 def test_existing_running_instances_are_counted_without_eviction(
@@ -272,8 +271,6 @@ def test_existing_running_instances_are_counted_without_eviction(
 def test_uncertain_start_keeps_capacity_until_exact_confirmed_stop(
     env: Environment,
 ) -> None:
-    for index in range(1, 4):
-        env.state(index, ContainerRuntimeState.RUNNING)
     with pytest.raises(PostStartVerificationError):
         env.start(0, dispatch=PostStartVerificationError("fixture unknown result"))
     with env.sessions() as session:
@@ -358,8 +355,7 @@ def test_production_registry_start_uses_shared_admission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     registry, provider = _production_registry(env, monkeypatch)
-    for index in range(4):
-        env.state(index, ContainerRuntimeState.RUNNING)
+    env.state(0, ContainerRuntimeState.RUNNING)
     parameters: dict[str, object] = {
         "managed_instance_id": env.ids[4],
         "expected_container_id": env.records[env.ids[4]].container_id,
@@ -368,7 +364,7 @@ def test_production_registry_start_uses_shared_admission(
     with pytest.raises(RequestError) as error:
         registry.dispatch(request("start_managed_container", parameters))
     assert error.value.code == "managed_capacity_full"
-    assert "4/4" in error.value.safe_message
+    assert "1/1" in error.value.safe_message
     assert provider.start_calls == 0
     env.state(0, ContainerRuntimeState.STOPPED)
     registry.dispatch(request("start_managed_container", parameters))

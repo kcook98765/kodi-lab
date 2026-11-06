@@ -44,7 +44,9 @@ def read_resource_policy(session: Session) -> ManagedResourcePolicyValue:
     return (
         ManagedResourcePolicyValue()
         if row is None
-        else ManagedResourcePolicyValue(row.max_running, row.idle_minutes)
+        # Issue #238 fixes the effective running limit at one. Preserve older
+        # recorded values for audit; reading policy must not rewrite user state.
+        else ManagedResourcePolicyValue(1, row.idle_minutes)
     )
 
 
