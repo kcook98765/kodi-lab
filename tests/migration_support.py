@@ -1,8 +1,9 @@
-"""One closed canonical Alembic template; every case owns its database copy."""
+"""Closed canonical Alembic templates; every case owns its database copy."""
 
 from __future__ import annotations
 
 import hashlib
+import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -65,7 +66,7 @@ def migration_config(database: Path) -> Config:
 def migration_templates(
     tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest
 ) -> MigrationTemplateStore:
-    """Build head once; never construct obsolete per-revision templates."""
+    """Build each current revision once, including the upgrade predecessor."""
     global _active_migration_templates
     cached = request.config.stash.get(_SESSION_TEMPLATES, None)
     if cached is not None:
@@ -73,22 +74,29 @@ def migration_templates(
         return cached
     root = tmp_path_factory.mktemp("migration-template")
     root.mkdir(parents=True, exist_ok=True)
-    database = root / "head.db"
+    database = root / "building.db"
     config = migration_config(database)
-    head = ScriptDirectory.from_config(config).get_current_head()
+    scripts = ScriptDirectory.from_config(config)
+    head = scripts.get_current_head()
     assert head is not None
-    command.upgrade(config, "head")
-    with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchall() == [(head,)]
-    assert not any(
-        Path(f"{database}{s}").exists() for s in ("-wal", "-shm", "-journal")
-    )
-    database.chmod(0o400)
-    store = MigrationTemplateStore(root, {head: database}, head_revision=head)
+    templates: dict[str, Path] = {}
+    for revision in reversed(list(scripts.walk_revisions())):
+        command.upgrade(config, revision.revision)
+        with closing(sqlite3.connect(database)) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert connection.execute(
+                "SELECT version_num FROM alembic_version"
+            ).fetchall() == [(revision.revision,)]
+        assert not any(
+            Path(f"{database}{suffix}").exists()
+            for suffix in ("-wal", "-shm", "-journal")
+        )
+        template = root / f"{revision.revision}.db"
+        shutil.copyfile(database, template)
+        template.chmod(0o400)
+        templates[revision.revision] = template
+    store = MigrationTemplateStore(root, templates, head_revision=head)
     request.config.stash[_SESSION_TEMPLATES] = store
     _active_migration_templates = store
     return store

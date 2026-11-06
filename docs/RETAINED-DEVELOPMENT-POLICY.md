@@ -40,8 +40,9 @@ A requester/request journal returns historical results without republishing them
 The existing 256-generation bound remains fail-closed; no history pruning is added.
 
 Every supported start/restart must retain exact selected target/runtime/container
-binding. The broker enforces an effective running limit of one even if the ordinary
-resource setting is greater. Unknown inventory and in-flight/uncertain reservations
+binding. The broker enforces the administrator's managed resource running limit (default
+one), including in retained mode. Ordinary managed Start may run another exact
+profile without changing this development selection. Unknown inventory and in-flight/uncertain reservations
 retain capacity. Shared mutation lease admission refuses unselected mutation before
 staging/copy/reset; a SQLite insert trigger closes stale-reader admission races.
 Explicit containment, recovery and separately authorized lifecycle stop/provision/

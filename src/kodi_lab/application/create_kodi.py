@@ -18,11 +18,17 @@ class CreateKodiService:
         generation: str,
         recipe_digest: str,
         owner_approved: bool,
+        start_after_setup: bool = True,
+        preview_approved: bool = False,
     ) -> CreateAcceptance:
         if owner_approved is not True:
             raise ValueError("explicit Create approval required")
-        if generation not in {"matrix", "nexus", "omega"}:
-            raise ValueError("reviewed stable generation required")
+        if generation not in {"matrix", "nexus", "omega", "piers"}:
+            raise ValueError("reviewed generation required")
+        if type(start_after_setup) is not bool or type(preview_approved) is not bool:
+            raise ValueError("setup options must be booleans")
+        if generation == "piers" and not preview_approved:
+            raise ValueError("explicit development-only prerelease approval required")
 
         def resolve() -> CreateIntent:
             reviewed = load_installation_recipe(generation)
@@ -32,6 +38,8 @@ class CreateKodiService:
                 recipe_id=reviewed.recipe.recipe_id,
                 recipe_revision=reviewed.recipe.recipe_revision,
                 recipe_digest=reviewed.digest,
+                start_after_setup=start_after_setup,
+                preview_approved=preview_approved,
             )
 
         return self.repository.accept(
@@ -39,6 +47,8 @@ class CreateKodiService:
             generation=generation,
             recipe_digest=recipe_digest,
             resolve_intent=resolve,
+            start_after_setup=start_after_setup,
+            preview_approved=preview_approved,
         )
 
     def get(self, operation_id: UUID) -> CreateOperation | None:

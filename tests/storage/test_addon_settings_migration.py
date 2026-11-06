@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -308,6 +309,6 @@ def test_downgrade_refuses_unrepresentable_lease_even_without_settings_history(
         )
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == CURRENT
+            == ScriptDirectory.from_config(config).get_current_head()
         )
     engine.dispose()

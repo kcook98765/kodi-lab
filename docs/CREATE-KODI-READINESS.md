@@ -22,7 +22,8 @@ and reconciliation requirements prevent completion. These are read-only checks;
 the service never reconciles or clears a blocker. No other managed Kodi may be
 running, unknown or transitional. Every inventory read requires the original
 container/revision/image to be uniquely present and running.
-The effective broker limit must remain one, as at Create Start admission. Valid
+The administrator’s running limit remains authoritative at Create Start admission.
+Other exact, known running instances may coexist within that limit. Valid
 retained mode supplies that limit without changing its recorded resource policy;
 an administrator's incompatible later policy change requires explicit correction.
 

@@ -31,6 +31,7 @@ from kodi_lab.domain.create_kodi import (
 )
 from kodi_lab.host_bootstrap import generate_master_key
 from kodi_lab.runtime.install import _commit_ready
+from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
 from kodi_lab.runtime.recipes import load_installation_recipe
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
@@ -68,7 +69,7 @@ def finish(factory: sessionmaker[Session], child: UUID) -> None:
     with factory() as session:
         row = session.get(RuntimeRecipeInstallationRow, str(child))
         assert row is not None
-        state = row.state
+        state, generation = row.state, row.generation
     while state is not State.VALIDATING:
         with factory.begin() as session:
             repo = RuntimeRecipeInstallationRepository(session)
@@ -76,14 +77,27 @@ def finish(factory: sessionmaker[Session], child: UUID) -> None:
             row = repo.get(child)
             assert row is not None
             state = row.state
-    _commit_ready(
-        factory,
-        load_installation_recipe("omega"),
-        child,
-        recipe._assembly(generation="omega"),
-        recipe._validation(generation="omega"),
-        data_root=Settings().data_root,
-    )
+    if generation == "piers":
+        from tests.runtime.test_ostree_installation import assembly, validation
+
+        built = assembly(child)
+        _commit_ready(
+            factory,
+            load_installation_recipe(generation),
+            child,
+            built,
+            validation(built.image_id),
+            data_root=Settings().data_root,
+        )
+    else:
+        _commit_ready(
+            factory,
+            load_installation_recipe(generation),
+            child,
+            recipe._assembly(generation=generation),
+            recipe._validation(generation=generation),
+            data_root=Settings().data_root,
+        )
 
 
 class Broker(FakeBroker):
@@ -109,6 +123,7 @@ class Broker(FakeBroker):
         *,
         generation: str,
         operation_id: str,
+        preview_acknowledgement: PreviewAcknowledgement | None = None,
     ) -> SimpleNamespace:
         assert self.parent is not None
         persisted = self.repo.get(self.parent)
@@ -121,7 +136,23 @@ class Broker(FakeBroker):
             assert self.release.wait(5)
         if self.mode == "no_response":
             raise OSError("response unavailable before any receipt")
-        create_row(self.factory, generation, UUID(operation_id))
+        if generation == "piers":
+            from kodi_lab.runtime.install import _create_operation
+            from tests.runtime.test_ostree_installation import acknowledgement
+
+            assert preview_acknowledgement == acknowledgement()
+            _create_operation(
+                self.factory, load_installation_recipe(generation), UUID(operation_id)
+            )
+            with self.factory.begin() as session:
+                row = session.get(RuntimeRecipeInstallationRow, operation_id)
+                assert row
+                row.attestation_json = admission_evidence(
+                    preview_acknowledgement, UUID(operation_id)
+                )
+        else:
+            assert preview_acknowledgement is None
+            create_row(self.factory, generation, UUID(operation_id))
         self.workers[operation_id] = "running"
         self.operation_id, self.generation = operation_id, generation
         if self.mode == "lost_response":

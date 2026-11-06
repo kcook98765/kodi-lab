@@ -3,7 +3,8 @@
 Use **Kodi → Current Kodi** (`/development-session`) for one persistent add-on workspace
 and one selected Kodi profile. Retained profiles are the intended normal model;
 explicitly enable **Retained Kodi versions** before using them. Switching
-retained versions preserves their profiles and only one managed Kodi may run.
+retained versions preserves their profiles. The administrator’s Managed Kodi
+resource policy limits concurrent running instances independently of selection.
 Fresh Test is deliberately excluded from the ordinary UI; a complete retained
 clean-profile rebuild is not a qualified everyday workflow. Existing advanced
 lifecycle and recovery services keep their eligibility and safety restrictions.

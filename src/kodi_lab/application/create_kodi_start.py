@@ -34,10 +34,8 @@ from kodi_lab.storage.create_kodi_start import (
     planned_start,
     require_provision_receipt,
 )
-from kodi_lab.storage.managed_activity import read_resource_policy
 from kodi_lab.storage.managed_start import ManagedStartBinding
 from kodi_lab.storage.models import ManagedInstanceRow
-from kodi_lab.storage.retained_development import retained_targets
 
 
 class CreateKodiStartService:
@@ -69,11 +67,7 @@ class CreateKodiStartService:
                 own[0].runtime_state,
             )
             != (op.container_id, str(op.runtime_revision_id), op.image_id, state)
-            or any(
-                r.runtime_state != "stopped"
-                for r in records
-                if r.managed_instance_id != str(op.target_id)
-            )
+            or any(r.runtime_state not in {"stopped", "running"} for r in records)
         ):
             raise CreateTransitionError("start_inventory_changed")
 
@@ -85,13 +79,7 @@ class CreateKodiStartService:
             or instance.runtime_state_revision != op.runtime_state_revision
         ):
             raise CreateTransitionError("start_projection_changed")
-        # Do not silently change legacy multi-runtime policy or pretend the
-        # broker can atomically enforce a stricter limit than its own policy.
-        if (
-            not retained_targets(session)
-            and read_resource_policy(session).max_running != 1
-        ):
-            raise CreateTransitionError("create_start_requires_one_active_policy")
+        # The broker atomically enforces the current administrator policy.
         self._container(op, "stopped")
 
     def advance(self, operation_id: UUID, *, version: int) -> CreateOperation:

@@ -5638,10 +5638,13 @@ class CreateKodiOperationRow(Base):
 
     __tablename__ = "create_kodi_operations"
     __table_args__ = (
+        CheckConstraint("start_after_setup IN (0, 1)", name="create_start_after_setup"),
+        CheckConstraint("preview_approved IN (0, 1)", name="create_preview_approved"),
         CheckConstraint(
-            "generation IN ('matrix','nexus','omega') "
+            "generation IN ('matrix','nexus','omega','piers') "
             "AND scope='create_native_v1' AND recipe_revision>=1 "
-            "AND length(recipe_id) BETWEEN 1 AND 128 AND version>=0",
+            "AND length(recipe_id) BETWEEN 1 AND 128 AND version>=0 "
+            "AND (generation!='piers' OR preview_approved=1)",
             name="create_kodi_intent",
         ),
         CheckConstraint(
@@ -5656,7 +5659,10 @@ class CreateKodiOperationRow(Base):
             "(checkpoint='confirmed' AND outcome IS NOT NULL "
             "AND outcome='succeeded' AND reason IS NULL "
             "AND completed_at IS NULL) OR "
-            "(checkpoint='complete' AND stage='readiness' AND outcome IS NOT NULL "
+            "(checkpoint='complete' AND (stage='readiness' OR "
+            "(stage='provisioning' AND start_after_setup=0 AND "
+            "container_id IS NOT NULL AND start_operation_id IS NULL)) "
+            "AND outcome IS NOT NULL "
             "AND outcome='succeeded' "
             "AND reason IS NULL AND completed_at IS NOT NULL) OR "
             "(checkpoint='needs_attention' AND outcome IS NOT NULL "
@@ -5701,6 +5707,18 @@ class CreateKodiOperationRow(Base):
     request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     target_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     generation: Mapped[str] = mapped_column(String(16), nullable=False)
+    start_after_setup: Mapped[bool] = mapped_column(
+        Boolean(),
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    preview_approved: Mapped[bool] = mapped_column(
+        Boolean(),
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     recipe_id: Mapped[str] = mapped_column(String(128), nullable=False)
     recipe_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     recipe_digest: Mapped[str] = mapped_column(String(71), nullable=False)

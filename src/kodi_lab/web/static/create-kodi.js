@@ -10,8 +10,8 @@
   const api = "/api/create-kodi/operations";
   const byTarget = target => json(`${api}/by-target/${target}?missing=empty`);
   const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
-  const generations = new Set(["matrix", "nexus", "omega"]);
-  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Ready", "Needs attention"]);
+  const generations = new Set(["matrix", "nexus", "omega", "piers"]);
+  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Ready", "Installed", "Needs attention"]);
   const actions = new Set(["continue", "wait", "check_again", "needs_attention", "complete"]);
   const csrf = document.querySelector('meta[name="kodi-lab-csrf"]').content;
   let snapshot = JSON.parse(document.querySelector("#create-kodi-config").textContent);
@@ -22,6 +22,8 @@
   let orphan = null, approvedRequest = null;
   let visibilityResume = null, visibilityPending = false, visibilityEpoch = 0, storageRevision = 0, observations = 0;
   let storageOK = true, suspended = false, steps = 0, waits = 0, remainingWait = 0;
+  const startAfterSetup = () => find("start-after-setup")?.checked ?? true;
+  const previewApproved = () => generation !== "piers" || find("preview-approved")?.checked === true;
   const key = () => `kodi-lab.create-kodi.v1.${generation}`;
   const text = (name, value) => { if (find(name).textContent !== value) find(name).textContent = value; };
   const error = message => { text("error", message); find("error").hidden = !message; };
@@ -34,7 +36,10 @@
   function validApproval(value) {
     return value && uuid(value.request_id) && value.generation === generation &&
       typeof value.recipe_id === "string" && Number.isInteger(value.recipe_revision) && value.recipe_revision > 0 &&
-      /^sha256:[0-9a-f]{64}$/.test(value.recipe_digest) && value.owner_approved === true;
+      /^sha256:[0-9a-f]{64}$/.test(value.recipe_digest) && value.owner_approved === true &&
+      (value.start_after_setup === undefined || typeof value.start_after_setup === "boolean") &&
+      (value.preview_approved === undefined || typeof value.preview_approved === "boolean") &&
+      (generation !== "piers" || value.preview_approved === true);
   }
   function stored() {
     try { return localStorage.getItem(key()); }
@@ -47,7 +52,7 @@
         (uuid(value.operation_id) || validApproval(value.approval)) ? {
           generation, operation_id:uuid(value.operation_id) ? value.operation_id : null,
           approval:validApproval(value.approval) ? Object.fromEntries(
-            ["request_id", "generation", "recipe_id", "recipe_revision", "recipe_digest", "owner_approved"].map(name => [name, value.approval[name]])) : null,
+            ["request_id", "generation", "recipe_id", "recipe_revision", "recipe_digest", "owner_approved", "start_after_setup", "preview_approved"].map(name => [name, value.approval[name]])) : null,
         } : null;
     } catch (_) { return null; }
   }
@@ -89,7 +94,11 @@
     validApproval(saved?.approval) && saved.approval.request_id === approvedRequest);
   function controls() {
     root.setAttribute("aria-busy", String(busy));
-    find("approve").disabled = busy || running || !ready || !reconciled || !!op || !!saved || !!orphan || !storageOK;
+    find("approve").disabled = busy || running || !ready || !reconciled || !!op || !!saved || !!orphan || !storageOK || !previewApproved();
+    if (find("preview-consent")) find("preview-consent").hidden = generation !== "piers";
+    for (const name of ["start-after-setup", "preview-approved"]) {
+      if (find(name)) find(name).disabled = busy || running || !!op || !!saved;
+    }
     find("generation").disabled = busy || running || (!!op && !op.complete) || (!!saved?.approval && !op?.complete);
     find("check").disabled = busy;
     find("check").hidden = !op && !saved && !orphan && find("error").hidden;
@@ -328,6 +337,7 @@
       const approval = replay ? pending?.approval : {
         request_id:requestUUID(), generation, recipe_id:snapshot.recipe_id,
         recipe_revision:snapshot.recipe_revision, recipe_digest:snapshot.recipe_digest, owner_approved:true,
+        start_after_setup:startAfterSetup(), preview_approved:generation === "piers" && previewApproved(),
       };
       if (!validApproval(approval)) throw new SetupError("The saved approval needs review. Check status.");
       save({generation, approval, operation_id:null}, true); // Commit BEFORE POST.
@@ -356,8 +366,8 @@
       ready = false; error("Setup requirements changed. Check again."); controls(); return false;
     }
     snapshot = value;
-    const required = ["installer", "activity", "runtime", "running_policy", "capacity"];
-    const blockers = value.checks.filter(item => item.status === "attention" ||
+    const required = ["installer", "activity", "runtime", ...(startAfterSetup() ? ["running_policy", "capacity"] : [])];
+    const blockers = value.checks.filter(item => (item.status === "attention" && (item.key !== "capacity" || startAfterSetup())) ||
       (item.key === "activity" && item.status === "existing") || (required.includes(item.key) && item.status === "unknown"));
     ready = !blockers.length && required.every(key => value.checks.some(item => item.key === key));
     text("summary", ready ? `Kodi ${value.version} is available. ${value.checks.find(item => item.key === "runtime")?.status === "passed" ? "Verified runtime files will be reused." : "Setup will download and check its files."}` : "Some setup requirements need attention. Review the notes and Check again.");
@@ -369,6 +379,7 @@
   }
   function chooseGeneration(value) {
     if (!generations.has(value)) return;
+    if (find("preview-approved")) find("preview-approved").checked = false;
     pause(); ++epoch; generation = value; ready = reconciled = false;
     saved = op = orphan = approvedRequest = null; find("generation").value = generation;
     const url = new URL(window.location.href);
@@ -391,7 +402,7 @@
       if (requirements(snapshot)) await reconnect();
       return;
     }
-    // Three bounded passive lookups recover a non-default version even when
+    // Four bounded passive lookups recover a non-default version even when
     // both browser storage and the URL context are missing. No stage is run.
     busy = true; controls();
     try {
@@ -419,6 +430,8 @@
       if (ticket === epoch) error(explanation(failure, "Saved status is unavailable. Check status before continuing."));
     } finally { if (ticket === epoch) { busy = false; controls(); } }
   }
+  find("start-after-setup")?.addEventListener("change", () => { requirements(snapshot); });
+  find("preview-approved")?.addEventListener("change", controls);
   find("form").addEventListener("submit", event => { event.preventDefault(); void approve(); });
   find("discard").addEventListener("click", () => { void discard(); });
   find("check").addEventListener("click", () => { if (!busy) void reconnect(); });

@@ -16,7 +16,7 @@ from tests.migration_support import migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
 OLD = "0001_initial_release"
-NEW = "0001_initial_release"
+NEW = "0002_managed_setup"
 
 
 def test_upgrade_is_additive_matches_orm_and_reinitialization(

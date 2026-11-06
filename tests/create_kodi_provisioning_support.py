@@ -47,6 +47,7 @@ class Broker(InstallationBroker):
         self.records: list[ManagedContainerRecord] = []
         self.capacity = ManagedCapacityAdmission(factory, lambda: tuple(self.records))
         self.provisions = 0
+        self.unique_containers = False
         self.fault = ""
         self.dispatch_log: Path | None = None
 
@@ -89,7 +90,7 @@ class Broker(InstallationBroker):
                     file.write(str(op.provision_operation_id) + "\n")
             record = ManagedContainerRecord(
                 managed_instance_id,
-                "a" * 64,
+                op.target_id.hex * 2 if self.unique_containers else "a" * 64,
                 str(op.image_id),
                 ContainerRuntimeState.STOPPED,
                 ContainerHealthState.NOT_CONFIGURED,

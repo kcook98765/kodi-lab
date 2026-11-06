@@ -18,7 +18,9 @@ const flush = async () => { for (let i = 0; i < 25; i++) await Promise.resolve()
 function boot(storage = new Map(), denied = false, config = {}) {
   const root = new Element(), component = new Element(), refresh = new Element(), document = new Element(), window = new Element();
   const names = ["form", "generation", "approve", "check", "resume", "review", "progress", "phase", "message", "wait", "screen", "start", "manage", "recovery", "version", "reason", "notice", "error", "summary", "blockers", "another", "discard"];
+  if (config.setupControls) names.push("start-after-setup", "preview-approved", "preview-consent");
   const nodes = Object.fromEntries(names.map(name => [name, new Element()]));
+  if (config.setupControls) { nodes["start-after-setup"].checked = false; nodes["preview-approved"].checked = false; }
   root.querySelector = selector => selector === "[data-kodi-prerequisites]" ? component : nodes[selector.match(/data-create-([\w-]+)/)[1]];
   component.querySelector = () => refresh;
   document.hidden = false;
@@ -440,8 +442,8 @@ async function approved(app) {
 
   const nexusTarget = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const matrixTarget = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-  const recovered = boot(new Map(), false, {canonical_targets:{omega:target, nexus:nexusTarget, matrix:matrixTarget}});
-  assert.equal(recovered.requests.length, 3, "missing browser context scans the fixed stable canonical targets only");
+  const recovered = boot(new Map(), false, {canonical_targets:{omega:target, nexus:nexusTarget, matrix:matrixTarget, piers:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}});
+  assert.equal(recovered.requests.length, 4, "missing browser context scans all four canonical targets only");
   const nexus = status(1, {generation:"nexus", instance:{target_id:nexusTarget, state:"not_created"}});
   for (const request of recovered.requests.slice()) await reply(request, request.url.split('?')[0].endsWith(nexusTarget) ? nexus : null);
   assert.equal(recovered.nodes.generation.value, "nexus");
@@ -457,5 +459,30 @@ async function approved(app) {
   assert.equal(remembered.requests[0].url, nexus.status_url);
   await reply(remembered.requests[0], nexus);
   assert.equal(posts(remembered).length, 0);
+  const fullChecks = snapshot.checks.map(item => item.key === "capacity" ? {...item,status:"attention"} : item);
+  const installOnly = boot(new Map(), false, {setupControls:true,checks:fullChecks});
+  await reply(installOnly.requests[0]);
+  assert.equal(installOnly.nodes.approve.disabled,false,"full running capacity permits stopped installation");
+  installOnly.nodes["start-after-setup"].checked = true;
+  installOnly.nodes["start-after-setup"].dispatchEvent({type:"change"});
+  assert.equal(installOnly.nodes.approve.disabled,true,"explicit startup requires running capacity");
+  installOnly.nodes["start-after-setup"].checked = false;
+  installOnly.nodes["start-after-setup"].dispatchEvent({type:"change"});
+  installOnly.submit(); await reply(installOnly.requests.at(-1));
+  await reply(installOnly.requests.at(-1),{...snapshot,checks:fullChecks});
+  assert.equal(JSON.parse(posts(installOnly)[0].options.body).start_after_setup,false);
+
+  const piersSnapshot = {...snapshot,generation:"piers",setupControls:true};
+  const preview = boot(new Map(),false,piersSnapshot);
+  await reply(preview.requests[0]);
+  assert.equal(preview.nodes.approve.disabled,true,"Piers requires explicit preview consent");
+  assert.equal(preview.nodes["preview-consent"].hidden,false);
+  preview.nodes["preview-approved"].checked = true;
+  preview.nodes["preview-approved"].dispatchEvent({type:"change"});
+  assert.equal(preview.nodes.approve.disabled,false);
+  preview.submit(); await reply(preview.requests.at(-1)); await reply(preview.requests.at(-1),piersSnapshot);
+  const previewIntent = JSON.parse(posts(preview)[0].options.body);
+  assert.equal(previewIntent.preview_approved,true);
+  assert.equal(previewIntent.start_after_setup,false);
   console.log("PASS: persisted approval, bounded progression, paced inspection, lost responses, reconnect/tabs, attention, readiness, historical completion, visibility and storage denial");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -60,7 +60,8 @@ class CreateKodiProvisioningService:
             or matches[0].container_id != container_id
             or matches[0].runtime_revision_id != str(op.runtime_revision_id)
             or matches[0].image_id != op.image_id
-            or any(r.runtime_state != "stopped" for r in records)
+            or matches[0].runtime_state != "stopped"
+            or any(r.runtime_state not in {"stopped", "running"} for r in records)
         ):
             raise CreateTransitionError("provision_inventory_changed")
 
@@ -90,7 +91,7 @@ class CreateKodiProvisioningService:
             records = self._inventory().containers
             if any(
                 r.managed_instance_id == str(op.target_id)
-                or r.runtime_state != "stopped"
+                or r.runtime_state not in {"stopped", "running"}
                 for r in records
             ):
                 raise CreateTransitionError("provision_requires_absent_container")

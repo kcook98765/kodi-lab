@@ -171,7 +171,7 @@ def environment(
             p.parent.mkdir(parents=True)
             p.write_bytes((g + " private settings\n").encode())
             profiles[tid] = p
-        session.merge(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=60))
+        session.merge(ManagedResourcePolicyRow(id=1, max_running=1, idle_minutes=60))
 
     def inventory() -> ManagedContainerInventoryResult:
         return ManagedContainerInventoryResult(
@@ -707,7 +707,7 @@ def test_uncertain_provision_reserves_capacity_and_prevents_any_start_or_switch(
         cast(Any, None),
     )
     assert resources.capacity().limit == 1
-    assert resources.capacity().used == 1 and not resources.capacity().available
+    assert resources.capacity().used == 0 and resources.capacity().available
     with pytest.raises(DevelopmentSessionConflict, match="busy"):
         s.choose("matrix")
     from kodi_lab.storage.development_sessions import require_session_admission

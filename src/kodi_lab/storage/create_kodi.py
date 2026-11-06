@@ -78,6 +78,8 @@ def _snapshot(row: Row) -> CreateOperation:
         image_id=row.image_id,
         container_id=row.container_id,
         runtime_state_revision=row.runtime_state_revision,
+        start_after_setup=row.start_after_setup,
+        preview_approved=row.preview_approved,
     )
 
 
@@ -338,15 +340,25 @@ class CreateKodiRepository:
         generation: str,
         recipe_digest: str,
         resolve_intent: Callable[[], CreateIntent],
+        start_after_setup: bool = True,
+        preview_approved: bool = False,
     ) -> CreateAcceptance:
         """Internal admission; the application validates explicit approval first."""
         with self._writer() as session:
             row = session.scalar(select(Row).where(Row.request_id == str(request_id)))
             if row:
-                if (row.generation, row.recipe_digest, row.scope) != (
+                if (
+                    row.generation,
+                    row.recipe_digest,
+                    row.scope,
+                    row.start_after_setup,
+                    row.preview_approved,
+                ) != (
                     generation,
                     recipe_digest,
                     CREATE_SCOPE,
+                    start_after_setup,
+                    preview_approved,
                 ):
                     raise CreateConflict("request_inputs_conflict", UUID(row.id))
                 return CreateAcceptance(_snapshot(row), replayed=True)
@@ -365,6 +377,8 @@ class CreateKodiRepository:
                 request_id=str(request_id),
                 target_id=str(intent.target_id),
                 generation=generation,
+                start_after_setup=start_after_setup,
+                preview_approved=preview_approved,
                 recipe_id=intent.recipe_id,
                 recipe_revision=intent.recipe_revision,
                 recipe_digest=recipe_digest,

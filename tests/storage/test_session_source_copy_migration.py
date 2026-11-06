@@ -5,6 +5,7 @@ from typing import cast
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, Table, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -122,7 +123,8 @@ def test_populated_predecessor_produces_atomic_admission_and_retains_history(
         row = session.get(SessionSourceCopyAdmissionRow, str(receipt.request_id))
         assert row is not None and row.container_id == fixtures.CONTAINER_ID
         assert (
-            session.scalar(text("SELECT version_num FROM alembic_version")) == REVISION
+            session.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert session.scalar(text("PRAGMA integrity_check")) == "ok"
         assert session.execute(text("PRAGMA foreign_key_check")).all() == []

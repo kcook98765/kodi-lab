@@ -150,11 +150,32 @@ class CreateKodiRegistrationService:
         assert op.runtime_revision_id is not None
         try:
             # Already committed before either of the helper's local transactions.
-            result = bootstrap_recipe_instance(
-                self._sessions, reviewed, op.runtime_revision_id
-            )
-            if result.get("target_id") != str(op.target_id):
-                raise CreateTransitionError("canonical_registration_result_mismatch")
+            if op.generation == "piers":
+                from kodi_lab.runtime.preview import PreviewAcknowledgement
+
+                if not op.preview_approved:
+                    raise CreateTransitionError("preview_approval_required")
+                self._installer.create_preview_instance(
+                    development_mode=True,
+                    acknowledgement=PreviewAcknowledgement.model_validate(
+                        {
+                            "recipe_id": op.recipe_id,
+                            "recipe_revision": op.recipe_revision,
+                            "recipe_digest": op.recipe_digest,
+                            "release": "22.0-rc.1",
+                            "support_tier": "preview",
+                            "acknowledgement": "development-only-prerelease",
+                        }
+                    ),
+                )
+            else:
+                result = bootstrap_recipe_instance(
+                    self._sessions, reviewed, op.runtime_revision_id
+                )
+                if result.get("target_id") != str(op.target_id):
+                    raise CreateTransitionError(
+                        "canonical_registration_result_mismatch"
+                    )
             return self._repository.confirm_registration(
                 op.id,
                 version=claimed.version,

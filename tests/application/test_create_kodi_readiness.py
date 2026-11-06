@@ -163,22 +163,18 @@ def test_retained_mode_keeps_exact_inventory_fences_without_workspace(
     assert env.broker.starts == env.broker.stops == 0
 
 
-def test_changed_nonretained_capacity_policy_needs_explicit_correction(
+def test_higher_nonretained_capacity_policy_preserves_readiness(
     env: Environment,
 ) -> None:
     with env.sessions.begin() as session:
         policy = session.get(ManagedResourcePolicyRow, 1)
         assert policy
         policy.max_running = 4
-    with pytest.raises(CreateTransitionError, match="one_active_policy"):
-        env.advance()
+    env.advance()
     assert env.transport.methods == []
-    assert env.repo.get(env.op.id) == env.op
-    with env.sessions.begin() as session:
+    with env.sessions() as session:
         policy = session.get(ManagedResourcePolicyRow, 1)
         assert policy and policy.max_running == 4
-        policy.max_running = 1
-    env.advance()
     env.inspect()
     assert env.op.checkpoint is CreateCheckpoint.COMPLETE
 

@@ -265,11 +265,13 @@ def test_approval_uses_snapshot_recipe_and_records_only_parent(
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("generation", "piers"),
+        ("generation", "unreviewed"),
         ("generation", "OMEGA"),
         ("request_id", "not-a-uuid"),
         ("owner_approved", "true"),
         ("owner_approved", 1),
+        ("start_after_setup", "false"),
+        ("preview_approved", 1),
         ("recipe_revision", True),
         ("recipe_digest", "bad"),
         ("container_id", "a" * 64),
@@ -462,7 +464,6 @@ def test_canonical_competitor_and_stale_recipe_are_explicit(
         "capacity",
         "active_installation",
         "failed_installation",
-        "policy",
         "lease",
         "storage",
     ],
@@ -495,11 +496,6 @@ def test_new_intent_refreshes_observations_without_claiming_or_repairing(
         no_execution.operation_id, no_execution.generation = str(uuid4()), "omega"
     elif blocker == "failed_installation":
         seed_installation(database, "omega")
-    elif blocker == "policy":
-        with database.begin() as session:
-            session.add(
-                ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=None)
-            )
     elif blocker == "lease":
         with database.begin() as session:
             session.add(
@@ -519,9 +515,6 @@ def test_new_intent_refreshes_observations_without_claiming_or_repairing(
     assert "private broker credential" not in response.text
     with database() as session:
         assert session.scalars(select(CreateKodiOperationRow)).all() == []
-        if blocker == "policy":
-            policy = session.get(ManagedResourcePolicyRow, 1)
-            assert policy and (policy.max_running, policy.idle_minutes) == (4, None)
 
 
 def test_unknown_host_measurements_do_not_become_installation_authority_or_blockers(
@@ -731,3 +724,46 @@ def test_application_reopen_reuses_admin_session_and_same_parent_without_approva
         assert response.json() == {
             key: value for key, value in accepted.items() if key != "replayed"
         }
+
+
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
+def test_install_only_approval_is_allowed_when_running_capacity_is_full(
+    client: TestClient,
+    headers: dict[str, str],
+    broker: FakeBroker,
+    generation: str,
+) -> None:
+    broker.container = ManagedContainerInventoryEntry(
+        managed_instance_id=str(INSTANCE_ID),
+        container_id=CONTAINER_ID,
+        image_id=IMAGE_ID,
+        runtime_revision_id=str(REVISION_ID),
+        runtime_state=ContainerRuntimeState.RUNNING,
+        health_state=ContainerHealthState.HEALTHY,
+    )
+    payload = approval(generation) | {
+        "start_after_setup": False,
+        "preview_approved": generation == "piers",
+    }
+    original = submit(client, headers, payload)
+    replay = client.post(BASE, json=payload, headers=headers)
+    assert replay.status_code == 200
+    assert original["operation_id"] == replay.json()["operation_id"]
+    assert (
+        client.post(
+            BASE, json=payload | {"start_after_setup": True}, headers=headers
+        ).status_code
+        == 409
+    )
+
+
+def test_preview_setup_requires_explicit_consent_and_four_slot_policy_is_accepted(
+    client: TestClient,
+    headers: dict[str, str],
+    database: sessionmaker[Session],
+) -> None:
+    assert client.post(BASE, json=approval("piers"), headers=headers).status_code == 422
+    with database.begin() as session:
+        session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=60))
+    accepted = submit(client, headers)
+    assert accepted["generation"] == "omega"

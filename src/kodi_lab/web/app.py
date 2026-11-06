@@ -305,7 +305,7 @@ from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
 from kodi_lab.application.managed_kodi_prerequisites import (
     ManagedKodiPrerequisiteService,
     PrerequisiteSnapshot,
-    StableGeneration,
+    SetupGeneration,
 )
 from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_observation_bridge import (
@@ -3966,7 +3966,7 @@ def create_app(
 
     @app.get("/api/create-kodi/prerequisites", response_model=PrerequisiteSnapshot)
     def create_kodi_prerequisites(
-        generation: StableGeneration = "omega",
+        generation: SetupGeneration = "omega",
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> JSONResponse:
         return JSONResponse(
@@ -3977,7 +3977,7 @@ def create_app(
     @app.get("/preview/create-kodi-prerequisites", response_class=HTMLResponse)
     def prerequisite_component_preview(
         request: Request,
-        generation: StableGeneration = "omega",
+        generation: SetupGeneration = "omega",
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
         return templates.TemplateResponse(
@@ -3992,7 +3992,7 @@ def create_app(
 
     @app.get("/create-kodi", response_class=HTMLResponse)
     def create_kodi_page(
-        request: Request, generation: StableGeneration = "omega"
+        request: Request, generation: SetupGeneration = "omega"
     ) -> Response:
         try:
             authenticated = current_session(request)
@@ -4010,7 +4010,7 @@ def create_app(
                     **snapshot.model_dump(mode="json"),
                     "canonical_targets": {
                         value: str(recipe_target_id(load_installation_recipe(value)))
-                        for value in ("omega", "nexus", "matrix")
+                        for value in ("omega", "nexus", "matrix", "piers")
                     },
                 },
                 "csrf_token": authenticated.csrf_token,
