@@ -279,7 +279,10 @@ def test_retained_ui_identifies_profiles_without_fresh_test_controls(
     assert 'href="/development-session/retained" data-current-switch' in page.text
     assert "/development-session/replacement" not in page.text
     assert f"/instances/{s.ids['omega']}/reset" not in page.text
-    assert "Retained profile" in client.get("/kodi").text
+    landing = client.get("/kodi").text
+    assert landing.count('class="managed-slot"') == 4
+    assert "Stop keeps your settings and add-ons." in landing
+    assert 'href="/development-session"' in landing
     assert client.get("/api/development-session").json()["summary"]["retained"]
     preview = client.get(
         "/development-session/retained",

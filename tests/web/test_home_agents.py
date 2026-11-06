@@ -96,11 +96,14 @@ def test_home_household_is_recorded_and_network_free(
     assert response.status_code == 200
     primary = response.text
     assert primary.count('class="kodi-card"') == 1
-    assert primary.count('class="current-kodi-card"') == 1
+    assert primary.count('class="managed-slot"') == 4
     assert "app.js" not in primary and "managed-resources.js" not in primary
     assert "Living room" in primary
     assert f'href="/kodi/{household}"' in primary
-    assert "Live availability is not checked" in primary
+    assert (
+        "Household connection status below reflects its last recorded checks."
+        in primary
+    )
     assert (
         'data-status="disconnected"' in primary
         if unreachable

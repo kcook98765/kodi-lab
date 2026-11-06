@@ -170,6 +170,7 @@ def test_local_host_migrate_initializes_once_and_preserves_recorded_policy(
             resource_policy(session).max_running = 4
         assert admin_cli.main(["migrate"]) == 0
         with sessions() as session:
-            assert read_resource_policy(session).max_running == 4
+            assert resource_policy(session).max_running == 4
+            assert read_resource_policy(session).max_running == 1
     finally:
         engine.dispose()
