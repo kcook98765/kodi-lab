@@ -63,11 +63,45 @@ def omega_targets() -> frozenset[str]:
     )
 
 
+def reviewed_profile_targets() -> frozenset[str]:
+    from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
+
+    return frozenset(
+        str(recipe_target_id(load_installation_recipe(generation)))
+        for generation in ("matrix", "nexus", "omega", "piers")
+    )
+
+
 def retained_inventory(session: Session, records: Sequence[RetainedContainer]) -> None:
     """No unrelated/duplicate/repinned container is admitted as a retained slot."""
+    _profile_inventory(
+        session,
+        records,
+        retained_targets(session),
+        "retained_inventory_requires_review",
+    )
+
+
+def additional_profile_inventory(
+    session: Session, records: Sequence[RetainedContainer], selected_target: str
+) -> None:
+    """Legacy selection may coexist only with exact reviewed additional profiles."""
+    _profile_inventory(
+        session,
+        [r for r in records if r.managed_instance_id != selected_target],
+        reviewed_profile_targets(),
+        "development_session_identity_changed",
+    )
+
+
+def _profile_inventory(
+    session: Session,
+    records: Sequence[RetainedContainer],
+    allowed: frozenset[str],
+    code: str,
+) -> None:
     from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 
-    allowed = retained_targets(session)
     seen: set[str] = set()
     for record in records:
         instance = session.get(ManagedInstanceRow, record.managed_instance_id)
@@ -84,7 +118,7 @@ def retained_inventory(session: Session, records: Sequence[RetainedContainer]) -
             or artifact is None
             or record.image_id != artifact.image_id
         ):
-            raise DevelopmentSessionConflict("retained_inventory_requires_review")
+            raise DevelopmentSessionConflict(code)
         seen.add(record.managed_instance_id)
 
 
@@ -99,6 +133,8 @@ def session_inventory_matches(
     try:
         if retained_targets(session):
             retained_inventory(session, records)
+        else:
+            additional_profile_inventory(session, records, current_target)
     except DevelopmentSessionConflict:
         return False
     selected = [r for r in records if r.managed_instance_id == current_target]

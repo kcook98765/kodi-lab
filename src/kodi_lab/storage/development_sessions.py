@@ -46,8 +46,10 @@ def require_session_admission(
     starting: bool = False,
 ) -> DevelopmentSessionRow | None:
     from kodi_lab.storage.retained_development import (
+        additional_profile_inventory,
         retained_inventory,
         retained_targets,
+        reviewed_profile_targets,
     )
 
     allowed = retained_targets(session)
@@ -57,6 +59,7 @@ def require_session_admission(
         and not allowed
         and current is not None
         and current.target_id != target_id
+        and target_id in reviewed_profile_targets()
     ):
         # Preparing another stopped profile never changes development selection.
         from kodi_lab.storage.retained_development import session_inventory_matches
@@ -108,6 +111,8 @@ def require_session_admission(
                 raise DevelopmentSessionConflict("development_session_identity_changed")
     if current is None:
         return None
+    if not allowed:
+        additional_profile_inventory(session, records, current.target_id)
     if current.target_id != target_id or current.runtime_revision_id != revision_id:
         raise DevelopmentSessionConflict("development_session_other_target")
     if current.phase not in ({"bound"} if starting else {"reserved", "bound"}):

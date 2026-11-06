@@ -196,3 +196,45 @@ def test_piers_explicit_start_finishes_with_its_own_native_identity(
         assert "Application.GetProperties" in env.transport.methods
     finally:
         env.close()
+
+
+def test_prepare_another_reviewed_profile_preserves_legacy_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.broker.docker_inventory import ProvisionedManagedContainerRecord
+
+    env = setup(tmp_path, monkeypatch)
+    s = env.s
+    try:
+        s.choose("omega")
+        with s.env.sessions.begin() as session:
+            policy = session.get(DevelopmentSessionPolicyRow, 1)
+            assert policy
+            policy.retain_profiles = False
+            policy.retained_omega_target_id = None
+        before = s.service.status()
+        target = s.ids["matrix"]
+        stopped = next(r for r in s.records if r.managed_instance_id == str(target))
+        s.records.remove(stopped)
+
+        def dispatch() -> ProvisionedManagedContainerRecord:
+            s.records.append(stopped)
+            return ProvisionedManagedContainerRecord(
+                stopped.managed_instance_id,
+                str(stopped.runtime_revision_id),
+                stopped.container_id,
+                stopped.image_id,
+                stopped.runtime_state,
+                True,
+            )
+
+        s.admission.run_provision(
+            instance_id=str(target),
+            revision_id=str(s.revisions[target]),
+            dispatch=dispatch,
+        )
+        assert s.service.status() == before
+        assert len(s.records) == 4
+        assert all(r.runtime_state == "stopped" for r in s.records)
+    finally:
+        env.readiness.close()
