@@ -7691,3 +7691,27 @@ The current reviewed recipes define the four canonical logical slot identities.
 Version-oriented lifecycle coordination, separate destructive MCP authority and
 the four-action Web/MCP experience remain follow-up work, documented in
 [the audit and delivery scope](ISSUE-238-MANAGED-SLOTS.md).
+
+
+## Version-oriented agent lifecycle (issue #238, phase 2, 2026-11-06)
+
+Expose Status, Start(version) and Stop(version) through a separately opted-in
+`managed.versions` permission, exact canonical target grant and target policy.
+Reuse approved cached installation/registration, typed provision/ordinary Start,
+resource Stop and broker admission. Existing presets, target grants and source/
+workspace/development selection authority are unchanged. Start never downloads,
+repins or prepares Bridge trust. Native readiness is distinct from Bridge and
+agent-development readiness.
+
+Persist principal/request-bound immutable intents and deterministic lifecycle
+children. Accepted undispatched work can resume; dispatched uncertain children
+are observed, never blindly retried. Stop clears only the caller's use, respects
+viewers/holds/playback/mutations, and confirms an actual exact stopped profile.
+Stopped bytes and independent workspace/source/Git state survive. Fix the
+foundation's retained-mode post-provision check so creating a stopped profile
+does not incorrectly fail merely because another version runs. The global
+running admission cap remains one.
+
+Do not silently migrate old profiles. Automatic switching, separately authorized
+destructive Reset and four-version ordinary Web controls remain subsequent
+phases. See [the lifecycle contract](MANAGED-VERSION-LIFECYCLE.md).

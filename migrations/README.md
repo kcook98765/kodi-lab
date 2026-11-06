@@ -39,3 +39,10 @@ refuses downgrade to `base` to protect authorization and audit history.
 Offline SQL generation is supported for empty-database provisioning; applying
 such SQL manually is not the supported initializer or a prerelease upgrade path.
 Source and installed artifacts use this same migration tree.
+
+`0003_managed_versions` follows `0002_managed_setup` and adds principal-bound
+managed version Start/Stop receipts with immutable intent/child identity. It
+changes no policies, grants, runtime registrations or profiles. Referenced
+lifecycle children remain inspectable. Downgrade refuses once any receipt exists
+to preserve replay safety and audit history. See
+[the coordinator contract](../docs/MANAGED-VERSION-LIFECYCLE.md).

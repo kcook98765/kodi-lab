@@ -373,9 +373,9 @@ def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     )
 
 
-def test_exactly_seven_of_twenty_nine_tools_are_production_eligible() -> None:
+def test_only_inspection_and_remote_tools_are_production_eligible() -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 31
+    assert len(registry.names()) == 34
     eligible = {
         "inspect_ui_state",
         "log_read",
@@ -814,6 +814,9 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "managed_release",
         "managed_select",
         "managed_selection_preview",
+        "managed_start",
+        "managed_status",
+        "managed_stop",
         "promotion_request",
         "remote_action",
         "screenshot_capture",

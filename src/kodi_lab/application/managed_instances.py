@@ -1,6 +1,7 @@
 """Transactional managed-instance creation and runtime selection."""
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -89,6 +90,7 @@ class ManagedInstanceService:
         novnc_phase1: bool = False,
         reset_operations: ResetOperationCoordinator | None = None,
         mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
+        data_root: Path | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._selection_policy = RuntimeSelectionPolicy(
@@ -98,7 +100,7 @@ class ManagedInstanceService:
             include_prerelease=include_prerelease,
             preview_recipe_digest=preview_recipe_digest,
         )
-        self._eligibility = RuntimeRevisionEligibilityPolicy()
+        self._eligibility = RuntimeRevisionEligibilityPolicy(data_root=data_root)
         self._reset_operations = reset_operations
         self._mutations = mutation_coordinator or ManagedInstanceMutationCoordinator(
             session_factory
@@ -117,26 +119,46 @@ class ManagedInstanceService:
 
         try:
             with self._session_factory.begin() as session:
-                target = self._require_target(session, target_id)
-                instances = ManagedInstanceRepository(session)
-                if instances.get(target_id) is not None:
-                    raise ManagedInstanceConflictError(target_id)
-                revision = self._resolve_revision(session, target, selection)
-                try:
-                    instance = ManagedInstance(
-                        target_id=target_id,
-                        instance_type=instance_type,
-                        runtime_revision_id=revision.id,
-                        runtime_state=InstanceRuntimeState.STOPPED,
-                        start_on_host_boot=start_on_host_boot,
-                        notes=notes,
-                    )
-                except ValueError as error:
-                    raise ManagedInstanceDataValidationError(str(error)) from error
-                instances.create(instance)
-                return instance
+                return self.create_in_session(
+                    session,
+                    target_id=target_id,
+                    selection=selection,
+                    instance_type=instance_type,
+                    start_on_host_boot=start_on_host_boot,
+                    notes=notes,
+                )
         except IntegrityError as error:
             raise ManagedInstanceConflictError(target_id) from error
+
+    def create_in_session(
+        self,
+        session: Session,
+        *,
+        target_id: UUID,
+        selection: RuntimeSelection,
+        instance_type: InstanceType,
+        start_on_host_boot: bool = False,
+        notes: str | None = None,
+    ) -> ManagedInstance:
+        """Compose exact registration with a caller-owned authorized transaction."""
+        target = self._require_target(session, target_id)
+        instances = ManagedInstanceRepository(session)
+        if instances.get(target_id) is not None:
+            raise ManagedInstanceConflictError(target_id)
+        revision = self._resolve_revision(session, target, selection)
+        try:
+            instance = ManagedInstance(
+                target_id=target_id,
+                instance_type=instance_type,
+                runtime_revision_id=revision.id,
+                runtime_state=InstanceRuntimeState.STOPPED,
+                start_on_host_boot=start_on_host_boot,
+                notes=notes,
+            )
+        except ValueError as error:
+            raise ManagedInstanceDataValidationError(str(error)) from error
+        instances.create(instance)
+        return instance
 
     def reassign_runtime(
         self,

@@ -188,6 +188,7 @@ class ManagedRuntimeLifecycleService:
         *,
         precondition: Callable[[Session], None] | None = None,
         operation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
         on_result: Callable[
             [Session, RunningLifecycleOperation, ProvisionManagedContainerResult], None
@@ -203,6 +204,7 @@ class ManagedRuntimeLifecycleService:
             self._provision,
             precondition=precondition,
             operation_id=operation_id,
+            before_dispatch=before_dispatch,
             on_claim=on_claim,
             on_provision_result=on_result,
             on_terminal=on_terminal,
@@ -261,6 +263,7 @@ class ManagedRuntimeLifecycleService:
         *,
         operation_id: UUID | None = None,
         expected: ManagedStartBinding | None = None,
+        before_dispatch: Callable[[], None] | None = None,
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
         on_result: Callable[
@@ -349,6 +352,7 @@ class ManagedRuntimeLifecycleService:
                 precondition=admission,
                 on_claim=claimed,
                 ordinary_start=True,
+                before_dispatch=before_dispatch,
                 on_start_result=on_result,
                 on_terminal=on_terminal,
             )

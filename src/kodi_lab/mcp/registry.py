@@ -137,6 +137,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "development.execute",
                 "development.request_promotion",
                 "managed.lifecycle",
+                "managed.versions",
                 "development.settings.write",
             }
         )
@@ -191,6 +192,27 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 production_eligible=False,
                 target_scope_required=False,
                 scope=ToolScope.WORKSPACE_TARGET,
+            )
+        )
+    for name in ("managed_status", "managed_start", "managed_stop"):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset({"managed.versions"}),
+                effect=ToolEffect.READ_ONLY
+                if name == "managed_status"
+                else ToolEffect.MUTATING,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset(),
+                required_states=frozenset(),
+                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
+                adapter="managed_versions." + name,
+                production_eligible=False,
+                target_scope_required=name != "managed_status",
+                scope=ToolScope.GLOBAL
+                if name == "managed_status"
+                else ToolScope.TARGET,
             )
         )
     for name in ("managed_ensure_ready", "managed_release"):
