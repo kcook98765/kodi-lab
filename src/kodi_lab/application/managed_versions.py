@@ -64,6 +64,7 @@ from kodi_lab.storage.models import (
     NovncSessionRow,
     RuntimeContainerArtifactRow,
     RuntimeRecipeInstallationRow,
+    TargetRow,
 )
 from kodi_lab.storage.repositories import ManagedRuntimeProjectionRepository
 
@@ -359,7 +360,10 @@ class ManagedVersionLifecycleService:
                 or observed.runtime_revision_id is None
             ):
                 raise ManagedVersionError("approved_cached_runtime_required")
-            if create_target:
+            if (
+                create_target
+                and session.get(TargetRow, str(slot.canonical_target_id)) is None
+            ):
                 from kodi_lab.runtime.install import register_recipe_target
 
                 register_recipe_target(session, reviewed)

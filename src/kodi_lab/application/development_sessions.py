@@ -41,9 +41,11 @@ from kodi_lab.storage.models import (
     DevelopmentSessionReplacementReviewRow,
     DevelopmentSessionRow,
     GlobalHeavyOperationLeaseRow,
+    ManagedCleanResetRow,
     ManagedInstanceMutationLeaseRow,
     ManagedProvisionReservationRow,
     ManagedStartReservationRow,
+    ManagedVersionOperationRow,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
@@ -136,6 +138,14 @@ class DevelopmentSessionService:
                 ManagedInstanceMutationLeaseRow,
                 GlobalHeavyOperationLeaseRow,
             )
+        ) or any(
+            session.scalar(
+                select(model.id)
+                .where(model.phase.not_in(("complete", "blocked")))
+                .limit(1)
+            )
+            is not None
+            for model in (ManagedVersionOperationRow, ManagedCleanResetRow)
         ):
             raise DevelopmentSessionConflict("development_session_busy")
 
