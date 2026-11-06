@@ -229,10 +229,10 @@ def test_playback_and_unavailable_evidence_protect_without_stop_attempt(
 
 def test_disabled_idle_policy_and_bounded_keep_awake(env: Environment) -> None:
     env.resources.enroll(INSTANCE_ID, enabled=True)
-    env.resources.configure(ResourcePolicyInput(max_running=2, idle_minutes=None))
+    env.resources.configure(ResourcePolicyInput(max_running=1, idle_minutes=None))
     env.clock.value += timedelta(hours=3)
     assert env.resources.sweep_idle() == 0
-    env.resources.configure(ResourcePolicyInput(max_running=2, idle_minutes=1))
+    env.resources.configure(ResourcePolicyInput(max_running=1, idle_minutes=1))
     env.resources.keep_awake(INSTANCE_ID, minutes=120)
     env.clock.value += timedelta(minutes=119)
     assert env.resources.sweep_idle() == 0

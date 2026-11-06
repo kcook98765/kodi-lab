@@ -1,20 +1,25 @@
 # Managed Kodi resource controls
 
-Settings → Managed Kodi resources sets the maximum running/starting managed
-Kodi instances (default **1**, range 1–64) and idle stop (default **60 minutes**,
+Managed Kodi has **one global running/starting slot**. Settings → Managed Kodi
+resources configures idle stop (default **60 minutes**,
 range 1–10,080, or disabled). The dashboard shows used slots and idle deadlines.
 Running instances count immediately, including instances created before upgrade.
-Lowering the maximum does not evict running instances. A new start is refused
-when all slots are used. Unknown start outcomes retain their capacity reservation
+An older saved concurrency limit cannot raise the effective limit of one; its
+recorded value remains preserved until an explicit settings save. Existing
+runtimes are never evicted. A new start is refused when the slot is used.
+Unknown start outcomes retain their capacity reservation
 until an exact broker-observed stop or removal establishes that it is safe to
 release it; elapsed time alone does not free the slot.
 
 Any or all four reviewed Kodi versions can be installed regardless of this limit.
 Create Kodi leaves the new profile **Installed · Stopped** by default; select
 **Start Kodi after setup** only when you want it started immediately. Piers keeps
-its explicit development-only prerelease acknowledgement. With a limit of one,
-stop the running instance before starting another; with a limit of four, all four
-may run. Existing administrator settings are preserved on upgrade.
+its explicit development-only prerelease acknowledgement. Stop the running
+instance safely before starting another. Broker admission refuses an additional
+writable profile for the same Kodi generation, even under a different target
+UUID or runtime revision. Pending/uncertain creates reserve that version until
+reconciled. Pre-existing duplicates require administrator review: they are not
+adopted or deleted automatically, and their records/history remain inspectable.
 
 Retained development mode uses this same running limit. Its Current Kodi pointer
 continues to select one development target; ordinary Start does not change it or

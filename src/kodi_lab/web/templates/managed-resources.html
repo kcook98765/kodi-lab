@@ -6,9 +6,9 @@
 <h1>Managed Kodi resources</h1>
 <p>Keep development projects and profiles while stopping idle managed Kodi. External and household Kodi have their own connection settings.</p>
 <p>Running slots: <strong data-managed-capacity>{% if capacity %}{{ capacity.used }} / {{ capacity.limit }}{% else %}Unavailable{% endif %}</strong>. Running, starting and uncertain starts count toward the limit.</p>
-<p>Install any or all four Kodi versions independently of this limit. New installations default to one running instance; increase the limit to allow more at once. Lowering it does not stop an instance already running.</p>
+<p>Keep one stopped profile for each Kodi version. Only one managed Kodi may run at a time. Existing running instances are preserved; stop them safely before starting another version.</p>
 <form data-managed-resource-policy>
-  <label>Maximum running managed Kodi <input type="number" name="max_running" min="1" max="64" value="{{ policy.max_running }}" required></label>
+  <label>Maximum running managed Kodi <input type="number" name="max_running" min="1" max="1" value="1" readonly required></label>
   <label class="check-label"><input type="checkbox" name="idle_enabled" {% if policy.idle_minutes is not none %}checked{% endif %}> Stop enrolled instances after inactivity</label>
   <label>Idle minutes <input type="number" name="idle_minutes" min="1" max="10080" value="{{ policy.idle_minutes or 60 }}" required></label>
   <button type="submit">Save resource policy</button>

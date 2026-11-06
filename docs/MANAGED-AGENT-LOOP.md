@@ -1,5 +1,18 @@
 # Managed add-on development: agent quick start
 
+The intended version-slot workflow is **Status → Start(version) → develop/test →
+Reset(version) or Stop(version)**. **Stop keeps the exact Kodi profile; Reset
+discards its writable settings/add-ons and prepares a clean replacement.** Source,
+workspace and Git state outside Kodi are independent. Reset must have separate,
+explicit destructive authority; ordinary lifecycle permission does not grant it.
+
+Issue #238 is [being delivered in stages](ISSUE-238-MANAGED-SLOTS.md). This stage
+enforces one running managed Kodi globally and refuses a second writable profile
+for the same version, including pending/uncertain provisioning under another
+target UUID. It does **not** add version-oriented MCP tools or agent Reset yet.
+Use the installed tools below; never invent an unavailable Reset tool or treat
+native Kodi readiness as Bridge/workspace/deployment readiness.
+
 Use this loop for an existing authorized **managed disposable development**
 target, registered source and owned workspace. Discover the tools on the
 installed server first: a source checkout upgrade does not upgrade the deployed

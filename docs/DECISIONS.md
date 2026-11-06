@@ -7669,3 +7669,25 @@ Migration 0002 adds immutable start/preview options, admits Piers Create intent,
 and permits a verified install-only terminal receipt at provisioning. Previous
 receipts default to their existing startup semantics. Downgrade refuses after
 new setup options have been used; coordinated backup restore remains separate.
+
+## Managed version-slot admission (issue #238, first slice, 2026-11-06)
+
+Issue #238 supersedes the configurable multi-running workflow described above.
+Effective running capacity is now one across all managed broker starts. An older
+stored limit is preserved as recorded state, but cannot raise the effective cap.
+Existing running instances are counted and preserved; no automatic eviction occurs.
+
+Writable profile uniqueness is keyed by Kodi major generation, independently of
+target UUID, exact release, runtime revision or development workspace. Provision
+admission checks inventory and persistent provision reservations in the existing
+SQLite writer transaction. Start refuses conflicting profiles too. Unknown or
+repinned inventory fails closed; uncertain create outcomes keep their reservation
+across service restart. Duplicate registrations/history alone consume no profile.
+
+This is admission infrastructure for the future version coordinator, not a new
+Docker controller or an implicit legacy-profile migration. Existing exact legacy
+singleton paths remain; conflicting resources must be reviewed explicitly.
+The current reviewed recipes define the four canonical logical slot identities.
+Version-oriented lifecycle coordination, separate destructive MCP authority and
+the four-action Web/MCP experience remain follow-up work, documented in
+[the audit and delivery scope](ISSUE-238-MANAGED-SLOTS.md).

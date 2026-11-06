@@ -18,6 +18,8 @@ using MCP-compatible coding agents.
   Bridge add-on, without OS-level access to those hosts.
 - Install reviewed Kodi versions on demand and switch between isolated profiles;
   **only one managed Kodi instance runs at a time**.
+  Broker admission prevents a second writable profile for the same version;
+  conflicting older profiles require administrator review without automatic deletion.
 - Develop and test one add-on workspace in **Current Kodi**, using disposable
   profiles or explicitly enabled retained profiles for each version.
 - Inspect Kodi UI state and capture screenshots. View supported managed Kodi
@@ -159,6 +161,12 @@ Development; see the [advanced runtime guide](docs/LINUX-SOURCE-INSTALL.md#advan
 Save anything important before resetting or removing a disposable profile; see
 [managed state recovery](docs/MANAGED-STATE-RECOVERY.md). Installing a newer
 reviewed runtime recipe does not automatically migrate existing profiles.
+**Stop retains the same profile; Reset deliberately discards its writable Kodi
+data.** Independent source/workspace/Git state has its own retention controls.
+The version-oriented **Status → Start → Use → Reset or Stop** workflow is being
+implemented in stages under [issue #238](docs/ISSUE-238-MANAGED-SLOTS.md).
+This first stage establishes admission fences; existing MCP lifecycle tools
+still require an already provisioned, explicitly authorized target.
 
 To connect an existing Kodi installation instead, use **Add Kodi** and its
 pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),

@@ -204,6 +204,9 @@ class ManagedAgentLifecycleService:
                         "managed_start_identity_unavailable",
                         "managed_capacity_unavailable",
                         "managed_start_requires_reconciliation",
+                        "managed_version_slot_conflict",
+                        "managed_version_slot_pending",
+                        "managed_version_slot_identity_unavailable",
                     }:
                         self._finish(row.id, state="failed", code=code)
                     elif (

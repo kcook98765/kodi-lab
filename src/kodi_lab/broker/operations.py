@@ -2177,7 +2177,8 @@ def build_foundation_registry(
         except ManagedCapacityError as error:
             raise OperationError(
                 error.code,
-                "Managed provisioning requires session or reservation review.",
+                error.slot_message
+                or "Managed provisioning requires session or reservation review.",
                 audit_fields=audit_fields,
             ) from error
         except PersistentProvisioningUnsupportedError as error:
@@ -2337,11 +2338,11 @@ def build_foundation_registry(
             raise OperationError(
                 error.code,
                 f"Managed capacity is full ({error.used}/{error.limit}). "
-                "Release an eligible idle instance or ask the administrator "
-                "to review the running limit."
+                "Stop the running managed Kodi safely, respecting active users "
+                "and unresolved operations, before starting another version."
                 if error.code == "managed_capacity_full"
-                else "Managed start capacity requires identity or operation "
-                "reconciliation.",
+                else error.slot_message
+                or "Managed start capacity requires identity or operation reconciliation.",
                 audit_fields={
                     **audit_fields,
                     "capacity_used": error.used,

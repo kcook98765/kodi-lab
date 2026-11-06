@@ -41,8 +41,12 @@ from kodi_lab.storage.development_sessions import (
     require_session_admission,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.managed_activity import resource_policy, timestamp
+from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
 from kodi_lab.storage.managed_start import require_managed_start
+from kodi_lab.storage.managed_version_slots import (
+    ManagedVersionSlotConflict,
+    require_unique_version_profile,
+)
 from kodi_lab.storage.models import (
     DevelopmentSessionRow,
     ManagedInstanceLifecycleOperationRow,
@@ -66,8 +70,23 @@ _SAFE_BEFORE_DISPATCH = (
 
 
 class ManagedCapacityError(RuntimeError):
-    def __init__(self, code: str, *, used: int = 0, limit: int = 4) -> None:
+    def __init__(self, code: str, *, used: int = 0, limit: int = 1) -> None:
         self.code, self.used, self.limit = code, used, limit
+        self.slot_message = {
+            "managed_version_slot_conflict": (
+                "Another writable profile exists for this Kodi version. "
+                "Review the exact instances and history; no profile was selected "
+                "or deleted automatically."
+            ),
+            "managed_version_slot_pending": (
+                "Preparation of this Kodi version is pending or uncertain. "
+                "Inspect its original operation before creating another profile."
+            ),
+            "managed_version_slot_identity_unavailable": (
+                "A managed profile's version or runtime pin could not be verified. "
+                "Review instance identities and history before continuing."
+            ),
+        }.get(code)
         super().__init__(code)
 
 
@@ -113,21 +132,26 @@ class ManagedCapacityAdmission:
                         "managed_provision_requires_reconciliation"
                     )
                 records = self._inventory()
+                expected_container = next(
+                    (
+                        r.container_id
+                        for r in records
+                        if r.managed_instance_id == instance_id
+                    ),
+                    None,
+                )
                 retained = bool(retained_targets(session))
-                if retained:
-                    expected_container = next(
-                        (
-                            r.container_id
-                            for r in records
-                            if r.managed_instance_id == instance_id
-                        ),
-                        None,
-                    )
                 try:
                     current = require_session_admission(
                         session, records, target_id=instance_id, revision_id=revision_id
                     )
                 except DevelopmentSessionConflict as error:
+                    raise ManagedCapacityError(error.code) from error
+                try:
+                    require_unique_version_profile(
+                        session, records, target_id=instance_id, revision_id=revision_id
+                    )
+                except ManagedVersionSlotConflict as error:
                     raise ManagedCapacityError(error.code) from error
                 if current is not None:
                     if (
@@ -157,14 +181,34 @@ class ManagedCapacityAdmission:
             if (
                 result.managed_instance_id != instance_id
                 or result.runtime_revision_id != revision_id
+                or (expected_container is None and not result.created)
+                or (
+                    expected_container is not None
+                    and result.container_id != expected_container
+                )
+            ):
+                raise ManagedCapacityError("managed_provision_result_unverified")
+            records = self._inventory()
+            try:
+                with self._sessions() as session:
+                    require_unique_version_profile(
+                        session,
+                        records,
+                        target_id=instance_id,
+                        revision_id=revision_id,
+                        own_provision_operation_id=operation_id,
+                    )
+            except ManagedVersionSlotConflict as error:
+                raise ManagedCapacityError(error.code) from error
+            selected = [r for r in records if r.managed_instance_id == instance_id]
+            if (
+                len(selected) != 1
+                or selected[0].container_id != result.container_id
+                or selected[0].runtime_revision_id != revision_id
+                or selected[0].image_id != result.image_id
             ):
                 raise ManagedCapacityError("managed_provision_result_unverified")
             if generation is not None or retained:
-                if (expected_container is None and not result.created) or (
-                    expected_container is not None
-                    and result.container_id != expected_container
-                ):
-                    raise ManagedCapacityError("managed_provision_result_unverified")
                 records = self._inventory()
                 with self._sessions() as session:
                     if retained:
@@ -345,8 +389,14 @@ class ManagedCapacityAdmission:
                         )
             except DevelopmentSessionConflict as error:
                 raise ManagedCapacityError(error.code) from error
+            try:
+                require_unique_version_profile(
+                    session, records, target_id=instance_id, revision_id=revision_id
+                )
+            except ManagedVersionSlotConflict as error:
+                raise ManagedCapacityError(error.code) from error
             reservations = list(session.scalars(select(ManagedStartReservationRow)))
-            policy = resource_policy(session)
+            policy = read_resource_policy(session)
             limit = policy.max_running
             used = {
                 item.managed_instance_id

@@ -1,7 +1,8 @@
-"""Installed profiles are independent of the administrator's running limit."""
+"""Four retained profiles share one global running slot, including legacy settings."""
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,15 +10,27 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.create_kodi import CreateKodiService
+from kodi_lab.application.managed_agent_lifecycle import (
+    ManagedAgentLifecycleError,
+    ManagedAgentLifecycleService,
+)
 from kodi_lab.application.managed_resources import ManagedResourceService
+from kodi_lab.application.mcp_administration import (
+    ADDON_DEVELOPMENT_PRESET_ID,
+    McpAdministrationService,
+)
+from kodi_lab.application.mcp_workspace_development import BoundedIntervalRateLimiter
+from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.broker.managed_capacity import ManagedCapacityError
 from kodi_lab.domain.create_kodi import CreateAcceptance, CreateCheckpoint
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import resource_policy
 from kodi_lab.storage.models import (
+    AgentWorkspaceRow,
     DevelopmentSessionPolicyRow,
     DevelopmentSessionRow,
+    DevelopmentSourceRow,
     ManagedStartAuthorizationRow,
 )
 from tests.application.test_create_kodi_installation import factory as factory
@@ -76,7 +89,7 @@ def resource_policy_value(factory: sessionmaker[Session]) -> int:
 
 @pytest.mark.parametrize("retained", [False, True])
 @pytest.mark.parametrize("limit", [1, 2, 4])
-def test_any_profile_can_run_up_to_admin_limit_without_changing_selection(
+def test_legacy_limits_cannot_expand_running_capacity_or_change_selection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: int, retained: bool
 ) -> None:
     env = setup(tmp_path, monkeypatch)
@@ -95,13 +108,12 @@ def test_any_profile_can_run_up_to_admin_limit_without_changing_selection(
     resources = ManagedResourceService(s.env.sessions, env.broker, env.lifecycle)
     try:
         targets = list(s.ids.values())
-        for target in targets[:limit]:
-            env.lifecycle.start_managed(target)
-        assert resources.capacity().limit == limit
-        assert resources.capacity().used == limit
-        if limit < 4:
-            with pytest.raises((ManagedCapacityError, DevelopmentSessionConflict)):
-                env.lifecycle.start_managed(targets[limit])
+        env.lifecycle.start_managed(targets[0])
+        assert resources.capacity().limit == 1
+        assert resources.capacity().used == 1
+        assert resource_policy_value(s.env.sessions) == limit
+        with pytest.raises((ManagedCapacityError, DevelopmentSessionConflict)):
+            env.lifecycle.start_managed(targets[1])
         with s.env.sessions() as session:
             assert (
                 session.execute(select(DevelopmentSessionRow.__table__)).all()
@@ -111,29 +123,36 @@ def test_any_profile_can_run_up_to_admin_limit_without_changing_selection(
         # Lowering a limit preserves already running instances and blocks new work.
         with s.env.sessions.begin() as session:
             resource_policy(session).max_running = 1
-        assert resources.capacity().used == limit
+        assert resources.capacity().used == 1
         assert not resources.capacity().available
     finally:
         env.readiness.close()
 
 
-def test_concurrent_retained_starts_reserve_two_slots_and_refuse_third(
+def test_concurrent_web_starts_cannot_expand_single_slot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env = setup(tmp_path, monkeypatch)
     try:
         with env.s.env.sessions.begin() as session:
-            resource_policy(session).max_running = 2
+            resource_policy(session).max_running = 4
         targets = list(env.s.ids.values())
         with ThreadPoolExecutor(max_workers=2) as workers:
             starts = [
                 workers.submit(env.lifecycle.start_managed, t) for t in targets[:2]
             ]
+            outcomes = []
             for start in starts:
-                start.result(timeout=10)
-        with pytest.raises(ManagedCapacityError, match="capacity_full"):
+                try:
+                    start.result(timeout=10)
+                    outcomes.append(True)
+                except (ManagedCapacityError, DevelopmentSessionConflict):
+                    outcomes.append(False)
+        assert sorted(outcomes) == [False, True]
+        assert env.broker.starts == 1
+        assert sum(r.runtime_state == "running" for r in env.s.records) == 1
+        with pytest.raises((ManagedCapacityError, DevelopmentSessionConflict)):
             env.lifecycle.start_managed(targets[2])
-        assert env.broker.starts == 2
         with env.s.env.sessions() as session:
             authorization = session.scalar(
                 select(ManagedStartAuthorizationRow).where(
@@ -141,8 +160,78 @@ def test_concurrent_retained_starts_reserve_two_slots_and_refuse_third(
                 )
             )
             assert authorization is None or authorization.consumed_at is None
-
     finally:
+        env.readiness.close()
+
+
+@pytest.mark.parametrize("agent_first", [False, True])
+def test_web_and_mcp_lifecycle_share_admission_without_changing_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, agent_first: bool
+) -> None:
+    env = setup(tmp_path, monkeypatch)
+    s = env.s
+    s.choose("omega")
+    client = McpAdministrationService(s.env.sessions).create_client(
+        display_name="Concurrent lifecycle fixture",
+        preset_id=ADDON_DEVELOPMENT_PRESET_ID,
+    )
+    status = ManagedRuntimeStatusService(s.env.sessions, env.broker, env.readiness)
+    resources = ManagedResourceService(s.env.sessions, env.broker, env.lifecycle)
+    agent = ManagedAgentLifecycleService(
+        s.env.sessions,
+        resources,
+        env.lifecycle,
+        status,
+        lock_root=tmp_path / "agent-locks",
+        rate_limiter=BoundedIntervalRateLimiter(0),
+    )
+
+    def agent_start() -> object:
+        # Transport/policy authorization is covered by the MCP route tests.
+        return agent.ensure_ready(
+            client_id=client.id,
+            request_id=uuid4(),
+            target_id=s.ids["omega"],
+            authorize=lambda _session: None,
+            hold_minutes=0,
+        )
+
+    def web_start() -> object:
+        return env.lifecycle.start_managed(s.ids["nexus"])
+
+    models = (AgentWorkspaceRow, DevelopmentSourceRow, DevelopmentSessionRow)
+    with s.env.sessions() as session:
+        before = [session.execute(select(model.__table__)).all() for model in models]
+    profiles = {key: path.read_bytes() for key, path in s.profiles.items()}
+    env.broker.entered, env.broker.finish = Event(), Event()
+    first, second = (
+        (agent_start, web_start) if agent_first else (web_start, agent_start)
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            started = worker.submit(first)
+            try:
+                assert env.broker.entered.wait(5)
+                with pytest.raises(
+                    (
+                        ManagedCapacityError,
+                        DevelopmentSessionConflict,
+                        ManagedAgentLifecycleError,
+                    )
+                ):
+                    second()
+            finally:
+                env.broker.finish.set()
+            started.result(timeout=5)
+        assert env.broker.starts == 1
+        assert sum(r.runtime_state == "running" for r in s.records) == 1
+        assert {key: path.read_bytes() for key, path in s.profiles.items()} == profiles
+        with s.env.sessions() as session:
+            assert [
+                session.execute(select(model.__table__)).all() for model in models
+            ] == before
+    finally:
+        env.broker.finish.set()
         env.readiness.close()
 
 
