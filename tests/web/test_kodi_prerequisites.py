@@ -29,7 +29,7 @@ API = "/api/create-kodi/prerequisites"
 PREVIEW = "/preview/create-kodi-prerequisites"
 
 
-def test_higher_recorded_limit_needs_explicit_administrator_correction(
+def test_higher_recorded_limit_is_supported_without_changing_admin_policy(
     client: TestClient, broker: FakeBroker, database: sessionmaker[Session]
 ) -> None:
     Flow().attach(broker)
@@ -38,13 +38,13 @@ def test_higher_recorded_limit_needs_explicit_administrator_correction(
         session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=None))
     for _ in range(2):
         checks = {item["key"]: item for item in client.get(API).json()["checks"]}
-        assert checks["running_policy"]["status"] == "attention"
+        assert checks["running_policy"]["status"] == "passed"
         assert checks["running_policy"]["detail_url"] == "/managed-resources"
         assert (
-            "current limit is 4; it has not been changed"
+            "Up to 4 managed Kodi instances may run at once."
             in checks["running_policy"]["message"]
         )
-    assert "One Kodi at a time" in client.get(PREVIEW).text
+    assert "Managed Kodi running limit" in client.get(PREVIEW).text
     with database() as session:
         row = session.get(ManagedResourcePolicyRow, 1)
         assert row and (row.max_running, row.idle_minutes) == (4, None)
@@ -74,7 +74,10 @@ def test_prerequisites_require_authentication_and_accept_only_reads(
         assert client.post(API, headers=headers).status_code == 405
         assert client.post(PREVIEW, headers=headers).status_code == 405
     assert client.get(API, headers={"Host": "evil.invalid"}).status_code == 400
-    for generation in ("piers", "unknown", "../../etc/passwd"):
+    for generation in ("matrix", "nexus", "omega", "piers"):
+        assert client.get(API, params={"generation": generation}).status_code == 200
+        assert client.get(PREVIEW, params={"generation": generation}).status_code == 200
+    for generation in ("unknown", "../../etc/passwd"):
         assert client.get(API, params={"generation": generation}).status_code == 422
         assert client.get(PREVIEW, params={"generation": generation}).status_code == 422
 
