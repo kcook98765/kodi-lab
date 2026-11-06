@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -130,7 +131,7 @@ def test_populated_predecessor_preserves_unscoped_history_and_exact_receipt(
         with case.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))
-                == REVISION
+                == ScriptDirectory.from_config(config).get_current_head()
             )
         assert read_retirement_receipt(case.sessions, operation_id) == receipt
     finally:

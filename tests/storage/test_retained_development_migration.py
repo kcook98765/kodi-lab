@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -105,7 +106,10 @@ def test_retained_admission_on_real_schema_and_history_blocks_downgrade(
     for generation in ("omega", "nexus", "matrix", "omega"):
         s.choose(generation)
     with s.env.sessions() as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == NEW
+        assert (
+            session.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
+        )
         assert session.scalar(text("SELECT count(*) FROM development_selections")) == 4
         assert session.execute(text("PRAGMA foreign_key_check")).all() == []
     with pytest.raises(IntegrityError):

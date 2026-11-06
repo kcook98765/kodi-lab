@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -135,7 +136,7 @@ def test_real_coordinator_on_migrated_schema_and_durable_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == REVISION
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert (
             connection.scalar(text("SELECT stage FROM household_onboarding_operations"))

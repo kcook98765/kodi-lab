@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from kodi_lab.storage.engine import create_database_engine
@@ -52,7 +53,8 @@ def test_real_session_reservation_and_broker_binding_on_migrated_schema(
     assert state.service.status().phase == "bound"
     with state.env.sessions() as session:
         assert (
-            session.scalar(text("SELECT version_num FROM alembic_version")) == REVISION
+            session.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert session.scalar(text("PRAGMA integrity_check")) == "ok"
         assert session.execute(text("PRAGMA foreign_key_check")).all() == []

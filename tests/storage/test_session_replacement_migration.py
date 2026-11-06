@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -151,7 +152,7 @@ def test_upgraded_predecessor_runs_real_scoped_lifecycle_and_atomic_successor_ad
         with env.state.env.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))
-                == REVISION
+                == ScriptDirectory.from_config(config).get_current_head()
             )
             assert session.execute(text("PRAGMA foreign_key_check")).all() == []
         command.upgrade(config, "head")

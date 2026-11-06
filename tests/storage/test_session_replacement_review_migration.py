@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -87,7 +88,7 @@ def test_populated_review_preserves_evidence_and_preserves_history(
         with env.state.env.sessions() as session:
             assert (
                 session.scalar(text("SELECT version_num FROM alembic_version"))
-                == REVISION
+                == ScriptDirectory.from_config(config).get_current_head()
             )
     command.upgrade(config, "head")
     assert env.state.service.status().phase == "bound"

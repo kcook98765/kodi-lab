@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from kodi_lab.broker.errors import PostStartVerificationError
@@ -112,7 +113,7 @@ def test_real_uncertain_admission_on_initial_schema_and_preserves_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == REVISION
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert connection.execute(
             text("SELECT managed_instance_id,phase FROM managed_start_reservations")
