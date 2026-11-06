@@ -32,13 +32,17 @@ from kodi_lab.broker.docker_inventory import (
     ProvisionedManagedContainerRecord,
 )
 from kodi_lab.broker.errors import ClientTransportError
-from kodi_lab.broker.operations import ProvisionManagedContainerResult
+from kodi_lab.broker.operations import (
+    DeprovisionManagedContainerResult,
+    ProvisionManagedContainerResult,
+)
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.kodi.readiness import KodiApplicationIdentity, ReadinessResult
 from kodi_lab.mcp.authorization import McpAuthorizationService
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.storage.models import (
+    ManagedCleanResetRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedVersionOperationRow,
@@ -96,11 +100,34 @@ class Broker(NativeBroker, InstallationBroker):
         self.records = []
         self.worker_state = "missing"
         self.provisions = 0
+        self.removals = 0
         self.fault = ""
         self.calls: list[tuple[str, dict[str, object]]] = []
         self.remote_error: BaseException | None = None
         self.playback_active: bool | None = False
         self.snapshot_data_root: Path | None = None
+
+    def deprovision_managed_container(
+        self, **kwargs: Any
+    ) -> DeprovisionManagedContainerResult:
+        target = kwargs["managed_instance_id"]
+        record = next(r for r in self.records if r.managed_instance_id == target)
+        assert record.container_id == kwargs["expected_container_id"]
+        assert record.runtime_revision_id == kwargs["expected_runtime_revision_id"]
+        assert record.runtime_state == kwargs["expected_runtime_state"] == "stopped"
+        self.removals += 1
+        self.records.remove(record)
+        profile = self.root / target / "settings.xml"
+        profile.unlink()
+        profile.parent.rmdir()
+        if self.fault == "lost_remove_response":
+            raise ClientTransportError("fake lost removal reply")
+        return DeprovisionManagedContainerResult(
+            managed_instance_id=target,
+            runtime_revision_id=str(record.runtime_revision_id),
+            removed_container_id=record.container_id,
+            removed=True,
+        )
 
     def provision_managed_container(
         self, **kwargs: Any
@@ -110,12 +137,18 @@ class Broker(NativeBroker, InstallationBroker):
             lease = session.get(ManagedInstanceMutationLeaseRow, managed_instance_id)
             instance = session.get(ManagedInstanceRow, managed_instance_id)
             assert lease is not None and instance is not None
-            parent = (
-                session.query(ManagedVersionOperationRow)
+            phase = (
+                session.query(ManagedVersionOperationRow.phase)
                 .filter_by(provision_operation_id=lease.operation_id)
-                .one()
+                .scalar()
             )
-            assert parent.phase == "provisioning"
+            if phase is None:
+                phase = (
+                    session.query(ManagedCleanResetRow.phase)
+                    .filter_by(provision_id=lease.operation_id)
+                    .scalar()
+                )
+            assert phase == "provisioning"
             artifact = session.get(
                 RuntimeContainerArtifactRow, instance.runtime_revision_id
             )
@@ -132,6 +165,12 @@ class Broker(NativeBroker, InstallationBroker):
             raise ProcessLoss()
 
         def dispatch() -> ProvisionedManagedContainerRecord:
+            if self.fault == "safe_provision_failure":
+                from kodi_lab.broker.errors import RuntimeImageUnavailableError
+
+                raise RuntimeImageUnavailableError(
+                    "fake image unavailable before create"
+                )
             self.provisions += 1
             self.records.append(record)
             profile = self.root / managed_instance_id / "settings.xml"

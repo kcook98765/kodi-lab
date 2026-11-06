@@ -77,6 +77,7 @@ EXPLICIT_SOURCE_CAPTURE_PERMISSIONS = frozenset(
 )
 EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS = frozenset({"managed.lifecycle"})
 EXPLICIT_MANAGED_VERSION_PERMISSIONS = frozenset({"managed.versions"})
+EXPLICIT_MANAGED_RESET_PERMISSIONS = frozenset({"managed.reset"})
 EXPLICIT_NATIVE_ZIP_PERMISSIONS = frozenset({"addon.install"})
 EXPLICIT_ADDON_SETTINGS_PERMISSIONS = frozenset({"development.settings.write"})
 
@@ -409,6 +410,7 @@ class McpAdministrationService:
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
                     | EXPLICIT_MANAGED_VERSION_PERMISSIONS
+                    | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
                 )
@@ -419,6 +421,7 @@ class McpAdministrationService:
                     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
                     | EXPLICIT_MANAGED_VERSION_PERMISSIONS
+                    | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
                     if template_preset_id

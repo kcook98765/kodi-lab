@@ -8930,3 +8930,81 @@ event.listen(
     "after_create",
     DDL(MANAGED_START_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
 )
+
+
+class ManagedCleanResetRow(Base):
+    """Principal-bound clean-profile replacement; no cascading history deletion."""
+
+    __tablename__ = "managed_clean_resets"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="clean_reset_request"),
+        CheckConstraint(
+            "generation IN ('matrix','nexus','omega','piers')",
+            name="clean_reset_version",
+        ),
+        CheckConstraint("restart IN (0,1)", name="clean_reset_restart"),
+        CheckConstraint(
+            "phase IN ('accepted','stopping','stopped','removing','retired',"
+            "'provisioning','prepared','starting','complete','blocked','uncertain')",
+            name="clean_reset_phase",
+        ),
+        CheckConstraint(
+            "step IS NULL OR step IN ('stop','remove','provision','start')",
+            name="clean_reset_step",
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "AND length(target_id)=36 AND length(runtime_revision_id)=36 AND "
+            "length(image_id)=71 AND length(stop_id)=36 AND "
+            "length(remove_id)=36 AND length(provision_id)=36 AND "
+            "length(start_id)=36 AND expected_state_revision>=0",
+            name="clean_reset_identity",
+        ),
+        CheckConstraint(
+            "(old_container_id IS NULL OR length(old_container_id)=64) AND "
+            "(new_container_id IS NULL OR (length(new_container_id)=64 AND "
+            "(old_container_id IS NULL OR "
+            "new_container_id!=old_container_id)))",
+            name="clean_reset_containers",
+        ),
+        Index("ix_clean_reset_target", "target_id", "phase"),
+        Index(
+            "uq_clean_reset_active",
+            "target_id",
+            unique=True,
+            sqlite_where=text("phase NOT IN ('complete','blocked')"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[str] = mapped_column(String(8), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    restart: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    old_container_id: Mapped[str | None] = mapped_column(String(64))
+    new_container_id: Mapped[str | None] = mapped_column(String(64))
+    selected_generation: Mapped[int | None] = mapped_column(Integer)
+    expected_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    step: Mapped[str | None] = mapped_column(String(12))
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    stop_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    remove_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    provision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    start_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    remove_dispatched_at: Mapped[str | None] = mapped_column(String(27))
+    invalidated_at: Mapped[str | None] = mapped_column(String(27))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+from kodi_lab.storage.managed_clean_reset_sql import RESET_TRIGGERS  # noqa: E402
+
+for _reset_trigger in RESET_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_reset_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )

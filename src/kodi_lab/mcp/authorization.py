@@ -404,8 +404,14 @@ class McpAuthorizationService:
 
         definition = self._definition(tool_name)
         if (
-            tool_name not in {"managed_status", "managed_start", "managed_stop"}
-            or definition.permissions != frozenset({"managed.versions"})
+            tool_name
+            not in {"managed_status", "managed_start", "managed_stop", "managed_reset"}
+            or definition.permissions
+            != (
+                frozenset({"managed.versions", "managed.reset"})
+                if tool_name == "managed_reset"
+                else frozenset({"managed.versions"})
+            )
             or definition.allowed_target_classes
             != frozenset({TargetClass.INTERNAL_LAB})
         ):

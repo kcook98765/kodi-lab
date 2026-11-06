@@ -55,6 +55,10 @@ from kodi_lab.application.development_sessions import (
     RetainedSelectionRequest,
 )
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleResult
+from kodi_lab.application.managed_clean_reset import (
+    ManagedResetInput,
+    ManagedResetResult,
+)
 from kodi_lab.application.managed_versions import (
     ManagedStatusInput,
     ManagedVersionInput,
@@ -188,6 +192,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "managed_ensure_ready",
         "managed_release",
         "managed_status",
+        "managed_reset",
         "managed_start",
         "managed_stop",
         "inspect_ui_state",
@@ -1304,6 +1309,29 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "managed_reset": Tool(
+            name="managed_reset",
+            title="Reset a managed Kodi version to a clean profile",
+            description=(
+                "Destructively replace only the granted canonical version's Kodi "
+                "profile from its existing approved cached image. Requires both "
+                "managed.versions and managed.reset on client and target policy, "
+                "plus the exact target grant. Preserves independent source, "
+                "workspace and Git state. No fixtures are restored. Defaults to "
+                "stopped; restart=true requests native Start, not Bridge or agent "
+                "readiness. Persist request_id and replay it after a lost response. "
+                "Uncertain removal never permits replacement or another removal."
+            ),
+            input_schema=ManagedResetInput.model_json_schema(),
+            output_schema=ManagedResetResult.model_json_schema(),
+            annotations=ToolAnnotations(
+                read_only_hint=False,
+                destructive_hint=True,
+                idempotent_hint=True,
+                open_world_hint=False,
+            ),
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "managed_start": Tool(
             name="managed_start",
             title="Start a managed Kodi version",
@@ -1434,6 +1462,7 @@ def build_mcp_http_transport(
                 | UiObservation
                 | McpRemoteActionResult
                 | ManagedAgentLifecycleResult
+                | ManagedResetResult
                 | ManagedVersionResult
                 | ManagedVersionsStatus
                 | ProductionApprovalRequiredResult
@@ -1530,6 +1559,12 @@ def build_mcp_http_transport(
                     tools.managed_select, principal, parsed_selection
                 )
                 source_id = result.source_id
+            elif params.name == "managed_reset":
+                parsed_reset = ManagedResetInput.model_validate(arguments)
+                request_id = parsed_reset.request_id
+                result = await asyncio.to_thread(
+                    tools.managed_reset, principal, parsed_reset
+                )
             elif params.name == "managed_status":
                 parsed_version_status = ManagedStatusInput.model_validate(arguments)
                 result = await asyncio.to_thread(

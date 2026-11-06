@@ -166,6 +166,9 @@ class ManagedAgentLifecycleService:
     ) -> ManagedAgentLifecycleResult:
         with self._sessions() as session:
             authorize(session)
+            from kodi_lab.storage.managed_clean_reset import require_no_clean_reset
+
+            require_no_clean_reset(session, str(target_id))
             self._resources.require_managed(session, target_id)
         with self._lock(target_id):
             row, replayed = self._claim(

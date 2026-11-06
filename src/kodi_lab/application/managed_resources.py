@@ -166,6 +166,10 @@ class ManagedResourceService:
             session.execute(text("BEGIN IMMEDIATE"))
             self.require_managed(session, instance_id)
             if minutes:
+                from kodi_lab.storage.managed_clean_reset import active_clean_reset
+
+                if active_clean_reset(session, str(instance_id)) is not None:
+                    raise ManagedResourceProtected("managed_reset_pending")
                 lease = session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
                 operation = (
                     None
