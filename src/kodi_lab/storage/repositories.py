@@ -174,6 +174,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedRuntimeReconstructionRow,
     ManagedRuntimeRetirementRow,
+    ManagedVersionOperationRow,
     McpWorkspaceDeploymentOperationRow,
     PromotionVerificationLogEvidenceRow,
     PromotionVerificationOperationRow,
@@ -6547,6 +6548,16 @@ class ManagedInstanceLifecycleOperationRepository:
                 ),
                 ~ManagedInstanceLifecycleOperationRow.id.in_(
                     select(ManagedRuntimeRetirementRow.operation_id)
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedVersionOperationRow.provision_operation_id).where(
+                        ManagedVersionOperationRow.provision_operation_id.is_not(None)
+                    )
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedVersionOperationRow.lifecycle_operation_id).where(
+                        ManagedVersionOperationRow.lifecycle_operation_id.is_not(None)
+                    )
                 ),
                 ~ManagedInstanceLifecycleOperationRow.id.in_(
                     select(CreateKodiOperationRow.provision_operation_id).where(

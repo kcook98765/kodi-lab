@@ -218,7 +218,6 @@ class ManagedCapacityAdmission:
                 ]
                 if (
                     (not retained and len(records) != 1)
-                    or (retained and any(r.runtime_state != "stopped" for r in records))
                     or len(selected_records) != 1
                     or selected_records[0].container_id != result.container_id
                     or selected_records[0].runtime_revision_id != revision_id

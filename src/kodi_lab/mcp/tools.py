@@ -39,6 +39,14 @@ from kodi_lab.application.managed_agent_lifecycle import (
     ManagedAgentLifecycleResult,
     ManagedAgentLifecycleService,
 )
+from kodi_lab.application.managed_versions import (
+    ManagedStatusInput,
+    ManagedVersionError,
+    ManagedVersionInput,
+    ManagedVersionLifecycleService,
+    ManagedVersionResult,
+    ManagedVersionsStatus,
+)
 from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.mcp_promotion_requests import (
     McpPromotionRequestError,
@@ -768,6 +776,7 @@ class McpTargetToolService:
         ) = None,
         workspace_source_captures: WorkspaceSourceCaptureService | None = None,
         managed_lifecycle: ManagedAgentLifecycleService | None = None,
+        managed_versions: ManagedVersionLifecycleService | None = None,
         workspace_launch: WorkspaceLaunchService | None = None,
         addon_settings: AddonSettingsService | None = None,
         retained_sessions: DevelopmentSessionService | None = None,
@@ -791,6 +800,7 @@ class McpTargetToolService:
         self._production_transient_approvals = production_transient_approvals
         self._workspace_source_captures = workspace_source_captures
         self._managed_lifecycle = managed_lifecycle
+        self._managed_versions = managed_versions
         self._workspace_launch = workspace_launch
         self._addon_settings = addon_settings
         self._retained_sessions = retained_sessions
@@ -878,6 +888,52 @@ class McpTargetToolService:
             phase=result.phase,
             selected=current is not None and current.generation == result.generation,
         )
+
+    def managed_status(
+        self,
+        principal: McpPrincipal,
+        _operation: ManagedStatusInput,
+    ) -> ManagedVersionsStatus:
+        with self._session_factory() as session:
+            self._authorization.recheck_managed_versions(
+                session, principal, "managed_status"
+            )
+        if self._managed_versions is None:
+            raise McpAuthorizationError("capability_unavailable")
+        result = self._managed_versions.status(
+            principal.client_id,
+            lambda session, target: self._authorization.recheck_managed_versions(
+                session, principal, "managed_status", target
+            ),
+        )
+        self._require_bounded(result)
+        return result
+
+    def managed_version_action(
+        self,
+        principal: McpPrincipal,
+        operation: ManagedVersionInput,
+        *,
+        action: Literal["start", "stop"],
+    ) -> ManagedVersionResult:
+        if self._managed_versions is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._managed_versions.invoke(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                version=operation.version,
+                action=action,
+                authorize=lambda session, target: (
+                    self._authorization.recheck_managed_versions(
+                        session, principal, "managed_" + action, target
+                    )
+                ),
+            )
+        except (ManagedVersionError, ManagedAgentLifecycleError) as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_bounded(result)
+        return result
 
     def managed_ensure_ready(
         self,

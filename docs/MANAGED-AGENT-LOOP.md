@@ -6,12 +6,33 @@ discards its writable settings/add-ons and prepares a clean replacement.** Sourc
 workspace and Git state outside Kodi are independent. Reset must have separate,
 explicit destructive authority; ordinary lifecycle permission does not grant it.
 
-Issue #238 is [being delivered in stages](ISSUE-238-MANAGED-SLOTS.md). This stage
-enforces one running managed Kodi globally and refuses a second writable profile
-for the same version, including pending/uncertain provisioning under another
-target UUID. It does **not** add version-oriented MCP tools or agent Reset yet.
-Use the installed tools below; never invent an unavailable Reset tool or treat
-native Kodi readiness as Bridge/workspace/deployment readiness.
+Issue #238 is [being delivered in stages](MANAGED-VERSION-LIFECYCLE.md). The
+version-oriented MCP loop is now available after explicit administrator opt-in:
+
+1. Call `managed_status({})` to discover the supported versions and authorized
+   slot state. No raw target/container/revision is needed for lifecycle actions.
+2. Persist a fresh request UUID, then call
+   `managed_start({version: "omega", request_id: "<UUID>"})`. It prepares an empty
+   approved cached slot or resumes the same stopped profile. Poll with the
+   original UUID after a lost response or while readiness is checking. Continue
+   native work only when `status.native_ready` is true. Bridge and workspace
+   readiness are separate; Start grants neither.
+3. Develop/test through the separately authorized workspace loop below.
+4. Persist another UUID and call
+   `managed_stop({version: "omega", request_id: "<UUID>"})`. Confirm
+   `stop_confirmed`; a retained profile keeps settings and installed add-ons.
+   Another user's viewer, input, hold, active use or mutation blocks Stop.
+
+Use `matrix`, `nexus`, `omega` or `piers`. Both the custom client preset and exact
+canonical target policy need the new `managed.versions` permission plus the
+client's exact target grant. Existing presets and `managed.lifecycle` do not
+automatically opt in. The administrator must prepare an approved cached runtime;
+Start never downloads, approves, repins or silently adopts an old profile.
+
+To switch versions, safely Stop the current version first with its own grant.
+Automatic switching and agent clean Reset are not implemented in this phase.
+Never invent a Reset tool or replace an uncertain request with a new UUID.
+See [version lifecycle recovery and limits](MANAGED-VERSION-LIFECYCLE.md).
 
 Use this loop for an existing authorized **managed disposable development**
 target, registered source and owned workspace. Discover the tools on the
@@ -31,7 +52,8 @@ enable/start the add-on, or give an agent new permissions. Follow the
    its generation and target/runtime identity rather than assuming it is current.
    Starting an existing provisioned target through
    [managed ensure-ready](MANAGED-KODI-RESOURCES.md) requires its separate opt-in
-   authority. Release a bounded managed-use hold when finished.
+   authority. Use `managed_stop` when explicitly granted actual Stop authority; legacy
+   `managed_release` clears use but does not prove Stop.
 2. **Stage reviewed changes once.** Synchronize reviewed local changes into the
    registered source mirror through the project's normal workflow. Call
    `workspace_import_preview` with the current `expected_generation`; review all

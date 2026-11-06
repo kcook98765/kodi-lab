@@ -317,10 +317,12 @@ from kodi_lab.application.managed_resources import (
     PlaybackFactory,
     ResourcePolicyInput,
 )
+from kodi_lab.application.managed_versions import ManagedVersionLifecycleService
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
     EXPLICIT_ADDON_SETTINGS_PERMISSIONS,
     EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS,
+    EXPLICIT_MANAGED_VERSION_PERMISSIONS,
     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS,
     FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationError,
@@ -1353,6 +1355,7 @@ class WebApplicationContext:
     lifecycle: ManagedRuntimeLifecycleService
     managed_resources: ManagedResourceService
     managed_agent_lifecycle: ManagedAgentLifecycleService
+    managed_versions: ManagedVersionLifecycleService
     managed_idle_worker: ManagedIdleWorker
     matrix: RuntimeMatrixService
     readiness: ReadinessTaskRegistry
@@ -2103,6 +2106,19 @@ def create_app(
         status_service,
         lock_root=settings.data_root / "locks/managed-agent-lifecycle",
     )
+    runtime_installations = RuntimeInstallationService(
+        session_factory, broker, data_root=settings.data_root
+    )
+    managed_versions = ManagedVersionLifecycleService(
+        session_factory,
+        lifecycle_service,
+        resources,
+        status_service,
+        runtime_installations,
+        agent_lifecycle,
+        broker.managed_container_inventory,
+        data_root=settings.data_root,
+    )
     idle_worker = ManagedIdleWorker(resources)
     workspace_launch = WorkspaceLaunchService(
         session_factory,
@@ -2159,6 +2175,7 @@ def create_app(
             production_transient_approvals=production_transient_approvals,
             workspace_source_captures=workspace_source_captures,
             managed_lifecycle=agent_lifecycle,
+            managed_versions=managed_versions,
             retained_sessions=session_service,
             workspace_launch=workspace_launch,
             addon_settings=addon_settings,
@@ -2199,6 +2216,7 @@ def create_app(
         lifecycle=lifecycle_service,
         managed_resources=resources,
         managed_agent_lifecycle=agent_lifecycle,
+        managed_versions=managed_versions,
         managed_idle_worker=idle_worker,
         matrix=RuntimeMatrixService(
             session_factory,
@@ -2418,9 +2436,6 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
-    )
-    runtime_installations = RuntimeInstallationService(
-        session_factory, broker, data_root=settings.data_root
     )
     kodi_prerequisites = ManagedKodiPrerequisiteService(
         runtime_installations, context.managed_resources, data_root=settings.data_root
@@ -3762,6 +3777,7 @@ def create_app(
                     }
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                     | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
+                    | EXPLICIT_MANAGED_VERSION_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
                 ),
                 "capture_permission_template_ids": {

@@ -85,7 +85,7 @@ def repository_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
     (tree / "versions/0002_future_test.py").write_text(
         "from alembic import op\n"
-        "revision='0002_future_test'\ndown_revision='0002_managed_setup'\n"
+        "revision='0002_future_test'\ndown_revision='0003_managed_versions'\n"
         "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
         "def downgrade(): op.execute('DROP TABLE future_marker')\n"
     )

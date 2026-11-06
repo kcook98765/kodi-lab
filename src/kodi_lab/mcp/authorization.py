@@ -388,6 +388,61 @@ class McpAuthorizationService:
         ):
             raise McpAuthorizationError("permission_denied")
 
+    def recheck_managed_versions(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        tool_name: str,
+        target_id: UUID | None = None,
+    ) -> None:
+        """Explicit version authority, including an approved empty registration.
+
+        There is no implicit target creation/grant. An administrator must already
+        have granted this exact canonical target and opted both policies in.
+        """
+        from kodi_lab.storage.managed_version_slots import managed_version_slots
+
+        definition = self._definition(tool_name)
+        if (
+            tool_name not in {"managed_status", "managed_start", "managed_stop"}
+            or definition.permissions != frozenset({"managed.versions"})
+            or definition.allowed_target_classes
+            != frozenset({TargetClass.INTERNAL_LAB})
+        ):
+            raise McpAuthorizationError("permission_denied")
+        client = self._require_client_permission(session, principal, definition)
+        self._require_current_credential(session, principal, client)
+        if target_id is None:
+            if tool_name != "managed_status":
+                raise McpAuthorizationError("permission_denied")
+            return
+        slot = next(
+            (
+                slot
+                for slot in managed_version_slots()
+                if slot.canonical_target_id == target_id
+            ),
+            None,
+        )
+        target = session.get(TargetRow, str(target_id))
+        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+        grant = session.get(
+            McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+        )
+        if (
+            slot is None
+            or target is None
+            or target.target_type is not TargetType.MANAGED
+            or target.kodi_version != slot.kodi_version
+            or assignment is None
+            or grant is None
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+        if not definition.permissions.issubset(
+            self._permissions(session, assignment.preset_id)
+        ):
+            raise McpAuthorizationError("permission_denied")
+
     def authorize_production_navigation(
         self,
         principal: McpPrincipal,

@@ -165,8 +165,12 @@ reviewed runtime recipe does not automatically migrate existing profiles.
 data.** Independent source/workspace/Git state has its own retention controls.
 The version-oriented **Status → Start → Use → Reset or Stop** workflow is being
 implemented in stages under [issue #238](docs/ISSUE-238-MANAGED-SLOTS.md).
-This first stage establishes admission fences; existing MCP lifecycle tools
-still require an already provisioned, explicitly authorized target.
+Explicitly authorized agents can now use `managed_status`, `managed_start` and
+`managed_stop` with version names. Start prepares an empty approved cached slot
+or resumes its retained profile; Stop safely retains it. See the
+[version lifecycle setup and replay contract](docs/MANAGED-VERSION-LIFECYCLE.md).
+Clean Reset, automatic switching and the four-version Web interface remain
+follow-up work; existing presets do not gain lifecycle authority automatically.
 
 To connect an existing Kodi installation instead, use **Add Kodi** and its
 pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
