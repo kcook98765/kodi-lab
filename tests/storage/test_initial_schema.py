@@ -25,6 +25,7 @@ def test_exact_prerelease_head_contract_and_safe_reinitialization(
     config = migration_config(database)
     graph = ScriptDirectory.from_config(config)
     assert [(r.revision, r.down_revision) for r in graph.walk_revisions()] == [
+        ("0005_managed_web", "0004_clean_reset"),
         ("0004_clean_reset", "0003_managed_versions"),
         ("0003_managed_versions", "0002_managed_setup"),
         ("0002_managed_setup", BASELINE),
@@ -143,7 +144,7 @@ def test_normal_forward_migration_after_baseline(tmp_path: Path) -> None:
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
     (tree / "versions/0002_future.py").write_text(
         "from alembic import op\n"
-        "revision='0002_future'\ndown_revision='0004_clean_reset'\n"
+        "revision='0002_future'\ndown_revision='0005_managed_web'\n"
         "def upgrade():\n"
         "    op.execute('CREATE TABLE future_data (id INTEGER PRIMARY KEY)')\n"
         "def downgrade(): op.execute('DROP TABLE future_data')\n"

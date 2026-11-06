@@ -182,3 +182,33 @@ def test_local_bootstrap_prompts_hidden_and_invalidates_sessions(
     output = capsys.readouterr().out
     assert "replacement" not in output
     assert WebAuthenticationService(auth_factory).login("replacement") is not None
+
+
+def test_dispatch_recheck_is_read_only_and_observes_expiry_and_revocation(
+    auth_factory: sessionmaker[Session],
+) -> None:
+    from sqlalchemy import text
+
+    clock = MutableClock()
+    service = WebAuthenticationService(auth_factory, now=clock.utc)
+    service.set_password("password")
+    created = service.login("password")
+    assert created is not None
+    digest = service.token_digest(created.token)
+    clock.now += timedelta(minutes=10)
+    with auth_factory.begin() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        prior = session.get(WebSessionRow, digest)
+        assert prior is not None
+        last_used = prior.last_used_at
+        assert service.resolve_in_session(session, created.token) is not None
+        assert prior.last_used_at == last_used and not session.dirty
+        assert service.resolve_in_session(session, "malformed") is None
+    clock.now = created.authenticated.created_at + SESSION_IDLE_LIFETIME
+    with auth_factory() as session:
+        assert service.resolve_in_session(session, created.token) is None
+        assert session.get(WebSessionRow, digest) is not None
+    clock.now = created.authenticated.created_at
+    service.logout(created.token)
+    with auth_factory() as session:
+        assert service.resolve_in_session(session, created.token) is None

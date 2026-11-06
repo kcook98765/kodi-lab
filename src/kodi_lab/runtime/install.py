@@ -496,13 +496,8 @@ def _commit_ready(
     return {"runtime_revision_id": str(revision_id)}
 
 
-def bootstrap_recipe_instance(
-    factory: sessionmaker[Session], reviewed: ReviewedRecipe, revision_id: UUID
-) -> dict[str, str]:
-    """Create a stopped managed pin once; never rebind an existing instance."""
-
-    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
-        return {"created": "false"}
+def register_recipe_target(session: Session, reviewed: ReviewedRecipe) -> UUID:
+    """Register only the reviewed canonical target; never adopt or repin a profile."""
     target_id = recipe_target_id(reviewed)
     expected = Target(
         id=target_id,
@@ -514,21 +509,30 @@ def bootstrap_recipe_instance(
         health=HealthStatus.WARNING,
         connection_state=ConnectionState.DISCONNECTED,
     )
+    targets = TargetRepository(session)
+    current = targets.get(target_id)
+    if current is None:
+        if any(item.name == expected.name for item in targets.list()):
+            raise RecipeInstallationError("managed generation target name conflicts")
+        targets.create(expected)
+    elif (
+        current.name != expected.name
+        or current.target_type is not TargetType.MANAGED
+        or current.kodi_version != expected.kodi_version
+    ):
+        raise RecipeInstallationError("managed generation target conflicts")
+    return target_id
+
+
+def bootstrap_recipe_instance(
+    factory: sessionmaker[Session], reviewed: ReviewedRecipe, revision_id: UUID
+) -> dict[str, str]:
+    """Create a stopped managed pin once; never rebind an existing instance."""
+
+    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+        return {"created": "false"}
     with factory.begin() as session:
-        targets = TargetRepository(session)
-        current = targets.get(target_id)
-        if current is None:
-            if any(item.name == expected.name for item in targets.list()):
-                raise RecipeInstallationError(
-                    "managed generation target name conflicts"
-                )
-            targets.create(expected)
-        elif (
-            current.name != expected.name
-            or current.target_type is not TargetType.MANAGED
-            or current.kodi_version != expected.kodi_version
-        ):
-            raise RecipeInstallationError("managed generation target conflicts")
+        target_id = register_recipe_target(session, reviewed)
         instance = ManagedInstanceRepository(session).get(target_id)
         if instance is not None:
             pinned = RuntimeRevisionRepository(session).get(

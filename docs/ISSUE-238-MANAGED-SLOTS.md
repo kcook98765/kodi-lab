@@ -1,5 +1,12 @@
 # Issue #238: managed version slots
 
+This document records the admission-foundation campaign. Subsequent layers are
+[agent version lifecycle](MANAGED-VERSION-LIFECYCLE.md), [clean Reset](MANAGED-CLEAN-RESET.md)
+and the [four-version Web interface](MANAGED-KODI-WEB.md). Automatic switching and
+native/platform qualification remain open. Historical audit/findings below retain
+their original phase scope.
+
+
 ## Current-main audit
 
 Starting main: `71e6a8a946858e4b9738bc21d1294baca594b90c` (PR #237).

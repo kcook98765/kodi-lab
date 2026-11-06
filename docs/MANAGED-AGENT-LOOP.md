@@ -6,6 +6,11 @@ discards its writable settings/add-ons and prepares a clean replacement.** Sourc
 workspace and Git state outside Kodi are independent. Reset must have separate,
 explicit destructive authority; ordinary lifecycle permission does not grant it.
 
+Human administrators use the [four-version Kodi page](MANAGED-KODI-WEB.md) for
+Start, screen viewing, retained Stop and confirmed clean Reset. These actions do
+not grant agent or workspace authority. After Reset, use **Set up for add-on
+testing** to establish fresh Bridge and deployment evidence.
+
 Issue #238 is [being delivered in stages](MANAGED-VERSION-LIFECYCLE.md). The
 version-oriented MCP loop is now available after explicit administrator opt-in:
 

@@ -318,7 +318,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
 
 
 @pytest.mark.parametrize("mode", ["standard", "development"])
-def test_landing_uses_selected_identity_without_live_observation(
+def test_landing_prioritizes_version_slots_and_keeps_development_advanced(
     client: TestClient,
     database: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
@@ -335,11 +335,13 @@ def test_landing_uses_selected_identity_without_live_observation(
     monkeypatch.setattr(context.status, "get_observation", forbidden)
     monkeypatch.setattr(context.status, "list_statuses", forbidden)
     page = client.get("/kodi").text
-    assert page.count('class="current-kodi-card"') == 1
-    assert "Selected development environment" in page
-    assert "Session source" in page
-    assert "Open Current Kodi" in page
-    assert "No development Kodi is selected" not in page
+    assert 'class="current-kodi-card"' not in page
+    assert all(
+        f'data-slot="{version}"' in page
+        for version in ("matrix", "nexus", "omega", "piers")
+    )
+    assert "Current Kodi development setup" in page
+    assert "Session source" not in page
     assert "app.js" not in page
 
 

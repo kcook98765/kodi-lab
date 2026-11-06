@@ -42,6 +42,7 @@ from kodi_lab.storage.managed_clean_reset import (
     active_clean_reset,
     require_no_clean_reset,
 )
+from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER, lifecycle_actor
 from kodi_lab.storage.managed_start import require_managed_start
 from kodi_lab.storage.managed_version_slots import (
     ManagedVersionSlot,
@@ -331,7 +332,7 @@ class ManagedVersionLifecycleService:
                 raise ManagedVersionError("runtime_changed_since_request")
 
     def register_cached(
-        self, session: Session, slot: ManagedVersionSlot
+        self, session: Session, slot: ManagedVersionSlot, *, create_target: bool = False
     ) -> ManagedInstanceRow:
         """Reuse approved registration inside an authorized parent transaction."""
         instance = session.get(ManagedInstanceRow, str(slot.canonical_target_id))
@@ -358,6 +359,10 @@ class ManagedVersionLifecycleService:
                 or observed.runtime_revision_id is None
             ):
                 raise ManagedVersionError("approved_cached_runtime_required")
+            if create_target:
+                from kodi_lab.runtime.install import register_recipe_target
+
+                register_recipe_target(session, reviewed)
             ManagedInstanceService(
                 self._sessions,
                 data_root=self._data_root,
@@ -457,7 +462,9 @@ class ManagedVersionLifecycleService:
                     ):
                         raise ManagedVersionError("other_version_running")
                     instance = (
-                        self.register_cached(session, slot)
+                        self.register_cached(
+                            session, slot, create_target=client_id == WEB_ADMIN_OWNER
+                        )
                         if action == "start"
                         else session.get(ManagedInstanceRow, row.target_id)
                     )
@@ -542,6 +549,7 @@ class ManagedVersionLifecycleService:
             if (
                 parent.phase in {"accepted", "prepared"}
                 and parent.lifecycle_operation_id is None
+                and parent.client_id != str(WEB_ADMIN_OWNER)
                 and (owner is None or not owner.enabled)
             ):
                 # Administrative client revocation can close only undispatched
@@ -660,11 +668,11 @@ class ManagedVersionLifecycleService:
             return
         now = self._clock()
         record_activity(
-            session, UUID(row.target_id), actor=f"mcp:{row.client_id}", now=now
+            session, UUID(row.target_id), actor=lifecycle_actor(row.client_id), now=now
         )
         session.flush()
         use = session.get(
-            ManagedInstanceUseRow, (row.target_id, f"mcp:{row.client_id}")
+            ManagedInstanceUseRow, (row.target_id, lifecycle_actor(row.client_id))
         )
         assert use is not None
         until = timestamp(now + timedelta(minutes=15))
@@ -825,7 +833,7 @@ class ManagedVersionLifecycleService:
             session.execute(text("BEGIN IMMEDIATE"))
             saved = self._pending(session, row, "prepared", authorize)
             use = session.get(
-                ManagedInstanceUseRow, (row.target_id, f"mcp:{row.client_id}")
+                ManagedInstanceUseRow, (row.target_id, lifecycle_actor(row.client_id))
             )
             if use is not None:
                 use.hold_until, use.released_at = None, timestamp(self._clock())
@@ -855,7 +863,7 @@ class ManagedVersionLifecycleService:
         self._resources.stop_if_eligible(
             UUID(row.target_id),
             reason="released",
-            actor=f"mcp:{row.client_id}",
+            actor=lifecycle_actor(row.client_id),
             operation_id=uuid5(UUID(row.id), "stop"),
             authorize=authority,
             on_claim=claimed,

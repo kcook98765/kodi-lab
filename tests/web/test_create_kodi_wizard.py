@@ -58,7 +58,7 @@ def test_guided_page_observes_all_four_reviewed_versions(
 
 def test_normal_navigation_and_preview_choice(client: TestClient) -> None:
     login(client)
-    assert 'href="/create-kodi"' in client.get("/kodi").text
+    assert 'href="/create-kodi?generation=piers"' in client.get("/kodi").text
     assert client.get("/create-kodi?generation=piers").status_code == 200
     assert (
         client.get("/create-kodi", headers={"Host": "evil.invalid"}).status_code == 400

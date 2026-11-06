@@ -178,8 +178,10 @@ required for real approved-image clean recreation, identity/recovery fencing,
 filesystem/secret permissions, Bridge re-preparation, fresh workspace deployment
 and noVNC viewing/ticket cleanup. No native platform, installed upgrade, browser
 visual acceptance or full release qualification is claimed by these checks.
-Automatic version switching and the four-version ordinary Web redesign remain
-separate phases. Issue #238 remains open.
+The [four-version Web page](MANAGED-KODI-WEB.md) now exposes the same clean Reset
+with human confirmation and separate Web administrator authority. Automatic
+version switching and development reattachment remain follow-ups. Issue #238
+remains open.
 
 
 ## Focused validation for this phase
