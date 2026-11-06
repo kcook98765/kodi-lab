@@ -15,12 +15,14 @@ from kodi_lab.web.presentation import managed_next_step, state_label
 from tests.web.conftest import INSTANCE_ID, login
 
 
-def test_landing_has_one_summary_and_advanced_keeps_details(client: TestClient) -> None:
+def test_landing_has_four_slots_and_advanced_keeps_details(client: TestClient) -> None:
     login(client)
     primary = client.get("/kodi").text
     details = client.get("/managed-instances").text
-    assert primary.count('class="current-kodi-card"') == 1
-    assert "No development Kodi is selected" in primary
+    assert primary.count('class="managed-slot"') == 4
+    for version in ("matrix", "nexus", "omega", "piers"):
+        assert f'data-slot="{version}"' in primary
+    assert "Stop keeps your settings and add-ons." in primary
     assert 'href="/development-session"' in primary
     assert f'href="/instances/{INSTANCE_ID}"' not in primary
     assert "Advanced status and runtime details" in details

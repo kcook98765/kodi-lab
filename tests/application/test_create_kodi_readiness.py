@@ -24,6 +24,7 @@ from kodi_lab.kodi.readiness import ReadinessCancelledError
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.managed_activity import resource_policy
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSessionRow,
@@ -138,8 +139,7 @@ def test_retained_mode_keeps_exact_inventory_fences_without_workspace(
 ) -> None:
     env = Environment(factory, retained=True)
     with factory.begin() as session:
-        policy = session.get(ManagedResourcePolicyRow, 1)
-        assert policy
+        policy = resource_policy(session)
         policy.max_running = 4
     if unsafe_inventory:
         env.broker.records.append(
@@ -167,14 +167,13 @@ def test_higher_nonretained_capacity_policy_preserves_readiness(
     env: Environment,
 ) -> None:
     with env.sessions.begin() as session:
-        policy = session.get(ManagedResourcePolicyRow, 1)
-        assert policy
+        policy = resource_policy(session)
         policy.max_running = 4
     env.advance()
     assert env.transport.methods == []
     with env.sessions() as session:
-        policy = session.get(ManagedResourcePolicyRow, 1)
-        assert policy and policy.max_running == 4
+        recorded = session.get(ManagedResourcePolicyRow, 1)
+        assert recorded and recorded.max_running == 4
     env.inspect()
     assert env.op.checkpoint is CreateCheckpoint.COMPLETE
 

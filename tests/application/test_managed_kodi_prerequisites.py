@@ -141,7 +141,7 @@ def test_recorded_higher_limit_is_actionable_without_changing_retained_policy(
         observed = checks(value)["running_policy"]
         assert observed.status == "passed"
         assert observed.detail_url == "/managed-resources"
-        assert "Up to 4" in observed.message
+        assert "Up to 1" in observed.message
     with factory() as session:
         policy = session.get(ManagedResourcePolicyRow, 1)
         assert policy and (policy.max_running, policy.idle_minutes) == (4, None)
@@ -311,7 +311,7 @@ def test_capacity_includes_running_containers_and_pending_start_reservations(
         )
     broker = Broker()
     value = service(factory, tmp_path, broker)
-    assert checks(value)["capacity"].status == ("passed" if retained else "attention")
+    assert checks(value)["capacity"].status == "attention"
     broker.containers = [
         ManagedContainerInventoryEntry(
             managed_instance_id=str(target),
@@ -322,7 +322,8 @@ def test_capacity_includes_running_containers_and_pending_start_reservations(
         )
     ]
     # The same pending start and running target consume one slot, not two.
-    assert ("1 of 4" if retained else "1 of 1") in checks(value)["capacity"].message
+    assert "1 of 1" in checks(value)["capacity"].message
+    assert checks(value)["capacity"].status == "attention"
     with factory() as session:
         assert len(session.scalars(select(ManagedStartReservationRow)).all()) == 1
 

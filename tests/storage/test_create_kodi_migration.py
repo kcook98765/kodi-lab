@@ -105,6 +105,8 @@ def test_database_uniqueness_and_completed_parent_protect_child_receipts(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     command.upgrade(config, NEW)
+    # Current repository pruning also protects the later lifecycle parent tables.
+    command.upgrade(config, "head")
     app, children = service(url), FakeChildren()
     op = accept(app)
     for _ in range(16):
