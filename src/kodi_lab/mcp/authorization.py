@@ -400,8 +400,11 @@ class McpAuthorizationService:
         There is no implicit target creation/grant. An administrator must already
         have granted this exact canonical target and opted both policies in.
         """
+        from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER
         from kodi_lab.storage.managed_version_slots import managed_version_slots
 
+        if principal.client_id == WEB_ADMIN_OWNER:
+            raise McpAuthorizationError("permission_denied")
         definition = self._definition(tool_name)
         if (
             tool_name

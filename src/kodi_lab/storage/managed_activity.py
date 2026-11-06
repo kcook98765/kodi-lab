@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.domain.lifecycle_operations import ManagedInstanceLifecycleKind
 from kodi_lab.domain.snapshots import ManagedInstanceMutationKind
+from kodi_lab.storage.managed_lifecycle_owner import lifecycle_actor
 from kodi_lab.storage.models import (
     ManagedAgentLifecycleRequestRow,
     ManagedCleanResetRow,
@@ -152,14 +153,14 @@ def record_operation_activity(
             if version is not None:
                 if version.action != "start":
                     return
-                actor = f"mcp:{version.client_id}"
+                actor = lifecycle_actor(version.client_id)
             reset = session.scalar(
                 select(ManagedCleanResetRow).where(
                     ManagedCleanResetRow.start_id == str(operation_id)
                 )
             )
             if reset is not None:
-                actor = f"mcp:{reset.client_id}"
+                actor = lifecycle_actor(reset.client_id)
             lifecycle = session.get(
                 ManagedInstanceLifecycleOperationRow, str(operation_id)
             )

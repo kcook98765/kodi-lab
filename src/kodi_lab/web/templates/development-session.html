@@ -18,6 +18,8 @@
   </div>
   <p data-session-status role="status" aria-live="polite">Checking the selected environment…</p>
   <p data-current-recovery hidden><a data-current-recovery-link>Review the exact operation and recovery options</a></p>
+  <p><a class="button-link" href="/kodi">Start, Stop or Reset a Kodi version</a></p>
+  <details><summary>Advanced development lifecycle controls</summary>
   <div class="actions current-lifecycle" aria-label="Kodi lifecycle">
     <button type="button" data-session-action="prepare" hidden disabled>Prepare Kodi</button>
     <button type="button" data-session-action="resume" hidden disabled>Start Kodi</button>
@@ -25,6 +27,7 @@
     {% if retained_profiles %}<a class="button-link" href="/development-session/retained" data-current-switch{% if not current %} hidden{% endif %}>Switch Kodi Version…</a>{% endif %}
     <button type="button" data-session-refresh>Refresh status</button>
   </div>
+  </details>
   <p class="secondary" data-current-checked></p>
   <section class="current-screen" aria-labelledby="current-screen-heading"{% if not current %} hidden{% endif %} data-current-screen>
     <h2 id="current-screen-heading">Kodi screen</h2>

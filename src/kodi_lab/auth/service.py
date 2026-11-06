@@ -119,6 +119,27 @@ class WebAuthenticationService:
                 absolute_expires_at=record.absolute_expires_at,
             )
 
+    def resolve_in_session(
+        self, session: Session, token: str | None
+    ) -> AuthenticatedWebSession | None:
+        """Recheck current administrator authority without writes or nested writers."""
+        if not self._valid_token(token):
+            return None
+        assert token is not None
+        record = WebSessionRepository(session).get(self.token_digest(token))
+        now = self._require_utc(self._now())
+        if (
+            record is None
+            or now >= record.absolute_expires_at
+            or now >= record.last_used_at + SESSION_IDLE_LIFETIME
+        ):
+            return None
+        return AuthenticatedWebSession(
+            csrf_token=record.csrf_token,
+            created_at=record.created_at,
+            absolute_expires_at=record.absolute_expires_at,
+        )
+
     def logout(self, token: str | None) -> None:
         if not self._valid_token(token):
             return

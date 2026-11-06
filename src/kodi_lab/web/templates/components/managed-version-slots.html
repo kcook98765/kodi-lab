@@ -1,0 +1,54 @@
+<section aria-labelledby="managed-kodi-heading" data-managed-slots>
+  <h2 id="managed-kodi-heading">Choose Kodi</h2>
+  <p>Only one managed Kodi can run at a time. Stop keeps your settings and add-ons. Reset replaces that version’s profile.</p>
+  <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
+  <div class="slot-request" data-slot-request hidden>
+    <p role="status" aria-live="polite" data-slot-request-message></p>
+    <button type="button" data-slot-resume hidden>Resume saved request</button>
+    <a data-slot-request-recovery hidden>Review recovery</a>
+    <details><summary>Advanced request details</summary><pre data-slot-receipt></pre></details>
+  </div>
+  <p data-slots-error role="alert" hidden></p>
+  <button type="button" data-slots-refresh>Refresh status</button>
+  <ul class="managed-slot-grid">
+  {% for slot in managed_slots.slots %}
+    <li class="managed-slot" id="{{ slot.version }}" data-slot="{{ slot.version }}">
+      <h3>{{ slot.name }}</h3><p>Kodi {{ slot.release }}</p>
+      <dl><dt>Preparation</dt><dd data-slot-preparation>{{ slot.preparation }}</dd>
+        <dt>Status</dt><dd data-slot-state>{{ slot.state_label }}</dd>
+        <dt>Native Kodi</dt><dd data-slot-native>{{ slot.native }}</dd></dl>
+      <p data-slot-message role="status">{{ slot.message }}</p>
+      <p data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset replaced this profile. Previous Bridge trust and deployment checks are no longer valid. Review add-on testing setup.</p>
+      <div class="slot-actions">
+        {% for action, label in [('start','Start Kodi'),('stop','Stop Kodi'),('reset','Reset Kodi')] %}
+        <div data-slot-action-group="{{ action }}"{% if action == 'stop' and slot.state not in ['running','starting','blocked'] %} hidden{% endif %}>
+          <button type="button" data-slot-action="{{ action }}" aria-describedby="{{ slot.version }}-{{ action }}-reason" disabled>{{ label }}</button>
+          <p class="secondary" id="{{ slot.version }}-{{ action }}-reason" data-slot-reason="{{ action }}">{{ slot[action ~ '_reason'] or 'Check status before acting.' }}</p>
+        </div>
+        {% endfor %}
+        <div><a class="button-link" data-slot-screen{% if slot.screen_url %} href="{{ slot.screen_url }}"{% else %} hidden{% endif %}>Open Screen</a>
+          <button type="button" data-slot-screen-disabled disabled aria-describedby="{{ slot.version }}-screen-reason"{% if slot.screen_url %} hidden{% endif %}>Open Screen</button>
+          <p id="{{ slot.version }}-screen-reason" class="secondary" data-slot-screen-reason{% if slot.screen_url %} hidden{% endif %}>{{ slot.screen_reason }}</p></div>
+      </div>
+      <p><a data-slot-install href="{{ slot.install_url }}"{% if slot.preparation != 'Installation needed' %} hidden{% endif %}>Install Kodi files…</a></p>
+      <p><a href="{{ slot.development_url }}">Set up for add-on testing</a></p>
+      <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery</a></p>
+      <details><summary>Advanced</summary>
+        <p><a data-slot-advanced href="{{ slot.advanced_url }}">Exact profile, Bridge and diagnostics</a> · <a data-slot-history href="{{ slot.recovery_url }}">Operation history and recovery</a></p>
+        <pre data-slot-technical>{{ slot.technical|tojson(indent=2) }}</pre>
+      </details>
+    </li>
+  {% endfor %}
+  </ul>
+  <dialog data-slot-confirm aria-labelledby="slot-confirm-title" aria-describedby="slot-confirm-description">
+    <form method="dialog" data-slot-confirm-form>
+      <h2 id="slot-confirm-title">Reset Kodi?</h2>
+      <p id="slot-confirm-description">Reset permanently discards this version’s Kodi settings, installed add-ons and profile data. Independent development source, workspaces, Git history and retained Lab evidence are preserved.</p>
+      <p>The replacement will be clean and stopped. Previous Bridge trust and deployment baselines will need fresh setup.</p>
+      <label class="check-label"><input type="checkbox" required data-slot-confirm-check> I understand that this Kodi profile will be discarded.</label>
+      <div class="actions"><button type="button" data-slot-cancel>Cancel</button><button type="submit" data-slot-confirm-submit>Reset Kodi</button></div>
+    </form>
+  </dialog>
+  <noscript><p>Status is shown above. Enable JavaScript for Start, Stop and confirmed Reset. Advanced recovery remains available.</p></noscript>
+</section>
+<script type="application/json" id="managed-slots-config">{{ managed_slots|tojson }}</script>

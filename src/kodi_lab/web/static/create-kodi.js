@@ -131,7 +131,7 @@
           find("screen").hidden = false;
         } else if (op.instance.state === "stopped") {
           text("message", "Created successfully — currently stopped.");
-          find("start").href = `/instances/${op.instance.target_id}#instance-controls-heading`;
+          find("start").href = `/kodi#${generation}`;
           find("start").hidden = false;
         } else text("message", "Kodi was created successfully. " + op.instance.message);
       } else if (attention() || !available()) {

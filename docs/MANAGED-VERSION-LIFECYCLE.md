@@ -4,8 +4,8 @@ Issue #238 phase 2 adds `managed_status`, `managed_start` and `managed_stop`.
 The ordinary agent loop is **Status → Start(version) → develop/test → Stop(version)**.
 Stop keeps the exact writable Kodi profile, settings and installed add-ons.
 Separately opted-in [clean Reset](MANAGED-CLEAN-RESET.md) completes the fourth
-agent operation. Automatic switching and the four-version Web interface remain
-follow-ups. Discover the installed server's tools first; publishing this
+agent operation. Human administrators use the [four-version Web page](MANAGED-KODI-WEB.md).
+Automatic switching remains a follow-up. Discover the installed server's tools first; publishing this
 source does not upgrade an installed Lab.
 
 ## Administrator prerequisites and authority
@@ -144,10 +144,11 @@ Clean Reset is provided by `managed_reset` with separate destructive
 [disposal, invalidation and recovery contract](MANAGED-CLEAN-RESET.md).
 Ordinary lifecycle permission alone still cannot reset a profile.
 
-The ordinary Web page still needs four clear version entries with Start, Stop,
-Reset and Open Screen, human destructive confirmation and Advanced recovery.
-Existing viewing/noVNC security and Current Kodi development controls remain.
-Issue #238 is therefore **not fully implemented** by this phase.
+The [ordinary Web page](MANAGED-KODI-WEB.md) now supplies four version entries with
+Start, Stop, confirmed clean Reset, standard Open Screen and Advanced recovery.
+It uses separate human administrator authority and the same coordinators.
+Automatic switching, automatic development reattachment and native/platform
+qualification remain open; issue #238 is not fully complete.
 
 ## Phase 2 focused validation
 

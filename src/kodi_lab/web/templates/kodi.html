@@ -1,19 +1,18 @@
 {% extends 'base.html' %}
 {% set nav_section = 'kodi' %}
 {% block title %}Kodi · Kodi Lab{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/managed-slots.css') }}">{% endblock %}
 {% block main_class %}kodi-page{% endblock %}
 {% block content %}
 <div class="kodi-page-heading">
-  <div><h1>Kodi</h1><p>Open your managed development environment or a household Kodi.</p></div>
+  <div><h1>Kodi</h1><p>Choose a version, start Kodi, then view or test it.</p></div>
   <div class="actions">
-    <a class="button-link kodi-primary" href="/create-kodi">Create Kodi</a>
     <a class="button-link" href="/add-kodi">Add Kodi</a>
     <a class="button-link" href="/mcp-clients">Connect an agent</a>
   </div>
 </div>
-{% include 'components/current-kodi-summary.html' %}
-<noscript><p id="managed-details"><a id="instances" href="/managed-instances">Open managed registrations and recovery in Advanced</a></p></noscript>
-<p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
+{% include 'components/managed-version-slots.html' %}
+<p class="secondary">Household connection status below reflects its last recorded checks.</p>
 <section aria-labelledby="household-kodi-heading">
   <h2 id="household-kodi-heading">Kodi in your home</h2>
   {% if kodis %}
@@ -39,6 +38,7 @@
   </div>
   {% endif %}
 </section>
+<details class="kodi-diagnostics"><summary>Advanced managed Kodi administration</summary><p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/development-session">Current Kodi development setup</a> · <a href="/settings">Security and Advanced settings</a></p></details>
 {% if development_view %}
 <section class="navigation-group" aria-labelledby="development-kodi-heading">
   <h2 id="development-kodi-heading">Development Kodi</h2>
@@ -58,3 +58,5 @@
 </details>
 {% endif %}
 {% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', path='/managed-slots.js') }}" defer></script>{% endblock %}
