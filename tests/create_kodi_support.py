@@ -41,12 +41,17 @@ def accept(
     app: CreateKodiService,
     request: UUID | None = None,
     generation: str = "omega",
+    *,
+    start_after_setup: bool = True,
+    preview_approved: bool = False,
 ) -> CreateOperation:
     return app.accept(
         request_id=request or uuid4(),
         generation=generation,
         recipe_digest=load_installation_recipe(generation).digest,
         owner_approved=True,
+        start_after_setup=start_after_setup,
+        preview_approved=preview_approved,
     ).operation
 
 

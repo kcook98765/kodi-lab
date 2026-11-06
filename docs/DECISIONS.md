@@ -7647,3 +7647,25 @@ replays mutations. Native completion and current availability stay separate;
 Open screen uses the existing exact-instance viewer and stopped history links to
 normal Start controls. No scheduler, migration, authority, Bridge/agent preparation
 or development selection is added. See [the UI contract](CREATE-KODI-WIZARD.md).
+
+
+## Managed setup and running capacity (2026-11-05)
+
+Managed instance installation and running capacity are independent. Administrators
+may install Matrix, Nexus, Omega and explicitly acknowledged Piers preview,
+retaining a separate stopped profile for each. New guided setup defaults to
+install-only; explicit startup remains available. Existing API and stored Create
+intents preserve their original startup behavior.
+
+The existing managed resource policy is the running authority in retained and
+ordinary modes, defaulting to one for new installations. Running, starting and
+uncertain-start identities count once; stopped profiles and stopped provisioning
+do not consume running slots. Lowering the limit never evicts existing runtimes.
+The broker retains its atomic inventory/reservation claim and exact one-use
+ordinary Start proof. Development selection and target-specific mutation grants
+remain separate and are never reassigned by ordinary Start.
+
+Migration 0002 adds immutable start/preview options, admits Piers Create intent,
+and permits a verified install-only terminal receipt at provisioning. Previous
+receipts default to their existing startup semantics. Downgrade refuses after
+new setup options have been used; coordinated backup restore remains separate.

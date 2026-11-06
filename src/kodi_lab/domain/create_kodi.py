@@ -41,6 +41,8 @@ class CreateIntent:
     recipe_id: str
     recipe_revision: int
     recipe_digest: str
+    start_after_setup: bool = True
+    preview_approved: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +71,8 @@ class CreateOperation:
     image_id: str | None
     container_id: str | None
     runtime_state_revision: int | None
+    start_after_setup: bool = True
+    preview_approved: bool = False
 
     @property
     def child_id(self) -> UUID | None:

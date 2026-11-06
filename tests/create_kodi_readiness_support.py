@@ -26,6 +26,11 @@ class Transport:
         self.clock = FakeClock()
         self.methods: list[str] = []
         self.mode = "ready"
+        self.native_version: dict[str, int | str] = {
+            "major": 21,
+            "minor": 3,
+            "tag": "stable",
+        }
         self.on_request: Callable[[], None] | None = None
 
     def post(
@@ -49,9 +54,8 @@ class Transport:
             result = {
                 "name": "Other" if self.mode == "name" else "Kodi",
                 "version": {
-                    "major": 20 if self.mode == "version" else 21,
-                    "minor": 3,
-                    "tag": "stable",
+                    **self.native_version,
+                    **({"major": 20} if self.mode == "version" else {}),
                 },
             }
         return json.dumps(

@@ -16,6 +16,7 @@ from kodi_lab.domain.create_kodi import (
     CreateStage,
     CreateTransitionError,
 )
+from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 
@@ -109,11 +110,32 @@ class CreateKodiInstallationService:
             claimed = True
 
         try:
-            self._installer.start(
-                generation,
-                operation_id=op.installation_operation_id,
-                before_dispatch=checkpoint,
-            )
+            if op.generation == "piers":
+                if not op.preview_approved:
+                    raise CreateTransitionError("preview_approval_required")
+                consent = PreviewAcknowledgement.model_validate(
+                    {
+                        "recipe_id": op.recipe_id,
+                        "recipe_revision": op.recipe_revision,
+                        "recipe_digest": op.recipe_digest,
+                        "release": "22.0-rc.1",
+                        "support_tier": "preview",
+                        "acknowledgement": "development-only-prerelease",
+                    }
+                )
+                self._installer.start(
+                    generation,
+                    operation_id=op.installation_operation_id,
+                    before_dispatch=checkpoint,
+                    preview_consent=consent,
+                )
+            else:
+                self._installer.start(
+                    generation,
+                    operation_id=op.installation_operation_id,
+                    before_dispatch=checkpoint,
+                )
+
         except BaseException as error:
             latest = self._get(op.id)
             if claimed and latest.checkpoint is CreateCheckpoint.DISPATCHED:

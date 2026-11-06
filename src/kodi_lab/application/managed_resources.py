@@ -41,7 +41,6 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedInstanceUseRow,
-    ManagedProvisionReservationRow,
     ManagedStartReservationRow,
     TargetRow,
 )
@@ -50,7 +49,6 @@ from kodi_lab.storage.repositories import (
     ManagedRuntimeProjectionRepository,
     RuntimeExecutionProfileRepository,
 )
-from kodi_lab.storage.retained_development import retained_targets
 
 
 class ResourcePolicyInput(BaseModel):
@@ -136,14 +134,7 @@ class ManagedResourceService:
             used.update(
                 session.scalars(select(ManagedStartReservationRow.managed_instance_id))
             )
-            retained = bool(retained_targets(session))
-            if retained:
-                used.update(
-                    session.scalars(
-                        select(ManagedProvisionReservationRow.managed_instance_id)
-                    )
-                )
-            limit = 1 if retained else policy.max_running
+            limit = policy.max_running
             return ResourceCapacity(
                 used=len(used),
                 limit=limit,

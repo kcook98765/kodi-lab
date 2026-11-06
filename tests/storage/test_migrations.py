@@ -69,7 +69,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0001_initial_release",)
+        ).fetchone() == ("0002_managed_setup",)
 
 
 def test_workspace_execution_recovery_schema_retains_historical_ineligibility(
@@ -203,7 +203,7 @@ def test_workspace_execution_recovery_schema_retains_historical_ineligibility(
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
     engine.dispose()
 
@@ -221,7 +221,7 @@ def test_historical_containment_schema_and_reinitialization(
     table = "historical_workspace_execution_containment_resolutions"
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
         assert table in inspect(connection).get_table_names()
         foreign_keys = {
@@ -546,7 +546,7 @@ def test_smoke_exception_upgrade_constraints_and_safe_downgrade(
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
         connection.execute(
             text(
@@ -784,7 +784,7 @@ def test_migrates_populated_reset_phase_history_and_keeps_contract(
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
     with engine.begin() as connection:
         connection.execute(
@@ -2104,7 +2104,7 @@ def test_uploaded_zip_schema_reinitialization(
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
     engine.dispose()
 
@@ -2141,7 +2141,7 @@ def test_zip_enablement_schema_reinitialization_and_mutation_kind(
     assert "original_managed_instance_id" not in foreign_keys
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001_initial_release"
+            "0002_managed_setup"
         )
         mutation_sql = connection.scalar(
             text(

@@ -407,9 +407,8 @@ def test_multi_runtime_legacy_policy_is_never_silently_changed(
         policy.retain_profiles = False
         policy.retained_omega_target_id = None
         session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=60))
-    with pytest.raises(CreateTransitionError, match="one_active_policy"):
-        env.advance()
-    assert env.repo.get(env.op.id) == env.op and env.broker.calls == 0
+    env.advance()
+    assert env.op.stage == "startup" and env.broker.calls == 0
     with env.sessions() as session:
         saved = session.get(ManagedResourcePolicyRow, 1)
         assert saved and (saved.max_running, saved.idle_minutes) == (4, 60)

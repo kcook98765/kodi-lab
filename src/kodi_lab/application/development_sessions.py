@@ -349,6 +349,7 @@ class DevelopmentSessionService:
         return session.scalar(select(func.max(DevelopmentSessionRow.generation))) or 0
 
     def configure_retained(self, operation: RetainedPolicyRequest) -> dict[str, object]:
+        from kodi_lab.storage.managed_activity import read_resource_policy
         from kodi_lab.storage.retained_development import (
             omega_targets,
             retained_inventory,
@@ -408,7 +409,7 @@ class DevelopmentSessionService:
             session.commit()
             return {
                 "enabled": operation.enabled,
-                "running_limit": 1 if operation.enabled else None,
+                "running_limit": read_resource_policy(session).max_running,
             }
 
     def _selection_snapshot(

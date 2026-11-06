@@ -398,3 +398,10 @@ lanes did not reproduce that exact event. Heap/compilation-cache findings are
 separate evidence; they do not prove the original timeout's cause. The request
 observer corrects the missing-path/proxy-evidence gap without labeling an
 unproved cause or treating the failed attempt as a release pass.
+
+
+With migration `0002_managed_setup`, the shared migration store retains a closed,
+hashed template for each revision in the current graph: the initial release and
+the managed setup upgrade. This supports direct predecessor-to-new-revision and
+downgrade preservation checks without rebuilding either schema per case. It does
+not restore the obsolete prerelease migration chain or share writable databases.

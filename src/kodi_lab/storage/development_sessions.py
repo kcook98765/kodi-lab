@@ -52,14 +52,32 @@ def require_session_admission(
 
     allowed = retained_targets(session)
     current = active_session(session)
+    if (
+        not starting
+        and not allowed
+        and current is not None
+        and current.target_id != target_id
+    ):
+        # Preparing another stopped profile never changes development selection.
+        from kodi_lab.storage.retained_development import session_inventory_matches
+
+        if current.phase not in {"reserved", "bound"} or (
+            current.container_id is not None
+            and not session_inventory_matches(
+                session, records, current.target_id, current.container_id
+            )
+        ):
+            raise DevelopmentSessionConflict("development_session_requires_review")
+        return None
     if allowed:
         retained_inventory(session, records)
         if target_id not in allowed:
             raise DevelopmentSessionConflict("retained_target_not_enrolled")
-        if session.scalar(select(ManagedStartReservationRow).limit(1)) is not None:
-            raise DevelopmentSessionConflict("development_session_start_pending")
-        if session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None:
-            raise DevelopmentSessionConflict("development_session_provision_pending")
+        from kodi_lab.storage.retained_development import (
+            require_runtime_reservations_idle,
+        )
+
+        require_runtime_reservations_idle(session, target_id)
         if current is not None and current.phase not in {"reserved", "bound"}:
             raise DevelopmentSessionConflict("development_session_requires_review")
         if starting:
@@ -67,13 +85,20 @@ def require_session_admission(
                 raise DevelopmentSessionConflict("retained_selection_required")
             if any(r.runtime_state not in {"stopped", "running"} for r in records):
                 raise DevelopmentSessionConflict("retained_runtime_unknown")
+            from kodi_lab.storage.managed_activity import read_resource_policy
+
+            permitted = (
+                {"stopped", "running"}
+                if read_resource_policy(session).max_running > 1
+                else {"stopped"}
+            )
             if any(
-                r.managed_instance_id != target_id and r.runtime_state != "stopped"
+                r.managed_instance_id != target_id and r.runtime_state not in permitted
                 for r in records
             ):
                 raise DevelopmentSessionConflict("retained_other_runtime_active")
         else:
-            if any(r.runtime_state != "stopped" for r in records):
+            if any(r.runtime_state not in {"stopped", "running"} for r in records):
                 raise DevelopmentSessionConflict("retained_runtime_active")
             if current is None or current.target_id != target_id:
                 return None  # Stopped provisioning reserves without selecting/binding.
@@ -90,15 +115,19 @@ def require_session_admission(
     if starting and current.container_id != container_id:
         raise DevelopmentSessionConflict("development_session_identity_changed")
     if current.container_id is None:
-        if records and not allowed:
+        if not allowed and any(
+            r.managed_instance_id == current.target_id for r in records
+        ):
             raise DevelopmentSessionConflict("development_session_existing_resource")
     elif not allowed and (
-        len(records) != 1
+        len([item for item in records if item.managed_instance_id == current.target_id])
+        != 1
         or any(
             item.managed_instance_id != current.target_id
             or item.container_id != current.container_id
             or item.runtime_revision_id != current.runtime_revision_id
             for item in records
+            if item.managed_instance_id == current.target_id
         )
     ):
         raise DevelopmentSessionConflict("development_session_identity_changed")

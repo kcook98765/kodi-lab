@@ -197,3 +197,19 @@ handling and independent exact-instance Open screen links. Existing recovery
 surfaces remain separate from new attempts or replacement/reset behavior.
 Bridge and agent setup remain optional after native Kodi is usable. New-attempt
 recovery and replacement/reset semantics are outside this milestone.
+
+## Independent installation and running capacity
+
+Approval accepts `start_after_setup` (boolean, defaults true for existing API
+clients) and `preview_approved` (boolean, defaults false). The guided page sends
+`start_after_setup: false` by default. These options are immutable accepted
+intent and participate in request replay conflicts. Piers requires
+`preview_approved: true` for the exact reviewed recipe tuple and retains the
+existing operation-scoped preview acknowledgement at broker launch.
+
+An install-only parent completes at verified stopped provisioning, with no Start
+child or native-readiness claim. Its presentation says Installed. A request that
+includes startup continues through the existing Start and readiness stages.
+Capacity does not block install-only approval; Start always obeys the recorded
+administrator limit. Migration `0002_managed_setup` preserves previous parents as
+start-after-setup requests and refuses downgrade after the new options are used.

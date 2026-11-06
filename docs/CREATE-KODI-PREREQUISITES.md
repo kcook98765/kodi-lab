@@ -9,7 +9,7 @@ when the wizard embeds the component.
 ## Read-only contract
 
 `ManagedKodiPrerequisiteService.snapshot()` combines observations for the reviewed
-stable Matrix, Nexus or Omega recipe (Omega by default):
+Matrix, Nexus, Omega or Piers recipe (Omega by default):
 
 - Broker installation capabilities and existing worker/lock observations.
 - Existing installation records, approved runtime eligibility and exact image
@@ -19,8 +19,8 @@ stable Matrix, Nexus or Omega recipe (Omega by default):
 - The canonical managed registration, even when no matching installation record
   exists or installation service observations fail. It is not repinned or selected.
 - `ManagedResourceService.capacity()`: running slots, pending start reservations
-  and the existing retained-profile capacity policy, including retained provision
-  reservations. No reservation, enrollment or policy row is created.
+  and the administrator’s resource policy, including in retained mode. Stopped
+  profiles and stopped provisioning do not consume running slots. No reservation, enrollment or policy row is created.
 - Available bytes and the read-only mount flag for the configured Lab data
   filesystem using an opened directory and `fstatvfs`. No path is supplied by the
   browser and no test file is written. Unsupported/unreadable storage is unknown.
@@ -49,7 +49,7 @@ No schema, profile, grant, credential or coordinator changes are needed.
 ## API and component integration
 
 `GET /api/create-kodi/prerequisites?generation=omega` requires an authenticated Web
-session, accepts only the three stable generation names and returns a `no-store`
+session, accepts the four reviewed generation names and returns a `no-store`
 JSON snapshot: generation, reviewed version, UTC `checked_at`, summary and checks.
 Each check has a stable key, title, status, label and message; optional detail
 links point to existing pages. Data storage also includes `available_bytes` when

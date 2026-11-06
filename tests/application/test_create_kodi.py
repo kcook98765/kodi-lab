@@ -49,7 +49,7 @@ def test_explicit_approval_replay_conflict_and_canonical_lookup(tmp_path: Path) 
 
     with pytest.raises(ValueError, match="approval required"):
         submit(owner_approved=False)
-    with pytest.raises(ValueError, match="reviewed stable"):
+    with pytest.raises(ValueError, match="prerelease approval"):
         submit(generation="piers")
     assert app.for_target(recipe_target_id(reviewed)) is None
     first, second = submit(), submit()

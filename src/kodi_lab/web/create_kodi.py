@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -18,7 +18,7 @@ from kodi_lab.application.create_kodi import CreateKodiService
 from kodi_lab.application.create_kodi_runner import CreateKodiRunner
 from kodi_lab.application.managed_kodi_prerequisites import (
     ManagedKodiPrerequisiteService,
-    StableGeneration,
+    SetupGeneration,
 )
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.auth.service import AuthenticatedWebSession
@@ -67,11 +67,21 @@ type AvailabilityState = Literal[
 class CreateApproval(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     request_id: UUID
-    generation: StableGeneration
+    generation: SetupGeneration
     recipe_id: str = Field(min_length=1, max_length=128)
     recipe_revision: int = Field(ge=1)
     recipe_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     owner_approved: bool
+    start_after_setup: bool = True
+    preview_approved: bool = False
+
+    @model_validator(mode="after")
+    def require_preview_consent(self) -> CreateApproval:
+        if self.generation == "piers" and not self.preview_approved:
+            raise ValueError(
+                "Piers requires explicit development-only prerelease consent"
+            )
+        return self
 
 
 class CreateAvailability(BaseModel):
@@ -140,7 +150,13 @@ class CreateKodiAPI:
         # No broker, readiness registry or recovery executor is supplied.
         self._reconciliation = ManagedInstanceReconciliationService(sessions)
 
-    def _new_intent_checks(self, generation: StableGeneration, target_id: UUID) -> None:
+    def _new_intent_checks(
+        self,
+        generation: SetupGeneration,
+        target_id: UUID,
+        *,
+        start_after_setup: bool = True,
+    ) -> None:
         try:
             snapshot = self._prerequisites.snapshot(generation)
         except Exception as error:
@@ -150,7 +166,11 @@ class CreateKodiAPI:
                 "Setup requirements could not be checked. Check again.",
             ) from error
         checks = {check.key: check for check in snapshot.checks}
-        for key in ("installer", "activity", "runtime", "running_policy", "capacity"):
+        for key in (
+            ("installer", "activity", "runtime", "running_policy", "capacity")
+            if start_after_setup
+            else ("installer", "activity", "runtime")
+        ):
             item = checks.get(key)
             if item is None or item.status == "unknown":
                 raise CreateApiError(
@@ -228,7 +248,16 @@ class CreateKodiAPI:
             payload.recipe_id,
             payload.recipe_revision,
             payload.recipe_digest,
-        ) != (op.generation, op.recipe_id, op.recipe_revision, op.recipe_digest):
+            payload.start_after_setup,
+            payload.preview_approved,
+        ) != (
+            op.generation,
+            op.recipe_id,
+            op.recipe_revision,
+            op.recipe_digest,
+            op.start_after_setup,
+            op.preview_approved,
+        ):
             raise CreateApiError(
                 409,
                 "create_request_conflict",
@@ -269,6 +298,8 @@ class CreateKodiAPI:
                         generation=payload.generation,
                         recipe_digest=payload.recipe_digest,
                         owner_approved=True,
+                        start_after_setup=payload.start_after_setup,
+                        preview_approved=payload.preview_approved,
                     )
                 raise CreateApiError(
                     409,
@@ -277,7 +308,11 @@ class CreateKodiAPI:
                     existing_target.id,
                 )
             try:
-                self._new_intent_checks(payload.generation, target)
+                self._new_intent_checks(
+                    payload.generation,
+                    target,
+                    start_after_setup=payload.start_after_setup,
+                )
             except CreateApiError:
                 # Another process may have accepted this exact request while
                 # observations were in progress. Never lose its durable identity.
@@ -291,6 +326,8 @@ class CreateKodiAPI:
                 generation=payload.generation,
                 recipe_digest=payload.recipe_digest,
                 owner_approved=True,
+                start_after_setup=payload.start_after_setup,
+                preview_approved=payload.preview_approved,
             )
         except CreateConflict as error:
             code = (
@@ -480,7 +517,7 @@ class CreateKodiAPI:
         if complete:
             state, phase, message = (
                 "complete",
-                "Ready",
+                "Ready" if op.start_after_setup else "Installed",
                 "Kodi setup completed. " + instance.message,
             )
         elif op.checkpoint is CreateCheckpoint.NEEDS_ATTENTION:
@@ -641,7 +678,7 @@ def create_kodi_router(
                 CreateApiError(
                     422,
                     "create_invalid_request",
-                    "Provide a request UUID, reviewed stable Kodi recipe "
+                    "Provide a request UUID, reviewed Kodi recipe "
                     "and explicit approval. Unknown fields are not allowed.",
                 )
             )
@@ -697,7 +734,7 @@ def create_kodi_router(
         # as normal. Arbitrary IDs and existing callers retain the 404 contract.
         if missing == "empty" and any(
             target_id == recipe_target_id(load_installation_recipe(generation))
-            for generation in ("matrix", "nexus", "omega")
+            for generation in ("matrix", "nexus", "omega", "piers")
         ):
             return Response(status_code=204, headers={"Cache-Control": "no-store"})
         return failure(

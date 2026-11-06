@@ -11,7 +11,7 @@ worker/broker contract. The database schema and broker authority are unchanged.
 approved recipe/canonical target against the packaged selection. For a new
 installation it persists the planned child UUID before invoking the installer.
 The installer's optional `operation_id` and `before_dispatch` arguments form a
-paired, stricter path: stable reviewed generations, ordinary install only, no
+paired, stricter path: reviewed generations (Piers requires explicit preview consent), ordinary install only, no
 implicit retry/reacquisition, no joining unrelated work, and no reconciliation.
 Without these arguments, existing installer callers retain their behavior.
 

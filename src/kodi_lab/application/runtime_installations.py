@@ -802,9 +802,9 @@ class RuntimeInstallationService:
         )
 
     def inspect(self, generation: Generation) -> RuntimeInstallationInspection:
-        """Observe a stable recipe without reconciliation or admission."""
-        if generation not in GENERATIONS:
-            raise ValueError("inspection requires a reviewed stable generation")
+        """Observe a reviewed recipe without reconciliation or admission."""
+        if generation not in (*GENERATIONS, "piers"):
+            raise ValueError("inspection requires a reviewed generation")
         target_id = recipe_target_id(load_installation_recipe(generation))
         with self._factory() as session:
             existing = ManagedInstanceRepository(session).get(target_id)
@@ -959,12 +959,19 @@ class RuntimeInstallationService:
         action: Literal["install", "retry", "reacquire"] = "install",
         operation_id: UUID | None = None,
         before_dispatch: Callable[[UUID], None] | None = None,
+        preview_consent: PreviewAcknowledgement | None = None,
     ) -> RuntimeInstallationView:
         if operation_id is not None:
             if before_dispatch is None or action != "install":
                 raise RuntimeInstallationActionConflict
-            return self._start_planned(generation, operation_id, before_dispatch)
-        if before_dispatch is not None:
+            return self._start_planned(
+                generation, operation_id, before_dispatch, preview_consent
+            )
+        if (
+            before_dispatch is not None
+            or generation == "piers"
+            or preview_consent is not None
+        ):
             raise RuntimeInstallationActionConflict
         if not self._capable():
             raise RuntimeInstallationUnavailable
@@ -1036,7 +1043,7 @@ class RuntimeInstallationService:
         operation_id: UUID | None = None,
     ) -> CreateInstallationObservation:
         """Inspect exact receipts/worker facts without reconciliation or writes."""
-        if generation not in GENERATIONS:
+        if generation not in (*GENERATIONS, "piers"):
             raise RuntimeInstallationActionConflict
         reviewed = load_installation_recipe(generation)
         with self._factory() as session:
@@ -1122,7 +1129,20 @@ class RuntimeInstallationService:
         generation: Generation,
         operation_id: UUID,
         before_dispatch: Callable[[UUID], None],
+        preview_consent: PreviewAcknowledgement | None = None,
     ) -> RuntimeInstallationView:
+        if generation == "piers":
+            if (
+                preview_consent is None
+                or preview_consent.model_dump(mode="json") != preview_acknowledgement()
+            ):
+                raise RuntimeInstallationActionConflict(
+                    "Preview acknowledgement differs"
+                )
+        elif preview_consent is not None:
+            raise RuntimeInstallationActionConflict(
+                "Unexpected Preview acknowledgement"
+            )
         # Deliberately stricter than legacy start(): no joining another operation,
         # implicit retry/reacquisition, or stateful reconciliation before dispatch.
         current = self.observe_create(generation)
@@ -1148,7 +1168,13 @@ class RuntimeInstallationService:
         before_dispatch(operation_id)
         try:
             result = self._broker.launch_reviewed_runtime_installation(
-                generation=generation, operation_id=str(operation_id)
+                generation=generation,
+                operation_id=str(operation_id),
+                **(
+                    {"preview_acknowledgement": preview_consent}
+                    if generation == "piers"
+                    else {}
+                ),
             )
             if (
                 result.operation_id != str(operation_id)

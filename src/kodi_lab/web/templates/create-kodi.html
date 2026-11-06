@@ -13,7 +13,7 @@
     <h2 id="create-choice-heading">Choose your Kodi</h2>
     <label for="create-generation">Kodi version</label>
     <select id="create-generation" data-create-generation>
-      {% for value, label in [('omega', 'Omega · Recommended'), ('nexus', 'Nexus'), ('matrix', 'Matrix')] %}
+      {% for value, label in [('omega', 'Omega · Recommended'), ('nexus', 'Nexus'), ('matrix', 'Matrix'), ('piers', 'Piers · Preview')] %}
       <option value="{{ value }}"{% if snapshot.generation == value %} selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
@@ -31,7 +31,10 @@
       </details>
     </div>
     <form data-create-form>
-      <p>Click Create Kodi to approve downloading if needed, preparing and starting this version.</p>
+      <p>Install any or all four versions. Stopped profiles do not use running slots.</p>
+      <label class="check-label"><input type="checkbox" data-create-start-after-setup> Start Kodi after setup (requires a free running slot)</label>
+      <label class="check-label" data-create-preview-consent hidden><input type="checkbox" data-create-preview-approved> I understand Piers is a prerelease for development only.</label>
+      <p>Click Create Kodi to approve downloading if needed and preparing this version. It stays stopped unless you choose to start it.</p>
       <button type="submit" data-create-approve disabled>Create Kodi</button>
     </form>
   </section>

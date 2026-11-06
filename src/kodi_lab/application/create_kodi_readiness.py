@@ -39,7 +39,6 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.create_kodi_start import require_start_receipt
-from kodi_lab.storage.managed_activity import read_resource_policy
 from kodi_lab.storage.models import (
     GlobalHeavyOperationLeaseRow,
     ManagedAgentLifecycleRequestRow,
@@ -153,11 +152,7 @@ class CreateKodiReadinessService:
         ):
             raise CreateTransitionError("readiness_projection_changed")
         require_runtime_reservations_idle(session, str(op.target_id))
-        if (
-            not retained_targets(session)
-            and read_resource_policy(session).max_running != 1
-        ):
-            raise CreateTransitionError("create_readiness_requires_one_active_policy")
+
         active = session.scalar(
             select(ManagedInstanceLifecycleOperationRow.id).where(
                 ManagedInstanceLifecycleOperationRow.original_managed_instance_id
@@ -209,9 +204,8 @@ class CreateKodiReadinessService:
             )
             != (op.container_id, str(op.runtime_revision_id), op.image_id, "running")
             or any(
-                r.runtime_state != "stopped"
+                r.runtime_state not in {"stopped", "running"}
                 for r in inventory.containers
-                if r.managed_instance_id != str(op.target_id)
             )
         ):
             raise CreateTransitionError("readiness_inventory_changed")

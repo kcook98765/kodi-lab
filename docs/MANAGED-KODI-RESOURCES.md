@@ -1,13 +1,25 @@
 # Managed Kodi resource controls
 
 Settings → Managed Kodi resources sets the maximum running/starting managed
-Kodi instances (default **4**, range 1–64) and idle stop (default **60 minutes**,
+Kodi instances (default **1**, range 1–64) and idle stop (default **60 minutes**,
 range 1–10,080, or disabled). The dashboard shows used slots and idle deadlines.
 Running instances count immediately, including instances created before upgrade.
 Lowering the maximum does not evict running instances. A new start is refused
 when all slots are used. Unknown start outcomes retain their capacity reservation
 until an exact broker-observed stop or removal establishes that it is safe to
 release it; elapsed time alone does not free the slot.
+
+Any or all four reviewed Kodi versions can be installed regardless of this limit.
+Create Kodi leaves the new profile **Installed · Stopped** by default; select
+**Start Kodi after setup** only when you want it started immediately. Piers keeps
+its explicit development-only prerelease acknowledgement. With a limit of one,
+stop the running instance before starting another; with a limit of four, all four
+may run. Existing administrator settings are preserved on upgrade.
+
+Retained development mode uses this same running limit. Its Current Kodi pointer
+continues to select one development target; ordinary Start does not change it or
+transfer source/workspace grants. Stopped preparation uses no running slot.
+Pending or uncertain lifecycle work retains its separate admission/recovery fence.
 
 New managed instances enroll in idle stop. Existing instances remain unenrolled
 until an administrator explicitly enrolls each one. Repeated enrollment does not

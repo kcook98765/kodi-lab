@@ -19,7 +19,9 @@ from kodi_lab.application.runtime_installations import (
 )
 from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 
-StableGeneration = Literal["matrix", "nexus", "omega"]
+SetupGeneration = Literal["matrix", "nexus", "omega", "piers"]
+# Compatibility for callers importing the former name.
+StableGeneration = SetupGeneration
 CheckStatus = Literal["passed", "attention", "existing", "unknown", "info"]
 LABELS: dict[CheckStatus, str] = {
     "passed": "Verified",
@@ -43,7 +45,7 @@ class PrerequisiteCheck(BaseModel):
 
 class PrerequisiteSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    generation: StableGeneration
+    generation: SetupGeneration
     version: str
     recipe_id: str
     recipe_revision: int
@@ -107,7 +109,7 @@ class ManagedKodiPrerequisiteService:
         self._storage = storage or (lambda: read_data_storage(data_root))
         self._clock = clock
 
-    def snapshot(self, generation: StableGeneration = "omega") -> PrerequisiteSnapshot:
+    def snapshot(self, generation: SetupGeneration = "omega") -> PrerequisiteSnapshot:
         reviewed = load_installation_recipe(generation)
         checks = [
             check(
@@ -129,16 +131,11 @@ class ManagedKodiPrerequisiteService:
             checks.append(
                 check(
                     "running_policy",
-                    "One Kodi at a time",
-                    "passed" if capacity.limit == 1 else "attention",
-                    "The effective running limit is one Kodi."
-                    if capacity.limit == 1
-                    else "Create Kodi requires a running limit of 1. "
-                    f"Your current limit is {capacity.limit}; it has not been changed. "
-                    "Open Managed Kodi resource policy, set Maximum running "
-                    "managed Kodi to 1, save, then Check again. "
-                    "This does not stop an existing Kodi.",
-                    "/managed-resources" if capacity.limit != 1 else None,
+                    "Managed Kodi running limit",
+                    "passed",
+                    f"Up to {capacity.limit} managed Kodi instances may run at once. "
+                    "Installed, stopped profiles do not use running slots.",
+                    "/managed-resources",
                 )
             )
             checks.append(
@@ -160,7 +157,7 @@ class ManagedKodiPrerequisiteService:
             checks.append(
                 check(
                     "running_policy",
-                    "One Kodi at a time",
+                    "Managed Kodi running limit",
                     "unknown",
                     "The running limit could not be verified. Check again.",
                 )

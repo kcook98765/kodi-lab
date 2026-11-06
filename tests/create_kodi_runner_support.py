@@ -28,6 +28,7 @@ from kodi_lab.broker.errors import ClientTransportError
 from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
     StartManagedContainerResult,
+    StopManagedContainerResult,
 )
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from tests.application.test_managed_start import Broker as NativeBroker
@@ -80,6 +81,9 @@ class Broker(ProvisionBroker):
     def dispatch(self, target: str) -> StartManagedContainerRecord:
         return NativeBroker.dispatch(cast(Any, self), target)
 
+    def stop_managed_container(self, **kwargs: Any) -> StopManagedContainerResult:
+        return NativeBroker.stop_managed_container(cast(Any, self), **kwargs)
+
     def observe_managed_kodi_runtime(
         self, **kwargs: Any
     ) -> ObserveManagedKodiRuntimeResult:
@@ -93,6 +97,9 @@ class Environment:
         *,
         cached: bool = False,
         operation_id: UUID | None = None,
+        generation: str = "omega",
+        start_after_setup: bool = True,
+        preview_approved: bool = False,
     ) -> None:
         self.sessions, self.repo = sessions, CreateKodiRepository(sessions)
         self.broker = Broker(sessions, self.repo)
@@ -134,9 +141,14 @@ class Environment:
             self.native,
         )
         if cached and operation_id is None:
-            _ready(sessions, generation="omega")
+            _ready(sessions, generation=generation)
         if operation_id is None:
-            self.op = accept(CreateKodiService(self.repo))
+            self.op = accept(
+                CreateKodiService(self.repo),
+                generation=generation,
+                start_after_setup=start_after_setup,
+                preview_approved=preview_approved,
+            )
         else:
             existing = self.repo.get(operation_id)
             assert existing is not None

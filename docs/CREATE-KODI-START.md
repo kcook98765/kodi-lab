@@ -37,11 +37,12 @@ existing lifecycle/broker implementation. The parent grants no broker authority.
 An in-flight lease blocks ordinary selection/pin mutations; the broker repeats
 exact inventory/authority/revision/lease checks at its atomic reservation boundary.
 
-Retained mode supplies the existing one-active limit. Outside retained mode this
-adapter requires a broker limit of one; it does not change resource policy or
-pretend a snapshot enforces a stricter atomic capacity limit. All
-existing development selection, workspace, reconciliation, grant, hold and input
-ownership restrictions remain enforced. A pre-existing running container cannot
+The broker enforces the administrator's running limit for both retained and
+ordinary managed instances. Start does not modify that policy or select a
+different development workspace. Known running instances may coexist up to the
+configured limit; unknown starts retain their reservations. Existing target
+identity, reconciliation, grant, hold and input ownership restrictions remain.
+A pre-existing running container cannot
 substitute for the planned child: expected state is stopped, and a no-action
 Start reply is not accepted as this operation's successful mutation.
 
@@ -56,17 +57,14 @@ capacity observations and broker admission read the same recorded policy.
 
 Historical migrations retain their original seed of four. An existing versioned
 database, upgrade, repeated initialization or partially initialized database keeps
-its recorded running limit and idle settings. No migration or automatic policy
-conversion is added. Initialization interrupted after schema creation requires
+its recorded running limit and idle settings. No migration automatically converts administrator
+resource policy. Initialization interrupted after schema creation requires
 inspection; a later invocation cannot infer that the recorded policy is disposable.
 
-The reusable prerequisite component reports an incompatible effective limit and
-links to Managed Kodi resource policy. An administrator can explicitly set
-Maximum running managed Kodi to 1, save, and Check again. Checks never save that
-change or stop an instance. Existing valid retained mode still supplies its
-effective limit of one without changing its recorded resource policy or selection.
-The authoritative Start check remains in place, so advisory preflight cannot
-authorize dispatch or hide an incompatible policy changed after observation.
+The prerequisite component displays the current limit and running usage. A higher
+limit is supported. Running capacity is required only for an explicitly requested
+Start, and the broker checks it again atomically before dispatch. Installed and
+stopped profiles use no running slot, including in retained mode.
 
 ## Exact reply and joint confirmation
 

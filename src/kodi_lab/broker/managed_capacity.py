@@ -347,7 +347,7 @@ class ManagedCapacityAdmission:
                 raise ManagedCapacityError(error.code) from error
             reservations = list(session.scalars(select(ManagedStartReservationRow)))
             policy = resource_policy(session)
-            limit = 1 if retained_targets(session) else policy.max_running
+            limit = policy.max_running
             used = {
                 item.managed_instance_id
                 for item in records

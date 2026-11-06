@@ -147,6 +147,9 @@ def finish_provision(
             CreateCheckpoint.CONFIRMED,
             CreateOutcome.SUCCEEDED,
         )
+        if not row.start_after_setup:
+            row.checkpoint = CreateCheckpoint.COMPLETE
+            row.completed_at = _now()
         # Existing lease release advances projection exactly once after owned
         # finalization. Preserve that exact post-release identity for later Start.
         row.runtime_state_revision = instance.runtime_state_revision

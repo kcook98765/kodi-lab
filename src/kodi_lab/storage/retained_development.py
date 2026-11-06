@@ -99,8 +99,6 @@ def session_inventory_matches(
     try:
         if retained_targets(session):
             retained_inventory(session, records)
-        elif len(records) != 1:
-            return False
     except DevelopmentSessionConflict:
         return False
     selected = [r for r in records if r.managed_instance_id == current_target]
@@ -132,8 +130,12 @@ def require_retained_selection(session: Session, target_id: str) -> None:
 def require_runtime_reservations_idle(session: Session, target_id: str) -> None:
     """Never stage/restart over pending runtime dispatch; containment is separate."""
     from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+    from kodi_lab.storage.managed_activity import read_resource_policy
 
-    retained = bool(retained_targets(session))
+    retained = (
+        bool(retained_targets(session))
+        and read_resource_policy(session).max_running == 1
+    )
     for model, code in (
         (ManagedStartReservationRow, "development_session_start_pending"),
         (ManagedProvisionReservationRow, "development_session_provision_pending"),
@@ -176,8 +178,15 @@ def require_retained_container(
         )
     ):
         raise DevelopmentSessionConflict("development_session_identity_changed")
+    from kodi_lab.storage.managed_activity import read_resource_policy
+
+    permitted = (
+        {"stopped", "running"}
+        if read_resource_policy(session).max_running > 1
+        else {"stopped"}
+    )
     if any(
-        r.runtime_state != "stopped"
+        r.runtime_state not in permitted
         for r in records
         if r.managed_instance_id != target_id
     ):

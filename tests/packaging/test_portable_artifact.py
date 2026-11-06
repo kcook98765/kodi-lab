@@ -87,7 +87,11 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             for name in names
             if name.startswith("kodi_lab/migrations/versions/") and name.endswith(".py")
         }
-        assert wheel_revisions == source_revisions == {"0001_initial_release.py"}
+        assert (
+            wheel_revisions
+            == source_revisions
+            == {"0001_initial_release.py", "0002_managed_setup.py"}
+        )
         for kind in ("templates", "static"):
             source_assets = {
                 path.relative_to(root / "src/kodi_lab/web").as_posix()

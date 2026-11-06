@@ -44,8 +44,10 @@ async function context(generation) {
   await page.goto(base + "/kodi");
   await page.getByRole("link", {name:"Create Kodi", exact:true}).click();
   if (generation !== "omega") await page.locator("[data-create-generation]").selectOption(generation);
+  assert.equal(await page.locator("[data-create-start-after-setup]").isChecked(),false,"guided setup defaults to installed and stopped");
+  await page.locator("[data-create-start-after-setup]").check();
   await page.locator("[data-create-approve]:enabled").waitFor();
-  assert.equal(await page.locator('[data-create-generation] option[value="piers"]').count(), 0);
+  assert.equal(await page.locator('[data-create-generation] option[value="piers"]').count(), 1);
   return {ctx, page};
 }
 const continuations = () => requests.filter(r => r.method === "POST" && r.url.endsWith("/continue")).length;

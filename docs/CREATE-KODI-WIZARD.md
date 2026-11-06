@@ -2,13 +2,17 @@
 
 `/create-kodi` is an authenticated, read-only page. The normal Kodi page and
 managed registrations page link to it. Omega is recommended; Matrix and Nexus
-are selectable stable generations. Piers is excluded. Loading the page only
+are selectable stable generations. Piers is available with explicit
+development-only prerelease acknowledgement. Loading the page only
 observes prerequisites and reconnects to durable status.
 
 ## Ordinary flow
 
 Choose a version, review the compact requirements summary/resource notes and
-click **Create Kodi** once. The existing prerequisite component is embedded in
+click **Create Kodi** once. Setup leaves the new instance installed and stopped
+by default. **Start Kodi after setup** explicitly adds startup and readiness; it
+requires an available running slot. Installing a stopped profile is allowed
+while running capacity is full. The existing prerequisite component is embedded in
 an expander, with its existing Check again action. Missing/unknown authoritative
 checks and known blockers disable new approval; unknown host/VM memory or Docker
 storage stay advisory. The API repeats its own admission checks.
@@ -29,7 +33,7 @@ Storage denial disables new approval, rather than submitting an unpersisted UUID
 Reload/reconnect first GETs the saved parent, then falls back to canonical-target
 lookup. Missing browser state never implies a new Create should be submitted.
 Version changes update the URL, and a saved last-version marker restores bare
-new tabs. With neither URL nor local context, three fixed stable canonical
+new tabs. With neither URL nor local context, four fixed reviewed canonical
 lookups prefer an unfinished operation over historical completion. These reads
 never run a stage; they only select the version whose setup should be displayed.
 An existing parent is shown before another approval can be offered. A saved
@@ -115,7 +119,7 @@ scoped responsive styling and at least 44px main action targets.
 
 ## Focused verification
 
-`test_create_kodi_wizard.py` checks passive authenticated rendering, stable-only
+`test_create_kodi_wizard.py` checks passive authenticated rendering, four-version
 selection, navigation and the Node controller harness. The harness tests duplicate
 clicks, storage persistence/denial, exact approval replay, one request at a time,
 paced/bounded inspection, stale/unknown responses, tab/visibility/BFCache pauses,

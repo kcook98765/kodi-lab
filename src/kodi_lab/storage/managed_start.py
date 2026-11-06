@@ -7,14 +7,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import AgentWorkspaceBytesState, AgentWorkspaceState
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     active_session,
-    require_session_admission,
 )
 from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
 from kodi_lab.storage.models import (
@@ -86,19 +85,13 @@ def require_managed_start(
         deny("managed_start_identity_changed")
     target = matches[0]
     require_runtime_reservations_idle(session, target_id)
-    if not retained:
-        require_session_admission(
-            session,
-            records,
-            target_id=target_id,
-            revision_id=revision_id,
-            container_id=target.container_id,
-            starting=True,
-        )
-    else:
-        retained_inventory(session, records)
+    multi = read_resource_policy(session).max_running > 1
+    if retained or active_session(session) is not None:
+        if retained:
+            retained_inventory(session, records)
+        permitted = {"stopped", "running"} if multi else {"stopped"}
         if any(
-            item.runtime_state != "stopped"
+            item.runtime_state not in permitted
             for item in records
             if item.managed_instance_id != target_id
         ):
@@ -131,22 +124,35 @@ def require_managed_start(
         if any(
             lease.operation_id != own_operation_id
             for lease in session.scalars(select(ManagedInstanceMutationLeaseRow))
+            if not multi or lease.managed_instance_id == target_id
         ):
             deny("development_session_busy")
+        if session.scalar(select(GlobalHeavyOperationLeaseRow).limit(1)) is not None:
+            deny("retained_input_or_operation_active")
         for model in (
-            GlobalHeavyOperationLeaseRow,
             ManagedRemoteGuardRow,
             NovncSessionRow,
         ):
-            if session.scalar(select(model).limit(1)) is not None:
+            query = select(model).limit(1)
+            if multi:
+                query = query.where(model.instance_id == target_id)
+            if session.scalar(query) is not None:
                 deny("retained_input_or_operation_active")
         if (
             session.scalar(
                 select(ManagedAgentLifecycleRequestRow)
                 .where(
+                    (
+                        (
+                            ManagedAgentLifecycleRequestRow.original_instance_id
+                            == target_id
+                        )
+                        if multi
+                        else true()
+                    ),
                     ManagedAgentLifecycleRequestRow.state.in_(
                         ("pending", "dispatched", "ambiguous")
-                    )
+                    ),
                 )
                 .limit(1)
             )
@@ -170,7 +176,7 @@ def require_managed_start(
         now = now or datetime.now(UTC)
         minutes = read_resource_policy(session).idle_minutes or 60
         for use in session.scalars(select(ManagedInstanceUseRow)):
-            if use.managed_instance_id == target_id:
+            if use.managed_instance_id == target_id or multi:
                 continue
             if (use.hold_until and use.hold_until > timestamp(now)) or (
                 use.actor_key.startswith("mcp:")
@@ -184,6 +190,8 @@ def require_managed_start(
             sessionmaker(bind=session.get_bind())
         )
         for managed in session.scalars(select(ManagedInstanceRow)):
+            if multi and managed.target_id != target_id:
+                continue
             if reconciliation.status(
                 UUID(managed.target_id), read_session=session
             ).required:
