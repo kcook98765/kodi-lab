@@ -53,7 +53,7 @@ from kodi_lab.storage.repositories import (
 
 class ResourcePolicyInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    max_running: int = Field(ge=1, le=64)
+    max_running: int = Field(ge=1, le=1)
     idle_minutes: int | None = Field(ge=1, le=10080)
 
 

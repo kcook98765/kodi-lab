@@ -18,6 +18,7 @@ from kodi_lab.application.mcp_administration import (
     McpAdministrationService,
 )
 from kodi_lab.application.mcp_workspace_development import BoundedIntervalRateLimiter
+from kodi_lab.broker.errors import RemoteBrokerError
 from kodi_lab.mcp.authorization import McpAuthorizationError
 from kodi_lab.storage.models import ManagedInstanceUseRow, McpClientRow
 from kodi_lab.storage.repositories import ManagedRuntimeProjectionRepository
@@ -226,3 +227,34 @@ def test_disabled_client_cannot_read_or_resume_owned_request(
     with pytest.raises(McpAuthorizationError, match="permission_denied"):
         actor.ensure(request_id)
     assert env.broker.starts == 0 and env.broker.stops == 0
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "managed_version_slot_conflict",
+        "managed_version_slot_pending",
+        "managed_version_slot_identity_unavailable",
+    ],
+)
+def test_version_admission_refusals_keep_their_reason_and_do_not_replay(
+    env: resources.Environment,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+) -> None:
+    env.broker.running = False
+    actor, request_id = Actor(env, tmp_path, name="Slot conflict fixture"), uuid4()
+
+    def refuse(**_kwargs: Any) -> Never:
+        env.broker.starts += 1
+        raise RemoteBrokerError(
+            code, "Review the existing profile operation.", request_id=None
+        )
+
+    monkeypatch.setattr(env.broker, "start_managed_container", refuse)
+    result = actor.ensure(request_id)
+    assert result.receipt_state == "failed" and result.code == code and not result.ready
+    replay = actor.ensure(request_id)
+    assert replay.replayed and replay.code == code
+    assert env.broker.starts == 1 and not env.broker.running

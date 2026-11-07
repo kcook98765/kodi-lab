@@ -10,7 +10,7 @@ function form(selector, dataset, values) {
   forms.set(selector, [value]);
   return value;
 }
-const policy = form("[data-managed-resource-policy]", {}, {max_running: "4", idle_enabled: "on", idle_minutes: "60"});
+const policy = form("[data-managed-resource-policy]", {}, {max_running: "1", idle_enabled: "on", idle_minutes: "60"});
 const target = "22222222-2222-4222-8222-222222222222";
 const enrollment = form("[data-managed-enrollment]", {managedEnrollment: target}, {enrolled: "on"});
 const hold = form("[data-managed-keep-awake]", {managedKeepAwake: target}, {minutes: "15"});
@@ -30,7 +30,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), {
   fetch: async (url, options = {}) => {
     requests.push({url, options});
     if (delay && options.method === "POST") await new Promise(resolve => {settle = resolve;});
-    return {ok: !failure, json: async () => failure ? {error: {message: "Stop already claimed"}} : options.method === "POST" ? {saved: true} : {capacity: {used: 1, limit: 4}, instances: []}};
+    return {ok: !failure, json: async () => failure ? {error: {message: "Stop already claimed"}} : options.method === "POST" ? {saved: true} : {capacity: {used: 1, limit: 1}, instances: []}};
   },
   Date, Number, String, Error, encodeURIComponent,
 });
@@ -48,7 +48,7 @@ const submit = (value) => value.listeners.submit({preventDefault() {}});
   assert.equal(policy.button.disabled, true);
   settle(); await first; delay = false;
   const posted = requests.find(item => item.options.method === "POST");
-  assert.deepEqual(JSON.parse(posted.options.body), {max_running: 4, idle_minutes: 60});
+  assert.deepEqual(JSON.parse(posted.options.body), {max_running: 1, idle_minutes: 60});
   assert.equal(posted.options.headers["X-Kodi-Lab-CSRF"], "csrf-fixture");
   delete policy.values.idle_enabled;
   await submit(policy);

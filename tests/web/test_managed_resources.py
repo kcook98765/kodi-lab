@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.storage.models import TargetRow
+from kodi_lab.storage.models import ManagedResourcePolicyRow, TargetRow
 from tests.web.conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 
 
@@ -23,7 +23,7 @@ def test_resource_policy_enrollment_and_hold_require_web_csrf(
     before = client.get("/api/managed-resources").json()
     assert before["policy"] == {"max_running": 1, "idle_minutes": 60}
     assert before["instances"][0]["status"]["enrolled"] is False
-    policy = {"max_running": 2, "idle_minutes": 10}
+    policy = {"max_running": 1, "idle_minutes": 10}
     assert client.post("/api/managed-resources/policy", json=policy).status_code == 403
     assert (
         client.post(
@@ -51,7 +51,7 @@ def test_resource_policy_enrollment_and_hold_require_web_csrf(
     assert (
         client.post(
             "/api/managed-resources/policy",
-            json={"max_running": 2, "idle_minutes": None},
+            json={"max_running": 1, "idle_minutes": None},
             headers=headers,
         ).status_code
         == 200
@@ -144,6 +144,7 @@ def test_resource_limits_reject_coerced_or_out_of_bound_values(
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     for body in (
         {"max_running": 0, "idle_minutes": 60},
+        {"max_running": 2, "idle_minutes": 60},
         {"max_running": 4, "idle_minutes": 0},
         {"max_running": "4", "idle_minutes": 60},
     ):
@@ -161,6 +162,22 @@ def test_resource_limits_reject_coerced_or_out_of_bound_values(
         ).status_code
         == 422
     )
+
+
+def test_saved_multi_runtime_policy_is_preserved_but_reports_one_effective_slot(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    login(client)
+    with database.begin() as session:
+        session.add(ManagedResourcePolicyRow(id=1, max_running=4, idle_minutes=17))
+    policy = client.get("/api/managed-resources").json()["policy"]
+    assert policy == {"max_running": 1, "idle_minutes": 17}
+    page = client.get("/managed-resources").text
+    assert 'max="1" value="1" readonly' in page
+    with database() as session:
+        saved = session.get(ManagedResourcePolicyRow, 1)
+        assert saved is not None and saved.max_running == 4 and saved.idle_minutes == 17
 
 
 def test_resource_browser_polls_passively_and_saves_once() -> None:

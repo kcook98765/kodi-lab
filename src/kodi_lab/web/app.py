@@ -3131,6 +3131,8 @@ def create_app(
                 "runtime_revision_precondition_failed",
                 "container_must_be_stopped",
                 "provisioning_conflict",
+                "managed_version_slot_conflict",
+                "managed_version_slot_pending",
             }
             code = 409 if error.code in conflict_codes else 503
             return _json_error(code, error.code, error.safe_message[:256])
