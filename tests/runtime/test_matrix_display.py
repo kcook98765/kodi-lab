@@ -36,7 +36,7 @@ def test_matrix_r3_preserves_kodi_pins_and_signed_distro_identity() -> None:
     )
     candidate = load_display_candidate_recipe("matrix")
     assert old.recipe.recipe_revision == 2
-    assert candidate.recipe.recipe_revision == 3
+    assert candidate.recipe.recipe_revision == 4
     assert candidate.recipe.kodi_version == "19.4"
     assert candidate.recipe.provider == old.recipe.provider
     assert candidate.recipe.base_image_reference == old.recipe.base_image_reference
@@ -50,8 +50,8 @@ def test_matrix_r3_preserves_kodi_pins_and_signed_distro_identity() -> None:
     for name, payload in old.assets.items():
         if name != "entrypoint.sh":
             assert candidate.assets[name] == payload
-    assert b"640x360x24" in candidate.assets["entrypoint.sh"]
-    assert b"LP_NUM_THREADS=1 dbus-run-session" in candidate.assets["entrypoint.sh"]
+    assert b"640x360x24" in candidate.assets["supervisor.py"]
+    assert b'"LP_NUM_THREADS": "1"' in candidate.assets["supervisor.py"]
     import runpy
     from pathlib import Path
 

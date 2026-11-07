@@ -52,21 +52,29 @@ def proof() -> dict[str, object]:
 def test_omega_candidate_preserves_payload_defaults_and_historical_target() -> None:
     candidate = load_display_candidate_recipe("omega")
     historical = load_novnc_phase1_recipe()
-    assert candidate.recipe.recipe_revision == 5
-    assert candidate.assets == historical.assets
+    assert candidate.recipe.recipe_revision == 6
+    assert {
+        name: value
+        for name, value in candidate.assets.items()
+        if name not in {"entrypoint.sh", "supervisor.py"}
+    } == {
+        name: value
+        for name, value in historical.assets.items()
+        if name != "entrypoint.sh"
+    }
     assert candidate.recipe.critical_packages == historical.recipe.critical_packages
     assert candidate.recipe.execution_profile == historical.recipe.execution_profile
     assert candidate.digest != historical.digest
     capability = reviewed_display_capability(candidate)
     assert capability is not None and capability.qualification == "standard"
-    assert load_reviewed_recipe("omega").recipe.recipe_revision == 5
+    assert load_reviewed_recipe("omega").recipe.recipe_revision == 6
     assert recipe_target_id(candidate) == recipe_target_id(
         load_reviewed_recipe("omega")
     )
     assert recipe_target_id(candidate) != recipe_target_id(historical)
     assert (
         load_recorded_reviewed_recipe(
-            "omega", candidate.recipe.recipe_id, 5, candidate.digest
+            "omega", candidate.recipe.recipe_id, 6, candidate.digest
         )
         == candidate
     )

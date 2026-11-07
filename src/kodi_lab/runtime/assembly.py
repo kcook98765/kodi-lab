@@ -151,6 +151,12 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         if "novnc_view_helper.py" in reviewed.assets
         else ""
     )
+    supervisor_copy = (
+        "COPY --chown=root:root supervisor.py /usr/local/lib/kodi-lab-supervisor.py\n"
+        "RUN chmod 0444 /usr/local/lib/kodi-lab-supervisor.py\n"
+        if "supervisor.py" in reviewed.assets
+        else ""
+    )
     return (
         f"FROM {recipe.base_image_reference}\n"
         "ENV DEBIAN_FRONTEND=noninteractive\n"
@@ -176,6 +182,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         "COPY --chown=kodi:kodi entrypoint.sh /usr/local/bin/kodi-lab-entrypoint\n"
         f"{display_guard_copy}"
         f"{view_helper_copy}"
+        f"{supervisor_copy}"
         "COPY --chown=kodi:kodi healthcheck.sh "
         "/usr/local/bin/kodi-lab-kodi-healthcheck\n"
         "COPY --chown=kodi:kodi profile/guisettings.xml "

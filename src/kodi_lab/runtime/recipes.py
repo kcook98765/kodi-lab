@@ -46,6 +46,10 @@ _RECIPES = {
             "matrix-19.4-display-r3.json",
             "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
         ),
+        (
+            "matrix-19.4-graceful-r4.json",
+            "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+        ),
     ),
     "nexus": (
         (
@@ -59,6 +63,10 @@ _RECIPES = {
         (
             "nexus-20.5-display-r3.json",
             "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
+        ),
+        (
+            "nexus-20.5-graceful-r4.json",
+            "sha256:b6f49665b0960a2b6c7969b627dd552d4b470ed062d2aab2f293c5baeaf31d22",
         ),
     ),
     "omega": (
@@ -74,7 +82,17 @@ _RECIPES = {
             "omega-21.3-display-r5.json",
             "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
         ),
+        (
+            "omega-21.3-graceful-r6.json",
+            "sha256:ddef9a2402eb1aeea483c16087e08cd6ed6af62d9a42e89f1584aa63bf81e5bf",
+        ),
     ),
+}
+# New sealed revisions reuse unchanged historical assets, never rewrite them.
+_GRACEFUL_ASSET_PARENTS = {
+    ("ubuntu-jammy-matrix-19.4", 4): "matrix-19.4-display-r3",
+    ("ubuntu-noble-nexus-20.5", 4): "nexus-20.5-display-r3",
+    ("ubuntu-resolute-omega-21.3", 6): "omega-21.3-display-r5",
 }
 _ASSETS = (
     "entrypoint.sh",
@@ -347,6 +365,8 @@ class RuntimeRecipe(_ClosedModel):
         ):
             raise ValueError("recipe support package set is invalid")
         expected_assets = set(_ASSETS)
+        if (self.recipe_id, self.recipe_revision) in _GRACEFUL_ASSET_PARENTS:
+            expected_assets.add("supervisor.py")
         if self.recipe_revision >= 2:
             expected_assets.add(_DISPLAY_GUARD_ASSET)
         from kodi_lab.runtime.display_capabilities import VIEWER_ASSET_RECIPES
@@ -457,22 +477,22 @@ PIERS_DISPLAY_INSTALLATION_DIGEST: Final = (
 _DISPLAY_CANDIDATES = {
     "piers": ("piers-22.0-rc1-installation-r3.json", PIERS_DISPLAY_INSTALLATION_DIGEST),
     "matrix": (
-        "matrix-19.4-display-r3.json",
-        "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+        "matrix-19.4-graceful-r4.json",
+        "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
     ),
     "nexus": (
-        "nexus-20.5-display-r3.json",
-        "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
+        "nexus-20.5-graceful-r4.json",
+        "sha256:b6f49665b0960a2b6c7969b627dd552d4b470ed062d2aab2f293c5baeaf31d22",
     ),
     "omega": (
-        "omega-21.3-display-r5.json",
-        "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
+        "omega-21.3-graceful-r6.json",
+        "sha256:ddef9a2402eb1aeea483c16087e08cd6ed6af62d9a42e89f1584aa63bf81e5bf",
     ),
 }
 
 
 def load_display_candidate_recipe(generation: str) -> ReviewedRecipe:
-    """Resolve the exact qualified display recipe (also the fresh install default)."""
+    """Resolve the current sealed display recipe; native validation is separate."""
     try:
         filename, digest = _DISPLAY_CANDIDATES[generation]
     except KeyError as error:
@@ -536,7 +556,11 @@ def _load_recipe_file(
         raise ValueError("recipe generation differs from reviewed selection")
     asset_root = package.joinpath(
         "assembly_assets",
-        recipe.recipe_id if generation == "piers" else filename.removesuffix(".json"),
+        recipe.recipe_id
+        if generation == "piers"
+        else _GRACEFUL_ASSET_PARENTS.get(
+            (recipe.recipe_id, recipe.recipe_revision), filename.removesuffix(".json")
+        ),
     )
     if not asset_root.is_dir():
         asset_root = package.joinpath("assembly_assets")
@@ -546,7 +570,17 @@ def _load_recipe_file(
         assets = load_assembly_assets(revision=recipe.recipe_revision)
     else:
         assets = {
-            name: asset_root.joinpath(*name.split("/")).read_bytes()
+            name: (
+                package.joinpath(
+                    "assembly_assets",
+                    "graceful_entrypoint_v1.sh"
+                    if name == "entrypoint.sh"
+                    else "graceful_supervisor_v1.py",
+                )
+                if (recipe.recipe_id, recipe.recipe_revision) in _GRACEFUL_ASSET_PARENTS
+                and name in {"entrypoint.sh", "supervisor.py"}
+                else asset_root.joinpath(*name.split("/"))
+            ).read_bytes()
             for name in recipe.asset_hashes
         }
     for name, payload in assets.items():

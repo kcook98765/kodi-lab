@@ -174,6 +174,9 @@ def validate_reviewed_image(
     screenshot: dict[str, object] | None = None
     display: dict[str, object] | None = None
     capability = reviewed_display_capability(reviewed)
+    graceful = "supervisor.py" in reviewed.assets
+    original_name: object = None
+    pending_name = f"Kodi Lab stop validation {operation_id.hex}"
     try:
         network = create_temporary_network(
             client,
@@ -231,6 +234,22 @@ def validate_reviewed_image(
                 timeout_seconds=reviewed.recipe.execution_profile.readiness_timeout_seconds,
             )
             _identity(container, reviewed)
+            if graceful:
+                current = _rpc(
+                    container,
+                    "Settings.GetSettingValue",
+                    {"setting": "services.devicename"},
+                )
+                if not isinstance(current, dict) or not isinstance(
+                    current.get("value"), str
+                ):
+                    raise RecipeValidationError("native setting readback differs")
+                if cycle == 0:
+                    original_name = current["value"]
+                elif current["value"] != pending_name:
+                    raise RecipeValidationError(
+                        "pending Kodi setting did not survive Stop/Start"
+                    )
             if _exec(container, ("/usr/bin/id", "-u"), limit=16).strip() != b"1000":
                 raise RecipeValidationError("reviewed runtime is not non-root")
             if _exec(container, ("/usr/bin/id", "-g"), limit=16).strip() != b"1000":
@@ -267,11 +286,36 @@ def validate_reviewed_image(
                     ),
                     capability,
                 )
+            if graceful:
+                # Do this after navigation/display checks: GUI transitions can
+                # save settings independently and must not mask a broken Stop.
+                value = pending_name if cycle == 0 else original_name
+                if (
+                    _rpc(
+                        container,
+                        "Settings.SetSettingValue",
+                        {"setting": "services.devicename", "value": value},
+                    )
+                    is not True
+                ):
+                    raise RecipeValidationError("native setting change was rejected")
+                if _rpc(
+                    container,
+                    "Settings.GetSettingValue",
+                    {"setting": "services.devicename"},
+                ) != {"value": value}:
+                    raise RecipeValidationError(
+                        "native setting change readback differs"
+                    )
             container.stop(timeout=10)
             container.reload()
             state = container.attrs.get("State")
             if not isinstance(state, dict) or state.get("Running") is not False:
                 raise RecipeValidationError("reviewed Kodi did not stop cleanly")
+            if graceful and (
+                type(state.get("ExitCode")) is not int or state["ExitCode"] != 0
+            ):
+                raise RecipeValidationError("reviewed Kodi graceful stop failed")
             cycles.append(
                 {
                     "cycle": cycle + 1,
@@ -298,6 +342,7 @@ def validate_reviewed_image(
                 "library_query": True,
                 "screenshot": screenshot,
                 "cycles": cycles,
+                **({"pending_setting_persistence": True} if graceful else {}),
                 **({"display": display} if display is not None else {}),
             },
         )
