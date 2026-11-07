@@ -44,6 +44,40 @@ installation/attestation path; matching an image tag does not approve it. If a
 supported import path is unavailable, stop and budget the reviewed acquisition
 instead of fabricating catalog/approval rows.
 
+### Reviewed image reuse prerequisites
+
+Source review confirms that Start and Reset reuse an installation only when its
+ready recipe receipt, exact recipe digest, approved runtime revision, validation,
+deployment-local HMAC attestation and exact cached image all remain eligible.
+`RuntimeInstallationService.observe_create` checks these through the existing
+broker. This supports reuse in an independently prepared disposable test site;
+it does not import another installation's approval.
+
+There is no portable reviewed-recipe receipt/attestation importer in this
+candidate. Loading saved Docker image bytes into a fresh Engine and database
+does not create the required approval or HMAC evidence. The older
+`kodi-lab-runtime load`/`bootstrap` path is for the packaged private curated
+archives, not current recipe-installation receipts, and is disabled in release
+images. It is not a shortcut to four eligible version slots or standard viewing.
+Do not copy production SQLite state, its master key or Bridge credentials to
+make cached images appear approved. Prefer an existing independent test site
+with valid receipts, or separately authorize the reviewed installer on a
+dedicated test Engine and storage.
+
+For storage admission, measure the test Engine's actual image/layer usage, the
+largest acquisition/build peak, four stopped writable profiles, the Lab bundle
+and private backup/evidence space, and retain a separate operating reserve.
+The Piers OSTree acquisition explicitly requires **8 GiB free** on its staging
+filesystem and permits up to **6 GiB** of staged files; those values are not a
+total Engine-space budget. The full four-version peak has not been measured by
+this source campaign. Before native execution, require an explicit storage
+budget covering all those terms, not just the acquisition minimum. No fixed
+guest-memory figure is qualified here; measure one Kodi sequentially and retain
+host RAM headroom without adding swap pressure. Prefer a separate Ubuntu test
+machine with dedicated storage over allocating a new VM disk on Claw's nearly
+full root filesystem. Use a disposable Windows test machine/VM with its own
+Desktop Engine for the Windows lane.
+
 ## Authority boundaries
 
 | Acceptance lane | Safe scope after separate acceptance authorization | Requires additional exact approval |
@@ -209,3 +243,11 @@ agent deployment/inspection loop before claiming Windows acceptance.
 Native Linux, native Windows/WSL2, real browser graphics, installed upgrade and
 release qualification are separate results. Record each PASS, partial, blocked
 or not-run result honestly. This plan executes none of them.
+
+Automatic agent development reattachment after Reset remains outside this
+candidate. A narrow follow-up should review an explicit reattachment intent
+bound to the completed Reset receipt, exact replacement container and existing
+owned workspace/source/target scopes. It must retain separate decisions for
+selection, fresh Bridge trust, baseline copy and add-on enablement; existing
+lifecycle or Reset grants must not implicitly acquire those authorities. Until
+then, the administrator preparation and agent handoff in step 7 are required.
