@@ -32,7 +32,7 @@ def test_historical_experimental_recipe_is_pinned_and_separate_from_standard() -
     import io
     import tarfile
 
-    assert load_reviewed_recipe("omega").recipe.recipe_revision == 5
+    assert load_reviewed_recipe("omega").recipe.recipe_revision == 6
     candidate = load_novnc_phase1_recipe()
     assert candidate.recipe.recipe_revision == 4
     assert "novnc_view_helper.py" in candidate.assets

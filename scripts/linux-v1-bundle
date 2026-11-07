@@ -43,16 +43,16 @@ BRIDGE_FILES = (
 )
 RECIPES = {
     "matrix": (
-        "matrix-19.4-display-r3.json",
-        "sha256:d3eff61619329c0aeb2be44623542a486b2b669f3aeedda6803bd54a2d9d47d1",
+        "matrix-19.4-graceful-r4.json",
+        "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
     ),
     "nexus": (
-        "nexus-20.5-display-r3.json",
-        "sha256:3bc201b543498072d8217085bf667960c95a95280b9b83ad66f783bef52bed3d",
+        "nexus-20.5-graceful-r4.json",
+        "sha256:b6f49665b0960a2b6c7969b627dd552d4b470ed062d2aab2f293c5baeaf31d22",
     ),
     "omega": (
-        "omega-21.3-display-r5.json",
-        "sha256:505c5e7bf43e9b61e74250477c0dab5ee8fe4bd3ac8482d1b83222aff95ae8b9",
+        "omega-21.3-graceful-r6.json",
+        "sha256:ddef9a2402eb1aeea483c16087e08cd6ed6af62d9a42e89f1584aa63bf81e5bf",
     ),
 }
 RELEASE_FILES = {
@@ -910,9 +910,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "development_generator": "kodi-lab-development-repository-v1",
             "publication_migration": "0001_initial_release",
             "workspace_deployment_migration": "0001_initial_release",
-            "development_capability_amendment_migration": (
-                "0001_initial_release"
-            ),
+            "development_capability_amendment_migration": ("0001_initial_release"),
             "candidate_transition": "explicit-reviewed-a-b-v1",
             "migration_head": migration_head,
         },
@@ -998,9 +996,7 @@ def verify(
         "development_generator": "kodi-lab-development-repository-v1",
         "publication_migration": "0001_initial_release",
         "workspace_deployment_migration": "0001_initial_release",
-        "development_capability_amendment_migration": (
-            "0001_initial_release"
-        ),
+        "development_capability_amendment_migration": ("0001_initial_release"),
         "candidate_transition": "explicit-reviewed-a-b-v1",
         "migration_head": migration_head,
     }:

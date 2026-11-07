@@ -12,7 +12,7 @@ download checks integrity but does not establish publisher identity.
 | --- | --- | --- |
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `compose.lan-http.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
-| Reviewed runtime inputs | `runtime-recipes/matrix-19.4-display-r3.json`, `nexus-20.5-display-r3.json`, `omega-21.3-display-r5.json` | File hashes and installed wheel recipe digests; provider, suite, version |
+| Reviewed runtime inputs | `runtime-recipes/matrix-19.4-graceful-r4.json`, `nexus-20.5-graceful-r4.json`, `omega-21.3-graceful-r6.json` | File hashes and installed wheel recipe digests; provider, suite, version |
 | Remote bridge | `bridge/service.kodi_lab_bridge-1.1.31.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
 | Kodi feed inputs | `repository/STABLE.json`, `repository/DEVELOPMENT.json`, installed repository generator/server | Reviewed repository/Bridge identities; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
@@ -30,6 +30,8 @@ Current standard-viewer recipes are Matrix 19.4 revision 3, Nexus 20.5 revision 
 and Omega 21.3 revision 5. Historical resources remain in the wheel for exact
 pins and provenance; acquiring a recipe does not change a registered instance's
 image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
+
+The stable runtime recipes include the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
 
 The stable set is Matrix on Ubuntu Jammy, Nexus on Ubuntu Noble and Omega on
 Ubuntu Resolute. Piers 22 RC1 is an additional Development-only Preview option.

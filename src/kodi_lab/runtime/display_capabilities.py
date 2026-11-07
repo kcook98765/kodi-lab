@@ -8,7 +8,7 @@ No entry in this registry grants a viewer, controller or installation authority.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
@@ -42,8 +42,9 @@ class DisplayCapability:
 
 # Historical r3 parsing remains supported; it does not gain an admission entry.
 VIEWER_ASSET_RECIPES = frozenset(
-    {("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5)}
-    | {("ubuntu-noble-nexus-20.5", 3), ("ubuntu-jammy-matrix-19.4", 3)}
+    {("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5, 6)}
+    | {("ubuntu-noble-nexus-20.5", revision) for revision in (3, 4)}
+    | {("ubuntu-jammy-matrix-19.4", revision) for revision in (3, 4)}
 )
 EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     recipe_id="ubuntu-resolute-omega-21.3",
@@ -113,7 +114,28 @@ PIERS_DISPLAY_CANDIDATE = DisplayCapability(
     qualification="standard",
     process_probe="piers-loader",
 )
+
+# Same display/helper payload; each installation still requires fresh validation
+# and image-bound HMAC attestation for the new recipe identity.
+_GRACEFUL_DISPLAYS = (
+    replace(
+        MATRIX_DISPLAY_CANDIDATE,
+        recipe_revision=4,
+        recipe_digest="sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+    ),
+    replace(
+        NEXUS_DISPLAY_CANDIDATE,
+        recipe_revision=4,
+        recipe_digest="sha256:b6f49665b0960a2b6c7969b627dd552d4b470ed062d2aab2f293c5baeaf31d22",
+    ),
+    replace(
+        OMEGA_DISPLAY_CANDIDATE,
+        recipe_revision=6,
+        recipe_digest="sha256:ddef9a2402eb1aeea483c16087e08cd6ed6af62d9a42e89f1584aa63bf81e5bf",
+    ),
+)
 _DISPLAY_RECIPES = (
+    *_GRACEFUL_DISPLAYS,
     EXPERIMENTAL_OMEGA_DISPLAY,
     OMEGA_DISPLAY_CANDIDATE,
     NEXUS_DISPLAY_CANDIDATE,
