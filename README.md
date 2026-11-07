@@ -169,8 +169,10 @@ Explicitly authorized agents can now use `managed_status`, `managed_start` and
 `managed_stop` with version names. Start prepares an empty approved cached slot
 or resumes its retained profile; Stop safely retains it. See the
 [version lifecycle setup and replay contract](docs/MANAGED-VERSION-LIFECYCLE.md).
-Clean Reset, automatic switching and the four-version Web interface remain
-follow-up work; existing presets do not gain lifecycle authority automatically.
+Agents explicitly granted both `managed.versions` and `managed.reset` can also
+request [clean Reset](docs/MANAGED-CLEAN-RESET.md), stopped by default, while
+preserving independent development work. Automatic switching and the four-version
+Web interface remain follow-ups; existing presets gain no authority automatically.
 
 To connect an existing Kodi installation instead, use **Add Kodi** and its
 pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),

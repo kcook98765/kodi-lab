@@ -38,6 +38,10 @@ from kodi_lab.broker.operations import (
 from kodi_lab.domain import InstanceType, ManagedInstanceLifecycleOperation
 from kodi_lab.runtime.recipes import load_installation_recipe
 from kodi_lab.storage.managed_activity import record_activity, timestamp
+from kodi_lab.storage.managed_clean_reset import (
+    active_clean_reset,
+    require_no_clean_reset,
+)
 from kodi_lab.storage.managed_start import require_managed_start
 from kodi_lab.storage.managed_version_slots import (
     ManagedVersionSlot,
@@ -46,6 +50,7 @@ from kodi_lab.storage.managed_version_slots import (
     require_unique_version_profile,
 )
 from kodi_lab.storage.models import (
+    ManagedCleanResetRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
@@ -325,6 +330,56 @@ class ManagedVersionLifecycleService:
             ):
                 raise ManagedVersionError("runtime_changed_since_request")
 
+    def register_cached(
+        self, session: Session, slot: ManagedVersionSlot
+    ) -> ManagedInstanceRow:
+        """Reuse approved registration inside an authorized parent transaction."""
+        instance = session.get(ManagedInstanceRow, str(slot.canonical_target_id))
+        if instance is None:
+            reviewed = load_installation_recipe(slot.generation)
+            cached = session.scalar(
+                select(RuntimeRecipeInstallationRow)
+                .where(
+                    RuntimeRecipeInstallationRow.generation == slot.generation,
+                    RuntimeRecipeInstallationRow.recipe_digest == reviewed.digest,
+                    RuntimeRecipeInstallationRow.state == "ready",
+                )
+                .order_by(RuntimeRecipeInstallationRow.updated_at.desc())
+                .limit(1)
+            )
+            if cached is None:
+                raise ManagedVersionError("approved_cached_runtime_required")
+            observed = self._installer.observe_create(
+                cast(Version, slot.generation), UUID(cached.id)
+            )
+            if (
+                observed.status != "ready"
+                or observed.busy
+                or observed.runtime_revision_id is None
+            ):
+                raise ManagedVersionError("approved_cached_runtime_required")
+            ManagedInstanceService(
+                self._sessions,
+                data_root=self._data_root,
+                include_legacy=True,
+                include_prerelease=slot.generation == "piers",
+                preview_recipe_digest=reviewed.digest
+                if slot.generation == "piers"
+                else None,
+            ).create_in_session(
+                session,
+                target_id=slot.canonical_target_id,
+                selection=ExactRevisionSelection(
+                    reviewed.recipe.definition_id,
+                    observed.runtime_revision_id,
+                ),
+                instance_type=InstanceType.DISPOSABLE,
+            )
+            session.flush()
+            instance = session.get(ManagedInstanceRow, str(slot.canonical_target_id))
+        assert instance is not None
+        return instance
+
     def _accept(
         self,
         client_id: UUID,
@@ -336,6 +391,13 @@ class ManagedVersionLifecycleService:
         with self._sessions.begin() as session:
             session.execute(text("BEGIN IMMEDIATE"))
             authorize(session, slot.canonical_target_id)
+            if session.scalar(
+                select(ManagedCleanResetRow.id).where(
+                    ManagedCleanResetRow.client_id == str(client_id),
+                    ManagedCleanResetRow.request_id == str(request_id),
+                )
+            ):
+                raise ManagedVersionError("request_conflict")
             previous = session.scalar(
                 select(ManagedVersionOperationRow).where(
                     ManagedVersionOperationRow.client_id == str(client_id),
@@ -384,6 +446,7 @@ class ManagedVersionLifecycleService:
             )
             try:
                 with session.begin_nested():
+                    require_no_clean_reset(session, row.target_id)
                     if self._active_blocker(session, row.target_id):
                         raise ManagedVersionError("managed_version_operation_pending")
                     inventory = self._records(session, slot)
@@ -393,55 +456,11 @@ class ManagedVersionLifecycleService:
                         for r in inventory.containers
                     ):
                         raise ManagedVersionError("other_version_running")
-                    instance = session.get(ManagedInstanceRow, row.target_id)
-                    if instance is None and action == "start":
-                        reviewed = load_installation_recipe(slot.generation)
-                        cached = session.scalar(
-                            select(RuntimeRecipeInstallationRow)
-                            .where(
-                                RuntimeRecipeInstallationRow.generation
-                                == slot.generation,
-                                RuntimeRecipeInstallationRow.recipe_digest
-                                == reviewed.digest,
-                                RuntimeRecipeInstallationRow.state == "ready",
-                            )
-                            .order_by(RuntimeRecipeInstallationRow.updated_at.desc())
-                            .limit(1)
-                        )
-                        if cached is None:
-                            raise ManagedVersionError(
-                                "approved_cached_runtime_required"
-                            )
-                        observed = self._installer.observe_create(
-                            cast(Version, slot.generation), UUID(cached.id)
-                        )
-                        if (
-                            observed.status != "ready"
-                            or observed.busy
-                            or observed.runtime_revision_id is None
-                        ):
-                            raise ManagedVersionError(
-                                "approved_cached_runtime_required"
-                            )
-                        ManagedInstanceService(
-                            self._sessions,
-                            data_root=self._data_root,
-                            include_legacy=True,
-                            include_prerelease=slot.generation == "piers",
-                            preview_recipe_digest=reviewed.digest
-                            if slot.generation == "piers"
-                            else None,
-                        ).create_in_session(
-                            session,
-                            target_id=slot.canonical_target_id,
-                            selection=ExactRevisionSelection(
-                                reviewed.recipe.definition_id,
-                                observed.runtime_revision_id,
-                            ),
-                            instance_type=InstanceType.DISPOSABLE,
-                        )
-                        session.flush()
-                        instance = session.get(ManagedInstanceRow, row.target_id)
+                    instance = (
+                        self.register_cached(session, slot)
+                        if action == "start"
+                        else session.get(ManagedInstanceRow, row.target_id)
+                    )
                     if instance is not None:
                         row.runtime_revision_id = instance.runtime_revision_id
                         artifact = session.get(
@@ -946,6 +965,19 @@ class ManagedVersionLifecycleService:
                 )
                 if parent is not None and parent.client_id == str(client_id):
                     operation, request = UUID(parent.id), UUID(parent.request_id)
+                resetting = active_clean_reset(session, str(slot.canonical_target_id))
+                if resetting is not None:
+                    owned = resetting.client_id == str(client_id)
+                    return ManagedVersionStatus(
+                        **base,
+                        state="blocked",
+                        code="managed_reset_pending",
+                        operation_id=UUID(resetting.id) if owned else None,
+                        request_id=UUID(resetting.request_id) if owned else None,
+                        next_action="poll_original_request"
+                        if owned
+                        else "ask_administrator",
+                    )
                 inventory = self._records(session, slot)
                 instance = session.get(
                     ManagedInstanceRow, str(slot.canonical_target_id)

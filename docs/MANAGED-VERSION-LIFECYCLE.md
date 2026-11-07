@@ -3,8 +3,9 @@
 Issue #238 phase 2 adds `managed_status`, `managed_start` and `managed_stop`.
 The ordinary agent loop is **Status → Start(version) → develop/test → Stop(version)**.
 Stop keeps the exact writable Kodi profile, settings and installed add-ons.
-Clean Reset, automatic version switching and the four-version Web interface are
-separate follow-ups. Discover the installed server's tools first; publishing this
+Separately opted-in [clean Reset](MANAGED-CLEAN-RESET.md) completes the fourth
+agent operation. Automatic switching and the four-version Web interface remain
+follow-ups. Discover the installed server's tools first; publishing this
 source does not upgrade an installed Lab.
 
 ## Administrator prerequisites and authority
@@ -138,23 +139,23 @@ Automatic switching needs a replay-safe parent that authorizes **both** canonica
 targets, proves ownership/use and any Stop outcome, and starts the new version
 only after exact confirmed Stop. The present coordinator refuses instead.
 
-Clean Reset needs separate destructive authority, explicit slot/profile binding,
-active-user and reconciliation guards, proven removal/recreation, invalidation of
-container-bound Bridge trust/deployment baselines, and preserved source/workspace/
-Git/evidence. `managed.versions` must not imply that permission.
+Clean Reset is provided by `managed_reset` with separate destructive
+`managed.reset` authority in addition to `managed.versions`. See its
+[disposal, invalidation and recovery contract](MANAGED-CLEAN-RESET.md).
+Ordinary lifecycle permission alone still cannot reset a profile.
 
 The ordinary Web page still needs four clear version entries with Start, Stop,
 Reset and Open Screen, human destructive confirmation and Advanced recovery.
 Existing viewing/noVNC security and Current Kodi development controls remain.
 Issue #238 is therefore **not fully implemented** by this phase.
 
-## Focused validation for this phase
+## Phase 2 focused validation
 
 Each selected test file ran individually through the focused wrapper. Final
 successful selections cover **406 passed, 9 explicitly gated skips across 24
 files**, plus Ruff format/lint and strict mypy on all 34 changed Python files.
-The skipped candidate-transition cases require separately authorized native
-acceptance; they are not counted as qualified platforms.
+The skipped candidate-transition cases require packaged root transition identity
+and remain skipped in this non-root focused lane. Native acceptance is separate.
 
 | Selection | Result |
 | --- | --- |

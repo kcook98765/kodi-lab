@@ -49,7 +49,8 @@ For version-oriented **Status → Start → Use → Stop**, use the explicitly o
 [managed version lifecycle](MANAGED-VERSION-LIFECYCLE.md). They compose the same
 resource safety authority; Stop retains the exact profile. Their new
 `managed.versions` permission does not extend existing presets or
-`managed.lifecycle`. Clean Reset and automatic switching remain follow-ups.
+`managed.lifecycle`. [Clean Reset](MANAGED-CLEAN-RESET.md) additionally requires
+explicit `managed.reset` authority; automatic switching remains a follow-up.
 
 The following target-oriented tools keep their existing contracts.
 

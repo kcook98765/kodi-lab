@@ -46,3 +46,10 @@ changes no policies, grants, runtime registrations or profiles. Referenced
 lifecycle children remain inspectable. Downgrade refuses once any receipt exists
 to preserve replay safety and audit history. See
 [the coordinator contract](../docs/MANAGED-VERSION-LIFECYCLE.md).
+
+`0004_clean_reset` follows `0003_managed_versions` and adds immutable clean Reset
+intents plus atomic mutation/view/input admission fences. It changes no existing
+grants, presets, runtime pins, profiles or stored resource policy. Reset parents
+and their referenced child history survive ordinary pruning and target/client
+removal. Downgrade refuses once any Reset receipt exists. See the
+[clean Reset contract](../docs/MANAGED-CLEAN-RESET.md).
