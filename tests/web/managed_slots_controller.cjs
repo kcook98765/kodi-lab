@@ -5,10 +5,12 @@ const request = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", snapshot = "a".repeat(64
 const versions = ["matrix", "nexus", "omega", "piers"];
 const status = (extra = {}) => ({running:[], slots:versions.map(version => ({version, state:"stopped", state_label:"Stopped", preparation:"Profile prepared", native:"Not running", message:"Ready to start", start:true, stop:false, reset:true, snapshot, technical:{}, ...extra}))});
 const receipt = (intent, extra = {}) => ({version:intent.version, action:intent.action, phase:"prepared", can_resume:true, done:false, request:{request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset}, message:"Original request is saved", recovery_url:"/recovery", ...extra});
+// Anonymized real completed Stop receipt from Claw native acceptance.
+const completedStop = JSON.parse(fs.readFileSync(`${__dirname}/fixtures/managed_slot_stop_complete.json`, "utf8"));
 class Element {
   constructor() { this.listeners = {}; this.dataset = {}; this.hidden = false; this.disabled = false; this.textContent = ""; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
-  dispatch(type) { for (const fn of this.listeners[type] || []) fn({preventDefault(){}}); }
+  dispatch(type, detail = {}) { for (const fn of this.listeners[type] || []) fn({preventDefault(){}, ...detail}); }
   setAttribute(name, value) { this[name] = value; }
   focus() { if (!this.disabled) this.focused = true; }
   showModal() { this.open = true; }
@@ -38,7 +40,7 @@ function boot({storage = new Map(), denied = false, lanHttp = false} = {}) {
   vm.runInNewContext(source, {document, window, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:fn => timers.push(fn),
     fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
-  return {nodes, cards, requests, storage, document, timers, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
+  return {nodes, cards, requests, storage, document, window, timers, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
 }
 async function reply(r, body = status(), code = 200) {
   r.resolve({ok:code < 400, status:code, json:async () => body}); await flush();
@@ -120,5 +122,70 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
 
   const denied = boot({denied:true}); await reply(denied.requests[0]); denied.click("start"); await flush();
   assert.equal(posts(denied).length, 0, "no dispatch when original intent cannot be stored");
-  console.log("Managed slots DOM: passive refresh, original UUID replay, consent, stale dialog, keyboard cancel, uncertain recovery and storage failure passed");
+
+  // A POST refresh and interval/visibility refresh can await the same receipt.
+  // Whichever completion arrives first clears saved; the other must stay inert.
+  for (const first of [0, 1]) {
+    const overlap = boot();
+    await reply(overlap.requests[0], status({state:"running", start:false, stop:true}));
+    overlap.click("stop");
+    assert.equal(posts(overlap).length, 1);
+    await reply(posts(overlap)[0], completedStop);
+    await reply(overlap.requests.at(-1));
+    const a = overlap.requests.at(-1);
+    overlap.document.dispatch("visibilitychange");
+    await reply(overlap.requests.at(-1));
+    const b = overlap.requests.at(-1);
+    assert.equal(a.url, `/api/managed-kodi/requests/${request}`);
+    assert.equal(b.url, a.url);
+    await reply([a, b][first], completedStop);
+    await reply([a, b][1 - first], completedStop);
+    assert.equal(overlap.nodes["slot-request-message"].textContent, completedStop.message,
+      "overlapping completed Stop polls retain the real completion notice");
+    assert.equal(JSON.parse(overlap.nodes["slot-receipt"].textContent).technical.stop_confirmed, true);
+    assert(!overlap.storage.has(key));
+    assert(overlap.nodes["slot-resume"].hidden);
+    assert.equal(posts(overlap).length, 1, "poll completion never repeats Stop");
+  }
+
+  const stoppedIntent = {version:"omega", action:"stop", request_id:request, expected_snapshot:snapshot, confirm_reset:false};
+  const newerIntent = {...stoppedIntent, action:"reset", request_id:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", confirm_reset:true};
+  // A late old success or failure must not replace a newer tab's uncertain Reset.
+  for (const outcome of ["complete", "missing", "network"]) {
+    const changed = boot({storage:new Map([[key, JSON.stringify(stoppedIntent)]])});
+    await reply(changed.requests[0]); const old = changed.requests.at(-1);
+    changed.storage.set(key, JSON.stringify(newerIntent));
+    changed.window.dispatch("storage", {key});
+    await reply(changed.requests.at(-1));
+    const latest = receipt(newerIntent, {phase:"uncertain", can_resume:false, message:"Reset outcome needs recovery"});
+    await reply(changed.requests.at(-1), latest);
+    if (outcome === "network") { old.reject(Error("old request disconnected")); await flush(); }
+    else await reply(old, outcome === "complete" ? completedStop : {}, outcome === "missing" ? 404 : 200);
+    assert.deepEqual(JSON.parse(changed.storage.get(key)), newerIntent);
+    assert.equal(changed.nodes["slot-request-message"].textContent, latest.message);
+    assert.equal(JSON.parse(changed.nodes["slot-receipt"].textContent).request.request_id, newerIntent.request_id);
+    assert(changed.nodes["slot-resume"].hidden, "old errors cannot remove the uncertain-operation fence");
+    assert.equal(posts(changed).length, 0, "cross-tab polling never continues Reset");
+  }
+
+  // A pending-request lookup started before a new intent must not overwrite it.
+  const pending = boot();
+  await reply(pending.requests[0], status({pending_request:request}));
+  const recovery = pending.requests.at(-1);
+  pending.storage.set(key, JSON.stringify(newerIntent));
+  pending.window.dispatch("storage", {key});
+  await reply(recovery, completedStop);
+  assert.deepEqual(JSON.parse(pending.storage.get(key)), newerIntent,
+    "a delayed recovery lookup cannot replace a newer saved UUID");
+  assert.equal(posts(pending).length, 0);
+
+  const wrongUUID = boot({storage:new Map([[key, JSON.stringify(stoppedIntent)]])});
+  await reply(wrongUUID.requests[0]);
+  await reply(wrongUUID.requests.at(-1), {...completedStop, request:{...completedStop.request, request_id:newerIntent.request_id}});
+  assert.deepEqual(JSON.parse(wrongUUID.storage.get(key)), stoppedIntent);
+  assert(wrongUUID.nodes["slot-resume"].hidden, "a mismatched response cannot settle or continue the original request");
+  assert.match(wrongUUID.nodes["slot-request-message"].textContent, /different details/);
+  assert.equal(posts(wrongUUID).length, 0);
+
+  console.log("Managed slots DOM: passive refresh, original UUID replay, concurrent Stop completion, stale polling fences, consent, stale dialog, keyboard cancel, uncertain recovery and storage failure passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });
