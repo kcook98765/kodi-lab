@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
-{% set nav_section = 'kodi' %}
+{% set nav_section = 'external_production' %}
 {% block title %}{{ environment_identity('external_production').display_name }} · Kodi Lab{% endblock %}
 {% block main_class %}responsive-forms{% endblock %}
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}

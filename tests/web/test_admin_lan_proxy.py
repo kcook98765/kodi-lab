@@ -128,13 +128,15 @@ def test_agents_navigation_and_authentication_through_tls_proxy(
         assert response.status_code == 200
         cookie = response.history[0].headers["set-cookie"].lower()
         assert all(flag in cookie for flag in ("secure", "httponly", "samesite=strict"))
-        destination = re.search(r'<a href="([^"]+)"[^>]*>Agents</a>', response.text)
+        destination = re.search(
+            r'<a href="([^"]+)"[^>]*>Agents &amp; Permissions</a>', response.text
+        )
         assert destination is not None
         assert destination.group(1) == "/mcp-clients"
         for suffix in ("", "/", "?view=all"):
             page = trace.request(browser, "GET", destination.group(1) + suffix)
             assert page.status_code == 200
-            assert "<h1>Agents</h1>" in page.text
+            assert "<h1>Agents &amp; Permissions</h1>" in page.text
             assert page.headers["cache-control"] == "no-store"
         for path in (
             "/",

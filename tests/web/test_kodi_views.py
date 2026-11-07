@@ -151,7 +151,7 @@ def test_detail_safe_auth_and_classification(
     for target in (INSTANCE_ID, EXTERNAL_TARGET_ID, uuid4()):
         assert client.get(f"/kodi/{target}").status_code == 404
     page = detail(client, household)
-    assert 'href="/kodi" aria-current="page"' in page
+    assert 'href="/production-targets" aria-current="page"' in page
     assert "Living room" in page
     assert 'data-status="connected">Connected' in page
     assert "21.3" in page and "Verified relationship" in page

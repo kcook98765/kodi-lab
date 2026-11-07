@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% from 'components/kodi-prerequisites.html' import kodi_prerequisites %}
-{% set nav_section = 'kodi' %}
+{% set nav_section = 'managed' %}
 {% block title %}Create Managed Kodi · Kodi Lab{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/create-kodi.css') }}">{% endblock %}
 {% block main_class %}create-kodi-page{% endblock %}

@@ -1,5 +1,10 @@
 # Administrator views and managed runtime availability
 
+Historical record: #248 supersedes the view selector and cookie-based filtering.
+See [unified navigation](UNIFIED-NAVIGATION.md) for current behavior. The browser
+runner named below now uses fully intercepted disposable navigation fixtures;
+it no longer signs into or changes a running preview installation.
+
 This change adds presentation preferences and runtime diagnostics. It does not
 deploy, acquire runtimes, pair Kodi, change MCP grants, or modify existing Kodi
 instances. Local commit approval was granted in the subsequent final review.

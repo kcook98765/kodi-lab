@@ -13,7 +13,6 @@
     if (mode !== next) panels.find(panel => panel.dataset.onboardingMode === mode)
       .dispatchEvent(new CustomEvent("kodi-mode-leave"));
     mode = next;
-    controls.hidden = root.hasAttribute("data-standard-view") && mode === "home";
     radios.forEach(radio => { radio.checked = radio.value === mode; });
     panels.forEach(panel => {
       panel.hidden = panel.dataset.onboardingMode !== mode;
@@ -26,9 +25,7 @@
     controls.disabled = Boolean(locked);
     help.textContent = locked
       ? `${labels[locked]} connection in progress. Complete or resolve this saved connection before changing its use.`
-      : root.hasAttribute("data-standard-view") && mode === "home"
-        ? "Connect your External Production Kodi. Choose the Development administrator view to connect External Development Kodi for add-on testing."
-        : "Choose how you will use Kodi before connecting.";
+      : "Choose how you will use Kodi before connecting.";
   };
   root.addEventListener("kodi-onboarding-state", event => {
     if (!Object.hasOwn(states, event.detail.mode)) return;

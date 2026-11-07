@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
-{% set nav_section = 'kodi' %}
 {% set initial_mode = initial_mode|default('home') %}
+{% set nav_section = 'external_production' if initial_mode == 'home' else 'external_development' %}
 {% block title %}Connect External Kodi · Kodi Lab{% endblock %}
 {% block head %}
 <script src="{{ url_for('static', path='/add-kodi-mode.js') }}" defer></script>
@@ -11,16 +11,16 @@
 {% endblock %}
 {% block body_class %}household-page{% endblock %}
 {% block main_class %}household-panel{% endblock %}
-{% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}" data-home-label="{{ environment_identity('external_production').display_name }}" data-development-label="{{ environment_identity('external_development').display_name }}"{% if not development_view %} data-standard-view{% endif %}{% endblock %}
+{% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}" data-home-label="{{ environment_identity('external_production').display_name }}" data-development-label="{{ environment_identity('external_development').display_name }}"{% endblock %}
 {% block content %}
       <p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Connect External Kodi</p>
       <h1>Connect External Kodi</h1>
       <p>Connect Kodi running on another device. Choose its purpose below; agent permissions remain separate.</p>
-      {% if development_view %}<section aria-labelledby="managed-kodi-choice-heading">
+      <section aria-labelledby="managed-kodi-choice-heading">
         <h2 id="managed-kodi-choice-heading">{{ environment_label('managed') }}</h2>
         {{ environment_ownership('managed') }}
         <p>Use <a href="/kodi#managed-kodi-heading">Start Managed Kodi</a> for an existing version, or <a href="/create-kodi">Create Managed Kodi</a> to install and prepare one. Existing retained profiles are kept. You can connect an agent later.</p>
-      </section>{% endif %}
+      </section>
       <details class="household-details kodi-installation" data-installation>
         <summary>Install Kodi Lab Bridge</summary>
         <p>Follow these steps on Kodi before entering a pairing code below. The same Bridge works for External Production Kodi and External Development Kodi.</p>
@@ -56,7 +56,7 @@
         <p>Keep <strong>Require authentication</strong> enabled where available and set a Kodi username and password. Enter those same credentials in this page's Kodi sign-in fields. For a Kodi already configured without authentication, leave the fields empty.</p>
         <p>Keep Kodi and Kodi Lab on a trusted private network. The Kodi Lab server must be able to reach Kodi's web port and Bridge port (normally <strong>8765</strong>); Kodi must be able to reach the repository URL. If settings are hidden, change Kodi's settings level to <strong>Standard</strong> or higher.</p>
       </details>
-      <fieldset class="kodi-use-choice" data-mode-controls disabled aria-describedby="mode-help"{% if not development_view and initial_mode == 'home' %} hidden{% endif %}>
+      <fieldset class="kodi-use-choice" data-mode-controls disabled aria-describedby="mode-help">
         <legend>How will you use this Kodi?</legend>
         <label class="check-label" for="kodi-use-home"><input id="kodi-use-home" type="radio" name="kodi_use" value="home"{% if initial_mode == 'home' %} checked{% endif %}> {{ environment_identity('external_production').display_name }}</label>
         <p class="field-help">For your everyday movies, TV and library. Starts with read-only inspection.</p>

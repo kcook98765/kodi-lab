@@ -1,4 +1,4 @@
-"""Non-sensitive, browser-local presentation preference for administrators."""
+"""Compatibility for retired administrator views; never authorization state."""
 
 from urllib.parse import urlsplit
 
@@ -8,10 +8,11 @@ ADMIN_VIEW_COOKIE = "kodi_lab_admin_view"
 
 
 def admin_view_context(request: Request) -> dict[str, object]:
-    mode = request.cookies.get(ADMIN_VIEW_COOKIE)
+    # Older shared templates interpret a disabled selector as full navigation.
+    # Current templates do not use these keys. Never inspect the legacy cookie.
     return {
-        "admin_view_enabled": True,
-        "admin_view_mode": "development" if mode == "development" else "standard",
+        "admin_view_enabled": False,
+        "admin_view_mode": "development",
     }
 
 

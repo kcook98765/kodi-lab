@@ -27,6 +27,7 @@ from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.storage.models import DevelopmentSessionRow
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 from kodi_lab.web.current_kodi import CurrentKodiPresentation
+from kodi_lab.web.environment_identity import environment_identity
 from tests.application import test_mcp_workspace_development as workspace_fixture
 from tests.application.test_development_runtime_selection import installed
 from tests.runtime import test_recipe_installation as recipe_fixture
@@ -111,6 +112,7 @@ def test_selected_r4_renders_inline_viewer_without_adopting_canonical_omega(
         loader=FileSystemLoader(templates), autoescape=select_autoescape()
     )
     renderer.globals["viewer_clock_ms"] = lambda: 1_800_000_000_000
+    renderer.globals["environment_identity"] = environment_identity
     page = renderer.get_template("development-session.html").render(
         current_kodi=view,
         workspaces=[],

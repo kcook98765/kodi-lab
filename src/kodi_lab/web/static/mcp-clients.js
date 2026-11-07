@@ -27,12 +27,13 @@
     if (onboarding) onboarding.open = true;
     box.hidden = false;
   };
-  root.querySelector("[data-create-client]")?.addEventListener("submit", (event) => run(async () => {
+  root.querySelectorAll("[data-create-client], [data-create-advanced-client]").forEach(clientForm => clientForm.addEventListener("submit", (event) => run(async () => {
     event.preventDefault();
+    if (!event.currentTarget.reportValidity()) return;
     const form = new FormData(event.currentTarget);
     await request("/api/mcp/clients", "POST", {display_name: form.get("display_name"), preset_id: form.get("preset_id")});
     location.reload();
-  }));
+  })));
   const presetForm = root.querySelector("[data-create-preset]");
   if (presetForm) {
     const refreshPermissions = () => {
@@ -97,6 +98,7 @@
     }));
   });
   root.querySelectorAll("[data-target-policy]").forEach((row) => row.querySelector("button")?.addEventListener("click", () => run(async () => {
+    if (!row.querySelector("select").reportValidity()) return;
     await request(`/api/mcp/target-policies/${row.dataset.targetPolicy}`, "POST", {preset_id: row.querySelector("select").value});
     location.reload();
   })));

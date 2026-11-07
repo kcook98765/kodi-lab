@@ -3455,10 +3455,8 @@ def create_app(
             ),
             status_code=303,
         )
-        response.set_cookie(
+        response.delete_cookie(
             ADMIN_VIEW_COOKIE,
-            str(mode),
-            max_age=31536000,
             httponly=True,
             secure=settings.web_requires_https
             or (novnc_viewer is not None and novnc_viewer.require_https),

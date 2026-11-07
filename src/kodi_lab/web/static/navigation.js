@@ -16,11 +16,18 @@
   window.addEventListener("hashchange", redirectLegacyEntry);
   const sidebar = document.querySelector("[data-admin-sidebar]");
   if (!sidebar) return;
-  sidebar.querySelector("[data-admin-view-form]")?.addEventListener("submit", event => {
-    event.currentTarget.elements.return_to.value = location.pathname + location.search + location.hash;
-  });
   const toggle = sidebar.querySelector("[data-menu-toggle]");
   const navigation = sidebar.querySelector("[data-admin-navigation]");
+  function markKodiSection() {
+    if (location.pathname !== "/kodi") return;
+    const managed = ["#managed-kodi-heading", "#matrix", "#nexus", "#omega", "#piers"].includes(location.hash);
+    for (const link of navigation.querySelectorAll('a[href="/kodi"], a[href="/kodi#managed-kodi-heading"]')) {
+      if (link.getAttribute("href") === (managed ? "/kodi#managed-kodi-heading" : "/kodi")) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+  }
+  markKodiSection();
+  window.addEventListener("hashchange", markKodiSection);
   const narrow = window.matchMedia("(max-width: 960px)");
   // CSS may hide the focused button before the media-query event arrives.
   let menuHadFocus = false;

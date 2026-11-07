@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 {% set nav_section = 'agents' %}
-{% block title %}Agents · Kodi Lab{% endblock %}
+{% block title %}Agents & Permissions · Kodi Lab{% endblock %}
 {% block main_class %}agents-page{% endblock %}
 {% block main_attributes %}data-mcp-administration data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
 {% set lan_ready = mcp_lan is defined and mcp_lan.ready %}
 {% set http_ready = mcp_lan_http is defined and mcp_lan_http.ready %}
-      <h1>Agents</h1>
-      <p>Each agent has its own client, permissions and tokens.</p>
+      <h1>Agents &amp; Permissions</h1>
+      <p>Each agent has its own client, permissions and tokens. Viewing these controls grants no access; changes require an explicit authorized action.</p>
       <p class="error" data-error role="alert" hidden></p>
       <noscript><p>Enable JavaScript to create clients, issue tokens, change connection method and use copy controls. The configuration templates are available for manual copying; the selected example does not change without JavaScript.</p></noscript>
       {% if clients %}{% include 'agent-clients.html' %}{% endif %}
@@ -23,20 +23,19 @@
             <optgroup label="Read-only External Production Kodi inspection">
               {% for preset in presets if preset.builtin and preset.assignable and preset.display_name in ['Production Inspection','Production Visual Inspection'] %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>
-            {% if development_view %}<optgroup label="Other presets — advanced and development">
-              {% for preset in presets if preset.assignable and not (preset.builtin and preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
-            </optgroup>{% endif %}
+
           </select></label>
           <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots for External Production Kodi. Neither production preset authorizes Kodi created by Kodi Lab.</p>
           <details>
             <summary>Inspection for Kodi created by Kodi Lab</summary>
             <ol>
-              <li>Switch to <strong>Development</strong> view. Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select only <strong>Inspect Kodi health, add-ons and UI state</strong> for inspection-only access.</li>
+              <li>Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select only <strong>Inspect Kodi health, add-ons and UI state</strong> for inspection-only access.</li>
               <li>Choose that preset for this client and for your Kodi's policy. An unassigned Kodi policy denies access.</li>
               <li>Under this client's <strong>Kodi access</strong>, grant only that Kodi, then issue a token.</li>
             </ol>
             <p>The built-in <strong>Read-only Inspection</strong> preset also includes screenshot permission. A custom preset with only <code>target.inspect</code> keeps inspection-only access.</p>
           </details>
+          <p>For managed or test Kodi and other presets, open <a href="#agent-advanced">Advanced administration</a>.</p>
           <button type="submit">Create client</button>
         </form>
       </section>
@@ -134,14 +133,26 @@
       </section>
       </details>
       {% if not clients %}{% include 'agent-clients.html' %}{% endif %}
-      {% if development_view %}<details data-agent-advanced class="agent-advanced">
+      <details id="agent-advanced" data-agent-advanced class="agent-advanced">
         <summary>Advanced administration — custom presets and Kodi policies</summary>
+      <section>
+        <h2>Create a client with an advanced preset</h2>
+        <p>These presets can allow managed Kodi control or development work. Select one deliberately, then grant individual targets and any required scopes separately. Creating a client does not issue a token.</p>
+        <form data-create-advanced-client>
+          <label>Advanced client name <input name="display_name" required maxlength="120"></label>
+          <label>Advanced permissions preset <select name="preset_id" required>
+            <option value="" selected>Choose an advanced preset…</option>
+            {% for preset in presets if preset.assignable and not (preset.builtin and preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
+          </select></label>
+          <button type="submit">Create client with selected preset</button>
+        </form>
+      </section>
       <section>
         <h2>Create custom preset</h2>
         <p>For ordinary external production inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <label>Permission ceiling <select name="template_preset_id" required><option value="" selected data-permissions="">Choose a permission ceiling…</option>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
           {% set permission_labels = {
             'target.inspect': 'Inspect Kodi health, add-ons and UI state',
             'target.visual': 'Capture Kodi screenshots',
@@ -190,13 +201,13 @@
       <section>
         <h2>Administration: Kodi policies</h2>
         <p>Changing a Kodi policy changes its permission ceiling. It does not replace client grants or current production scopes.</p>
-        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select aria-label="Policy for {{ target.target_name }}">{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
+        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select required aria-label="Policy for {{ target.target_name }}"><option value=""{% if not target.preset %} selected{% endif %}>Choose a policy…</option>{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
       </section>
       <section>
         <h2>Preset reference</h2>
         {% for preset in presets %}<details class="agent-preset-details"><summary>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }}</summary><p>Exact permissions: {{ preset.permissions | join(', ') if preset.permissions else 'none' }}</p><p class="secondary">Preset ID: {{ preset.id }}</p></details>{% endfor %}
       </section>
-      </details>{% else %}<p>Choose Development for advanced MCP policies, custom presets and workspace access. Existing permissions remain unchanged.</p>{% endif %}
+      </details>
       <p><a href="/kodi">Back to Kodi environments</a></p>
 {% endblock %}
 {% block scripts %}

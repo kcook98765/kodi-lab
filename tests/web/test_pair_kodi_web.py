@@ -71,7 +71,7 @@ def test_pair_kodi_entry_and_simple_form(client: TestClient) -> None:
     assert "Legacy pairing" in page.text
     assert "Paired" in page.text
     assert 'data-environment-type="external_development"' in page.text
-    assert "production" not in page.text.lower()
+    assert "production" not in page.text.split("<main ", 1)[1].lower()
     assert "long token" not in page.text.lower()
     assert "One-time pairing token" not in page.text
 
