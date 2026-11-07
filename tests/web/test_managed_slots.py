@@ -151,8 +151,13 @@ def test_stale_reset_confirmation_and_missing_consent_do_not_remove(
 
 
 @pytest.mark.parametrize("defect", ["anonymous", "csrf", "origin"])
+@pytest.mark.parametrize("action", ["start", "stop", "reset"])
 def test_mutations_preserve_web_authorization_csrf_and_origin(
-    client: TestClient, database: sessionmaker[Session], broker: Broker, defect: str
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    defect: str,
+    action: str,
 ) -> None:
     csrf = setup(client, database)
     payload = dict(request_id=str(uuid4()), expected_snapshot=slot(client)["snapshot"])
@@ -164,7 +169,7 @@ def test_mutations_preserve_web_authorization_csrf_and_origin(
     if defect == "origin":
         headers["Origin"] = "https://untrusted.invalid"
     response = client.post(
-        "/api/managed-kodi/omega/start", json=payload, headers=headers
+        f"/api/managed-kodi/omega/{action}", json=payload, headers=headers
     )
     assert response.status_code in {401, 403}
     assert broker.starts == broker.provisions == broker.removals == 0

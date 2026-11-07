@@ -1,6 +1,13 @@
-.managed-slot-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,20rem),1fr)); gap:1rem; list-style:none; padding:0; }
+.managed-slot-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; list-style:none; padding:0; }
 .managed-slot { padding:1.1rem; border:1px solid var(--border-color,#666); border-radius:.6rem; min-width:0; }
 .managed-slot h3 { margin-top:0; }
+.slot-version-name { display:block; margin-top:.2rem; font-size:1rem; font-weight:normal; }
+.slot-status { font-size:1.1rem; margin:.75rem 0 .25rem; }
+.slot-retention { font-size:.9rem; margin:.25rem 0 .75rem; }
+.slot-advanced { border-top:1px solid var(--admin-border,#666); margin-top:1rem; padding-top:.5rem; }
+.slot-advanced > summary { min-height:44px; padding:.5rem 0; cursor:pointer; font-weight:600; }
+.slot-reset { margin:1rem 0; }
+.slot-reset button { min-height:44px; padding:.65rem .85rem; }
 .managed-slot dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.35rem .8rem; }
 .managed-slot dd { margin:0; }
 .slot-actions { display:flex; flex-wrap:wrap; gap:.65rem; align-items:flex-start; }

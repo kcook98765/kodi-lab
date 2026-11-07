@@ -2,8 +2,9 @@
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
   <h2 id="managed-kodi-heading">{{ environment_label('managed') }}</h2>
   {{ environment_ownership('managed') }}
-  <p>Use Start Kodi for an existing profile. Choosing a different retained version keeps its saved settings and add-ons.</p>
-  <p>Only one managed Kodi can run at a time. Stop keeps your settings and add-ons. Reset replaces that version’s profile.</p>
+  <p>Start a version below to use its saved settings and add-ons. Stop keeps them. Choosing a different retained version keeps its saved profile.</p>
+  <p>Only one managed Kodi can run at a time. If a version needs installation, use its Create Managed Kodi link first.</p>
+  <p>Developing an add-on? <a href="/development-session">Current Managed Kodi</a> selects a version and workspace for testing. Everyday Start, Stop and View Screen do not need a workspace.</p>
   <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
   <div class="slot-request" data-slot-request hidden>
     <p role="status" aria-live="polite" data-slot-request-message></p>
@@ -15,30 +16,37 @@
   <button type="button" data-slots-refresh>Refresh status</button>
   <ul class="managed-slot-grid">
   {% for slot in managed_slots.slots %}
-    <li class="managed-slot" id="{{ slot.version }}" data-slot="{{ slot.version }}">
-      <h3>{{ slot.name }}</h3><p>Kodi {{ slot.release }}</p>
-      <dl><dt>Preparation</dt><dd data-slot-preparation>{{ slot.preparation }}</dd>
-        <dt>Status</dt><dd data-slot-state>{{ slot.state_label }}</dd>
-        <dt>Native Kodi</dt><dd data-slot-native>{{ slot.native }}</dd></dl>
+    <li class="managed-slot" id="{{ slot.version }}" data-slot="{{ slot.version }}" aria-labelledby="{{ slot.version }}-heading">
+      <h3 id="{{ slot.version }}-heading">Kodi {{ slot.release }}<span class="slot-version-name">{{ slot.name }}</span></h3>
+      <p class="slot-status">Status: <strong data-slot-state>{{ slot.state_label }}</strong></p>
+      <p class="slot-retention">Stop keeps settings and add-ons.</p>
       <p data-slot-message role="status">{{ slot.message }}</p>
-      <p data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset replaced this profile. Previous Bridge trust and deployment checks are no longer valid. Review add-on testing setup.</p>
+      <p class="notice" data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset replaced this profile. Previous Bridge trust and deployment checks are no longer valid. Review add-on testing setup.</p>
+      <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery before continuing</a></p>
       <div class="slot-actions">
-        {% for action, label in [('start','Start Kodi'),('stop','Stop Kodi'),('reset','Reset Kodi')] %}
+        {% for action, label in [('start','Start Kodi'),('stop','Stop Kodi')] %}
         <div data-slot-action-group="{{ action }}"{% if action == 'stop' and slot.state not in ['running','starting','blocked'] %} hidden{% endif %}>
           <button type="button" data-slot-action="{{ action }}" aria-describedby="{{ slot.version }}-{{ action }}-reason" disabled>{{ label }}</button>
           <p class="secondary" id="{{ slot.version }}-{{ action }}-reason" data-slot-reason="{{ action }}">{{ slot[action ~ '_reason'] or 'Check status before acting.' }}</p>
         </div>
         {% endfor %}
-        <div><a class="button-link" data-slot-screen{% if slot.screen_url %} href="{{ slot.screen_url }}"{% else %} hidden{% endif %}>Open Screen</a>
-          <button type="button" data-slot-screen-disabled disabled aria-describedby="{{ slot.version }}-screen-reason"{% if slot.screen_url %} hidden{% endif %}>Open Screen</button>
+        <div><a class="button-link" data-slot-screen{% if slot.screen_url %} href="{{ slot.screen_url }}"{% else %} hidden{% endif %}>View Screen</a>
+          <button type="button" data-slot-screen-disabled disabled aria-describedby="{{ slot.version }}-screen-reason"{% if slot.screen_url %} hidden{% endif %}>View Screen</button>
           <p id="{{ slot.version }}-screen-reason" class="secondary" data-slot-screen-reason{% if slot.screen_url %} hidden{% endif %}>{{ slot.screen_reason }}</p></div>
       </div>
-      <p><a data-slot-install href="{{ slot.install_url }}"{% if slot.preparation != 'Installation needed' %} hidden{% endif %}>Install Kodi files…</a></p>
-      <p><a href="{{ slot.development_url }}">Set up for add-on testing</a></p>
-      <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery</a></p>
-      <details><summary>Advanced</summary>
+      <p><a data-slot-install href="{{ slot.install_url }}"{% if slot.preparation != 'Installation needed' %} hidden{% endif %}>Create Managed Kodi for this version…</a></p>
+      <details class="slot-advanced" data-slot-options><summary>Advanced options<span class="visually-hidden"> for {{ slot.name }}</span></summary>
+        <div data-slot-action-group="reset" class="slot-reset">
+          <p>Reset permanently discards this version’s settings, installed add-ons and profile data. A separate confirmation is required.</p>
+          <button type="button" data-slot-action="reset" aria-describedby="{{ slot.version }}-reset-reason" disabled>Reset Kodi</button>
+          <p class="secondary" id="{{ slot.version }}-reset-reason" data-slot-reason="reset">{{ slot.reset_reason or 'Check status before acting.' }}</p>
+        </div>
+        <dl><dt>Preparation details</dt><dd data-slot-preparation>{{ slot.preparation }}</dd>
+          <dt>Kodi connection check</dt><dd data-slot-native>{{ slot.native }}</dd></dl>
+        <p><a href="{{ slot.development_url }}">Set up for add-on testing</a></p>
         <p><a data-slot-advanced href="{{ slot.advanced_url }}">Exact profile, Bridge and diagnostics</a> · <a data-slot-history href="{{ slot.recovery_url }}">Operation history and recovery</a></p>
-        <pre data-slot-technical>{{ slot.technical|tojson(indent=2) }}</pre>
+        <p class="secondary">Technical state for this exact version:</p>
+        <pre data-slot-technical tabindex="0" role="region" aria-label="Technical state for {{ slot.name }}">{{ slot.technical|tojson(indent=2) }}</pre>
       </details>
     </li>
   {% endfor %}
