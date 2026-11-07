@@ -175,11 +175,11 @@ def test_historical_runtime_asset_identity_is_preserved(generation: str) -> None
     current = load_reviewed_recipe(generation)
     assert (
         current.recipe.recipe_revision
-        == {"matrix": 3, "nexus": 3, "omega": 5}[generation]
+        == {"matrix": 4, "nexus": 4, "omega": 6}[generation]
     )
     assert "xvfb_guard.py" in current.assets
     assert build_context(current) == build_context(current)
-    assert "kodi-lab-xvfb-guard" in current.assets["entrypoint.sh"].decode()
+    assert "kodi-lab-xvfb-guard" in current.assets["supervisor.py"].decode()
     historical = load_recorded_reviewed_recipe(
         generation,
         current.recipe.recipe_id,
