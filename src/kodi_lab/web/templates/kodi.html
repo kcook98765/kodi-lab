@@ -1,25 +1,28 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'kodi' %}
-{% block title %}Kodi · Kodi Lab{% endblock %}
+{% block title %}Kodi environments · Kodi Lab{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/managed-slots.css') }}">{% endblock %}
 {% block main_class %}kodi-page{% endblock %}
 {% block content %}
 <div class="kodi-page-heading">
-  <div><h1>Kodi</h1><p>Choose a version, start Kodi, then view or test it.</p></div>
+  <div><h1>Kodi environments</h1><p>See where Kodi runs and review each environment’s status.</p></div>
   <div class="actions">
-    <a class="button-link" href="/add-kodi">Add Kodi</a>
+    <a class="button-link" href="/add-kodi">Connect External Kodi</a>
     <a class="button-link" href="/mcp-clients">Connect an agent</a>
   </div>
 </div>
 {% include 'components/managed-version-slots.html' %}
 <p class="secondary">Household connection status below reflects its last recorded checks.</p>
 <section aria-labelledby="household-kodi-heading">
-  <h2 id="household-kodi-heading">Kodi in your home</h2>
+  <h2 id="household-kodi-heading">{{ environment_label('external_production') }}</h2>
+  {{ environment_ownership('external_production') }}
   {% if kodis %}
   <ul class="kodi-grid">
     {% for kodi in kodis %}
     <li class="kodi-card" data-status="{{ kodi.status }}">
       <h3>{{ kodi.target.logical_name }}</h3>
+      <p>{{ environment_label(kodi.target.target_class) }}</p>
       <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
       <p class="kodi-card-note">{{ kodi.status_note }}</p>
       <dl>
@@ -33,20 +36,21 @@
   </ul>
   {% else %}
   <div class="kodi-empty">
-    <h3>No household Kodi added yet</h3>
-    <p>Add Kodi to view its connection, access and screenshot settings here.</p>
+    <h3>No External Production Kodi connected yet</h3>
+    <p>Connect your household Kodi to view its connection, access and screenshot settings here.</p>
   </div>
   {% endif %}
 </section>
 <details class="kodi-diagnostics"><summary>Advanced managed Kodi administration</summary><p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/development-session">Current Kodi development setup</a> · <a href="/settings">Security and Advanced settings</a></p></details>
 {% if development_view %}
 <section class="navigation-group" aria-labelledby="development-kodi-heading">
-  <h2 id="development-kodi-heading">Development Kodi</h2>
-  <p>Managed and external development installations have their own administration.</p>
+  <h2 id="development-kodi-heading">{{ environment_label('external_development') }}</h2>
+  {{ environment_ownership('external_development') }}
+  <p>Connect a test device or open the existing development tools.</p>
   <ul class="destination-list">
     <li><a href="/development">Development sources and testing tools</a></li>
-    <li><a href="/external-targets">External development Kodi</a></li>
-    <li><a href="/add-kodi?mode=development">Add Development Kodi</a></li>
+    <li><a href="/external-targets">{{ environment_identity('external_development').display_name }}</a></li>
+    <li><a href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a></li>
   </ul>
 </section>
 <details class="kodi-diagnostics">

@@ -1,10 +1,12 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'kodi' %}
-{% block title %}Production Kodi targets · Kodi Lab{% endblock %}
+{% block title %}{{ environment_identity('external_production').display_name }} · Kodi Lab{% endblock %}
 {% block main_class %}responsive-forms{% endblock %}
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
-      <h1>Production Kodi targets</h1>
+      <h1>{{ environment_label('external_production') }}</h1>
+      {{ environment_ownership('external_production') }}
       <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
       <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
       <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
@@ -39,7 +41,8 @@
         <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
           {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
-          <p>Production Kodi · {{ target.host }}:{{ target.port }} · Kodi {{ target.kodi_version or 'not observed' }}</p>
+          <p>{{ environment_label(target.target_class) }}</p>
+          <p>{{ target.host }}:{{ target.port }} · Kodi {{ target.kodi_version or 'not observed' }}</p>
           <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong></p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
           <p>Last recorded check: {{ target.last_observed_at or 'never' }}</p>

@@ -196,6 +196,19 @@ dd { margin: 0; }
   .admin-content dd { margin-bottom: .6rem; }
 }
 
+/* Category identity is independent of operational status colors. */
+.kodi-environment-label { display: inline-flex; align-items: center; gap: .5rem; max-width: 100%; padding: .3rem .6rem; border: 1px solid currentColor; border-radius: .35rem; font-size: .9em; font-weight: 600; line-height: 1.4; vertical-align: middle; }
+.kodi-environment-label svg { flex: 0 0 1.25em; width: 1.25em; height: 1.25em; }
+.kodi-environment-label[data-environment-type="managed"] { color: #205b91; background: #edf5ff; }
+.kodi-environment-label[data-environment-type="external_production"] { color: #236b3d; background: #eef8f0; }
+.kodi-environment-label[data-environment-type="external_development"] { color: #74419c; background: #f7effc; }
+.kodi-environment-ownership { max-width: 65ch; margin-block: .5rem 1rem; }
+@media (prefers-color-scheme: dark) {
+  .kodi-environment-label[data-environment-type="managed"] { color: #86bdf1; background: #172d43; }
+  .kodi-environment-label[data-environment-type="external_production"] { color: #8bd5a5; background: #193322; }
+  .kodi-environment-label[data-environment-type="external_development"] { color: #cba5f2; background: #32213e; }
+}
+
 /* Household Kodi inventory and settings; no live polling or controls. */
 .kodi-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .kodi-page-heading h1 { margin: 0; font-size: 1.75rem; }
