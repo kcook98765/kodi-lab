@@ -41,7 +41,7 @@ def test_higher_recorded_limit_is_supported_without_changing_admin_policy(
         assert checks["running_policy"]["status"] == "passed"
         assert checks["running_policy"]["detail_url"] == "/managed-resources"
         assert (
-            "Up to 4 managed Kodi instances may run at once."
+            "Up to 1 managed Kodi instances may run at once."
             in checks["running_policy"]["message"]
         )
     assert "Managed Kodi running limit" in client.get(PREVIEW).text

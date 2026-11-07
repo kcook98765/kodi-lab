@@ -443,7 +443,9 @@ def test_multiple_household_and_development_separation(
     assert page.count('class="kodi-card"') == 2
     assert page.index("Bedroom") < page.index("Living room")
     assert f'href="/kodi/{second.target_id}"' in page
-    household_html = page.split('<section class="navigation-group"')[0]
+    household_html = page.split(
+        '<section aria-labelledby="household-kodi-heading">', 1
+    )[1].split("</section>", 1)[0]
     assert "Managed Kodi" not in household_html
     assert "External development Kodi" not in household_html
     with database() as session:
@@ -452,7 +454,8 @@ def test_multiple_household_and_development_separation(
         )
     assert managed_name is not None and escape(managed_name) not in page
     assert "Current Kodi" in page
-    assert "No development Kodi is selected" in page
+    assert page.count('class="managed-slot"') == 4
+    assert 'href="/development-session"' in page
     assert "<script>not markup</script>" not in page
     assert 'href="/development"' in page
     assert 'href="/external-targets"' in page
