@@ -233,6 +233,11 @@ dd { margin: 0; }
 .production-page .production-advanced { border-top: 1px solid var(--admin-border); margin-top: 1rem; padding-top: .5rem; }
 .production-page .production-advanced > summary { font-weight: 600; }
 .production-page [data-production-summary] { max-width: 48rem; }
+.development-targets-page [data-development-summary] { max-width: 48rem; }
+.development-targets-page .development-advanced { border-top: 1px solid var(--admin-border); margin-top: 1rem; padding-top: .5rem; }
+.development-targets-page .development-advanced > summary { font-weight: 600; }
+.development-targets-page .kodi-status[data-development-status="verified"] { background: #e1f0e7; color: #205b39; }
+.development-targets-page .kodi-status[data-development-status="attention"] { background: #fff0d6; color: #785013; }
 @media (max-width: 600px) {
   .kodi-page-heading { align-items: flex-start; }
   .kodi-grid { grid-template-columns: minmax(0, 1fr); }

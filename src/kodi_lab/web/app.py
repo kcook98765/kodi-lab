@@ -625,6 +625,7 @@ from kodi_lab.storage.managed_activity import (
 )
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
+    ExternalSecretRetirementRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
@@ -649,6 +650,7 @@ from kodi_lab.web.admin_views import (
 )
 from kodi_lab.web.create_kodi import CreateKodiAPI, create_kodi_router
 from kodi_lab.web.current_kodi import CurrentKodiPresentation, friendly_kodi_name
+from kodi_lab.web.development_targets import development_target_view
 from kodi_lab.web.environment_identity import environment_identity
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.web.live_preview import preview_owner, stream_preview
@@ -3913,6 +3915,23 @@ def create_app(
     ) -> Response:
         targets = context.external_targets.list_targets(include_retired=include_retired)
         amendments = context.development_capability_amendments
+        bridge_statuses = {
+            target.target_id: context.external_bridges.status(target.target_id)
+            for target in targets
+        }
+        with session_factory() as session:
+            cleanup_pending = set(
+                session.scalars(select(ExternalSecretRetirementRow.target_id))
+            )
+        development_views = {}
+        for target in targets:
+            reconnect = context.external_reconnect.active_operation(target.target_id)
+            development_views[target.target_id] = development_target_view(
+                target,
+                bridge_statuses[target.target_id],
+                reconnect_stage=None if reconnect is None else reconnect.stage,
+                cleanup_pending=str(target.target_id) in cleanup_pending,
+            )
         return templates.TemplateResponse(
             request,
             "external-targets.html",
@@ -3920,10 +3939,8 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "targets": targets,
                 "include_retired": include_retired,
-                "bridge_statuses": {
-                    target.target_id: context.external_bridges.status(target.target_id)
-                    for target in targets
-                },
+                "bridge_statuses": bridge_statuses,
+                "development_views": development_views,
                 "capability_amendments": {
                     target.target_id: amendments.list_receipts(target.target_id)
                     for target in targets

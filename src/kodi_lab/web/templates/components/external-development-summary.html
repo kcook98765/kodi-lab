@@ -1,0 +1,35 @@
+{% macro development_summary(target, bridge, view) -%}
+<div data-development-summary="{{ target.target_id }}">
+  <p><span class="kodi-status" data-development-status="{{ view.status }}">{{ view.label }}</span></p>
+  <p>{{ view.note }}</p>
+  {% for warning in view.warnings %}<p class="error" role="alert">{{ warning }}</p>{% endfor %}
+  {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
+  <dl>
+    <dt>Connection setting</dt><dd>{{ 'Retired' if target.administrative_state.value == 'deactivated' else target.administrative_state.value | capitalize }}</dd>
+    <dt>Kodi version</dt><dd>{{ target.kodi_version or 'Not yet known' }}</dd>
+    <dt>Kodi identity</dt><dd>{{ view.native_label }}</dd>
+    <dt>Kodi connection</dt><dd>{{ view.observation_label }}</dd>
+    <dt>Kodi last checked</dt><dd>{% if target.last_observed_at %}<time datetime="{{ target.last_observed_at.isoformat() }}">{{ target.last_observed_at.strftime('%d %b %Y, %H:%M UTC') }}</time> (may include a failed check){% else %}Not checked yet{% endif %}</dd>
+    <dt>Bridge pairing</dt><dd>{{ view.pairing_label }}</dd>
+    <dt>Bridge connection</dt><dd>{{ view.reachability_label }}</dd>
+    <dt>Bridge last verified</dt><dd>{% if bridge.verified_at %}<time datetime="{{ bridge.verified_at.isoformat() }}">{{ bridge.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time>{% else %}Not verified yet{% endif %}</dd>
+  </dl>
+  <p>{{ view.next_step }}</p>
+  <div class="actions">
+    {% if view.reconnect_available %}<a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect Kodi</a>
+    {% else %}<p>Reconnect unavailable: {{ view.reconnect_note }}.</p>{% endif %}
+    <a href="#advanced-{{ target.target_id }}" aria-label="Review Advanced options for {{ target.logical_name }}">Review Advanced options</a>
+  </div>
+  <section aria-labelledby="support-{{ target.target_id }}">
+    <h4 id="support-{{ target.target_id }}">Recorded support for add-on testing</h4>
+    <dl>
+      <dt>Verified Kodi support</dt><dd>{{ view.native_capabilities | join(', ') or 'None recorded' }}</dd>
+      <dt>Verified Bridge support</dt><dd>{{ view.bridge_capabilities | join(', ') or 'None recorded' }}</dd>
+    </dl>
+    <p>{{ view.transfer_note }}</p>
+    <p>Deployment readiness is not assessed here. Verified support does not grant an agent access or configure a workspace. <a href="/mcp-clients">Review agent permissions and exact target grants</a>; source grants, workspace access and add-on provenance must also pass the existing development checks.</p>
+  </section>
+  {% if bridge.http_screenshot_cleartext_warning %}<p class="notice"><strong>HTTP privacy warning:</strong> screenshot pixels are not encrypted on your local network. Bridge authentication does not encrypt them.</p>{% endif %}
+  <p>Screenshots require separate authorization and your capture preference. Viewing this page does not capture an image.</p>
+</div>
+{%- endmacro %}

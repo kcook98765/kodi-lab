@@ -66,15 +66,18 @@
       await request(`/api/external-targets/${id}/bridge/pair`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port")), code});
       location.reload();
     }));
-    card.querySelector("[data-bridge]")?.addEventListener("click", (event) => run(async () => {
+    card.querySelector("[data-bridge]")?.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-bridge-action]"); if (!button) return;
+      return run(async () => {
       const action = button.dataset.bridgeAction;
       if (["revoke", "needs-reverification"].includes(action) && !confirm(`Confirm bridge ${action.replace("-", " ")}?`)) return;
       await request(`/api/external-targets/${id}/bridge/${action}`, "POST", {confirmed: true});
       location.reload();
-    }));
-    card.addEventListener("click", (event) => run(async () => {
+      });
+    });
+    card.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]"); if (!button) return;
+      return run(async () => {
       if (button.dataset.action === "probe") await request(`/api/external-targets/${id}/probe`, "POST");
       if (button.dataset.action === "confirm") await request(`/api/external-targets/${id}/confirm`, "POST", {confirmed: true, observation_id: button.dataset.observationId});
       if (button.dataset.action === "toggle") await request(`/api/external-targets/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
@@ -83,6 +86,7 @@
         await request(`/api/external-targets/${id}/retire`, "POST", {confirmed: true});
       }
       location.reload();
-    }));
+      });
+    });
   });
 })();
