@@ -84,7 +84,7 @@ def test_populated_predecessor_keeps_unknown_original_phase_and_refuses_evidence
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0004_clean_reset"
+            == "0005_managed_web"
         )
         assert (
             connection.scalar(
@@ -182,6 +182,6 @@ def test_recovery_coordinator_runs_on_the_initial_schema(
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0004_clean_reset"
+            == "0005_managed_web"
         )
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()

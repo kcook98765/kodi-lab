@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% from 'components/kodi-prerequisites.html' import kodi_prerequisites %}
 {% set nav_section = 'kodi' %}
-{% block title %}Create Kodi · Kodi Lab{% endblock %}
+{% block title %}Install Kodi · Kodi Lab{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/create-kodi.css') }}">{% endblock %}
 {% block main_class %}create-kodi-page{% endblock %}
 {% block content %}
 <p class="breadcrumb"><a href="/kodi">Kodi</a></p>
-<h1>Create Kodi</h1>
+<h1>Install and prepare Kodi</h1>
 <p>Set up a Kodi managed by Kodi Lab. You can connect an agent later.</p>
 <div data-create-kodi aria-busy="false">
   <section aria-labelledby="create-choice-heading">
@@ -32,10 +32,12 @@
     </div>
     <form data-create-form>
       <p>Install any or all four versions. Stopped profiles do not use running slots.</p>
+      <details><summary>Advanced startup option</summary>
       <label class="check-label"><input type="checkbox" data-create-start-after-setup> Start Kodi after setup (requires a free running slot)</label>
+      </details>
       <label class="check-label" data-create-preview-consent hidden><input type="checkbox" data-create-preview-approved> I understand Piers is a prerelease for development only.</label>
-      <p>Click Create Kodi to approve downloading if needed and preparing this version. It stays stopped unless you choose to start it.</p>
-      <button type="submit" data-create-approve disabled>Create Kodi</button>
+      <p>Click Install and prepare to approve downloading if needed and preparing this version. It stays stopped unless you choose to start it.</p>
+      <button type="submit" data-create-approve disabled>Install and prepare</button>
     </form>
   </section>
   <section data-create-progress aria-labelledby="create-phase" hidden>
@@ -44,7 +46,7 @@
     <p data-create-wait></p>
     <div class="actions">
       <a class="button-link kodi-primary" data-create-screen hidden>Open screen</a>
-      <a class="button-link" data-create-start hidden>Start Kodi</a>
+      <a class="button-link" data-create-start hidden>Return to Kodi versions</a>
       <a data-create-manage hidden>Manage Kodi</a>
       <a data-create-recovery hidden>Review setup</a>
     </div>

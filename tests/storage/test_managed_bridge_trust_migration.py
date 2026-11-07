@@ -87,5 +87,5 @@ def test_populated_binding_preserves_history(
         ).fetchone() == ("active",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0004_clean_reset",)
+        ).fetchone() == ("0005_managed_web",)
     engine.dispose()

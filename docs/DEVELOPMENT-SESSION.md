@@ -1,22 +1,23 @@
 # Current Kodi: one add-on, one development environment
 
-Use **Kodi → Current Kodi** (`/development-session`) for one persistent add-on workspace
-and one selected Kodi profile. Retained profiles are the intended normal model;
-explicitly enable **Retained Kodi versions** before using them. Switching
-retained versions preserves their profiles. The administrator’s Managed Kodi
-resource policy limits concurrent running instances independently of selection.
-Fresh Test is deliberately excluded from the ordinary UI; a complete retained
-clean-profile rebuild is not a qualified everyday workflow. Existing advanced
-lifecycle and recovery services keep their eligibility and safety restrictions.
-Available actions depend on the installed application, broker, schema and approved
-runtime. Code review and source tests do not install updates into an existing Lab;
-matched application, broker and schema deployment and native/platform acceptance
-remain separate. Existing runtime/version eligibility still decides which cached
-versions can be selected.
+Use the [four-version **Kodi** page](MANAGED-KODI-WEB.md) for ordinary Start,
+viewing, retained Stop and confirmed clean Reset. These operations need no
+workspace. **Current Kodi** (`/development-session`) adds one persistent add-on
+workspace and an explicitly selected development profile. Existing retained
+version selection must be enabled before using it; it preserves one profile per
+version. Older single-session configuration remains in Advanced and must not be
+used to create a second profile for an occupied version.
+
+After clean Reset, explicitly select/bind the replacement through supported
+Current Kodi setup, prepare Bridge and deploy fresh workspace files. Independent
+source, workspaces and Git survive; old container-bound trust and deployment
+baselines do not. Automatic development reattachment remains a follow-up.
+Available actions still depend on installed application/broker/schema and runtime
+eligibility. Source tests do not deploy updates or establish native qualification.
 
 The page always follows the durable selected development session. A stopped
 selection remains Current Kodi. Opening an older registration does not select it;
-its Advanced page identifies it as noncurrent. Home and Kodi link here in both
+its Advanced page identifies it as noncurrent. Development and Advanced link here in both
 administrator views. Household and external Kodi retain their separate management.
 
 The live screen uses [standard noVNC viewing](STANDARD-NOVNC.md) for exact

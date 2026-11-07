@@ -142,21 +142,20 @@ The Kodi add-on repository has its own address and network configuration.
 
 ## First-Time Setup
 
-1. Sign in and open **Kodi → Create Kodi**. Leave **Omega · Recommended**
-   selected for your first Kodi.
-2. Review **Before you start**, then click **Create Kodi** once. Kodi Lab
-   downloads and checks the files, prepares Kodi and starts it for you.
-3. Keep the page open while **Preparing Kodi** advances to **Ready**. Setup can
-   take several minutes. Returning or refreshing keeps the same saved setup.
-   If it is paused, use **Check status**, then **Resume setup**.
-4. Select **Open screen → Start Viewing** to see Kodi. Viewing starts view-only;
-   an agent, Bridge pairing and a development workspace are not required.
+1. Sign in and open **Kodi**. Choose Matrix, Nexus, Omega or Piers (preview).
+2. If files are missing, choose **Install Kodi files…** and finish guided setup.
+   Return to Kodi versions, then select **Start Kodi**. An existing stopped
+   profile resumes; an empty slot uses the approved cached image.
+3. Wait for **Native Kodi: Ready**, then choose **Open Screen → Start Viewing**.
+   Viewing starts view-only and requires neither an agent nor a workspace.
+4. **Stop Kodi** keeps settings and add-ons. **Reset Kodi** requires confirmation,
+   discards that version's profile and prepares a clean stopped replacement.
 
-Only one managed Kodi runs at a time. Connecting an agent is optional
-and can wait until Kodi is ready. For add-on development, follow the
-[Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
-Manual runtime administration, including the Piers prerelease, remains under
-Development; see the [advanced runtime guide](docs/LINUX-SOURCE-INSTALL.md#advanced-runtime-administration).
+Only one managed Kodi runs at a time: explicitly Stop one version before starting
+another. Independent source, workspace and Git data survive Reset. Follow
+**Set up for add-on testing** to prepare Bridge and deployment after replacement.
+See the [managed Kodi Web walkthrough](docs/MANAGED-KODI-WEB.md).
+Advanced retains runtime approval, diagnostics, recovery and Current Kodi setup.
 
 Save anything important before resetting or removing a disposable profile; see
 [managed state recovery](docs/MANAGED-STATE-RECOVERY.md). Installing a newer
@@ -171,8 +170,9 @@ or resumes its retained profile; Stop safely retains it. See the
 [version lifecycle setup and replay contract](docs/MANAGED-VERSION-LIFECYCLE.md).
 Agents explicitly granted both `managed.versions` and `managed.reset` can also
 request [clean Reset](docs/MANAGED-CLEAN-RESET.md), stopped by default, while
-preserving independent development work. Automatic switching and the four-version
-Web interface remain follow-ups; existing presets gain no authority automatically.
+preserving independent development work. The four-version Web page uses the same
+coordinators with separate administrator authority. Automatic switching remains a
+follow-up; existing MCP presets gain no authority automatically.
 
 To connect an existing Kodi installation instead, use **Add Kodi** and its
 pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),

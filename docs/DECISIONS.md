@@ -7743,3 +7743,22 @@ inside its writer transaction. Default Reset leaves a new stopped clean profile;
 optional Start remains separate from native and Bridge/agent readiness. Do not
 automatically switch versions or redesign ordinary Web controls in this phase.
 See [the clean Reset contract](MANAGED-CLEAN-RESET.md).
+
+## 2026-11-06 — Ordinary managed Kodi Web controls (#238 Phase 4)
+
+`/kodi` presents four canonical versions and composes the existing version and
+clean Reset coordinators through an administrator adapter. No MCP client is
+impersonated: live Web administrator authority and CSRF are rechecked at dispatch.
+A reserved receipt owner maps to the existing `web` activity actor and is denied
+by MCP authorization. An immutable browser-intent ledger binds the request UUID,
+version/action, observed exact-profile fingerprint and destructive confirmation.
+The original shared parent and child receipts retain all recovery/identity rules.
+Only explicit POST continuation advances work; GET/refresh/poll remain read-only.
+
+Canonical target registration for an empty approved cached Web slot reuses the
+existing reviewed-recipe registration checks. It downloads, repins, adopts and
+migrates nothing. Existing noncanonical/duplicate profiles fail closed for review.
+Reset leaves clean Kodi stopped; development reattachment remains explicit.
+Ordinary operation needs no workspace. Existing advanced lifecycle, recovery,
+Bridge, runtime and workspace administration stays reachable. Automatic switching
+and native Linux/Windows/browser qualification remain separate.

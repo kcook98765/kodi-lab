@@ -69,6 +69,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     assert set(inspect(engine).get_table_names()) == before | {
         "managed_version_operations",
         "managed_clean_resets",
+        "managed_web_intents",
     }
     with engine.connect() as connection:
         assert (
@@ -94,7 +95,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0004_clean_reset"
+            == "0005_managed_web"
         )
         assert (
             connection.scalar(

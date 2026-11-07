@@ -26,6 +26,7 @@ from kodi_lab.domain import InstanceType, ManagedInstanceLifecycleOperation
 from kodi_lab.storage.development_sessions import active_session
 from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.managed_clean_reset import require_no_clean_reset
+from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER, lifecycle_actor
 from kodi_lab.storage.models import (
     DevelopmentSessionPolicyRow,
     DevelopmentSessionRow,
@@ -155,7 +156,7 @@ class ManagedCleanResetService:
             session,
             UUID(row.target_id),
             reason="released",
-            actor=f"mcp:{row.client_id}",
+            actor=lifecycle_actor(row.client_id),
             own_operation_id=UUID(getattr(row, f"{row.step}_id")) if dispatch else None,
         )
 
@@ -208,7 +209,9 @@ class ManagedCleanResetService:
             if not self._v._rate.allow(f"{client_id}:{slot.generation}:reset"):
                 raise ManagedVersionError("rate_limited")
             inventory = self._v._records(session, slot)
-            instance = self._v.register_cached(session, slot)
+            instance = self._v.register_cached(
+                session, slot, create_target=client_id == WEB_ADMIN_OWNER
+            )
             artifact = session.get(
                 RuntimeContainerArtifactRow, instance.runtime_revision_id
             )
@@ -252,10 +255,15 @@ class ManagedCleanResetService:
                 provision_id=str(uuid5(identity, "provision")),
                 start_id=str(uuid5(identity, "start")),
             )
+            # Publish the exact binding inside this accepting transaction before
+            # reauthorization. Empty-slot registration has legitimately changed
+            # the observed snapshot; every failed guard rolls all of this back.
+            session.add(row)
+            session.flush()
             # Ignore only this caller's own hold; actual release happens
             # after acceptance.
             use = session.get(
-                ManagedInstanceUseRow, (row.target_id, f"mcp:{row.client_id}")
+                ManagedInstanceUseRow, (row.target_id, lifecycle_actor(row.client_id))
             )
             original_hold = None if use is None else use.hold_until
             if use is not None:
@@ -265,8 +273,6 @@ class ManagedCleanResetService:
             if use is not None:
                 use.hold_until = original_hold
                 session.flush()
-            session.add(row)
-            session.flush()
             session.expunge(row)
             return row, False
 
@@ -325,7 +331,7 @@ class ManagedCleanResetService:
 
     def _release_own(self, session: Session, row: ManagedCleanResetRow) -> None:
         use = session.get(
-            ManagedInstanceUseRow, (row.target_id, f"mcp:{row.client_id}")
+            ManagedInstanceUseRow, (row.target_id, lifecycle_actor(row.client_id))
         )
         if use is not None:
             use.hold_until, use.released_at = None, timestamp(self._v._clock())
@@ -349,7 +355,7 @@ class ManagedCleanResetService:
         self._v._resources.stop_if_eligible(
             UUID(row.target_id),
             reason="released",
-            actor=f"mcp:{row.client_id}",
+            actor=lifecycle_actor(row.client_id),
             operation_id=UUID(row.stop_id),
             authorize=lambda session: self._authority(session, row.id, authorize),
             on_claim=lambda session, handle: self._claim(
