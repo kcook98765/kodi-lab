@@ -72,10 +72,13 @@
     return body;
   }
   async function checkReceipt() {
-    if (!saved) return;
+    const intent = saved;
+    if (!intent) return;
     try {
-      const result = await json(`${api}/requests/${saved.request_id}`);
-      if (result.version !== saved.version || result.action !== saved.action || result.request.expected_snapshot !== saved.expected_snapshot || result.request.confirm_reset !== saved.confirm_reset) throw new Error("The saved request has different details. Review recovery.");
+      const result = await json(`${api}/requests/${intent.request_id}`);
+      // Another poll may finish this request, or storage may select a new one.
+      if (saved !== intent) return;
+      if (result.version !== intent.version || result.action !== intent.action || result.request.request_id !== intent.request_id || result.request.expected_snapshot !== intent.expected_snapshot || result.request.confirm_reset !== intent.confirm_reset) throw new Error("The saved request has different details. Review recovery.");
       receipt = result;
       requestNotice(result.message);
       node("slot-receipt").textContent = JSON.stringify(result, null, 2);
@@ -83,7 +86,8 @@
       node("slot-request-recovery").hidden = !["blocked", "uncertain"].includes(result.phase);
       if (result.done) { localStorage.removeItem(key); saved = null; }
     } catch (failure) {
-      if (failure.status === 404 && rejected === saved?.request_id) {
+      if (saved !== intent) return;
+      if (failure.status === 404 && rejected === intent.request_id) {
         // The POST explicitly refused this intent before acceptance, and the
         // receipt read agrees. Absence alone never settles a lost response.
         localStorage.removeItem(key); saved = null; receipt = null; rejected = null;
@@ -105,6 +109,7 @@
         const pending = state.slots.find(slot => uuid(slot.pending_request));
         if (pending) {
           const original = await json(`${api}/requests/${pending.pending_request}`);
+          if (saved || busy) return; // Never replace an intent saved during this read.
           saved = {version:original.version, action:original.action, ...original.request};
           if (!valid(saved)) throw new Error("The pending request needs Advanced review.");
           localStorage.setItem(key, JSON.stringify(saved));

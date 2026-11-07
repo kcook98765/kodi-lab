@@ -1,0 +1,47 @@
+{
+  "version": "omega",
+  "action": "stop",
+  "phase": "complete",
+  "message": "Request completed. Check Kodi's current status below.",
+  "done": true,
+  "can_resume": false,
+  "request": {
+    "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "expected_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "confirm_reset": false
+  },
+  "recovery_url": "/instances/10000000-0000-4000-8000-000000000001/history",
+  "operation_id": "10000000-0000-4000-8000-000000000002",
+  "code": "stopped",
+  "technical": {
+    "schema_version": 1,
+    "operation_id": "10000000-0000-4000-8000-000000000002",
+    "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "action": "stop",
+    "receipt_state": "complete",
+    "code": "stopped",
+    "replayed": true,
+    "lifecycle_operation_id": "10000000-0000-4000-8000-000000000003",
+    "provision_operation_id": null,
+    "hold_until": null,
+    "stop_confirmed": true,
+    "recovery": null,
+    "status": {
+      "version": "omega",
+      "kodi_release": "21.3",
+      "authorized": true,
+      "target_id": "10000000-0000-4000-8000-000000000001",
+      "state": "stopped",
+      "code": "not_usable",
+      "native_ready": false,
+      "native_readiness": "not_usable",
+      "bridge_readiness": "unknown",
+      "bridge_reason": "stored_identity_requires_observation",
+      "agent_readiness": "not_assessed",
+      "agent_reason": "workspace_authority_not_assessed",
+      "operation_id": null,
+      "request_id": null,
+      "next_action": "start"
+    }
+  }
+}
