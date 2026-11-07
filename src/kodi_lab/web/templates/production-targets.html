@@ -1,24 +1,22 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% from 'components/external-production-summary.html' import production_summary %}
 {% set nav_section = 'external_production' %}
 {% block title %}{{ environment_identity('external_production').display_name }} · Kodi Lab{% endblock %}
-{% block main_class %}responsive-forms{% endblock %}
+{% block main_class %}kodi-page production-page responsive-forms{% endblock %}
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>{{ environment_label('external_production') }}</h1>
       {{ environment_ownership('external_production') }}
       <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
-      <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
-      <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
+      <p>Kodi Lab connects to household Kodi on another device. It does not own or start/stop its process, container, filesystem or installed Kodi.</p>
+      <p><a class="button-link" href="/add-kodi?mode=home">Connect External Production Kodi</a></p>
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
       <p class="error" data-error role="alert" hidden></p>
       <details data-error-diagnostics hidden><summary>Advanced error details</summary><p data-error-code></p></details>
-      <section>
-        <h2 id="global-mutation-control">Global mutation emergency control</h2>
-        <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. Clearing this deny-only control does not authorize any operation.</p>
-        <button type="button" data-global-block data-blocked="{{ 'true' if mutation_control.production_mutations_blocked else 'false' }}">{{ 'Clear global block' if mutation_control.production_mutations_blocked else 'Block production mutations' }}</button>
-      </section>
-      <section>
+      {% if mutation_control.production_mutations_blocked %}<p class="notice" role="status">Production control actions are blocked. <a href="#global-mutation-control">Review safety settings</a>.</p>{% endif %}
+      {% if not approval_queue %}<details class="kodi-diagnostics"><summary>Control requests — none pending</summary>{% endif %}
+      <section data-production-approval-queue>
         <h2>One-shot transient-control approval queue</h2>
         <p>Approval authorizes only the exact displayed action and request. It does not extend deadlines or grant standing control.</p>
         {% for approval in approval_queue %}
@@ -32,20 +30,24 @@
         </article>
         {% else %}<p>No live pending or approved operations.</p>{% endfor %}
       </section>
+      {% if not approval_queue %}</details>{% endif %}
       <section>
         <h2>{{ 'Connection history' if include_retired else 'Current production connections' }}</h2>
         {% for target in targets %}
         {% set policy = target.production_policy %}
         {% set bridge = bridge_statuses.get(target.target_id) %}
         {% set native_control_ack = native_control_acknowledgements.get(target.target_id) %}
-        <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
+        {% set kodi = production_views[target.target_id] %}
+        <article class="kodi-panel" id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
-          {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
+          {{ production_summary(kodi) }}
+          <p><a href="/kodi/{{ target.target_id }}">Connection details</a></p>
+          <details class="production-advanced" data-production-advanced id="advanced-{{ target.target_id }}"{% if kodi.needs_review or target.administrative_state.value == 'deactivated' %} open{% endif %}>
+          <summary>Advanced options<span class="visually-hidden"> for {{ target.logical_name }}</span>{% if kodi.needs_review %} — connection review required{% endif %}</summary>
           <p>{{ target.host }}:{{ target.port }} · Kodi {{ target.kodi_version or 'not observed' }}</p>
-          <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong></p>
+          <p>Connection registration state: <strong>{{ policy.lifecycle_state }}</strong></p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
           <p>Last recorded check: {{ target.last_observed_at or 'never' }}</p>
-          {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
           <p>Per-target production mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · reachability {{ bridge.reachability_state.value if bridge else 'unknown' }}</p>
           <p>Native HTTP production control acknowledgement: <strong>{{ 'recorded' if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
@@ -78,7 +80,6 @@
           </section>
           </details>
           {% if target.administrative_state.value != 'deactivated' %}
-          <button type="button" data-action="probe">Run native read-only probe</button>
           {% if target.pending_observation_id and target.verification_state.value != 'verified' %}<button type="button" data-action="confirm-native" data-observation-id="{{ target.pending_observation_id }}">Confirm native identity</button>{% endif %}
           {% if target.pending_observation_id and policy.designation_state.value == 'pending_confirmation' %}<button type="button" data-action="confirm-designation" data-observation-id="{{ target.pending_observation_id }}">Confirm production designation</button>{% endif %}
           <button type="button" data-action="toggle" data-enabled="{{ 'true' if target.administrative_state.value == 'enabled' else 'false' }}">{{ 'Disable' if target.administrative_state.value == 'enabled' else 'Enable read-only' }}</button>
@@ -101,10 +102,18 @@
 <p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
           <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
           </details>
+          </details>
         </article>
         {% else %}<p>No External Production Kodi connected yet.</p>{% endfor %}
       </section>
-      <details class="navigation-group"{% if not targets %} open{% endif %}><summary>Advanced External Production Kodi registration</summary>
+      <details class="kodi-diagnostics"{% if mutation_control.production_mutations_blocked %} open{% endif %}><summary>Advanced production control safety</summary>
+      <section>
+        <h2 id="global-mutation-control">Production control safety</h2>
+        <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. Clearing this deny-only control does not authorize any operation.</p>
+        <button type="button" data-global-block data-blocked="{{ 'true' if mutation_control.production_mutations_blocked else 'false' }}">{{ 'Clear global block' if mutation_control.production_mutations_blocked else 'Block production mutations' }}</button>
+      </section>
+      </details>
+      <details class="navigation-group"><summary>Advanced External Production Kodi registration</summary>
       <section>
         <h2>Register External Production Kodi</h2>
         <form data-register>

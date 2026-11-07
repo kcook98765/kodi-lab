@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% from 'components/external-production-summary.html' import production_summary %}
 {% set nav_section = 'external_production' %}
 {% block title %}{{ kodi.target.logical_name }} · Kodi Lab{% endblock %}
 {% block main_class %}kodi-page kodi-detail{% endblock %}
@@ -8,42 +9,21 @@
 <h1>{{ kodi.target.logical_name }}</h1>
 <p>{{ environment_label(kodi.target.target_class) }}</p>
 {{ environment_ownership(kodi.target.target_class) }}
+<p>Kodi Lab does not own or start/stop this device’s process, container, filesystem or installed Kodi.</p>
+<p class="notice"><strong>Privacy warning:</strong> screenshots may contain personal or media information. Receiving agents may keep copies outside Kodi Lab.</p>
 <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
 <section class="kodi-panel" aria-labelledby="overview-heading">
   <h2 id="overview-heading">Overview</h2>
-  <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
-  <p>{{ kodi.status_note }}</p>
-  <dl>
-    <dt>Kodi version</dt><dd>{{ kodi.target.kodi_version or 'Not yet known' }}</dd>
-    <dt>Bridge connection</dt><dd>{{ kodi.bridge_label }}</dd>
-    {% if kodi.bridge and kodi.bridge.verified_at %}<dt>Bridge last verified</dt><dd><time datetime="{{ kodi.bridge.verified_at.isoformat() }}">{{ kodi.bridge.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
-    {% if kodi.target.verified_at %}<dt>Kodi last verified</dt><dd><time datetime="{{ kodi.target.verified_at.isoformat() }}">{{ kodi.target.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
-  </dl>
-<section aria-labelledby="access-heading">
-  <h3 id="access-heading">Access</h3>
-  <dl><dt>Access mode</dt><dd>{{ kodi.access_label }}</dd><dt>Remote control</dt><dd>{{ kodi.remote_label }}</dd></dl>
-  <p>Read-only inspection is the normal baseline. These settings do not grant an agent access to Kodi.</p>
-</section>
-<section aria-labelledby="screenshots-heading">
-  <h3 id="screenshots-heading">Screenshots</h3>
-  <dl><dt>Capture preference</dt><dd>{% if kodi.preference %}{{ 'Enabled' if kodi.preference.enabled else 'Disabled' }}{% else %}Unavailable{% endif %}</dd></dl>
-  <p>Screenshots are ordinary read-only inspection. This preference is independent of the access mode.</p>
-  <p>Capture also requires authorization and a verified connection. This view does not capture an image or change your preference.</p>
-</section>
+  {{ production_summary(kodi, detail=true) }}
 </section>
 <section class="kodi-panel" aria-labelledby="connection-heading">
   <h2 id="connection-heading">Connection</h2>
-  {% if kodi.target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ kodi.target.target_id }}">Reconnect Kodi</a></p>{% endif %}
-  <dl>
-    <dt>Address</dt><dd>{{ kodi.target.host }}</dd>
-    <dt>Connection type</dt><dd>{{ 'Encrypted HTTPS' if kodi.target.protocol_kind.value == 'jsonrpc_https' else 'HTTP on your local network' }}</dd>
-  </dl>
-  {% if kodi.status == 'connected' %}<p>The stored Bridge relationship is verified. No connection check is sent when this page opens.</p>
-  {% elif kodi.status == 'disconnected' %}<p>Check that Kodi is running and on your network. An administrator can review the existing connection settings.</p>
-  {% else %}<p>An administrator can review setup and verification in the existing advanced administration.</p>{% endif %}
+  <p><a class="button-link" href="/production-targets#{{ kodi.target.target_id }}">Check connection and review setup</a></p>
   <details class="kodi-diagnostics">
-    <summary>Advanced diagnostics</summary>
+    <summary>Advanced options</summary>
     <dl>
+      <dt>Address</dt><dd>{{ kodi.target.host }}:{{ kodi.target.port }}</dd>
+      <dt>Connection type</dt><dd>{{ 'Encrypted HTTPS' if kodi.target.protocol_kind.value == 'jsonrpc_https' else 'HTTP on your local network' }}</dd>
       <dt>Target identifier</dt><dd><code>{{ kodi.target.target_id }}</code></dd>
       <dt>Administration</dt><dd>{{ kodi.target.administrative_state.value }}</dd>
       <dt>Native verification</dt><dd>{{ kodi.target.verification_state.value }}</dd>

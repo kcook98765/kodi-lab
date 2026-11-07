@@ -158,7 +158,7 @@ def test_detail_safe_auth_and_classification(
     assert "08 Oct 2026, 12:00 UTC" in page
     assert "Read-only" in page and "Not configured" in page
     assert 'class="kodi-diagnostics"' in page
-    assert "<summary>Advanced diagnostics</summary>" in page
+    assert "<summary>Advanced options</summary>" in page
     assert (
         "Target identifier" not in page.split('<details class="kodi-diagnostics">')[0]
     )
