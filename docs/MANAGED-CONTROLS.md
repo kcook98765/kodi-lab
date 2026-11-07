@@ -32,6 +32,12 @@ These exceptions prevent hiding an unresolved operation or the next action neede
 for safe continuation. All availability comes from the existing authorized status
 adapter; opening Advanced never enables an operation or grants authority.
 
+Existing availability gap: status polling does not precheck active playback.
+Stop/Reset can therefore appear enabled while Kodi is playing; dispatch still
+refuses the operation with an explicit playback reason and performs no Stop or
+removal. Reflecting that refusal before dispatch needs a separate status/preflight
+review. This presentation change preserves the existing admission boundary.
+
 ## DOM and receipt contract review
 
 `managed-slots.js` is unchanged. It finds `[data-slot]` cards under
