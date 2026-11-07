@@ -55,8 +55,8 @@ const json = (route, body, status=200) => route.fulfill({status, contentType:'ap
       page.on('pageerror',error=>report.errors.push({device,error:error.message}));
       const home = page.locator('[data-onboarding-mode=home]');
       const dev = page.locator('[data-onboarding-mode=development]');
-      const homeRadio = page.getByRole('radio',{name:'Home / everyday Kodi',exact:true});
-      const devRadio = page.getByRole('radio',{name:'Development Kodi',exact:true});
+      const homeRadio = page.getByRole('radio',{name:'External Production Kodi',exact:true});
+      const devRadio = page.getByRole('radio',{name:'External Development Kodi',exact:true});
       const waitIdle = () => page.waitForFunction(() => !document.querySelector('[data-add-kodi]') || document.querySelector('[data-add-kodi]').getAttribute('aria-busy') !== 'true');
       const saved = key => page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)||'null'),key);
       const fresh = async (url='/add-kodi') => {

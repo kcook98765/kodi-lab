@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'settings' %}
 {% block title %}{{ detail.runtime.name }} · Kodi Lab{% endblock %}
 {% block head %}
@@ -20,18 +21,20 @@
 {% block content %}
       <p class="breadcrumb"><a href="/settings">Advanced</a> / <a href="/managed-instances">Managed registrations</a></p>
       <h1>{{ detail.runtime.name }}</h1>
+      <p>{{ environment_label('managed') }}</p>
+      {{ environment_ownership('managed') }}
       <p><a class="button-link" href="/kodi">Operate managed Kodi versions</a></p>
       {% if novnc_instance_enabled(detail.runtime.managed_instance_id) %}
       <p><a class="button-link" href="/instances/{{ detail.runtime.managed_instance_id }}/novnc-phase1">Open screen</a></p>
       {% endif %}
-      <section class="notice" aria-label="Current Kodi selection">
+      <section class="notice" aria-label="Current Managed Kodi selection">
       {% set selected_kodi = current_kodi.current if current_kodi is defined else none %}
       {% if current_kodi is not defined %}
-        <p>Open <a href="/development-session">Current Kodi</a> to confirm the selected environment. This Advanced page manages this exact registration.</p>
+        <p>Open <a href="/development-session">Current Managed Kodi</a> to confirm the selected environment. This Advanced page manages this exact registration.</p>
       {% elif selected_kodi and selected_kodi.target_id == detail.runtime.managed_instance_id %}
-        <p><strong>This is Current Kodi.</strong> Use <a class="button-link" href="/development-session">Current Kodi</a> for development setup. Use <a href="/kodi">Kodi versions</a> for everyday Start, Stop and clean Reset.</p>
+        <p><strong>This is Current Managed Kodi.</strong> Use <a class="button-link" href="/development-session">Current Managed Kodi</a> for development setup. Use <a href="/kodi">Kodi versions</a> for everyday Start, Stop and clean Reset.</p>
       {% else %}
-        <p><strong>Not the currently selected Kodi.</strong> This page manages this exact registration and its retained history. <a href="/development-session">Open Current Kodi</a> to see the selected development environment.</p>
+        <p><strong>Not the currently selected Kodi.</strong> This page manages this exact registration and its retained history. <a href="/development-session">Open Current Managed Kodi</a> to see the selected development environment.</p>
       {% endif %}
       </section>
       <section aria-labelledby="instance-health-heading">

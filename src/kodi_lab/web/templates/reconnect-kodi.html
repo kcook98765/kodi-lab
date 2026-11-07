@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'kodi' %}
 {% block title %}Reconnect {{ target.logical_name }} · Kodi Lab{% endblock %}
 {% block head %}<script src="{{ url_for('static', path='/reconnect-kodi.js') }}" defer></script>{% endblock %}
@@ -6,9 +7,12 @@
 {% block main_class %}household-panel{% endblock %}
 {% block content %}
 <section data-reconnect-kodi data-target-id="{{ target.target_id }}" data-target-name="{{ target.logical_name }}" data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}" data-operation-id="{{ active_operation_id or '' }}">
+  <p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Reconnect</p>
   <h1>Reconnect {{ target.logical_name }}</h1>
-  <p>{{ 'Home / everyday Kodi' if target.target_class == 'external_production' else 'Development Kodi' }} · {{ target.host }}:{{ target.port }}</p>
-  <p>This restores the saved connection using its existing access settings. Connecting does not add agent grants or change its Home/Development classification.</p>
+  <p>{{ environment_label(target.target_class) }}</p>
+  {{ environment_ownership(target.target_class) }}
+  <p>{{ target.host }}:{{ target.port }}</p>
+  <p>This restores the saved connection using its existing access settings. Connecting does not add agent grants or change its stored environment category.</p>
   {% if target.administrative_state.value != 'enabled' %}
   <p class="notice">{{ 'This registration is permanently retired. Add a new connection instead.' if target.administrative_state.value == 'deactivated' else 'This connection is disabled. Enable it explicitly in settings before reconnecting.' }}</p>
   {% else %}

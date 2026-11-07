@@ -103,7 +103,7 @@ def test_preview_is_embeddable_without_permanent_navigation_or_operation_control
     )[0]
     assert "<form" not in component
     assert "data-install-action" not in component
-    assert "Current Kodi" not in component
+    assert "Current Managed Kodi" not in component
     assert "data-instance-action" not in component
 
 

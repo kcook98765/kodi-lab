@@ -1,4 +1,4 @@
-"""Current Kodi follows the durable selection, never the page last visited."""
+"""Current Managed Kodi follows the durable selection, never the page last visited."""
 
 from __future__ import annotations
 
@@ -252,7 +252,7 @@ def test_empty_selection_never_adopts_a_running_registration(
     )
     view = client.get("/api/development-session").json()
     assert view["current"] is None and view["summary"] is None
-    assert "No Kodi selected" in client.get("/development-session").text
+    assert "No profile selected" in client.get("/development-session").text
     assert not broker.calls
 
 
@@ -302,7 +302,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
     login(client)
     for mode in ("standard", "development"):
         client.cookies.set("kodi_lab_admin_view", mode)
-        assert "Current Kodi" in client.get("/kodi").text
+        assert "Current Managed Kodi" in client.get("/kodi").text
         advanced = client.get("/settings").text
         for destination in (
             "/runtimes",
@@ -340,7 +340,7 @@ def test_landing_prioritizes_version_slots_and_keeps_development_advanced(
         f'data-slot="{version}"' in page
         for version in ("matrix", "nexus", "omega", "piers")
     )
-    assert "Current Kodi development setup" in page
+    assert "Current Managed Kodi development setup" in page
     assert "Session source" not in page
     assert "app.js" not in page
 
@@ -818,7 +818,7 @@ def test_shared_templates_tolerate_older_process_without_current_context(
     rendered = cast(Any, response).template.render(**context)
     assert "/development-session" in rendered
     assert "No development Kodi is selected." not in rendered
-    assert "This is Current Kodi." not in rendered
+    assert "This is Current Managed Kodi." not in rendered
     assert "Not the currently selected Kodi." not in rendered
     if path == "/":
         assert 'href="/pair-kodi">Pair Kodi</a>' in rendered

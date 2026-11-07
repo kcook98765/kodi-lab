@@ -5,7 +5,7 @@
 {% block content %}
     <p class="breadcrumb"><a href="/development">Development tools</a> / <a href="/agent-workspaces">Workspaces</a></p>
     <h1>{{ workspace.source_logical_name }}</h1>
-    <p><a class="button-link" href="/development-session">Open Current Kodi</a></p>
+    <p><a class="button-link" href="/development-session">Open Current Managed Kodi</a></p>
     <dl>
       <dt>Workspace</dt><dd>{{ workspace.id }}</dd>
       <dt>Add-on</dt><dd>{{ workspace.source_addon_id }} — {{ workspace.source_observed_name }} {{ workspace.source_observed_version }}</dd>
@@ -53,7 +53,7 @@
       <p data-preflight-status role="status">No assessment requested.</p>
       <ul data-preflight-checks></ul>
       <ul data-preflight-actions></ul>
-      {% else %}<p>No managed disposable Kodi is registered. Review <a href="/development-session">Current Kodi</a> setup.</p>{% endif %}
+      {% else %}<p>No eligible Managed Kodi is available for this workflow. Review <a href="/development-session">Current Managed Kodi</a> setup.</p>{% endif %}
     </section>
     {% endif %}
     {% if repository_deployments %}<details class="navigation-group"{% if repository_deployments|selectattr("failure_code")|list %} open{% endif %}><summary>Recorded repository deployments</summary>

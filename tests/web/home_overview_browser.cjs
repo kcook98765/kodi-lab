@@ -49,7 +49,7 @@ const assets = path.resolve(__dirname, '../../src/kodi_lab/web/static');
       await page.waitForURL(base + '/kodi');
       if (width === 390) await page.waitForTimeout(2100);
       assert.equal(report.requests.slice(landingRequests).some(r => r.path.startsWith('/api/')),false);
-      assert.equal(await page.getByRole('heading',{name:'Current Kodi',exact:true}).count(),1);
+      assert.equal(await page.getByRole('heading',{name:'Current Managed Kodi',exact:true}).count(),1);
       assert.equal(await page.getByRole('heading',{name:'Managed Kodi at a glance',exact:true}).count(),0);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.getByRole('link',{name:'Skip to content'}).focus();

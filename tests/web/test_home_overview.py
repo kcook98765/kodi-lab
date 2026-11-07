@@ -142,7 +142,7 @@ def test_export_isolated_home_browser_fixtures(client: TestClient) -> None:
         for path in ("/", "/kodi", "/managed-instances", "/settings", "/development")
     }
     routes["/login"] = sign_in
-    assert "Current Kodi" in routes["/kodi"]
+    assert "Current Managed Kodi" in routes["/kodi"]
     if destination := os.getenv("KODI_LAB_CAMPAIGN_BROWSER_EVIDENCE"):
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)

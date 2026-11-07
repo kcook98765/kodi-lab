@@ -2,17 +2,17 @@
 {% set nav_section = 'kodi' %}
 {% block title %}Add-on testing · {{ slot.name }} · Kodi Lab{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="/kodi#{{ slot.version }}">Kodi</a> / Add-on testing</p>
+<p class="breadcrumb"><a href="/kodi#{{ slot.version }}">Kodi environments</a> / Add-on testing</p>
 <h1>Set up {{ slot.name }} for add-on testing</h1>
 <p>Starting Kodi and viewing its screen do not require a workspace. Development adds separate source, workspace, Bridge and agent permissions.</p>
 {% if slot.reset_note %}<p class="notice">Reset replaced this Kodi profile. Its previous Bridge trust, installed add-ons and deployment baselines cannot be reused.</p>{% endif %}
 <ol class="destination-list">
   <li><strong>Keep your add-on work outside Kodi.</strong> <a href="/agent-workspaces">Choose or create a persistent workspace</a>. Existing registered source, files, Git history and grants survive Reset.</li>
-  <li><strong>Bind this profile for development.</strong> Stop Kodi before choosing the version and workspace; existing valid selections can be kept. <a href="{{ slot.selection_url }}">Choose this Kodi version and workspace</a>. If version selection is not enabled, review <a href="/development-session">Current Kodi setup</a> with the administrator. Do not prepare a second profile for this occupied version. Selection never grants access to another client's workspace.</li>
+  <li><strong>Bind this profile for development.</strong> Stop Kodi before choosing the version and workspace; existing valid selections can be kept. <a href="{{ slot.selection_url }}">Choose this Kodi version and workspace</a>. If version selection is not enabled, review <a href="/development-session">Current Managed Kodi setup</a> with the administrator. Do not prepare a second profile for this occupied version. Selection never grants access to another client's workspace.</li>
   <li><strong>Prepare the selected environment.</strong> <a href="/development-session/preparation">Open the development preparation checklist</a>. Confirm the selected version is {{ slot.name }}, review source baseline and Bridge preparation, then deploy fresh workspace files.</li>
   <li><strong>Authorize your agent.</strong> <a href="/mcp-clients">Review agent permissions and exact grants</a>. Native readiness, Bridge capability and agent/workspace authority are separate.</li>
   <li><strong>Hand the prepared Kodi to your agent.</strong> Close your screen, finish control cleanup and Stop Kodi before the agent begins. The agent can Start the same prepared profile. For an intentional running handoff, <a href="{{ slot.resource_url }}">Advanced administrator keep-awake settings</a> accepts zero to end your own hold and recent use. That alternative leaves Kodi running; it does not clear another client's hold or prove Stop.</li>
 </ol>
 <p>The replacement is not automatically attached to an old container-bound development session. Fully automatic agent reattachment requires a separately reviewed coordinator; these existing setup steps preserve exact identity and workspace authority.</p>
-<p><a href="/kodi#{{ slot.version }}">Return to Kodi</a> · <a href="{{ slot.advanced_url }}">Advanced profile and Bridge details</a></p>
+<p><a href="/kodi#{{ slot.version }}">Return to Kodi environments</a> · <a href="{{ slot.advanced_url }}">Advanced profile and Bridge details</a></p>
 {% endblock %}

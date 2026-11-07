@@ -2,6 +2,7 @@
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
   <h2 id="managed-kodi-heading">{{ environment_label('managed') }}</h2>
   {{ environment_ownership('managed') }}
+  <p>Use Start Kodi for an existing profile. Choosing a different retained version keeps its saved settings and add-ons.</p>
   <p>Only one managed Kodi can run at a time. Stop keeps your settings and add-ons. Reset replaces that version’s profile.</p>
   <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
   <div class="slot-request" data-slot-request hidden>

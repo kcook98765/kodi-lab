@@ -23,9 +23,9 @@
   const advice = {
     development_session_existing_resource: 'An existing Kodi profile occupies the environment. Review its exact registration; it has been preserved.',
     development_session_busy: 'An operation is active. Review its saved outcome before continuing.',
-    development_session_already_active: 'A Kodi is already selected. Reload Current Kodi.',
-    development_session_identity_changed: 'The selected Kodi changed. Reload Current Kodi and review its history.',
-    development_session_generation_conflict: 'The selection changed. Reload Current Kodi.',
+    development_session_already_active: 'A Kodi is already selected. Reload Current Managed Kodi.',
+    development_session_identity_changed: 'The selected Kodi changed. Reload Current Managed Kodi and review its history.',
+    development_session_generation_conflict: 'The selection changed. Reload Current Managed Kodi.',
     development_session_runtime_ineligible: 'This exact runtime needs review. Open Advanced management.',
   };
   let view, busy = false, uncertain = false, closed = false, changed = false, timer;
@@ -47,7 +47,7 @@
       button.disabled = blocked || !allowed;
     }
     refreshButton.disabled = closed || busy;
-    refreshButton.textContent = changed ? 'Reload Current Kodi' : 'Refresh status';
+    refreshButton.textContent = changed ? 'Reload Current Managed Kodi' : 'Refresh status';
   }
   function hideWatch() {
     watchLink.hidden = true;
@@ -86,8 +86,8 @@
       for (const name of ['current-choice']) show(name, !current);
       for (const name of ['current-development', 'current-screen', 'current-switch', 'current-profile']) show(name, !!current);
       if (!current) {
-        status.textContent = 'No Kodi is selected. Choose a workspace and reviewed runtime.';
-        setText('current-name', 'No Kodi selected');
+        status.textContent = 'No profile is selected. Choose a workspace and reviewed runtime.';
+        setText('current-name', 'No profile selected');
         setText('current-state', 'Choose your development environment');
         targetLink.hidden = workspaceLink.hidden = true;
         screen();
@@ -122,13 +122,13 @@
         }
         screen(data.viewer_state);
       }
-      if (changed) status.textContent = 'The selected environment changed. Reload Current Kodi before acting or starting a viewer.';
+      if (changed) status.textContent = 'The selected environment changed. Reload Current Managed Kodi before acting or starting a viewer.';
       else if (uncertain) status.textContent = 'The last action outcome is uncertain. Review its exact history before another action; no retry was sent.';
     } catch (_) {
       if (closed || document.hidden || epoch !== observationEpoch) return;
       view = undefined; hideWatch(); screen();
       setText('current-state', 'Status not confirmed');setText('current-native', 'Not confirmed');
-      status.textContent = 'Could not confirm Current Kodi. Refresh and review the exact operation history before acting.';
+      status.textContent = 'Could not confirm Current Managed Kodi. Refresh and review the exact operation history before acting.';
     } finally {if (epoch === observationEpoch) {busy = reading = false;activeRead = null;controls();schedule();}}
   }
   async function mutate(path, body) {

@@ -1,16 +1,19 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% from 'components/kodi-prerequisites.html' import kodi_prerequisites %}
 {% set nav_section = 'kodi' %}
-{% block title %}Install Kodi · Kodi Lab{% endblock %}
+{% block title %}Create Managed Kodi · Kodi Lab{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/create-kodi.css') }}">{% endblock %}
 {% block main_class %}create-kodi-page{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="/kodi">Kodi</a></p>
-<h1>Install and prepare Kodi</h1>
-<p>Set up a Kodi managed by Kodi Lab. You can connect an agent later.</p>
+<p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Create Managed Kodi</p>
+<h1>Create Managed Kodi</h1>
+<p>{{ environment_label('managed') }}</p>
+{{ environment_ownership('managed') }}
+<p>Install and prepare a managed version. Existing retained profiles are kept. For everyday Start, Stop and View Screen, use the <a href="/kodi#managed-kodi-heading">managed version slots</a>. You can connect an agent later.</p>
 <div data-create-kodi aria-busy="false">
   <section aria-labelledby="create-choice-heading">
-    <h2 id="create-choice-heading">Choose your Kodi</h2>
+    <h2 id="create-choice-heading">Choose your managed version</h2>
     <label for="create-generation">Kodi version</label>
     <select id="create-generation" data-create-generation>
       {% for value, label in [('omega', 'Omega · Recommended'), ('nexus', 'Nexus'), ('matrix', 'Matrix'), ('piers', 'Piers · Preview')] %}
@@ -46,7 +49,7 @@
     <p data-create-wait></p>
     <div class="actions">
       <a class="button-link kodi-primary" data-create-screen hidden>Open screen</a>
-      <a class="button-link" data-create-start hidden>Return to Kodi versions</a>
+      <a class="button-link" data-create-start hidden>Return to Managed Kodi versions</a>
       <a data-create-manage hidden>Manage Kodi</a>
       <a data-create-recovery hidden>Review setup</a>
     </div>

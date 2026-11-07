@@ -36,7 +36,7 @@ function boot(options = {}) {
   const page = boot();
   await flush();
   assert.equal(page.imports(), 0);
-  assert.equal(page.requests.length, 0, 'idle standalone page must not poll Current Kodi or admit viewing');
+  assert.equal(page.requests.length, 0, 'idle standalone page must not poll Current Managed Kodi or admit viewing');
   const starting = page.nodes['#start'].onclick();
   await flush();
   assert.equal(page.imports(), 1);

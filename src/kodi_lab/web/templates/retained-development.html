@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% set nav_section = 'kodi' %}
-{% block title %}Switch Kodi Version · Kodi Lab{% endblock %}
+{% block title %}Select Current Managed Kodi version · Kodi Lab{% endblock %}
 {% block main_class %}responsive-forms{% endblock %}
 {% block content %}
 {% set version_names = {'19.4': 'Matrix 19.4', '20.5': 'Nexus 20.5', '21.3': 'Omega 21.3', '22.0-rc.1': 'Piers 22 RC1'} %}
-<h1>Switch Kodi Version</h1>
+<h1>Select Current Managed Kodi version</h1>
 <p>Keep a separate profile for Matrix 19.4, Nexus 20.5, Omega 21.3 and Piers 22 RC1. The administrator’s Managed Kodi resource policy limits how many instances may run at once. Stop Kodi and release use holds before confirming a switch.</p>
 <p>Switching keeps the previous profile and does not start, reset or delete Kodi, or transfer agent permissions.</p>
-<p><a href="/development-session">Back to Current Kodi</a></p>
+<p><a href="/development-session">Back to Current Managed Kodi</a></p>
 {% if not policy.enabled %}
 <section>
   <h2>Enable retained versions</h2>

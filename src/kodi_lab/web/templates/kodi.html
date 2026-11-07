@@ -17,12 +17,12 @@
 <section aria-labelledby="household-kodi-heading">
   <h2 id="household-kodi-heading">{{ environment_label('external_production') }}</h2>
   {{ environment_ownership('external_production') }}
+  <p><a class="button-link" href="/add-kodi?mode=home">Connect {{ environment_identity('external_production').display_name }}</a></p>
   {% if kodis %}
   <ul class="kodi-grid">
     {% for kodi in kodis %}
     <li class="kodi-card" data-status="{{ kodi.status }}">
       <h3>{{ kodi.target.logical_name }}</h3>
-      <p>{{ environment_label(kodi.target.target_class) }}</p>
       <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
       <p class="kodi-card-note">{{ kodi.status_note }}</p>
       <dl>
@@ -41,7 +41,7 @@
   </div>
   {% endif %}
 </section>
-<details class="kodi-diagnostics"><summary>Advanced managed Kodi administration</summary><p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/development-session">Current Kodi development setup</a> · <a href="/settings">Security and Advanced settings</a></p></details>
+<details class="kodi-diagnostics"><summary>Advanced managed Kodi administration</summary><p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/development-session">Current Managed Kodi development setup</a> · <a href="/settings">Security and Advanced settings</a></p></details>
 {% if development_view %}
 <section class="navigation-group" aria-labelledby="development-kodi-heading">
   <h2 id="development-kodi-heading">{{ environment_label('external_development') }}</h2>

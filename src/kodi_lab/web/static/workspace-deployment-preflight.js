@@ -29,10 +29,10 @@
     native_not_observed: "Current native Kodi readiness was not observed.",
     addon_not_observed: "Current installed add-on and enabled state were not observed.",
     development_session_requires_review: "The selected development session needs review.",
-    development_session_other_target: "Current Kodi selects another target. Review the development session.",
+    development_session_other_target: "Current Managed Kodi selects another target. Review the development session.",
     development_session_identity_changed: "The selected runtime or container identity changed. Review the development session.",
-    development_session_other_workspace: "Current Kodi selects another workspace or source.",
-    development_session_runtime_pending: "Current Kodi preparation or startup is unresolved.",
+    development_session_other_workspace: "Current Managed Kodi selects another workspace or source.",
+    development_session_runtime_pending: "Current Managed Kodi preparation or startup is unresolved.",
   };
   const guidance = {
     refresh_generation: ["Reload this workspace page to see the current generation.", null],
@@ -41,7 +41,7 @@
     attach_source: ["Attach the registered source through Kodi administration.", ""],
     copy_source: ["Use the stopped source-copy workflow through Kodi administration.", ""],
     review_history: ["Review this Kodi's retained activity and reconciliation.", "/history"],
-    review_session: ["Review Current Kodi and its selected workspace.", "/development-session"],
+    review_session: ["Review Current Managed Kodi and its selected workspace.", "/development-session"],
     inspect_native: ["Review this Kodi's native readiness and add-on setup.", ""],
     enable_addon: ["Review installed add-on enablement through Kodi administration.", ""],
   };

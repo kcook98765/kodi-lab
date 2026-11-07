@@ -229,7 +229,7 @@ def test_workspace_offers_catalog_preflight_without_requesting_assessment_or_run
         assert instance is not None
         instance.instance_type = InstanceType.PERSISTENT
     page = client.get(url)
-    assert "No managed disposable Kodi is registered" in page.text
+    assert "No eligible Managed Kodi is available for this workflow" in page.text
     assert "data-preflight-target" not in page.text
 
 
