@@ -142,6 +142,7 @@ from kodi_lab.storage.household_onboarding_sql import (
     EXTERNAL_SECRET_RETIREMENT_TRIGGERS,
     HOUSEHOLD_ONBOARDING_TRIGGERS,
 )
+from kodi_lab.storage.managed_version_operation_sql import IMMUTABLE_VERSION_OPERATION
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 
@@ -436,6 +437,72 @@ class ManagedAgentLifecycleRequestRow(Base):
     result_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ManagedVersionOperationRow(Base):
+    """Immutable principal/request/version intent; history survives target deletion."""
+
+    __tablename__ = "managed_version_operations"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="managed_version_request"),
+        CheckConstraint(
+            "generation IN ('matrix','nexus','omega','piers') "
+            "AND action IN ('start','stop')",
+            name="managed_version_intent",
+        ),
+        CheckConstraint(
+            "phase IN ('accepted','prepared','provisioning','starting','stopping',"
+            "'complete','blocked','uncertain')",
+            name="managed_version_phase",
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "AND length(target_id)=36 AND length(code) BETWEEN 1 AND 64 "
+            "AND length(created_at)=27 AND length(updated_at)=27",
+            name="managed_version_binding",
+        ),
+        CheckConstraint(
+            "(runtime_revision_id IS NULL AND image_id IS NULL) OR "
+            "(runtime_revision_id IS NOT NULL AND image_id IS NOT NULL "
+            "AND length(runtime_revision_id)=36 AND length(image_id)=71)",
+            name="managed_version_runtime",
+        ),
+        CheckConstraint(
+            "container_id IS NULL OR length(container_id)=64",
+            name="managed_version_container",
+        ),
+        CheckConstraint(
+            "expected_state_revision IS NULL OR expected_state_revision>=0",
+            name="managed_version_epoch",
+        ),
+        Index("ix_managed_version_active", "target_id", "phase"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Original owner identity deliberately has no cascading FK: replay mappings
+    # must not disappear when a client/target/registration is removed.
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[str] = mapped_column(String(8), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(8), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_revision_id: Mapped[str | None] = mapped_column(String(36))
+    image_id: Mapped[str | None] = mapped_column(String(71))
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    expected_state_revision: Mapped[int | None] = mapped_column(Integer)
+    provision_operation_id: Mapped[str | None] = mapped_column(String(36))
+    lifecycle_operation_id: Mapped[str | None] = mapped_column(String(36))
+    hold_until: Mapped[str | None] = mapped_column(String(27))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+event.listen(
+    ManagedVersionOperationRow.__table__,
+    "after_create",
+    DDL(IMMUTABLE_VERSION_OPERATION).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+)
 
 
 class DevelopmentRepositoryStateRow(Base):

@@ -17,6 +17,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedInstanceUseRow,
     ManagedResourcePolicyRow,
+    ManagedVersionOperationRow,
     McpAddonSettingsOperationRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
@@ -141,6 +142,16 @@ def record_operation_activity(
                 return
             actor = f"mcp:{request.client_id}"
         else:
+            version = session.scalar(
+                select(ManagedVersionOperationRow).where(
+                    ManagedVersionOperationRow.lifecycle_operation_id
+                    == str(operation_id)
+                )
+            )
+            if version is not None:
+                if version.action != "start":
+                    return
+                actor = f"mcp:{version.client_id}"
             lifecycle = session.get(
                 ManagedInstanceLifecycleOperationRow, str(operation_id)
             )

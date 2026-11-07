@@ -44,6 +44,15 @@ A hold cannot cancel a stop already claimed; refresh its current state first.
 
 ## MCP use
 
+For version-oriented **Status → Start → Use → Stop**, use the explicitly opted-in
+`managed_status`, `managed_start` and `managed_stop` tools described in
+[managed version lifecycle](MANAGED-VERSION-LIFECYCLE.md). They compose the same
+resource safety authority; Stop retains the exact profile. Their new
+`managed.versions` permission does not extend existing presets or
+`managed.lifecycle`. Clean Reset and automatic switching remain follow-ups.
+
+The following target-oriented tools keep their existing contracts.
+
 `managed_ensure_ready` and `managed_release` require the explicit
 `managed.lifecycle` permission in both the client preset and target policy,
 plus that client's exact target grant. Administrators can opt in through custom

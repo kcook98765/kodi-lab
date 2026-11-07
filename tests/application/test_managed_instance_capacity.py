@@ -327,3 +327,41 @@ def test_prepare_another_reviewed_profile_preserves_legacy_selection(
         assert all(r.runtime_state == "stopped" for r in s.records)
     finally:
         env.readiness.close()
+
+
+def test_retained_stopped_provision_is_confirmed_while_another_version_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.broker.docker_inventory import ProvisionedManagedContainerRecord
+    from kodi_lab.storage.models import ManagedProvisionReservationRow
+
+    env = setup(tmp_path, monkeypatch)
+    s = env.s
+    try:
+        env.lifecycle.start_managed(s.ids["omega"])
+        target = s.ids["matrix"]
+        stopped = next(r for r in s.records if r.managed_instance_id == str(target))
+        s.records.remove(stopped)
+
+        def dispatch() -> ProvisionedManagedContainerRecord:
+            s.records.append(stopped)
+            return ProvisionedManagedContainerRecord(
+                stopped.managed_instance_id,
+                str(stopped.runtime_revision_id),
+                stopped.container_id,
+                stopped.image_id,
+                stopped.runtime_state,
+                True,
+            )
+
+        assert s.admission.run_provision(
+            instance_id=str(target),
+            revision_id=str(s.revisions[target]),
+            dispatch=dispatch,
+        ).created
+        with s.env.sessions() as session:
+            assert session.get(ManagedProvisionReservationRow, str(target)) is None
+        assert sum(record.runtime_state == "running" for record in s.records) == 1
+        assert s.service.status() is None
+    finally:
+        env.readiness.close()

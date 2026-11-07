@@ -55,6 +55,12 @@ from kodi_lab.application.development_sessions import (
     RetainedSelectionRequest,
 )
 from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleResult
+from kodi_lab.application.managed_versions import (
+    ManagedStatusInput,
+    ManagedVersionInput,
+    ManagedVersionResult,
+    ManagedVersionsStatus,
+)
 from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
@@ -181,6 +187,9 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "log_read",
         "managed_ensure_ready",
         "managed_release",
+        "managed_status",
+        "managed_start",
+        "managed_stop",
         "inspect_ui_state",
         "addon_list",
         "development_source_list",
@@ -1281,6 +1290,52 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "managed_status": Tool(
+            name="managed_status",
+            title="Managed Kodi versions",
+            description=(
+                "List supported versions and authorized slot state. Native readiness "
+                "is separate from stored Bridge prerequisites and unassessed "
+                "workspace authority. Read-only; no waking, selection, acquisition or "
+                "grants."
+            ),
+            input_schema=ManagedStatusInput.model_json_schema(),
+            output_schema=ManagedVersionsStatus.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "managed_start": Tool(
+            name="managed_start",
+            title="Start a managed Kodi version",
+            description=(
+                "Start a granted canonical version, reusing its profile or preparing "
+                "an absent profile from an approved cached runtime. Requires explicit "
+                "managed.versions on client and exact target. Never downloads, "
+                "repins, switches versions or grants workspace/Bridge authority. "
+                "Retain request_id; replay only resumes undispatched preparation or "
+                "observes the original child. A completed request never restarts "
+                "after Stop. Creates one bounded 15-minute client hold."
+            ),
+            input_schema=ManagedVersionInput.model_json_schema(),
+            output_schema=ManagedVersionResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "managed_stop": Tool(
+            name="managed_stop",
+            title="Stop a managed Kodi version",
+            description=(
+                "Release only your own hold and safely stop the exact granted "
+                "version, preserving its profile. Other users, holds, playback, "
+                "active operations or uncertainty block Stop. stop_confirmed is true "
+                "only with a currently confirmed stopped/empty identity; a release or "
+                "old receipt alone is not proof. No Reset or force stop."
+            ),
+            input_schema=ManagedVersionInput.model_json_schema(),
+            output_schema=ManagedVersionResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "managed_ensure_ready": Tool(
             name="managed_ensure_ready",
             title="Ensure managed Kodi is ready",
@@ -1379,6 +1434,8 @@ def build_mcp_http_transport(
                 | UiObservation
                 | McpRemoteActionResult
                 | ManagedAgentLifecycleResult
+                | ManagedVersionResult
+                | ManagedVersionsStatus
                 | ProductionApprovalRequiredResult
                 | ProductionApprovalTerminalResult
                 | ScreenshotToolResult
@@ -1473,6 +1530,20 @@ def build_mcp_http_transport(
                     tools.managed_select, principal, parsed_selection
                 )
                 source_id = result.source_id
+            elif params.name == "managed_status":
+                parsed_version_status = ManagedStatusInput.model_validate(arguments)
+                result = await asyncio.to_thread(
+                    tools.managed_status, principal, parsed_version_status
+                )
+            elif params.name in {"managed_start", "managed_stop"}:
+                parsed_version = ManagedVersionInput.model_validate(arguments)
+                request_id = parsed_version.request_id
+                result = await asyncio.to_thread(
+                    tools.managed_version_action,
+                    principal,
+                    parsed_version,
+                    action="start" if params.name == "managed_start" else "stop",
+                )
             elif params.name == "managed_ensure_ready":
                 parsed_ensure = ManagedEnsureReadyInput.model_validate(arguments)
                 target_id, request_id = (

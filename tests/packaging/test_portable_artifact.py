@@ -90,7 +90,11 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
         assert (
             wheel_revisions
             == source_revisions
-            == {"0001_initial_release.py", "0002_managed_setup.py"}
+            == {
+                "0001_initial_release.py",
+                "0002_managed_setup.py",
+                "0003_managed_version_operations.py",
+            }
         )
         for kind in ("templates", "static"):
             source_assets = {
