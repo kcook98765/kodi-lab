@@ -32,7 +32,7 @@ factory = fixture.factory
 
 
 @pytest.mark.parametrize(
-    "generation,revision", [("matrix", 3), ("nexus", 3), ("omega", 5), ("piers", 3)]
+    "generation,revision", [("matrix", 4), ("nexus", 4), ("omega", 6), ("piers", 3)]
 )
 def test_fresh_selection_and_both_admission_layers_require_exact_seals(
     factory: sessionmaker[Session],
