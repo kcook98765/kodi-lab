@@ -47,6 +47,10 @@ server never accepted a Reset request, confirmation is required again. Another
 tab cannot silently reuse confirmation for a changed profile: the original
 snapshot and consent are immutable, and a stale initial submission is refused.
 
+A proven stale refusal before acceptance permits a new request only after the
+server confirms no saved receipt. Review the current profile and confirm Reset
+again. A missing receipt alone never clears a lost or uncertain request.
+
 A completed receipt describes history; check the current card for current state.
 An uncertain receipt offers recovery instead of another removal or provision.
 Never discard uncertainty by submitting a fresh UUID. Inspect and reconcile the

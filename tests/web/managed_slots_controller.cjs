@@ -15,7 +15,7 @@ class Element {
   close() { this.open = false; }
 }
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-function boot({storage = new Map(), denied = false} = {}) {
+function boot({storage = new Map(), denied = false, lanHttp = false} = {}) {
   const root = new Element(), document = new Element(), window = new Element();
   const names = ["slot-confirm", "slots-error", "slots-running", "slots-refresh", "slot-request", "slot-request-message", "slot-resume", "slot-receipt", "slot-request-recovery", "slot-confirm-check", "slot-confirm-form", "slot-cancel"];
   const nodes = Object.fromEntries(names.map(n => [n, new Element()]));
@@ -33,9 +33,9 @@ function boot({storage = new Map(), denied = false} = {}) {
   root.querySelector = selector => nodes[selector.match(/data-([\w-]+)/)[1]];
   const title = new Element();
   document.querySelector = selector => selector === "[data-managed-slots]" ? root : selector === "#managed-slots-config" ? {textContent:JSON.stringify(status())} : selector === "#slot-confirm-title" ? title : {content:"secret-csrf"};
-  const requests = [], timers = [];
+  const requests = [], timers = []; let uuidCount = 0;
   const store = {getItem:k => storage.get(k), setItem(k,v) { if (denied) throw Error("storage denied"); storage.set(k,v); }, removeItem:k => storage.delete(k)};
-  vm.runInNewContext(source, {document, window, localStorage:store, crypto:{randomUUID:() => request}, setInterval:fn => timers.push(fn),
+  vm.runInNewContext(source, {document, window, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:fn => timers.push(fn),
     fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
   return {nodes, cards, requests, storage, document, timers, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
@@ -45,6 +45,10 @@ async function reply(r, body = status(), code = 200) {
 }
 const posts = app => app.requests.filter(r => r.options.method === "POST");
 (async () => {
+  const lan = boot({lanHttp:true}); await reply(lan.requests[0]);
+  lan.click("start");
+  assert.equal(posts(lan).length, 1, "private-LAN HTTP can generate a cryptographic UUID without randomUUID");
+  assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(JSON.parse(posts(lan)[0].options.body).request_id));
   const app = boot();
   assert.equal(app.requests.length, 1); await reply(app.requests[0]);
   app.timers[0](); await reply(app.requests.at(-1));
@@ -83,6 +87,26 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
   stale.timers[0](); await reply(stale.requests.at(-1), status({snapshot:"b".repeat(64)}));
   assert(!stale.nodes["slot-confirm"].open); stale.nodes["slot-confirm-check"].checked = true;
   stale.nodes["slot-confirm-form"].dispatch("submit"); assert.equal(posts(stale).length, 0, "stale confirmation cannot act");
+
+  const rejected = boot(); await reply(rejected.requests[0]); rejected.click("reset");
+  rejected.nodes["slot-confirm-check"].checked = true; rejected.nodes["slot-confirm-form"].dispatch("submit");
+  await reply(posts(rejected)[0], {code:"stale_browser", message:"Kodi changed"}, 409);
+  await reply(rejected.requests.at(-1), status({snapshot:"b".repeat(64)}));
+  await reply(rejected.requests.at(-1), {}, 404);
+  assert(!rejected.storage.has(key), "a proven pre-acceptance stale rejection must not trap the UI on an impossible request");
+  assert.equal(posts(rejected).length, 1, "a refusal never automatically dispatches another mutation");
+  rejected.click("reset"); assert(rejected.nodes["slot-confirm"].open, "new profile needs new human confirmation");
+  rejected.nodes["slot-confirm-check"].checked = true; rejected.nodes["slot-confirm-form"].dispatch("submit");
+  assert.equal(JSON.parse(posts(rejected)[1].options.body).expected_snapshot, "b".repeat(64));
+  assert.notEqual(JSON.parse(posts(rejected)[0].options.body).request_id, JSON.parse(posts(rejected)[1].options.body).request_id);
+
+  const missing = boot(); await reply(missing.requests[0]); missing.click("start");
+  posts(missing)[0].reject(Error("lost response")); await flush();
+  await reply(missing.requests.at(-1), status({snapshot:"b".repeat(64)}));
+  await reply(missing.requests.at(-1), {}, 404);
+  assert(missing.storage.has(key), "a missing receipt and changed status alone must preserve an uncertain request");
+  assert.equal(posts(missing).length, 1);
+
 
   const absent = boot({storage:new Map([[key, JSON.stringify({...intent, action:"reset", confirm_reset:true})]])});
   await reply(absent.requests[0]); await reply(absent.requests.at(-1), {}, 404);

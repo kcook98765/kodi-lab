@@ -9,9 +9,17 @@
   const cards = [...root.querySelectorAll("[data-slot]")];
   const dialog = node("slot-confirm");
   let state = JSON.parse(document.querySelector("#managed-slots-config").textContent);
-  let busy = false, saved = null, receipt = null, confirmation = null, returnFocus = null;
+  let busy = false, saved = null, receipt = null, confirmation = null, returnFocus = null, rejected = null;
   const versions = new Set(["matrix", "nexus", "omega", "piers"]);
   const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
+  // Private-LAN HTTP supports getRandomValues, but may omit randomUUID.
+  function requestUUID() {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
   function valid(value) {
     return value && versions.has(value.version) && ["start", "stop", "reset"].includes(value.action) &&
       uuid(value.request_id) && /^[0-9a-f]{64}$/.test(value.expected_snapshot) &&
@@ -60,7 +68,7 @@
   async function json(url, options = {}) {
     const response = await fetch(url, {credentials:"same-origin", cache:"no-store", ...options});
     const body = await response.json();
-    if (!response.ok) { const failure = new Error(body.message || (response.status === 401 ? "Sign in again before continuing." : "The request needs review. Refresh status before acting.")); failure.status = response.status; throw failure; }
+    if (!response.ok) { const failure = new Error(body.message || (response.status === 401 ? "Sign in again before continuing." : "The request needs review. Refresh status before acting.")); failure.status = response.status; failure.code = body.code; throw failure; }
     return body;
   }
   async function checkReceipt() {
@@ -75,6 +83,13 @@
       node("slot-request-recovery").hidden = !["blocked", "uncertain"].includes(result.phase);
       if (result.done) { localStorage.removeItem(key); saved = null; }
     } catch (failure) {
+      if (failure.status === 404 && rejected === saved?.request_id) {
+        // The POST explicitly refused this intent before acceptance, and the
+        // receipt read agrees. Absence alone never settles a lost response.
+        localStorage.removeItem(key); saved = null; receipt = null; rejected = null;
+        requestNotice("Kodi changed before this request was accepted. Review the current profile and confirm a new request.");
+        return;
+      }
       requestNotice(failure.status === 404 ? "No saved server receipt was found. Resume only this original request; Reset will require confirmation again." : failure.message);
       receipt = failure.status === 404 ? null : {can_resume:false};
     }
@@ -105,10 +120,12 @@
       try { localStorage.setItem(key, JSON.stringify(intent)); } // Must precede dispatch.
       catch (_) { throw new Error("Allow storage for Kodi Lab in this browser before sending a request. No operation was sent."); }
       saved = intent; receipt = null; busy = true; error(""); render();
+      rejected = null;
       requestNotice(`${intent.action === "reset" ? "Resetting" : intent.action === "stop" ? "Stopping" : "Starting"} ${intent.version}… Waiting for the actual saved outcome.`);
       await json(`${api}/${intent.version}/${intent.action}`, {method:"POST", headers:{"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf},
         body:JSON.stringify({request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset})});
     } catch (failure) {
+      if (failure.status === 409 && failure.code === "stale_browser") rejected = intent.request_id;
       error(failure.message || "The response was lost. Check the original saved request; do not start a new one.");
     } finally {
       busy = false; await refresh(); render();
@@ -131,7 +148,7 @@
     const version = card.dataset.slot, action = button.dataset.slotAction;
     const value = state.slots.find(slot => slot.version === version);
     if (!value || !value[action] || !value.snapshot) return;
-    const intent = {version, action, request_id:crypto.randomUUID(), expected_snapshot:value.snapshot, confirm_reset:action === "reset"};
+    const intent = {version, action, request_id:requestUUID(), expected_snapshot:value.snapshot, confirm_reset:action === "reset"};
     if (action === "reset") confirm(intent, button); else submit(intent);
   });
   node("slot-confirm-form").addEventListener("submit", event => {

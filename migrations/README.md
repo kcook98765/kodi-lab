@@ -53,3 +53,9 @@ grants, presets, runtime pins, profiles or stored resource policy. Reset parents
 and their referenced child history survive ordinary pruning and target/client
 removal. Downgrade refuses once any Reset receipt exists. See the
 [clean Reset contract](../docs/MANAGED-CLEAN-RESET.md).
+
+`0005_managed_web` follows `0004_clean_reset` and adds only immutable human browser
+intent/snapshot/confirmation records. It changes no existing authority or runtime
+state and refuses lossy downgrade after any Web intent exists. The full
+0002-to-0005 sequence is covered by isolated integrity/preservation/downgrade tests.
+See [the integrated review](../docs/ISSUE-238-INTEGRATED-REVIEW.md).

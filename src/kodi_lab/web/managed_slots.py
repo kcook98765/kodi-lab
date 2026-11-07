@@ -279,6 +279,12 @@ class ManagedSlotsWeb:
             phase = parent.phase if parent else "not_dispatched"
             code = parent.code if parent else "accepted"
             version, action = intent.generation, intent.action
+            registered = (
+                session.get(
+                    ManagedInstanceRow, str(self.v.slot(version).canonical_target_id)
+                )
+                is not None
+            )
             binding = dict(
                 request_id=str(request),
                 expected_snapshot=intent.snapshot_sha256,
@@ -328,7 +334,9 @@ class ManagedSlotsWeb:
             done=done,
             can_resume=not done and phase != "uncertain",
             request=binding,
-            recovery_url=f"/instances/{self.v.slot(version).canonical_target_id}/history",
+            recovery_url=f"/instances/{self.v.slot(version).canonical_target_id}/history"
+            if registered
+            else "/history/instances",
             operation_id=parent.id if parent else None,
             code=code,
             technical=evidence,
@@ -527,6 +535,8 @@ class ManagedSlotsWeb:
                     else "Screen support needs review in Advanced.",
                     install_url=f"/create-kodi?generation={version}",
                     development_url=f"/managed-kodi/{version}/development",
+                    selection_url=f"/development-session/retained?target_id={target}",
+                    resource_url=f"/managed-resources#instance-{target}",
                     recovery_url=f"/instances/{target}/history"
                     if instance
                     else "/managed-instances"
