@@ -10,7 +10,6 @@
     installation_action_conflict: "Runtime status changed. Review the refreshed action before trying again.",
     installation_unavailable: "The installation broker is unavailable or cannot safely perform this action. Check the status below and broker diagnostics.",
     exact_preview_acknowledgement_required: "Acknowledge this exact Kodi 22 RC1 prerelease before continuing. Refresh the page if its reviewed recipe changed.",
-    development_mode_required: "Switch to Development mode to install this prerelease runtime.",
   };
   let submitting = false;
   let refreshing = false;
@@ -24,8 +23,16 @@
   const choice = document.querySelector("[data-setup-version]");
   const name = document.querySelector("[data-setup-name]");
   let pending = null;
+  const scopeKey = scope => scope ? JSON.stringify(scope, Object.keys(scope).sort()) : "null";
+  function resetReview() {
+    pending = null;
+    if (review) review.hidden = true;
+    if (approve) approve.checked = false;
+    root.querySelectorAll("[data-preview-acknowledgement]").forEach(input => { input.checked = false; });
+  }
   const cardFor = generation => root.querySelector(`[data-generation="${generation}"]`);
   choice?.addEventListener("change", () => {
+    resetReview();
     const card = cardFor(choice.value);
     name.textContent = card ? `Canonical instance name: ${card.dataset.instanceName}` : "Choose a version to review the instance name.";
   });
@@ -37,9 +44,7 @@
     card.scrollIntoView({block:"start"});
   });
   cancel?.addEventListener("click", () => {
-    pending = null;
-    review.hidden = true;
-    approve.checked = false;
+    resetReview();
     choice.focus();
   });
   function schedule() {
@@ -52,7 +57,7 @@
     if (submitting || refreshing) { schedule(); return; }
     refreshing = true;
     try { await refresh(); retryDelay = 3000; }
-    catch (error) { showError(error.message); retryDelay = Math.min(retryDelay * 2, 60000); }
+    catch (error) { resetReview(); showError(error.message); retryDelay = Math.min(retryDelay * 2, 60000); }
     finally { refreshing = false; schedule(); }
   }
   function showError(message) {
@@ -63,7 +68,25 @@
   function render(item) {
     const card = root.querySelector(`[data-generation="${item.generation}"]`);
     if (!card) return;
+    const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
+    const scope = item.preview_acknowledgement || null;
+    if (pending?.generation === item.generation && (
+      pending.action !== item.action || pending.status !== item.status ||
+      pending.operationId !== (item.operation_id || "") ||
+      scopeKey(pending.acknowledgement) !== scopeKey(scope)
+    )) {
+      resetReview();
+      showError("The setup action or reviewed recipe changed. Review it again before approving.");
+    }
+    if (acknowledgement && scope) {
+      acknowledgement.dataset.scope = JSON.stringify(scope);
+      for (const [name, value] of [["release", `${scope.release} · ${scope.support_tier}`], ["recipe", `${scope.recipe_id} · revision ${scope.recipe_revision}`], ["digest", scope.recipe_digest]]) {
+        const field = card.querySelector(`[data-preview-${name}]`);
+        if (field) field.textContent = value;
+      }
+    }
     card.dataset.state = item.status;
+    card.dataset.operationId = item.operation_id || "";
     const operation = card.querySelector("[data-install-operation]");
     if (operation) operation.textContent = item.operation_id || "No operation recorded";
     const progress = card.querySelector("[data-install-progress]");
@@ -132,8 +155,14 @@
     if (!button || submitting || button.disabled) return;
     const card = button.closest("[data-generation]");
     if (card.dataset.uncertain === "true") return;
-    pending = {generation:card.dataset.generation, action:button.dataset.installAction};
-    approve.checked = false;
+    // A checkbox checked before opening this action review grants nothing.
+    resetReview();
+    const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
+    let scope = null;
+    try { if (acknowledgement) scope = JSON.parse(acknowledgement.dataset.scope); }
+    catch (_) { showError("Refresh the page to review the exact Preview recipe."); return; }
+    pending = {generation:card.dataset.generation, action:button.dataset.installAction,
+      status:card.dataset.state, operationId:card.dataset.operationId || "", acknowledgement:scope};
     document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Canonical instance name: ${card.dataset.instanceName} · Action: ${pending.action}.`;
     review.hidden = false;
     review.focus();
@@ -146,6 +175,7 @@
     const card = cardFor(selected.generation);
     const button = card?.querySelector(`button[data-install-action="${selected.action}"]`);
     if (!button || button.disabled || card.dataset.uncertain === "true") {
+      resetReview();
       showError("The setup state changed. Inspect its current phase and review the available action again.");
       return;
     }
@@ -159,12 +189,12 @@
     button.disabled = true;
     confirm.disabled = true;
     review.hidden = true;
-    pending = null;
+    resetReview();
     showError("");
     try {
       const response = await fetch(
         button.dataset.installAction === "create" ? `/api/runtime-installations/${card.dataset.generation}/instances` : `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
-        { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token, ...(acknowledgement ? {"Content-Type": "application/json"} : {}) }, ...(acknowledgement ? {body: acknowledgement.dataset.scope} : {}) },
+        { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token, ...(acknowledgement ? {"Content-Type": "application/json"} : {}) }, ...(acknowledgement ? {body: JSON.stringify({action:selected.action, approved:true, acknowledgement:selected.acknowledgement})} : {}) },
       );
       if (response.ok) {
         render(await response.json());
@@ -188,7 +218,7 @@
       submitting = false;
       button.disabled = card.dataset.uncertain === "true";
       confirm.disabled = false;
-      approve.checked = false;
+      resetReview();
       if (card.dataset.uncertain === "true") card.querySelector("[data-install-recover]").focus();
       schedule();
     }
@@ -196,7 +226,11 @@
 
   document.addEventListener("visibilitychange", () => {
     clearTimeout(timer);
-    if (!document.hidden) poll();
+    if (document.hidden) resetReview();
+    else poll();
   });
+  window.addEventListener("pagehide", resetReview);
+  window.addEventListener("pageshow", resetReview);
+  resetReview();
   poll();
 })();

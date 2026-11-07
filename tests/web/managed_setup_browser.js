@@ -12,7 +12,7 @@ class Node {
   focus() {this.focused=true;}
   scrollIntoView() {}
 }
-function fixture({preview=false,failed=false}={}) {
+function fixture({preview=false,failed=false,httpFailure=false,completed=false}={}) {
   const generation=preview?"piers":"omega";
   const root=new Node();const card=new Node();const actions=new Node();
   card.dataset={generation,state:"not_installed",instanceName:preview?"Kodi 22 Piers RC1":"Omega 21 Lab",version:preview?"22.0 RC1":"21.3"};
@@ -20,20 +20,22 @@ function fixture({preview=false,failed=false}={}) {
   const recovery=new Node();recovery.hidden=true;
   const fields={".runtime-install-phase":new Node(),".runtime-install-message":new Node(),".runtime-install-note":new Node(),".runtime-install-action":actions,"[data-install-operation]":new Node(),"[data-install-recover]":recovery,"[data-preview-acknowledgement]":preview?ack:null};
   card.querySelector=s=>s.startsWith("button[data-install-action=")?actions.children.find(button=>button.dataset.installAction===s.match(/="([^"]+)"/)[1]):fields[s];
-  root.querySelector=()=>card;root.querySelectorAll=()=>[card];
+  root.querySelector=()=>card;root.querySelectorAll=selector=>selector==="[data-preview-acknowledgement]"?(preview?[ack]:[]):[card];
   const selectors=["data-runtime-install-error","data-install-review","data-install-approved","data-install-confirm","data-install-cancel","data-setup-version","data-setup-name","data-setup-show","data-install-review-summary"];
   const nodes=Object.fromEntries(selectors.map(key=>[`[${key}]`,new Node()]));
   nodes["[data-setup-version]"].value=generation;
   let current={generation,status:"not_installed",phase:"Not installed",action:"install",operation_id:null};
-  const requests=[];let reloads=0;
+  const requests=[],events={};let reloads=0;
+  if(preview) current.preview_acknowledgement=JSON.parse(ack.dataset.scope);
   vm.runInNewContext(source,{
-    document:{hidden:false,activeElement:null,querySelector:s=>s==="[data-runtime-installations]"?root:s.startsWith("meta")?{content:"csrf-fixture"}:nodes[s],createElement:()=>{const e=new Node();e.closest=()=>card;return e;},addEventListener(){}},
-    window:{location:{reload:()=>{reloads++;}}},setTimeout:()=>{},clearTimeout:()=>{},
+    document:{hidden:false,activeElement:null,querySelector:s=>s==="[data-runtime-installations]"?root:s.startsWith("meta")?{content:"csrf-fixture"}:nodes[s],createElement:()=>{const e=new Node();e.closest=()=>card;return e;},addEventListener(name,fn){events[name]=fn;}},
+    window:{location:{reload:()=>{reloads++;}},addEventListener(name,fn){events[name]=fn;}},setTimeout:()=>{},clearTimeout:()=>{},
     fetch:async(url,options={})=>{
       requests.push({url,options});
       if(options.method==="POST") {
         if(failed) throw new Error("response lost");
-        current={...current,status:"pending",phase:"Preparing",action:"none",operation_id:"original-fixture"};
+        if(httpFailure) return {ok:false,json:async()=>({detail:"installation_busy"})};
+        current={...current,status:completed?"ready":"pending",phase:completed?"Ready":"Preparing",action:completed?"create":"none",operation_id:"original-fixture"};
         return {ok:true,json:async()=>current};
       }
       return {ok:true,json:async()=>({installations:[current]})};
@@ -42,7 +44,7 @@ function fixture({preview=false,failed=false}={}) {
   const action=()=>actions.children.find(button=>button.dataset.installAction);
   const click=button=>root.listeners.click({target:{closest:selector=>selector==="button[data-install-action]"?button:null}});
   const recover=()=>root.listeners.click({target:{closest:selector=>selector==="button[data-install-recover]"?recovery:null}});
-  return {nodes,root,card,actions,ack,recovery,requests,action,click,recover,setState:v=>{current={...current,...v};},get reloads(){return reloads;}};
+  return {nodes,root,card,actions,ack,recovery,requests,action,click,recover,events,setState:v=>{current={...current,...v};},get reloads(){return reloads;}};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
@@ -67,7 +69,56 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   await f.nodes["[data-install-confirm]"].listeners.click();
   assert.equal(f.requests.filter(item=>item.options.method==="POST").length,0);assert.equal(f.ack.focused,true);
   f.ack.checked=true;await f.nodes["[data-install-confirm]"].listeners.click();
-  assert.equal(f.requests.at(-1).options.body,f.ack.dataset.scope);
+  const body=JSON.parse(f.requests.filter(item=>item.options.method==="POST").at(-1).options.body);
+  assert.equal(body.action,"install");assert.equal(body.approved,true);
+  assert.deepEqual(body.acknowledgement,JSON.parse(f.ack.dataset.scope));
+  assert.equal(f.ack.checked,false);assert.equal(f.nodes["[data-install-approved]"].checked,false);
+  // A pre-checked Preview box does not carry into a newly opened review.
+  f=fixture({preview:true,completed:true});await flush();f.ack.checked=true;
+  await f.click(f.action());assert.equal(f.ack.checked,false);
+  f.nodes["[data-install-approved]"].checked=true;
+  await f.nodes["[data-install-confirm]"].listeners.click();
+  assert.equal(f.requests.filter(item=>item.options.method==="POST").length,0);
+  f.ack.checked=true;await f.nodes["[data-install-confirm]"].listeners.click();
+  assert.equal(f.action().dataset.installAction,"create");assert.equal(f.ack.checked,false);
+  await f.click(f.action());f.nodes["[data-install-approved]"].checked=true;
+  await f.nodes["[data-install-confirm]"].listeners.click();
+  assert.equal(f.requests.filter(item=>item.options.method==="POST").length,1,"Install consent cannot create");
+  f.ack.checked=true;await f.nodes["[data-install-confirm]"].listeners.click();
+  assert.equal(JSON.parse(f.requests.filter(item=>item.options.method==="POST").at(-1).options.body).action,"create");
+  for(const reset of ["cancel","version","pagehide","pageshow"]) {
+    f=fixture({preview:true});await flush();await f.click(f.action());
+    f.ack.checked=f.nodes["[data-install-approved]"].checked=true;
+    if(reset==="cancel") f.nodes["[data-install-cancel]"].listeners.click();
+    else if(reset==="version") f.nodes["[data-setup-version]"].listeners.change();
+    else f.events[reset]();
+    assert.equal(f.ack.checked,false);assert.equal(f.nodes["[data-install-approved]"].checked,false);
+    await f.nodes["[data-install-confirm]"].listeners.click();
+    assert.equal(f.requests.filter(item=>item.options.method==="POST").length,0);
+  }
+  for(const drift of ["action","recipe","operation","status"]) {
+    f=fixture({preview:true});await flush();await f.click(f.action());
+    f.ack.checked=f.nodes["[data-install-approved]"].checked=true;
+    f.setState(drift==="action"?{action:"retry"}:drift==="recipe"?{preview_acknowledgement:{...JSON.parse(f.ack.dataset.scope),recipe_digest:"changed"}}:drift==="operation"?{operation_id:"changed"}:{status:"failed"});
+    f.events.visibilitychange();await flush();
+    assert.equal(f.ack.checked,false);assert.equal(f.nodes["[data-install-review]"].hidden,true);
+    await f.nodes["[data-install-confirm]"].listeners.click();
+    assert.equal(f.requests.filter(item=>item.options.method==="POST").length,0);
+  }
+  // Template JSON and API JSON may serialize the same fields in different orders.
+  f=fixture({preview:true});await flush();await f.click(f.action());
+  f.ack.checked=f.nodes["[data-install-approved]"].checked=true;
+  const sameScope=Object.fromEntries(Object.entries(JSON.parse(f.ack.dataset.scope)).reverse());
+  f.setState({preview_acknowledgement:sameScope});f.events.visibilitychange();await flush();
+  assert.equal(f.ack.checked,true);assert.equal(f.nodes["[data-install-review]"].hidden,false);
+  for(const kind of ["network","http"]) {
+    f=fixture({preview:true,failed:kind==="network",httpFailure:kind==="http"});await flush();await f.click(f.action());
+    f.ack.checked=f.nodes["[data-install-approved]"].checked=true;
+    await f.nodes["[data-install-confirm]"].listeners.click();
+    assert.equal(f.ack.checked,false);assert.equal(f.card.dataset.uncertain,"true");
+    await f.nodes["[data-install-confirm]"].listeners.click();
+    assert.equal(f.requests.filter(item=>item.options.method==="POST").length,1,"No automatic replay");
+  }
   f=fixture({failed:true});await flush();await f.click(f.action());f.nodes["[data-install-approved]"].checked=true;
   await f.nodes["[data-install-confirm]"].listeners.click();
   assert.equal(f.card.dataset.uncertain,"true");assert.equal(f.recovery.hidden,false);assert.equal(f.action().disabled,true);

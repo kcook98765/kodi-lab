@@ -171,3 +171,45 @@ def test_changed_binding_never_repins_or_downloads(
         assert env.broker.launches == [] and env.broker.provisions == 0
     finally:
         env.close()
+
+
+def test_preview_registration_carries_only_original_compound_operation_approval(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.runtime_installations import (
+        PreviewActionApproval,
+        preview_acknowledgement,
+    )
+    from tests.create_kodi_runner_support import Environment as RunnerEnvironment
+
+    env = RunnerEnvironment(factory, generation="piers", preview_approved=True)
+    create = env.installer.create_preview_instance
+    calls = []
+
+    def checked(*, approval: PreviewActionApproval) -> object:
+        original = env.repo.get(env.op.id)
+        assert original is not None and original.preview_approved
+        assert original.checkpoint is CreateCheckpoint.DISPATCHED
+        assert original.stage is CreateStage.REGISTRATION
+        assert approval.action == "create" and approval.approved is True
+        assert approval.acknowledgement.model_dump() == preview_acknowledgement()
+        calls.append(original.id)
+        return create(approval=approval)
+
+    monkeypatch.setattr(env.installer, "create_preview_instance", checked)
+    try:
+        for _ in range(8):
+            if env.op.stage is CreateStage.REGISTRATION:
+                break
+            env.step()
+        assert env.op.stage is CreateStage.REGISTRATION
+        registered = env.registration.register(env.op.id, version=env.op.version)
+        assert registered.checkpoint is CreateCheckpoint.CONFIRMED
+        assert calls == [env.op.id] and env.broker.provisions == 0
+        assert (
+            env.registration.register(registered.id, version=registered.version)
+            == registered
+        )
+        assert calls == [env.op.id]
+    finally:
+        env.close()

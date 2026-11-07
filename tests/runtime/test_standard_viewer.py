@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_installations import PreviewActionApproval
 from kodi_lab.broker.novnc import ViewBinding
 from kodi_lab.broker.novnc_service import HumanDisplayService
 from kodi_lab.config import Settings
@@ -68,9 +69,12 @@ def test_fresh_selection_and_both_admission_layers_require_exact_seals(
         backend = broker()
         backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
         RuntimeInstallationService(factory, backend).create_preview_instance(
-            development_mode=True,
-            acknowledgement=PreviewAcknowledgement.model_validate(
-                preview_acknowledgement()
+            approval=PreviewActionApproval(
+                action="create",
+                approved=True,
+                acknowledgement=PreviewAcknowledgement.model_validate(
+                    preview_acknowledgement()
+                ),
             ),
         )
     else:

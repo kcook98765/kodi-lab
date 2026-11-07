@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import (
+    PreviewActionApproval,
     RuntimeInstallationActionConflict,
     RuntimeInstallationService,
-    RuntimeInstallationUnavailable,
 )
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -30,17 +30,23 @@ def test_ready_preview_creates_exact_pin_and_is_idempotent(
     service = RuntimeInstallationService(factory, backend)
     view = service.get(operation)
     assert view is not None and view.status == "ready" and view.action == "create"
-    with pytest.raises(RuntimeInstallationUnavailable):
+    with pytest.raises(RuntimeInstallationActionConflict):
         service.create_preview_instance(
-            development_mode=False, acknowledgement=acknowledgement()
+            approval=PreviewActionApproval.model_construct(
+                action="create", approved=False, acknowledgement=acknowledgement()
+            )
         )
     created = service.create_preview_instance(
-        development_mode=True, acknowledgement=acknowledgement()
+        approval=PreviewActionApproval(
+            action="create", approved=True, acknowledgement=acknowledgement()
+        )
     )
     assert created.action == "open" and created.managed_instance_url is not None
     assert (
         service.create_preview_instance(
-            development_mode=True, acknowledgement=acknowledgement()
+            approval=PreviewActionApproval(
+                action="create", approved=True, acknowledgement=acknowledgement()
+            )
         )
         == created
     )
@@ -68,7 +74,9 @@ def test_ineligible_preview_never_creates_instance(
             row.attestation_json = "{}"
     with pytest.raises(RuntimeInstallationActionConflict):
         RuntimeInstallationService(factory, backend).create_preview_instance(
-            development_mode=True, acknowledgement=acknowledgement()
+            approval=PreviewActionApproval(
+                action="create", approved=True, acknowledgement=acknowledgement()
+            )
         )
     with factory() as session:
         assert ManagedInstanceRepository(session).list() == []
@@ -96,8 +104,40 @@ def test_historical_consent_cannot_create_qualified_current_instance(
         RuntimeInstallationActionConflict, match="acknowledgement differs"
     ):
         service.create_preview_instance(
-            development_mode=True,
-            acknowledgement=PreviewAcknowledgement.model_validate(old),
+            approval=PreviewActionApproval(
+                action="create",
+                approved=True,
+                acknowledgement=PreviewAcknowledgement.model_validate(old),
+            ),
         )
     with factory() as session:
+        assert ManagedInstanceRepository(session).list() == []
+
+
+def test_missing_image_requires_exact_reacquire_approval(
+    factory: sessionmaker[Session],
+) -> None:
+    operation = ready(factory)
+    backend = broker()
+    backend.reviewed_runtime_image_present = lambda _id: SimpleNamespace(present=False)
+    service = RuntimeInstallationService(factory, backend)
+    current = service.get(operation)
+    assert current is not None and current.action == "reacquire"
+    with pytest.raises(RuntimeInstallationActionConflict):
+        service.start_preview(
+            action="reacquire",
+            approval=PreviewActionApproval(
+                action="install", approved=True, acknowledgement=acknowledgement()
+            ),
+        )
+    result = service.start_preview(
+        action="reacquire",
+        approval=PreviewActionApproval(
+            action="reacquire", approved=True, acknowledgement=acknowledgement()
+        ),
+    )
+    assert result.operation_id != str(operation)
+    with factory() as session:
+        original = RuntimeRecipeInstallationRepository(session).get(operation)
+        assert original is not None and original.state.value == "ready"
         assert ManagedInstanceRepository(session).list() == []

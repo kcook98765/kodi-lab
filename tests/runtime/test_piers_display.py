@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import (
+    PreviewActionApproval,
     RuntimeInstallationActionConflict,
     RuntimeInstallationService,
     preview_acknowledgement,
@@ -94,8 +95,16 @@ def test_r3_is_default_but_historical_consent_cannot_authorize_install(
         }
     )
     with pytest.raises(RuntimeInstallationActionConflict):
-        service.start_preview(development_mode=True, acknowledgement=old)
-    result = service.start_preview(development_mode=True, acknowledgement=ack)
+        service.start_preview(
+            approval=PreviewActionApproval(
+                action="install", approved=True, acknowledgement=old
+            )
+        )
+    result = service.start_preview(
+        approval=PreviewActionApproval(
+            action="install", approved=True, acknowledgement=ack
+        )
+    )
     operation = UUID(result.operation_id)
     assert recorded_acknowledgement(factory, operation) == ack
     with factory.begin() as db:
@@ -190,8 +199,9 @@ def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
         candidate_view.preview_acknowledgement
     )
     created = service.create_preview_instance(
-        development_mode=True,
-        acknowledgement=roundtrip_ack,
+        approval=PreviewActionApproval(
+            action="create", approved=True, acknowledgement=roundtrip_ack
+        ),
         display_candidate=True,
     )
     assert created.action == "open"
