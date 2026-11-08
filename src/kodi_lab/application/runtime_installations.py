@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -108,6 +109,48 @@ class RuntimeInstallationUnavailable(RuntimeError):
 
 class RuntimeInstallationActionConflict(RuntimeError):
     pass
+
+
+class PreviewActionApproval(BaseModel):
+    """One requested action with the existing exact Preview acknowledgement.
+
+    This request value is never a saved permission or installation attestation.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    action: Literal["install", "retry", "reacquire", "create"]
+    approved: Literal[True]
+    acknowledgement: PreviewAcknowledgement
+
+    @field_validator("approved", mode="before")
+    @classmethod
+    def _explicit_approval(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("Explicit approval of this action is required")
+        return value
+
+
+def _preview_action_acknowledgement(
+    approval: PreviewActionApproval,
+    action: Literal["install", "retry", "reacquire", "create"],
+    *,
+    display_candidate: bool,
+) -> PreviewAcknowledgement:
+    # Reparse even trusted Python models: model_copy/model_construct must not
+    # bypass field or nested recipe validation at the service boundary.
+    try:
+        checked = PreviewActionApproval.model_validate(approval.model_dump())
+    except (AttributeError, ValidationError) as error:
+        raise RuntimeInstallationActionConflict(
+            "Preview action approval invalid"
+        ) from error
+    if checked.action != action:
+        raise RuntimeInstallationActionConflict("Preview action approval differs")
+    if checked.acknowledgement.model_dump(mode="json") != preview_acknowledgement(
+        display_candidate=display_candidate
+    ):
+        raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
+    return checked.acknowledgement
 
 
 class RuntimeInstallationDispatchUncertain(RuntimeError):
@@ -272,28 +315,23 @@ class RuntimeInstallationService:
     def start_preview(
         self,
         *,
-        development_mode: bool,
-        acknowledgement: PreviewAcknowledgement,
+        approval: PreviewActionApproval,
         display_candidate: bool = False,
-        action: Literal["install", "retry", "reacquire"] | None = None,
+        action: Literal["install", "retry", "reacquire"] = "install",
     ) -> ReviewedInstallationLaunchResult:
         """Admission retains exact consent and broker-owned operation semantics."""
-        if development_mode is not True:
-            raise RuntimeInstallationUnavailable("Development mode required")
-        ack = PreviewAcknowledgement.model_validate(acknowledgement)
-        if ack.model_dump(mode="json") != preview_acknowledgement(
-            display_candidate=display_candidate
-        ):
-            raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
-        if action is not None:
-            current = self._view(
-                "piers",
-                self._latest("piers", display_candidate=display_candidate),
-                capable=True,
-                display_candidate=display_candidate,
-            )
-            if current.action != action:
-                raise RuntimeInstallationActionConflict
+        ack = _preview_action_acknowledgement(
+            approval, action, display_candidate=display_candidate
+        )
+        current = self._view(
+            "piers",
+            self._latest("piers", display_candidate=display_candidate),
+            capable=True,
+            reconcile=False,
+            display_candidate=display_candidate,
+        )
+        if current.action != action:
+            raise RuntimeInstallationActionConflict
         if not self._capable():
             raise RuntimeInstallationUnavailable
         active = self._active_worker()
@@ -368,18 +406,13 @@ class RuntimeInstallationService:
     def create_preview_instance(
         self,
         *,
-        development_mode: bool,
-        acknowledgement: PreviewAcknowledgement,
+        approval: PreviewActionApproval,
         display_candidate: bool = False,
     ) -> RuntimeInstallationView:
         """Create only the exact sealed Preview revision through normal selection."""
-        if development_mode is not True:
-            raise RuntimeInstallationUnavailable("Development mode required")
-        ack = PreviewAcknowledgement.model_validate(acknowledgement)
-        if ack.model_dump(mode="json") != preview_acknowledgement(
-            display_candidate=display_candidate
-        ):
-            raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
+        _preview_action_acknowledgement(
+            approval, "create", display_candidate=display_candidate
+        )
         current = self._view(
             "piers",
             self._latest("piers", display_candidate=display_candidate),

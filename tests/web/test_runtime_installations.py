@@ -83,7 +83,7 @@ def seed_installation(
     return operation_id
 
 
-def test_remote_only_page_has_three_unavailable_choices(
+def test_remote_only_page_has_four_unavailable_choices(
     client: TestClient,
 ) -> None:
     assert client.get("/api/runtime-installations").status_code == 401
@@ -96,9 +96,9 @@ def test_remote_only_page_has_three_unavailable_choices(
         ("Kodi 21 — Omega", "21.3"),
     ):
         assert title in primary and version in primary
-    assert primary.count("Installation unavailable") == 3
+    assert primary.count("Installation unavailable") == 4
     assert "data-install-action" not in primary
-    assert "Piers" not in primary
+    assert "Piers" in primary
     assert "several GB of Docker storage" in primary
     assert "Each step requires a separate action" in primary
     assert 'data-instance-action="start"' not in primary
@@ -114,13 +114,14 @@ def test_install_api_auth_origin_csrf_body_and_polling(
     assert client.post(url).status_code == 401
     token = login(client)
     initial = client.get("/runtimes").text.split('class="runtime-matrix-details"')[0]
-    assert initial.count('data-install-action="install"') == 3
-    assert "Piers" not in initial
+    assert initial.count('data-install-action="install"') == 4
+    assert "Piers" in initial
     listed = client.get("/api/runtime-installations").json()["installations"]
     assert [(item["generation"], item["version"]) for item in listed] == [
         ("matrix", "19.4"),
         ("nexus", "20.5"),
         ("omega", "21.3"),
+        ("piers", "22.0 RC1"),
     ]
     assert client.post(url, headers=ORIGIN).status_code == 403
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
@@ -134,7 +135,7 @@ def test_install_api_auth_origin_csrf_body_and_polling(
     assert client.post(url, headers=headers, content=b" ").status_code == 400
     assert (
         client.post("/api/runtime-installations/piers", headers=headers).status_code
-        == 404
+        == 422
     )
     accepted = client.post(url, headers=headers)
     assert accepted.status_code == 202

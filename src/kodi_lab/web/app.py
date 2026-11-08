@@ -429,6 +429,7 @@ from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
 )
 from kodi_lab.application.runtime_installations import (
+    PreviewActionApproval,
     RuntimeInstallationActionConflict,
     RuntimeInstallationBusy,
     RuntimeInstallationService,
@@ -617,7 +618,6 @@ from kodi_lab.repository.development import (
 )
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
-from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import (
@@ -4155,18 +4155,8 @@ def create_app(
             include_legacy=_selection_bool(include_legacy),
             include_prerelease=_selection_bool(include_prerelease),
         )
-        if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
-            matrix = matrix.model_copy(
-                update={
-                    "runtimes": [
-                        entry
-                        for entry in matrix.runtimes
-                        if entry.canonical_release != "22.0-rc.1"
-                    ]
-                }
-            )
         history = runtime_installations.records(
-            include_preview=request.cookies.get(ADMIN_VIEW_COOKIE) == "development",
+            include_preview=True,
             before=history_before,
             limit=257,
         )
@@ -4181,10 +4171,7 @@ def create_app(
                 "history_next": history[255].operation_id
                 if len(history) > 256
                 else None,
-                "installations": runtime_installations.list(
-                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
-                    == "development"
-                ),
+                "installations": runtime_installations.list(include_preview=True),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -4197,10 +4184,7 @@ def create_app(
         return {
             "installations": [
                 asdict(item)
-                for item in runtime_installations.list(
-                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
-                    == "development"
-                )
+                for item in runtime_installations.list(include_preview=True)
             ]
         }
 
@@ -4231,12 +4215,8 @@ def create_app(
         if generation == "piers":
             from pydantic import ValidationError
 
-            if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
-                raise HTTPException(status_code=404, detail="generation_not_supported")
             try:
-                acknowledgement = PreviewAcknowledgement.model_validate(
-                    await request.json()
-                )
+                approval = PreviewActionApproval.model_validate(await request.json())
             except (ValueError, ValidationError):
                 raise HTTPException(
                     status_code=422, detail="exact_preview_acknowledgement_required"
@@ -4246,8 +4226,7 @@ def create_app(
         try:
             if generation == "piers":
                 result = runtime_installations.start_preview(
-                    development_mode=True,
-                    acknowledgement=acknowledgement,
+                    approval=approval,
                     action=action,
                 )
                 item = runtime_installations.get(UUID(result.operation_id))
@@ -4270,16 +4249,12 @@ def create_app(
     @app.post("/api/runtime-installations/piers/instances")
     def create_preview_managed_instance(
         request: Request,
-        acknowledgement: PreviewAcknowledgement,
+        approval: PreviewActionApproval,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> dict[str, object]:
-        if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
-            raise HTTPException(status_code=403, detail="development_mode_required")
         try:
             return asdict(
-                runtime_installations.create_preview_instance(
-                    development_mode=True, acknowledgement=acknowledgement
-                )
+                runtime_installations.create_preview_instance(approval=approval)
             )
         except RuntimeInstallationActionConflict:
             raise HTTPException(

@@ -18,17 +18,13 @@ from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 from .test_runtime_installations import Flow
 
 
-def test_preview_card_requires_development_mode(
-    client: TestClient, broker: FakeBroker
+@pytest.mark.parametrize("mode", ["standard", "development"])
+def test_preview_status_is_visible_without_mutation_consent(
+    client: TestClient, broker: FakeBroker, mode: str
 ) -> None:
     Flow().attach(broker)
     login(client)
-    assert "Kodi 22 Piers RC1" not in client.get("/runtimes").text
-    assert "piers" not in [
-        item["generation"]
-        for item in client.get("/api/runtime-installations").json()["installations"]
-    ]
-    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
+    client.cookies.set(ADMIN_VIEW_COOKIE, mode)
     page = client.get("/runtimes").text
     assert "Kodi 22 Piers RC1" in page
     assert "Preview / Prerelease" in page
@@ -62,7 +58,7 @@ def test_exact_acknowledgement_rejects_substitution(
     ack = {**preview_acknowledgement(), field: value}
     result = client.post(
         "/api/runtime-installations/piers",
-        json=ack,
+        json={"action": "install", "approved": True, "acknowledgement": ack},
         headers={**ORIGIN, "X-Kodi-Lab-CSRF": token},
     )
     assert result.status_code == 422
@@ -96,12 +92,14 @@ def test_preview_install_admission_and_polling(
         client.post(
             "/api/runtime-installations/piers", json=ack, headers=headers
         ).status_code
-        == 404
+        == 422
     )
     client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     assert (
         client.post(
-            "/api/runtime-installations/piers", json=ack, headers=ORIGIN
+            "/api/runtime-installations/piers",
+            json={"action": "install", "approved": True, "acknowledgement": ack},
+            headers=ORIGIN,
         ).status_code
         == 403
     )
@@ -113,12 +111,16 @@ def test_preview_install_admission_and_polling(
     )
     assert (
         client.post(
-            "/api/runtime-installations/piers/instances", json=ack, headers=headers
+            "/api/runtime-installations/piers/instances",
+            json={"action": "create", "approved": True, "acknowledgement": ack},
+            headers=headers,
         ).status_code
         == 409
     )
     admitted = client.post(
-        "/api/runtime-installations/piers", json=ack, headers=headers
+        "/api/runtime-installations/piers",
+        json={"action": "install", "approved": True, "acknowledgement": ack},
+        headers=headers,
     )
     assert admitted.status_code == 202
     assert admitted.json()["status"] == "pending"
@@ -192,7 +194,15 @@ def test_complete_historical_consent_cannot_authorize_current_revision(
         "recipe_revision": 1,
         "recipe_digest": HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
     }
-    result = client.post(path, json=ack, headers={**ORIGIN, "X-Kodi-Lab-CSRF": token})
+    result = client.post(
+        path,
+        json={
+            "action": "create" if path.endswith("/instances") else "install",
+            "approved": True,
+            "acknowledgement": ack,
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": token},
+    )
     assert result.status_code == 409
     assert result.json()["detail"] == "installation_action_conflict"
     assert not flow.launches

@@ -29,13 +29,15 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     assert "No operation recorded" in page
     listed = client.get("/api/runtime-installations").json()["installations"]
     for item in listed:
-        expected = (
-            f"{load_reviewed_recipe(item['generation']).recipe.display_generation} Lab"
-        )
+        if item["generation"] == "piers":
+            expected = "Kodi 22 Piers RC1"
+        else:
+            reviewed = load_reviewed_recipe(item["generation"])
+            expected = f"{reviewed.recipe.display_generation} Lab"
         assert item["managed_instance_name"] == expected
         assert f'data-instance-name="{expected}"' in page
     assert not flow.launches
-    assert "Kodi 22 Piers RC1" not in page
+    assert "Kodi 22 Piers RC1" in page
     client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     preview = client.get("/runtimes").text
     assert 'data-instance-name="Kodi 22 Piers RC1"' in preview

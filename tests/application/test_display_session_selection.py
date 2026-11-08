@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.development_session_workflow import DevelopmentSessionWorkflow
 from kodi_lab.application.development_sessions import DevelopmentSessionService
-from kodi_lab.application.runtime_installations import RuntimeInstallationService
+from kodi_lab.application.runtime_installations import (
+    PreviewActionApproval,
+    RuntimeInstallationService,
+)
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.config import Settings
 from kodi_lab.domain import RevisionApprovalState
@@ -31,8 +34,9 @@ def test_current_piers_preview_selection_requires_exact_sealed_approval(
     backend = broker()
     backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
     RuntimeInstallationService(factory, backend).create_preview_instance(
-        development_mode=True,
-        acknowledgement=built.acknowledgement,
+        approval=PreviewActionApproval(
+            action="create", approved=True, acknowledgement=built.acknowledgement
+        ),
         display_candidate=True,
     )
     target = recipe_target_id(reviewed)
@@ -132,7 +136,9 @@ def test_ordinary_piers_r2_does_not_gain_disposable_selection(
         backend = broker()
         backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
         RuntimeInstallationService(factory, backend).create_preview_instance(
-            development_mode=True, acknowledgement=acknowledgement
+            approval=PreviewActionApproval(
+                action="create", approved=True, acknowledgement=acknowledgement
+            )
         )
     with factory() as db:
         row = RuntimeRecipeInstallationRepository(db).get(operation)

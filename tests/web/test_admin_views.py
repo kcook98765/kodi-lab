@@ -143,7 +143,7 @@ def test_runtime_actions_work_in_both_views(
     initial = client.get("/api/runtime-installations").json()
     client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     development = client.get("/api/runtime-installations").json()["installations"]
-    assert development[:-1] == initial["installations"]
+    assert development == initial["installations"]
     assert development[-1]["generation"] == "piers"
     client.cookies.set(ADMIN_VIEW_COOKIE, "standard")
     accepted = client.post(

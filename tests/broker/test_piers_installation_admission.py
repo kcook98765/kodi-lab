@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_installations import PreviewActionApproval
 from kodi_lab.broker.reviewed_installations import ReviewedWorkerError
 from kodi_lab.runtime.preview import recorded_acknowledgement
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
@@ -64,7 +65,10 @@ def test_durable_admission_before_offline_worker_launch(
             preview_acknowledgement(display_candidate=True)
         )
         result = RuntimeInstallationService(factory, broker()).start_preview(
-            development_mode=True, acknowledgement=ack, display_candidate=True
+            approval=PreviewActionApproval(
+                action="install", approved=True, acknowledgement=ack
+            ),
+            display_candidate=True,
         )
         operation = UUID(result.operation_id)
     else:

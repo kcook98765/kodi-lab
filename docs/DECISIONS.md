@@ -7762,3 +7762,19 @@ Reset leaves clean Kodi stopped; development reattachment remains explicit.
 Ordinary operation needs no workspace. Existing advanced lifecycle, recovery,
 Bridge, runtime and workspace administration stays reachable. Automatic switching
 and native Linux/Windows/browser qualification remain separate.
+
+## D-0479: Action-specific Piers Preview consent replaces view-mode admission
+
+Piers runtime administration is visible to authenticated administrators in either
+view. Replace D-0425's Development-cookie prerequisite with an explicit requested
+action and the existing exact reviewed Preview acknowledgement. Install, Retry,
+Reacquire and Create each need their own approval and eligible operation phase;
+viewing status/history grants none. Reparse consent at the service boundary and
+retain broker admission, operation-owned evidence, historical recipe eligibility,
+sealed provenance, exact image checks, authentication and CSRF unchanged.
+
+Clear browser review state after each attempt, cancellation or scope change; do
+not save authorization or replay uncertain operations. The existing owner-bound
+Create Managed Kodi compound intent retains its explicitly approved stages. Keep
+the global view toggle and other navigation filtering for a separate #248 change.
+See [the admission audit and request contract](PREVIEW-ACTION-CONSENT.md).

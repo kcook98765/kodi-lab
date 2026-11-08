@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import (
     Generation,
+    PreviewActionApproval,
     RuntimeInstallationService,
 )
 from kodi_lab.domain import InstanceType, TargetType
@@ -156,15 +157,23 @@ class CreateKodiRegistrationService:
                 if not op.preview_approved:
                     raise CreateTransitionError("preview_approval_required")
                 self._installer.create_preview_instance(
-                    development_mode=True,
-                    acknowledgement=PreviewAcknowledgement.model_validate(
+                    # This is the original exact Install-and-prepare intent,
+                    # checked above for stage/version/runtime and Preview approval.
+                    # It is not an approval inherited from a runtime-admin Install.
+                    approval=PreviewActionApproval.model_validate(
                         {
-                            "recipe_id": op.recipe_id,
-                            "recipe_revision": op.recipe_revision,
-                            "recipe_digest": op.recipe_digest,
-                            "release": "22.0-rc.1",
-                            "support_tier": "preview",
-                            "acknowledgement": "development-only-prerelease",
+                            "action": "create",
+                            "approved": op.preview_approved,
+                            "acknowledgement": PreviewAcknowledgement.model_validate(
+                                {
+                                    "recipe_id": op.recipe_id,
+                                    "recipe_revision": op.recipe_revision,
+                                    "recipe_digest": op.recipe_digest,
+                                    "release": "22.0-rc.1",
+                                    "support_tier": "preview",
+                                    "acknowledgement": "development-only-prerelease",
+                                }
+                            ),
                         }
                     ),
                 )
