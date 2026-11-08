@@ -1,0 +1,11 @@
+{% macro environment_label(target_type) -%}
+{% set identity = environment_identity(target_type) %}
+<span class="kodi-environment-label" data-environment-type="{{ target_type }}">
+  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="{{ identity.icon_path }}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span>{{ identity.display_name }}</span>
+</span>
+{%- endmacro %}
+
+{% macro environment_ownership(target_type) -%}
+<p class="kodi-environment-ownership">{{ environment_identity(target_type).ownership }}</p>
+{%- endmacro %}

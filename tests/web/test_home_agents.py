@@ -30,7 +30,7 @@ def test_landing_empty_keeps_next_actions_and_advanced_controls(
     assert client.get("/", follow_redirects=False).status_code == 303
     login(client)
     page = client.get("/kodi").text
-    assert "No household Kodi added yet" in page
+    assert "No External Production Kodi connected yet" in page
     assert 'href="/add-kodi"' in page
     assert 'href="/mcp-clients">Connect an agent' in page
     assert "Fixture and reset" not in page

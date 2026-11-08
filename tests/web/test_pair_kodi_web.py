@@ -55,7 +55,10 @@ def test_pair_kodi_entry_and_simple_form(client: TestClient) -> None:
         'href="/add-kodi?mode=development">Add external development Kodi'
         in development.text
     )
-    assert 'href="/add-kodi?mode=development">Add Kodi' in targets.text
+    assert (
+        'href="/add-kodi?mode=development">Connect External Development Kodi'
+        in targets.text
+    )
     assert 'name="name"' in page.text
     assert 'name="address"' in page.text
     assert 'name="code"' in page.text

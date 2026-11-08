@@ -137,7 +137,7 @@ def test_empty_kodi_list(client: TestClient) -> None:
     login(client)
     page = client.get("/kodi")
     assert page.status_code == 200
-    assert "No household Kodi added yet" in page.text
+    assert "No External Production Kodi connected yet" in page.text
     assert 'href="/add-kodi"' in page.text
     assert 'class="kodi-card"' not in page.text
 
@@ -287,6 +287,8 @@ def test_authoritative_status(
     login(client)
     page = detail(client, household)
     assert f'data-status="{status}"' in page
+    assert 'data-environment-type="external_production"' in page
+    assert "External Production Kodi" in page
     assert message in page
     if value == "identity_mismatch" and (
         evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE")
@@ -447,7 +449,7 @@ def test_multiple_household_and_development_separation(
         '<section aria-labelledby="household-kodi-heading">', 1
     )[1].split("</section>", 1)[0]
     assert "Managed Kodi" not in household_html
-    assert "External development Kodi" not in household_html
+    assert "External Development Kodi" not in household_html
     with database() as session:
         managed_name = session.scalar(
             select(TargetRow.name).where(TargetRow.id == str(INSTANCE_ID))

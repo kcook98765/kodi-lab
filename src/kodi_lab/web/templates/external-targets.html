@@ -1,12 +1,14 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'development' %}
-{% block title %}External development targets · Kodi Lab{% endblock %}
+{% block title %}{{ environment_identity('external_development').display_name }} · Kodi Lab{% endblock %}
 {% block main_class %}responsive-forms{% endblock %}
 {% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
-      <h1>External development targets</h1>
+      <h1>{{ environment_label('external_development') }}</h1>
+      {{ environment_ownership('external_development') }}
       <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
-      <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Add Kodi</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
+      <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
       <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
       <p class="error" data-error role="alert" hidden></p>
@@ -33,7 +35,8 @@
           <h3>{{ target.logical_name }}</h3>
           {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
           {% set bridge = bridge_statuses[target.target_id] %}
-          <p>External development Kodi · {{ target.host }}:{{ target.port }}</p>
+          <p>{{ environment_label(target.target_class) }}</p>
+          <p>{{ target.host }}:{{ target.port }}</p>
           <p>Admin: {{ target.administrative_state.value }} · verification: {{ target.verification_state.value }} · observation: {{ target.observation_state.value if target.observation_state else 'none' }}</p>
           <p>Kodi {{ target.kodi_version or 'not observed' }} · last recorded check {{ target.last_observed_at or 'never' }}</p>
           {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}

@@ -1,10 +1,13 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'kodi' %}
 {% block title %}{{ kodi.target.logical_name }} · Kodi Lab{% endblock %}
 {% block main_class %}kodi-page kodi-detail{% endblock %}
 {% block content %}
-<a class="kodi-back" href="/kodi">← All Kodi</a>
+<a class="kodi-back" href="/kodi">← All Kodi environments</a>
 <h1>{{ kodi.target.logical_name }}</h1>
+<p>{{ environment_label(kodi.target.target_class) }}</p>
+{{ environment_ownership(kodi.target.target_class) }}
 <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
 <section class="kodi-panel" aria-labelledby="overview-heading">
   <h2 id="overview-heading">Overview</h2>

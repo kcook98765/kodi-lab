@@ -1,5 +1,7 @@
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
-  <h2 id="managed-kodi-heading">Choose Kodi</h2>
+  <h2 id="managed-kodi-heading">{{ environment_label('managed') }}</h2>
+  {{ environment_ownership('managed') }}
   <p>Only one managed Kodi can run at a time. Stop keeps your settings and add-ons. Reset replaces that version’s profile.</p>
   <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
   <div class="slot-request" data-slot-request hidden>

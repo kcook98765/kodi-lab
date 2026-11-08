@@ -649,6 +649,7 @@ from kodi_lab.web.admin_views import (
 )
 from kodi_lab.web.create_kodi import CreateKodiAPI, create_kodi_router
 from kodi_lab.web.current_kodi import CurrentKodiPresentation, friendly_kodi_name
+from kodi_lab.web.environment_identity import environment_identity
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.web.live_preview import preview_owner, stream_preview
 from kodi_lab.web.managed_slots import ManagedSlotsWeb, WebSlotRequest
@@ -2497,6 +2498,7 @@ def create_app(
         error_messages=ERROR_MESSAGES,
         state_label=state_label,
         managed_next_step=managed_next_step,
+        environment_identity=environment_identity,
     )
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 
