@@ -9,8 +9,9 @@ from .conftest import ORIGIN, login
 
 
 @pytest.mark.parametrize("classification", ["external", "production"])
+@pytest.mark.parametrize("configured_screenshots", [True, False])
 def test_preference_api_requires_admin_csrf_and_exact_revision(
-    client: TestClient, classification: str
+    client: TestClient, classification: str, configured_screenshots: bool
 ) -> None:
     path = f"/api/targets/{uuid4()}/screenshot-preference"
     assert client.get(path).status_code == 401
@@ -20,6 +21,7 @@ def test_preference_api_requires_admin_csrf_and_exact_revision(
     )
     csrf = login(client)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    configured = ["target_inspect"] + (["screenshot"] if configured_screenshots else [])
     target = client.post(
         f"/api/{classification}-targets",
         headers=headers,
@@ -29,7 +31,7 @@ def test_preference_api_requires_admin_csrf_and_exact_revision(
             "host": "192.168.50.40",
             "port": 8080,
             "authentication_mode": "none",
-            "configured_capabilities": ["target_inspect", "screenshot"],
+            "configured_capabilities": configured,
         },
     )
     assert target.status_code == 201
@@ -42,6 +44,8 @@ def test_preference_api_requires_admin_csrf_and_exact_revision(
     assert f'for="screenshots-{target_id}"' in page.text
     assert "/static/screenshot-preference.js" in page.text
     assert "agents authorized to inspect this exact Kodi" in page.text
+    assert "screenshot in the configured capability maximum" in page.text
+    assert "capture remains unavailable when screenshot is missing" in page.text
     unrelated = client.post(
         f"/api/{classification}-targets",
         headers=headers,
@@ -72,6 +76,8 @@ def test_preference_api_requires_admin_csrf_and_exact_revision(
     assert changed.json()["enabled"] is True
     assert changed.json()["revision"] == 2
     assert changed.json()["updated_by"] == "web_admin"
+    current = client.get(f"/api/{classification}-targets/{target_id}").json()
+    assert set(current["configured_capabilities"]) == set(configured)
     other = client.get(f"/api/targets/{unrelated}/screenshot-preference").json()
     assert other["enabled"] is False and other["revision"] == 1
     assert (

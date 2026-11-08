@@ -66,4 +66,7 @@ and resets existing enabled preferences OFF with a monotonic revision and migrat
 attribution. It leaves table schemas, managed screenshots, built-in presets,
 credentials, grants and pairing unchanged. Downgrade restores the former
 initialization trigger but never re-enables existing preferences or rewinds their
-revision/audit state. See D-0484 and issue #265.
+revision/audit state. After downgrade, newly registered external targets again
+inherit the legacy default: enabled when their configured maximum includes
+`screenshot`. This limitation affects new registrations, not existing OFF choices.
+See D-0484 and issue #265.

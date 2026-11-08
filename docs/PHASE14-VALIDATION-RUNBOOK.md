@@ -88,9 +88,11 @@ non-sensitive Kodi screen.
    record it.
 3. Pair, inspect the observed identity and explicitly confirm installed
    provenance.
-4. Assign exact `Production Visual Inspection`, generic grant and current
-   inspect plus visual scopes. Record the exact HTTP risk acknowledgement if
-   applicable.
+4. Use Production Inspection (existing legacy production presets remain valid),
+   the exact target grant and current inspect scope. Set Allow screenshots On for
+   this Kodi. Confirm screenshot is in its configured maximum and verified Bridge
+   support. No visual scope is required. Record the exact HTTP risk acknowledgement
+   if applicable.
 5. Invoke `screenshot_capture` exactly once with a new request UUID.
 6. Verify bounded metadata (dimensions, encoded size, digest, semantic outcome)
    and confirm Kodi Lab persisted no pixels/base64/thumbnail/raw response.

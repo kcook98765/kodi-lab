@@ -5,7 +5,7 @@
     <option value="false">Off</option>
     <option value="true">On</option>
   </select>
-  <p id="screenshot-help-{{ target_id }}">When On, agents authorized to inspect this exact Kodi can receive screenshots, including agents you authorize later. Verified screenshot support is still required. Agents may keep copies outside Kodi Lab. Off blocks new capture and delivery of cached screenshots.</p>
+  <p id="screenshot-help-{{ target_id }}">When On, agents authorized to inspect this exact Kodi may request screenshots, including agents you authorize later. Capture also requires verified Bridge support and screenshot in the configured capability maximum. On does not change that maximum; capture remains unavailable when screenshot is missing. Agents may keep copies outside Kodi Lab. Off blocks new capture and delivery of cached screenshots.</p>
   <p data-preference-status role="status" aria-live="polite">Loading screenshot setting…</p>
 </div>
 {%- endmacro %}

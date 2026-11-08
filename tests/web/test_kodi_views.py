@@ -194,7 +194,11 @@ def test_screenshot_preference_display(
     login(client)
     page = detail(client, household)
     label = "Unavailable" if enabled is None else "Enabled" if enabled else "Disabled"
-    assert f"<dt>Capture preference</dt><dd>{label}</dd>" in page
+    listing = client.get("/production-targets").text
+    assert f"<dt>Capture preference</dt><dd>{label}</dd>" in listing
+    assert "<dt>Capture preference</dt>" not in page
+    assert "Screenshots are disabled by your capture preference." not in page
+    assert f'data-screenshot-preference="{household}"' in page
     assert "ordinary read-only inspection" in page
     assert 'data-status="connected">Connected' in page  # Independent of preference.
 

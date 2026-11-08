@@ -161,7 +161,10 @@ pinned identity.
 fifteen tools. Effective external screenshot authority is configured maximum
 intersected with native verified state, paired/reachable/pinned bridge,
 bridge-verified screenshot capability, exact client target grant, preset
-policy, `target.visual` permission and external-development class eligibility.
+policy, ordinary `target.inspect` permission, Allow screenshots set to On
+(default Off) and external-development class eligibility. No additional visual
+permission or scope is required. The setting does not expand the configured
+maximum or establish Bridge support.
 Pairing is irrelevant to native-only target list/status, inventory and remote
 control.
 

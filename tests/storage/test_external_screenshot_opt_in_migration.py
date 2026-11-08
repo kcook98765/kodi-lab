@@ -167,6 +167,16 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
         }
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    legacy_target = service.register(
+        logical_name="New after downgrade",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.43",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect", "screenshot"},
+    )
+    assert preferences.read(legacy_target.target_id).enabled  # Legacy creation rule.
+    assert retained == {target_id: preferences.read(target_id) for target_id in ids}
     fresh.dispose()
     assert McpAuthenticationService(sessions).authenticate(issued.token) is not None
     engine.dispose()

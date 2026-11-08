@@ -39,6 +39,8 @@ from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationSe
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.storage.models import (
+    ExternalBridgePairingRow,
+    ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpClientRow,
     McpProductionTargetScopeRow,
@@ -638,3 +640,21 @@ def test_target_without_screenshot_maximum_keeps_native_inspection(
     assert not result.capture_preference_enabled
     assert _rows(env.factory) == before
     env.authorization.authorize_target(env.principal, "target_status", env.target_id)
+    preference = ScreenshotPreferenceService(env.factory)
+    preference.update(
+        env.target_id,
+        enabled=True,
+        expected_revision=1,
+        administrator_reference="test_admin",
+    )
+    with env.factory() as session:
+        target = session.get(ExternalKodiTargetRow, str(env.target_id))
+        bridge = session.get(ExternalBridgePairingRow, str(env.target_id))
+        assert target is not None and bridge is not None
+        assert "screenshot" in json.loads(bridge.verified_capabilities_json)
+        assert "screenshot" not in json.loads(target.configured_capabilities_json)
+    with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
+        env.authorization.authorize_target(
+            env.principal, "screenshot_capture", env.target_id
+        )
+    assert preference.read(env.target_id).enabled

@@ -135,7 +135,7 @@ def test_export_production_review_states(
     if case in {"identity-mismatch", "invalidated-trust", "disabled-trust-failure"}:
         assert "Connection trust or setup needs review" in listing_html
         assert parser.trust_alert_advanced == [False]
-    for html in pages.values():
+    for path, html in pages.items():
         assert "authenticated inspection access to this exact Kodi" in html
         assert "trusted Bridge connection" in html
         if case == "unavailable":
@@ -146,7 +146,11 @@ def test_export_production_review_states(
         else:
             assert f'href="/reconnect-kodi/{household}"' in html
         if case == "screenshots-off":
-            assert "Screenshots are disabled by your capture preference" in html
+            if path == listing:
+                assert "Screenshots are disabled by your capture preference" in html
+            else:
+                assert f'data-screenshot-preference="{household}"' in html
+                assert "Screenshots are disabled by your capture preference" not in html
         if case == "identity-mismatch":
             assert "Kodi or Bridge identity does not match" in html
         if case in {"invalidated-trust", "disabled-trust-failure"}:
