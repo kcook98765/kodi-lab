@@ -44,8 +44,10 @@
       for (const button of card.querySelectorAll("[data-slot-action]")) {
         const action = button.dataset.slotAction;
         button.disabled = busy || !!saved || !!confirmation || !value[action];
-        card.querySelector(`[data-slot-reason="${action}"]`).textContent = busy ? "Wait for the saved request's outcome." :
-          saved ? "Check or resume the saved request above." : confirmation ? "Finish or cancel Reset confirmation." : value[`${action}_reason`] || "";
+        const reason = card.querySelector(`[data-slot-reason="${action}"]`);
+        reason.textContent = busy ? "Wait for the saved request's outcome." :
+          saved ? "Check or resume the saved request above." : confirmation ? "Finish or cancel Reset confirmation." :
+          value[`${action}_reason`] || (value[action] ? reason.dataset.slotAvailableDescription || "" : "");
       }
       card.querySelector('[data-slot-action-group="stop"]').hidden = !["running", "starting", "blocked"].includes(value.state);
       const screenAllowed = !!value.screen_url && !busy && !confirmation;

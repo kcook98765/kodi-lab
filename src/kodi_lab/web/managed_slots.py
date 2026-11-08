@@ -70,7 +70,12 @@ _MESSAGES = {
     "active_viewer_or_input": "Close the screen and finish any control session first.",
     "playback_active": "Stop playback before stopping or resetting Kodi.",
     "playback_unknown": (
-        "Playback could not be checked. Review Kodi's connection before acting."
+        "Playback could not be checked, so Kodi Lab cannot safely stop or reset it. "
+        "Check Kodi's connection, then refresh status."
+    ),
+    "runtime_not_ready": (
+        "Kodi is not ready for a safe Stop or Reset. Check its connection and "
+        "refresh status before trying again."
     ),
     "keep_awake": (
         "Another user's keep-awake hold protects Kodi. Wait for its "

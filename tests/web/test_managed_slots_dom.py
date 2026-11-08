@@ -8,6 +8,15 @@ from fastapi.testclient import TestClient
 
 from tests.web.conftest import login
 
+STOP_GUIDANCE = (
+    "Finish playback in Kodi first. Kodi Lab checks playback and active use before "
+    "stopping, and may refuse the request. Your settings and add-ons are kept."
+)
+RESET_GUIDANCE = (
+    "If Kodi is running, finish playback first. Reset checks for playback and active "
+    "use when you confirm, and may be refused."
+)
+
 
 def test_managed_slots_dom_controller() -> None:
     root = Path(__file__).resolve().parents[2]
@@ -34,6 +43,7 @@ class Semantics(HTMLParser):
         self.advanced: list[bool] = []
         self.action_locations: dict[str, list[bool]] = {}
         self.field_locations: dict[str, list[bool]] = {}
+        self.action_descriptions: dict[str, dict[str, str | None]] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
@@ -42,6 +52,8 @@ class Semantics(HTMLParser):
         if attributes.get("id"):
             assert attributes["id"] not in self.ids
             self.ids.add(str(attributes["id"]))
+        if "data-slot-reason" in attributes:
+            self.action_descriptions[str(attributes["id"])] = attributes
         for name in ("aria-describedby", "aria-labelledby"):
             self.descriptions.update(str(attributes.get(name) or "").split())
         if tag == "button" and "data-slot-action" in attributes:
@@ -67,9 +79,17 @@ def test_four_slots_have_accessible_confirmation_controls_and_mobile_layout(
     parser = Semantics()
     parser.feed(page.text)
     assert parser.descriptions <= parser.ids
+    for button in parser.buttons:
+        action = button["data-slot-action"]
+        description = parser.action_descriptions[str(button["aria-describedby"])]
+        assert description["data-slot-reason"] == action
+        expected = {"start": "", "stop": STOP_GUIDANCE, "reset": RESET_GUIDANCE}
+        assert description["data-slot-available-description"] == expected[str(action)]
     assert len(parser.buttons) == 12 and all("disabled" in b for b in parser.buttons)
     assert len(parser.dialogs) == 1
     assert 'type="checkbox" required data-slot-confirm-check' in page.text
+    assert "Reset permanently discards this version\u2019s Kodi settings" in page.text
+    assert "I understand that this Kodi profile will be discarded." in page.text
     assert "<noscript>" in page.text
     assert page.text.count("<summary>Advanced options") == 4
     assert "Open Screen" not in page.text and "View Screen" in page.text

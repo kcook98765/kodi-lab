@@ -1,4 +1,6 @@
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% set stop_guidance = 'Finish playback in Kodi first. Kodi Lab checks playback and active use before stopping, and may refuse the request. Your settings and add-ons are kept.' %}
+{% set reset_guidance = 'If Kodi is running, finish playback first. Reset checks for playback and active use when you confirm, and may be refused.' %}
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
   <h2 id="managed-kodi-heading">{{ environment_label('managed') }}</h2>
   {{ environment_ownership('managed') }}
@@ -25,9 +27,10 @@
       <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery before continuing</a></p>
       <div class="slot-actions">
         {% for action, label in [('start','Start Kodi'),('stop','Stop Kodi')] %}
+        {% set guidance = stop_guidance if action == 'stop' else '' %}
         <div data-slot-action-group="{{ action }}"{% if action == 'stop' and slot.state not in ['running','starting','blocked'] %} hidden{% endif %}>
           <button type="button" data-slot-action="{{ action }}" aria-describedby="{{ slot.version }}-{{ action }}-reason" disabled>{{ label }}</button>
-          <p class="secondary" id="{{ slot.version }}-{{ action }}-reason" data-slot-reason="{{ action }}">{{ slot[action ~ '_reason'] or 'Check status before acting.' }}</p>
+          <p class="secondary" id="{{ slot.version }}-{{ action }}-reason" data-slot-reason="{{ action }}" data-slot-available-description="{{ guidance }}">{{ slot[action ~ '_reason'] or (guidance if slot[action] else '') or 'Check status before acting.' }}</p>
         </div>
         {% endfor %}
         <div><a class="button-link" data-slot-screen{% if slot.screen_url %} href="{{ slot.screen_url }}"{% else %} hidden{% endif %}>View Screen</a>
@@ -39,7 +42,7 @@
         <div data-slot-action-group="reset" class="slot-reset">
           <p>Reset permanently discards this version’s settings, installed add-ons and profile data. A separate confirmation is required.</p>
           <button type="button" data-slot-action="reset" aria-describedby="{{ slot.version }}-reset-reason" disabled>Reset Kodi</button>
-          <p class="secondary" id="{{ slot.version }}-reset-reason" data-slot-reason="reset">{{ slot.reset_reason or 'Check status before acting.' }}</p>
+          <p class="secondary" id="{{ slot.version }}-reset-reason" data-slot-reason="reset" data-slot-available-description="{{ reset_guidance }}">{{ slot.reset_reason or (reset_guidance if slot.reset else '') or 'Check status before acting.' }}</p>
         </div>
         <dl><dt>Preparation details</dt><dd data-slot-preparation>{{ slot.preparation }}</dd>
           <dt>Kodi connection check</dt><dd data-slot-native>{{ slot.native }}</dd></dl>

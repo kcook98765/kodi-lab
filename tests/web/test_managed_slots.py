@@ -572,16 +572,124 @@ def test_failed_native_readiness_never_offers_another_version_as_a_switch(
 
 
 @pytest.mark.parametrize("action", ["stop", "reset"])
+@pytest.mark.parametrize(
+    ("playback", "code"), [(True, "playback_active"), (None, "playback_unknown")]
+)
 def test_playback_refusal_explains_the_next_action_without_stopping(
-    client: TestClient, database: sessionmaker[Session], broker: Broker, action: str
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    action: str,
+    playback: bool | None,
+    code: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     csrf = setup(client, database)
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
-    broker.playback_active = True
+    broker.playback_active = playback
+    # Status must not turn this presentation change into native playback polling.
+    resources = cast(FastAPI, client.app).state.managed_slots.v._resources
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            resources,
+            "_playback_factory",
+            lambda *_: pytest.fail("Ordinary status queried playback"),
+        )
+        current = slot(client)
+        assert current["stop"] and current["reset"]
+        assert client.get("/kodi").status_code == 200
     response = act(client, csrf, action)
     assert response.status_code == 200 and response.json()["phase"] == "blocked", (
         response.text
     )
-    assert "Stop playback" in response.json()["message"]
+    assert response.json()["code"] == code
+    if playback:
+        assert "Stop playback" in response.json()["message"]
+    else:
+        assert "could not be checked" in response.json()["message"]
+        assert "cannot safely stop or reset" in response.json()["message"]
+        assert "refresh status" in response.json()["message"]
+    original = response.json()["request"]["request_id"]
+    assert slot(client)["state"] == "running"
+    receipt = client.get("/api/managed-kodi/requests/" + original).json()
+    assert receipt["code"] == code and receipt["phase"] == "blocked"
+    assert receipt["message"] == response.json()["message"]
+    assert broker.stops == broker.removals == 0
+
+
+@pytest.mark.parametrize("action", ["stop", "reset"])
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_late_playback_refusal_preserves_original_recovery(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    unavailable: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    csrf = setup(client, database)
+    assert act(client, csrf, "start").json()["phase"] == "complete"
+    wait(client)
+    probes = 0
+
+    def playback() -> bool:
+        nonlocal probes
+        probes += 1
+        if probes == 1:
+            return False
+        if unavailable:
+            raise RuntimeError("Playback became unavailable before dispatch")
+        return True
+
+    resources = cast(FastAPI, client.app).state.managed_slots.v._resources
+    monkeypatch.setattr(
+        resources,
+        "_playback_factory",
+        lambda *_: SimpleNamespace(playback_active=playback),
+    )
+    result = act(client, csrf, action).json()
+    assert probes == 2 and broker.stops == broker.removals == 0
+    assert result["phase"] in {"blocked", "uncertain"}
+    assert result["code"] in {
+        "lifecycle_failed",
+        "operation_requires_reconciliation",
+        "reconciled_new_request_required",
+    }
+    assert "original operation" in result["message"]
+    assert result["recovery_url"].endswith("/history")
+    original = result["request"]["request_id"]
+    receipt = client.get("/api/managed-kodi/requests/" + original).json()
+    assert receipt["request"] == result["request"]
+    assert receipt["code"] == result["code"]
+    assert probes == 2 and broker.stops == broker.removals == 0
+
+
+@pytest.mark.parametrize("action", ["stop", "reset"])
+def test_runtime_not_ready_refusal_has_actionable_guidance(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+) -> None:
+    from kodi_lab.application.managed_resources import ManagedResourceProtected
+
+    csrf = setup(client, database)
+    assert act(client, csrf, "start").json()["phase"] == "complete"
+    wait(client)
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise ManagedResourceProtected("runtime_not_ready")
+
+    resources = cast(FastAPI, client.app).state.managed_slots.v._resources
+    monkeypatch.setattr(resources, "_playback_evidence", refuse)
+    result = act(client, csrf, action).json()
+    assert result["phase"] == "blocked" and result["code"] == "runtime_not_ready"
+    message = result["message"]
+    assert "not ready for a safe Stop or Reset" in message
+    assert "refresh status" in message
+    assert "playback" not in message.lower()
     assert broker.stops == broker.removals == 0
