@@ -1,12 +1,16 @@
 {% extends 'base.html' %}
+{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% set nav_section = 'development' %}
-{% block title %}Pair Kodi · Kodi Lab{% endblock %}
+{% block title %}Pair External Development Kodi · Kodi Lab{% endblock %}
 {% block head %}
 <script src="{{ url_for('static', path='/pair-kodi.js') }}" defer></script>
 {% endblock %}
 {% block main_class %}pair-kodi{% endblock %}
 {% block main_attributes %}data-pair-kodi data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
-<h1>Pair Kodi</h1>
+<p class="breadcrumb"><a href="/kodi">Kodi environments</a> / External Development Kodi pairing</p>
+<h1>Pair External Development Kodi</h1>
+<p>{{ environment_label('external_development') }}</p>
+{{ environment_ownership('external_development') }}
 {% include 'development-pairing.html' %}
 {% endblock %}

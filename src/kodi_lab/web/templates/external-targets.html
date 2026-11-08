@@ -8,7 +8,7 @@
       <h1>{{ environment_label('external_development') }}</h1>
       {{ environment_ownership('external_development') }}
       <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
-      <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
+      <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a>{% else %}<a class="button-link" href="/pair-kodi">Pair External Development Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
       <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
       <p class="error" data-error role="alert" hidden></p>
@@ -35,7 +35,6 @@
           <h3>{{ target.logical_name }}</h3>
           {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
           {% set bridge = bridge_statuses[target.target_id] %}
-          <p>{{ environment_label(target.target_class) }}</p>
           <p>{{ target.host }}:{{ target.port }}</p>
           <p>Admin: {{ target.administrative_state.value }} · verification: {{ target.verification_state.value }} · observation: {{ target.observation_state.value if target.observation_state else 'none' }}</p>
           <p>Kodi {{ target.kodi_version or 'not observed' }} · last recorded check {{ target.last_observed_at or 'never' }}</p>
@@ -95,10 +94,10 @@
           <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
           </details>
         </article>
-        {% else %}<p>No external development targets.</p>{% endfor %}
+        {% else %}<p>No External Development Kodi connected yet.</p>{% endfor %}
       </section>
       {% if include_retired %}<p><a href="/external-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/external-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
-      <p><a href="/kodi">Back to Kodi</a></p>
+      <p><a href="/kodi">Back to Kodi environments</a></p>
     {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/external-targets.js') }}" defer></script>

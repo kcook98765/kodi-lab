@@ -20,14 +20,14 @@
           <label>Client name <input name="display_name" required maxlength="120" placeholder="My coding assistant"></label>
           <label>Permissions preset <select name="preset_id" required aria-describedby="agent-preset-help">
             <option value="" selected>Choose a preset…</option>
-            <optgroup label="Read-only Home Kodi inspection">
+            <optgroup label="Read-only External Production Kodi inspection">
               {% for preset in presets if preset.builtin and preset.assignable and preset.display_name in ['Production Inspection','Production Visual Inspection'] %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>
             {% if development_view %}<optgroup label="Other presets — advanced and development">
               {% for preset in presets if preset.assignable and not (preset.builtin and preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>{% endif %}
           </select></label>
-          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is Home-only, for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots for Home Kodi. Neither Home preset authorizes Kodi created by Kodi Lab.</p>
+          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots for External Production Kodi. Neither production preset authorizes Kodi created by Kodi Lab.</p>
           <details>
             <summary>Inspection for Kodi created by Kodi Lab</summary>
             <ol>
@@ -42,7 +42,7 @@
       </section>
       <section aria-labelledby="agent-config-heading">
         <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
-        <p>For <strong>Home Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection steps above. Creating a client or issuing a token does not grant access.</p>
+        <p>For <strong>External Production Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection steps above. Creating a client or issuing a token does not grant access.</p>
       </section>
       <section aria-labelledby="agent-copy-heading">
         <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
@@ -129,7 +129,7 @@
       </section>
       <section aria-labelledby="agent-verify-heading">
         <h2 id="agent-verify-heading">5. Verify read-only access</h2>
-        <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both Home inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
+        <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both external production inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
         <p class="secondary">If connection fails, check the selected transport, supported MCP version and token expiry. For either LAN method, check endpoint and network access; HTTPS also requires certificate trust. For stdio, check the installed command and local port. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
       </details>
@@ -138,7 +138,7 @@
         <summary>Advanced administration — custom presets and Kodi policies</summary>
       <section>
         <h2>Create custom preset</h2>
-        <p>For ordinary Home inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
+        <p>For ordinary external production inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
           <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
@@ -182,7 +182,7 @@
             {% endif %}
             {% endfor %}
           </fieldset>
-          <p class="secondary">These custom ceilings do not create a Home production preset. Assign client presets and Kodi policies separately. Administration controls below can change other clients' access.</p>
+          <p class="secondary">These custom ceilings do not create an External Production Kodi preset. Assign client presets and Kodi policies separately. Administration controls below can change other clients' access.</p>
           <p>Selected permissions: <strong data-selected-permissions>none</strong></p>
           <button type="submit">Create preset</button>
         </form>
@@ -197,7 +197,7 @@
         {% for preset in presets %}<details class="agent-preset-details"><summary>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }}</summary><p>Exact permissions: {{ preset.permissions | join(', ') if preset.permissions else 'none' }}</p><p class="secondary">Preset ID: {{ preset.id }}</p></details>{% endfor %}
       </section>
       </details>{% else %}<p>Choose Development for advanced MCP policies, custom presets and workspace access. Existing permissions remain unchanged.</p>{% endif %}
-      <p><a href="/kodi">Back to Kodi</a></p>
+      <p><a href="/kodi">Back to Kodi environments</a></p>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>

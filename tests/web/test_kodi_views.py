@@ -455,7 +455,7 @@ def test_multiple_household_and_development_separation(
             select(TargetRow.name).where(TargetRow.id == str(INSTANCE_ID))
         )
     assert managed_name is not None and escape(managed_name) not in page
-    assert "Current Kodi" in page
+    assert "Current Managed Kodi" in page
     assert page.count('class="managed-slot"') == 4
     assert 'href="/development-session"' in page
     assert "<script>not markup</script>" not in page
@@ -514,7 +514,7 @@ def test_administration_priorities_and_pending_identity(
     assert production.status_code == external.status_code == 200
     page = production.text
     assert page.index("Current production connections") < page.index(
-        "Create production target"
+        "Register External Production Kodi"
     )
     assert page.index("Current production connections") < page.index(
         'id="reviewed-bridge-builds"'

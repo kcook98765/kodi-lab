@@ -6,6 +6,7 @@
   const radios = Array.from(controls.querySelectorAll("input[type=radio]"));
   const panels = Array.from(root.querySelectorAll("[data-onboarding-mode]"));
   const help = root.querySelector("[data-mode-help]");
+  const labels = {home: root.dataset.homeLabel, development: root.dataset.developmentLabel};
   const states = {home: {active:false, busy:false}, development: {active:false, busy:false}};
   let mode = root.dataset.initialMode === "development" ? "development" : "home";
   const select = (next) => {
@@ -24,9 +25,9 @@
     if (locked) select(locked);
     controls.disabled = Boolean(locked);
     help.textContent = locked
-      ? `${locked === "home" ? "Home" : "Development"} connection in progress. Complete or resolve this saved connection before changing its use.`
+      ? `${labels[locked]} connection in progress. Complete or resolve this saved connection before changing its use.`
       : root.hasAttribute("data-standard-view") && mode === "home"
-        ? "Connect your Home Kodi. Choose the Development administrator view for add-on testing."
+        ? "Connect your External Production Kodi. Choose the Development administrator view to connect External Development Kodi for add-on testing."
         : "Choose how you will use Kodi before connecting.";
   };
   root.addEventListener("kodi-onboarding-state", event => {

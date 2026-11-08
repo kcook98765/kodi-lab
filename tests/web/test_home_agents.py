@@ -165,7 +165,10 @@ def test_agents_requires_deliberate_preset_and_supported_config(
     assert page.index("Create or select a client") < page.index("Create custom preset")
     assert '<option value="" selected>Choose a preset' in page
     recommended = re.search(
-        r'<optgroup label="Read-only Home Kodi inspection">(.*?)</optgroup>', page, re.S
+        r'<optgroup label="Read-only External Production Kodi inspection">'
+        r"(.*?)</optgroup>",
+        page,
+        re.S,
     )
     assert recommended is not None
     assert re.findall(r'<option value="([^"]+)"', recommended.group(1)) == [
@@ -201,7 +204,7 @@ def test_agents_explain_managed_policy_and_existing_local_http(
     login(client)
     client.cookies.set(ADMIN_VIEW_COOKIE, view)
     page = client.get("/mcp-clients").text
-    assert "Home-only" in page
+    assert "External Production Kodi only" in page
     assert "An unassigned Kodi policy denies access" in page
     assert "only <code>target.inspect</code>" in page
     assert page.index("OpenCode localhost HTTP example") < page.index(

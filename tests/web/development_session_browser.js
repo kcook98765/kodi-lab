@@ -55,7 +55,7 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   const empty=boot();await flush();
   assert.equal(empty.get('session-reserve').disabled,false);
   assert.ok(empty.actions.every(b=>b.disabled&&b.hidden));
-  assert.match(empty.get('session-status').textContent,/No Kodi is selected/);
+  assert.match(empty.get('session-status').textContent,/No profile is selected/);
   await empty.form.click({preventDefault() {}});
   const request=empty.requests.find(r=>r.options.method);
   assert.equal(request.url,'/api/development-session/reserve');
@@ -143,5 +143,5 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   assert.equal(joined.clients.length,0);
   assert.equal(joined.requests.filter(request=>request.url.endsWith('/novnc-start')).length,0);
   joined.listeners.pagehide();assert.equal(joined.timers.size,0);
-  process.stdout.write('Current Kodi request, full binding, joined viewer lifecycle and uncertainty guards passed\n');
+  process.stdout.write('Current Managed Kodi request, full binding, joined viewer lifecycle and uncertainty guards passed\n');
 })().catch(error=>{console.error(error);process.exitCode=1;});

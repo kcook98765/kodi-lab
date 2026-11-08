@@ -37,7 +37,10 @@ def test_unified_entry_modes_are_authenticated_and_isolated(
     assert f'name="kodi_use" value="{mode}" checked' in page.text
     assert f'data-initial-mode="{mode}"' in page.text
     assert page.text.count('name="kodi_use"') == 2
-    assert "Home / everyday Kodi" in page.text and "Development Kodi" in page.text
+    assert (
+        "External Production Kodi" in page.text
+        and "External Development Kodi" in page.text
+    )
     assert "data-add-kodi" in page.text and "data-pair-kodi" in page.text
     assert "data-pair-gate disabled" in page.text
     assert "data-js-gate disabled" in page.text
@@ -60,7 +63,7 @@ def test_default_home_and_development_navigation(client: TestClient) -> None:
     assert 'href="/pair-kodi">Pair Kodi' not in client.get("/development").text
     legacy = client.get("/pair-kodi")
     assert legacy.status_code == 200
-    assert "<h1>Pair Kodi</h1>" in legacy.text
+    assert "<h1>Pair External Development Kodi</h1>" in legacy.text
     assert "How will you use this Kodi?" not in legacy.text
     assert "data-unified-mode" not in legacy.text
 

@@ -89,7 +89,7 @@ async function end(expected = attempt, disconnected = false) {
     switching = false;
     if (previousRfb) previousRfb.disconnect();
     buttons();
-    status.textContent = identityRetired ? 'This environment changed. Open Current Kodi before viewing again.' :
+    status.textContent = identityRetired ? 'This environment changed. Open Current Managed Kodi before viewing again.' :
         disconnected ? 'Viewing disconnected unexpectedly. Start Viewing to reconnect.' : 'Viewing is off.';
     const placeholder = main.querySelector('[data-viewer-placeholder]');
     if (placeholder) placeholder.hidden = false;
@@ -239,7 +239,7 @@ function currentStatus(detail) {
     if (detail.observationConfirmed !== false && expectedGeneration && (!selected || String(selected.generation) !== expectedGeneration || selected.target_id !== instance || ['runtime', 'container', 'workspace', 'source'].some(field => {const expected = main.dataset['view' + field[0].toUpperCase() + field.slice(1)];const actual = selected[{runtime:'runtime_revision_id',container:'container_id',workspace:'workspace_id',source:'source_id'}[field]];return expected !== undefined && expected !== String(actual || '');}))) {
         identityRetired = true;
         const context = document.querySelector('[data-viewer-current-status]');
-        if (context) context.textContent = 'Not the currently selected Kodi. Open Current Kodi to review the selected environment.';
+        if (context) context.textContent = 'Not the currently selected Kodi. Open Current Managed Kodi to review the selected environment.';
         permitted = false;
         void end();
         buttons();
@@ -251,7 +251,7 @@ function currentStatus(detail) {
 }
 document.addEventListener('kodi-current-status', event => currentStatus(event.detail));
 // The expanded page shares the controller and checks its original session.
-// An inline panel receives these facts from Current Kodi's status controller.
+// An inline panel receives these facts from Current Managed Kodi's status controller.
 if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
     let closed = false, epoch = 0, timer, controller;
     function invalidate() {

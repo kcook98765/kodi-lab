@@ -41,7 +41,6 @@
         <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
           {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
-          <p>{{ environment_label(target.target_class) }}</p>
           <p>{{ target.host }}:{{ target.port }} · Kodi {{ target.kodi_version or 'not observed' }}</p>
           <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong></p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
@@ -103,11 +102,11 @@
           <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
           </details>
         </article>
-        {% else %}<p>No production targets.</p>{% endfor %}
+        {% else %}<p>No External Production Kodi connected yet.</p>{% endfor %}
       </section>
-      <details class="navigation-group"{% if not targets %} open{% endif %}><summary>Add a production connection</summary>
+      <details class="navigation-group"{% if not targets %} open{% endif %}><summary>Advanced External Production Kodi registration</summary>
       <section>
-        <h2>Create production target</h2>
+        <h2>Register External Production Kodi</h2>
         <form data-register>
           <label>Name <input name="logical_name" maxlength="120" required></label>
           <label>Protocol <select name="protocol_kind"><option value="jsonrpc_http">HTTP</option><option value="jsonrpc_https">HTTPS with normal CA validation</option></select></label>
@@ -140,7 +139,7 @@
       </section>
       </details>
       {% if include_retired %}<p><a href="/production-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/production-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
-      <p><a href="/kodi">Back to Kodi</a></p>
+      <p><a href="/kodi">Back to Kodi environments</a></p>
     {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/production-targets.js') }}" defer></script>

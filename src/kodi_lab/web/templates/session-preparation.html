@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% set nav_section = 'development' %}
-{% block title %}Session preparation · Kodi Lab{% endblock %}
+{% block title %}Current Managed Kodi preparation · Kodi Lab{% endblock %}
 {% block content %}
-<h1>Session preparation</h1>
+<h1>Current Managed Kodi preparation</h1>
 {% if not assessment %}
-<p>No development session is selected. <a href="/development-session">Choose an add-on workspace and Kodi version</a> first.</p>
+<p>No Current Managed Kodi development selection is saved. <a href="/development-session">Choose an add-on workspace and Kodi version</a> first.</p>
 {% else %}
 {% set current = assessment.session %}
 <p>Saved setup information for <strong>{{ assessment.source_name }}</strong> ({{ assessment.addon_id }}) on Kodi {{ assessment.capabilities.kodi_release or 'unknown' }}, session {{ current.generation }}. Refresh this page before acting.</p>

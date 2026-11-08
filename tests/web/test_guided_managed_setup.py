@@ -43,7 +43,7 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     assert not flow.launches
     add_kodi = client.get("/add-kodi").text
     assert 'href="/create-kodi"' in add_kodi
-    assert "Kodi Lab downloads, prepares and starts it for you." in add_kodi
+    assert "Create Managed Kodi" in add_kodi
 
 
 def test_failed_setup_exposes_original_operation_and_explicit_review(

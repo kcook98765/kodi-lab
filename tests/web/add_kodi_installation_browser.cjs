@@ -68,7 +68,7 @@ const report={baseURL,sourceURL:repository.source_url,checks:[],screenshots:[],a
         await compatibility.focus(); await page.keyboard.press('Enter');
         assert.match(await compatibility.locator('..').innerText(), /supports Bridge 1\.1\.15/);
         await page.keyboard.press('Enter');
-        assert.equal(await page.getByRole('radio',{name:mode==='home'?'Home / everyday Kodi':'Development Kodi',exact:true}).isChecked(),true);
+        assert.equal(await page.getByRole('radio',{name:mode==='home'?'External Production Kodi':'External Development Kodi',exact:true}).isChecked(),true);
         assert.equal(await page.locator(`[data-onboarding-mode=${mode}]`).isVisible(),true);
         assert.equal(await details.getByText('Enable bridge',{exact:true}).isVisible(),true);
         assert.equal(await details.getByText('Require authentication',{exact:true}).isVisible(),true);
