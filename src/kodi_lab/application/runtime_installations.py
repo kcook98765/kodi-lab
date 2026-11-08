@@ -1103,11 +1103,15 @@ class RuntimeInstallationService:
             if type(active.lock_held) is not bool:
                 return base
             busy = active.operation_id is not None or active.lock_held
+            # A committed cache is verified below by its sealed runtime and exact
+            # image. Its completed worker may belong to a previous broker image.
+            # Active/uncertain workers and locks still require the strict path.
+            ready_cache = row is not None and row.state.value == "ready" and not busy
             worker = (
                 self._broker.observe_reviewed_runtime_installation(
                     str(base.operation_id)
                 )
-                if base.operation_id
+                if base.operation_id and not ready_cache
                 else None
             )
             if worker is not None and (
