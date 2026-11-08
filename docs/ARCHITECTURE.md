@@ -1707,8 +1707,9 @@ The production registry now contains exactly lexical `addon_list`,
 through the same durable bearer, enabled-client, preset, exact grant, target
 policy, static registry, target-class, capability and reconciliation-state
 intersection. Discovery remains target-independent: `target.inspect` reveals
-the inventory and target tools, while `target.visual` additionally reveals
-screenshots. Grants, target policy, exact runtime capability and state remain
+the inventory, target and screenshot tools. External screenshots additionally
+require Allow screenshots set to On; no visual permission or scope is required.
+Grants, target policy, exact runtime capability and state remain
 invocation-time authority.
 
 `addon_list` calls `ManagedInstanceAddonInventoryService`; the MCP adapter does
@@ -2512,18 +2513,20 @@ endpoint digest and transport-policy revision. HTTPS uses ordinary certificate
 validation. Direct connections keep redirects, DNS and ambient proxies absent;
 HMAC authenticates/integrity-protects HTTP but supplies no confidentiality.
 
-The `Production Visual Inspection` built-in and separate `visual` scope add a
-second authority dimension above current `inspect`. Screenshot evaluation is:
+Production screenshots use ordinary inspection authorization and the individual
+external preference. The current screenshot intersection is:
 
-`credential ∩ enabled client ∩ exact visual preset ∩ generic grant ∩ active`
-` inspect scope ∩ active visual scope ∩ current native generation ∩ current`
-` bridge revision ∩ coherent production native trust ∩ paired reachable`
-` reviewed bridge ∩ screenshot-only policy ∩ HTTP acknowledgement ∩ postcheck`.
+`credential ∩ enabled client ∩ production inspection policy ∩ exact target grant`
+`∩ active inspect scope ∩ Allow screenshots On ∩ configured screenshot maximum`
+`∩ current native generation ∩ current Bridge revision ∩ coherent native trust`
+`∩ paired reachable reviewed Bridge ∩ verified screenshot support`
+`∩ transport acknowledgement ∩ postcheck`.
 
-Inspect-only clients remain valid against a visual-capable target when their
-own preset and scope intersection contains only inspection. Revoking inspect
-atomically revokes active dependent visual rows. Old generations/revisions and
-revoked rows remain durable and permanently inert.
+Legacy Production Visual Inspection identities and visual scope history remain,
+but separate visual permission/scopes are not required. Retired visual grant and
+revoke administration cannot report success. Inspect revocation still blocks
+screenshots and preserves dependent historical revocation records. Managed
+screenshots have no preference; both external classes default Off.
 
 Production `screenshot_capture` requires a client-scoped UUID. A durable
 content-free receipt binds target and canonical parameter digest before rate or

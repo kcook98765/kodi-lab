@@ -59,3 +59,14 @@ intent/snapshot/confirmation records. It changes no existing authority or runtim
 state and refuses lossy downgrade after any Web intent exists. The full
 0002-to-0005 sequence is covered by isolated integrity/preservation/downgrade tests.
 See [the integrated review](../docs/ISSUE-238-INTEGRATED-REVIEW.md).
+
+`0006_external_screenshots` follows `0005_managed_web`. It replaces only the
+external preference initialization trigger so both external classes default OFF,
+and resets existing enabled preferences OFF with a monotonic revision and migration
+attribution. It leaves table schemas, managed screenshots, built-in presets,
+credentials, grants and pairing unchanged. Downgrade restores the former
+initialization trigger but never re-enables existing preferences or rewinds their
+revision/audit state. After downgrade, newly registered external targets again
+inherit the legacy default: enabled when their configured maximum includes
+`screenshot`. This limitation affects new registrations, not existing OFF choices.
+See D-0484 and issue #265.

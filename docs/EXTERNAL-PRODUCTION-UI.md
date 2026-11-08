@@ -49,10 +49,12 @@ authorization/preferences are unchanged. Existing operation identity, expiry,
 one-shot approval, cancellation and credential-cleanup semantics are unchanged.
 No process/container Start/Stop/Reset controls are created for external Kodi.
 
-These Web pages have no screenshot-capture or capture-preference editing control;
-the existing preference API and agent-specific authorization remain separate.
-The UI displays the recorded preference and links to existing agent permissions;
-it does not invent a capture flow or claim that any particular agent can inspect.
+The Kodi detail page provides Allow screenshots — Off / On through the existing
+revision-protected preference API. Both external classes default OFF. Authenticated
+inspection access and the exact target grant remain required, with the current
+production inspect scope, trusted Bridge and verified capability/transport checks.
+No separate visual preset or scope is required. Managed screenshots have no toggle.
+Changing this setting does not capture an image or repair Bridge trust.
 An existing blocked onboarding record can be identified here, but the page cannot
 reconstruct its owner's in-browser request identity. The existing connection guide
 is linked without promising that an arbitrary saved request can be resumed.

@@ -66,7 +66,7 @@ def test_read_only_access_requires_session_csrf_origin_and_closed_request(
     assert result["inspection_scope"]["scope"] == "inspect"
     assert result["inspection_scope"]["created_by"] == "web_admin"
     assert result["visual_scope"] is None
-    assert result["visual_unavailable_reason"] == "client_missing_visual_permission"
+    assert result["visual_unavailable_reason"] is None
     assert admin.get_client(agent.id).target_grants == (target_id,)
     body["expected_target_policy_revision"] = result["target_policy_revision"]
     assert client.post(path, json=body, headers=headers).json() == result
@@ -106,3 +106,19 @@ def test_incompatible_existing_agent_gets_clear_bounded_error(
     assert result.json()["error"]["code"] == "read_only_preset_incompatible"
     assert "incompatible" in result.json()["error"]["message"]
     assert admin.get_client(agent.id).target_grants == ()
+
+
+def test_legacy_visual_grant_is_explicitly_retired(client: TestClient) -> None:
+    path = f"/api/mcp/clients/{uuid4()}/targets/{uuid4()}/production-visual-scopes"
+    payload = {"identity_generation": 1, "bridge_trust_revision": 1}
+    assert client.post(path, json=payload).status_code == 401
+    csrf = login(client)
+    response = client.post(
+        path, json=payload, headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    )
+    assert response.status_code == 410
+    assert response.json()["error"]["code"] == "production_visual_scope_retired"
+    page = client.get("/mcp-clients")
+    assert page.status_code == 200
+    assert 'data-action="grant-production-visual-scope"' not in page.text
+    assert 'value="target.visual"' not in page.text

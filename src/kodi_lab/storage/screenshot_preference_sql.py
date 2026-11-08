@@ -22,6 +22,5 @@ SCREENSHOT_PREFERENCE_TRIGGERS = (
     "CREATE TRIGGER trg_external_screenshot_preference_initialize AFTER INSERT ON "
     "external_kodi_targets BEGIN INSERT INTO external_screenshot_preferences "
     "(target_id,enabled,revision,updated_by,updated_at) VALUES (NEW.target_id,"
-    "EXISTS(SELECT 1 FROM json_each(NEW.configured_capabilities_json) WHERE "
-    "value='screenshot'),1,'system',NEW.created_at); END",
+    "0,1,'system',NEW.created_at); END",
 )

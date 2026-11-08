@@ -263,7 +263,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
         McpToolDefinition(
             name="screenshot_retrieve",
             schema_revision=1,
-            permissions=frozenset({"target.visual"}),
+            permissions=frozenset({"target.inspect"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
             required_capabilities=frozenset({"screenshot"}),
@@ -375,7 +375,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
         McpToolDefinition(
             name="screenshot_capture",
             schema_revision=1,
-            permissions=frozenset({"target.visual"}),
+            permissions=frozenset({"target.inspect"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
                 {

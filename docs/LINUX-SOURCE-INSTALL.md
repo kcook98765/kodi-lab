@@ -215,8 +215,10 @@ Do not copy another installation's tokens, grants or pairing records.
 
 Verify `target_list`, then use the discovered target UUID for `target_status`
 and `addon_list`. An unauthorized target must remain undiscoverable/denied.
-Screenshots, richer UI/log inspection and control have separate permission and
-optional Bridge requirements; they are not needed for this first read-only check.
+Screenshots use the same inspection permission; external Kodi additionally needs
+Allow screenshots set to On and verified Bridge support. Richer UI/log inspection
+can require a Bridge, and control has separate authority. These are not needed
+for this first read-only check.
 
 ## Upgrade, rollback and issue evidence
 

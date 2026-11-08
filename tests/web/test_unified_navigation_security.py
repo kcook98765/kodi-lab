@@ -126,8 +126,7 @@ def test_visible_agent_controls_preserve_every_stored_authority_row(
                 assert {o["value"] for o in control["options"] if o["value"]} == {
                     p["id"]
                     for p in presets
-                    if p["display_name"]
-                    in {"Production Inspection", "Production Visual Inspection"}
+                    if p["display_name"] == "Production Inspection"
                 }
         elif attributes.get("aria-label", "").startswith("Policy for "):
             assert selected == [""] and control["advanced"]

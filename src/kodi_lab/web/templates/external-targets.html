@@ -2,6 +2,7 @@
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% from 'components/external-development-summary.html' import development_summary %}
 {% set nav_section = 'external_development' %}
+{% from 'components/screenshot-preference.html' import screenshot_preference %}
 {% block title %}{{ environment_identity('external_development').display_name }} · Kodi Lab{% endblock %}
 {% block main_class %}kodi-page development-targets-page responsive-forms{% endblock %}
 {% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
@@ -43,6 +44,7 @@
           {% set bridge = bridge_statuses[target.target_id] %}
           {% set view = development_views[target.target_id] %}
           {{ development_summary(target, bridge, view) }}
+          {{ screenshot_preference(target.target_id) }}
           <details class="development-advanced" data-development-advanced id="advanced-{{ target.target_id }}"{% if view.advanced_open %} open{% endif %}>
           <summary aria-label="Advanced options for {{ target.logical_name }}">Advanced options</summary>
           <p>{{ target.host }}:{{ target.port }}</p>
@@ -110,6 +112,6 @@
       {% if include_retired %}<p><a href="/external-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/external-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
       <p><a href="/kodi">Back to Kodi environments</a></p>
     {% endblock %}
-{% block scripts %}
+{% block scripts %}<script src="{{ url_for('static', path='/screenshot-preference.js') }}" defer></script>
 <script src="{{ url_for('static', path='/external-targets.js') }}" defer></script>
 {% endblock %}

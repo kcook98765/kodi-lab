@@ -1,4 +1,4 @@
-"""Managed action observation/reuse keeps replay and visual authority separate."""
+"""Managed action reuse preserves replay and ordinary inspection authorization."""
 
 import base64
 import json
@@ -108,7 +108,9 @@ def test_action_returns_ui_and_reuses_one_capture_without_dispatch_or_capture_re
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _make_target_ready(client)
-    _id, token = _agent(client)
+    _id, token = _agent(
+        client, permissions=frozenset({"target.inspect", "target.control"})
+    )
     calls = _ui(monkeypatch)
     arguments, result = _action(client, token)
     observation = result["post_action_observation"]

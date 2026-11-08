@@ -35,6 +35,7 @@ from kodi_lab.application.production_screenshots import (
     ProductionScreenshotError,
     ProductionScreenshotService,
 )
+from kodi_lab.application.screenshot_preferences import ScreenshotPreferenceService
 from kodi_lab.domain import (
     ExternalAuthenticationMode,
     ExternalProtocolKind,
@@ -172,6 +173,12 @@ def _production_target(
         target.target_id, observed.pending_observation_id
     )
     targets.set_enabled(target.target_id, enabled=True)
+    ScreenshotPreferenceService(factory).update(
+        target.target_id,
+        enabled=True,
+        expected_revision=1,
+        administrator_reference="fixture_admin",
+    )
     return target.target_id, credentials
 
 
@@ -975,7 +982,7 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
             tools.screenshot_capture(principal, target_id=target_id, request_id=uuid4())
         assert fake.capture_count == 0
         with pytest.raises(
-            McpAdministrationError, match="production_scope_target_invalid"
+            McpAdministrationError, match="production_visual_scope_retired"
         ):
             administration.grant_production_visual_scope(
                 client.id,
@@ -985,12 +992,6 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
             )
         administration.grant_production_inspection_scope(
             client.id, target_id, identity_generation=1
-        )
-        administration.grant_production_visual_scope(
-            client.id,
-            target_id,
-            identity_generation=1,
-            bridge_trust_revision=1,
         )
         request_id = uuid4()
         first = tools.screenshot_capture(
@@ -1013,12 +1014,6 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         administration.grant_target(second_client.id, target_id)
         administration.grant_production_inspection_scope(
             second_client.id, target_id, identity_generation=1
-        )
-        administration.grant_production_visual_scope(
-            second_client.id,
-            target_id,
-            identity_generation=1,
-            bridge_trust_revision=1,
         )
         second_principal = McpAuthenticationService(factory).authenticate(
             second_credential.token

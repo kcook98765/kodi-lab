@@ -39,6 +39,8 @@ from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationSe
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.storage.models import (
+    ExternalBridgePairingRow,
+    ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpClientRow,
     McpProductionTargetScopeRow,
@@ -175,11 +177,8 @@ def test_grouped_authorization_enables_only_supported_reads(
     before_trust = env.bridges.status(env.target_id)
     result = env.authorize()
     assert result.inspection_scope.effective_state == "active"
-    assert (
-        result.visual_scope is not None
-        and result.visual_scope.effective_state == "active"
-    )
-    assert result.target_preset_id == PRODUCTION_VISUAL_PRESET_ID
+    assert result.visual_scope is None
+    assert result.target_preset_id == PRODUCTION_INSPECTION_PRESET_ID
     assert (
         env.calls == [] and env.fake.capture_count == 0
     )  # No onboarding or reads during authorization.
@@ -202,14 +201,12 @@ def test_grouped_authorization_enables_only_supported_reads(
     with env.sessions() as session:
         assert set(session.scalars(select(McpProductionTargetScopeRow.scope))) == {
             "inspect",
-            "visual",
         }
         kinds = set(session.scalars(select(McpSecurityEventRow.event_kind)))
         assert {
             "target_granted",
             "target_preset_assigned",
             "production_inspection_scope_granted",
-            "production_visual_scope_granted",
             "production_read_only_authorized",
         } <= kinds
 
@@ -222,11 +219,11 @@ def test_screenshot_off_does_not_prevent_read_relationship(
     preference.update(
         env.target_id,
         enabled=False,
-        expected_revision=1,
+        expected_revision=2,
         administrator_reference="test",
     )
     result = env.authorize()
-    assert result.visual_scope is not None and not result.capture_preference_enabled
+    assert result.visual_scope is None and not result.capture_preference_enabled
     env.authorization.authorize_target(env.principal, "inspect_ui_state", env.target_id)
     with pytest.raises(McpAuthorizationError, match="screenshots_disabled"):
         env.tools.screenshot_capture(
@@ -241,10 +238,7 @@ def test_inspection_only_client_gets_no_visual_scope(environment: _Environment) 
         env.client_id, PRODUCTION_INSPECTION_PRESET_ID
     )
     result = env.authorize(visual=False)
-    assert (
-        result.visual_scope is None
-        and result.visual_unavailable_reason == "client_missing_visual_permission"
-    )
+    assert result.visual_scope is None and result.visual_unavailable_reason is None
     principal = McpPrincipal(
         env.client_id,
         env.credential_id,
@@ -252,10 +246,10 @@ def test_inspection_only_client_gets_no_visual_scope(environment: _Environment) 
         frozenset({"target.inspect"}),
     )
     env.authorization.authorize_target(principal, "target_status", env.target_id)
-    with pytest.raises(McpAuthorizationError, match="permission_denied"):
-        env.authorization.authorize_target(
-            principal, "screenshot_capture", env.target_id
-        )
+    assert "screenshot_capture" in env.authorization.discoverable_tools(principal)
+    assert env.tools.screenshot_capture(
+        principal, target_id=env.target_id, request_id=uuid4()
+    ).png
 
 
 @pytest.mark.parametrize("missing_inspect", [False, True])
@@ -352,7 +346,6 @@ def test_repeated_requests_reuse_authority_and_audit(environment: _Environment) 
     "field",
     [
         "expected_identity_generation",
-        "expected_bridge_trust_revision",
         "expected_target_policy_revision",
         "expected_client_authority_revision",
     ],
@@ -368,13 +361,10 @@ def test_stale_expected_state_rolls_back(environment: _Environment, field: str) 
     assert _rows(env.sessions) == before
 
 
-@pytest.mark.parametrize("scope", ["inspect", "visual"])
-def test_revoked_scopes_are_not_recreated(
-    environment: _Environment, scope: str
-) -> None:
+def test_revoked_scopes_are_not_recreated(environment: _Environment) -> None:
     env = environment
     result = env.authorize()
-    row = result.inspection_scope if scope == "inspect" else result.visual_scope
+    row = result.inspection_scope
     assert row is not None
     env.administration.revoke_production_inspection_scope(row.scope_id)
     before = _rows(env.sessions)
@@ -405,29 +395,30 @@ def test_revoked_credentials_and_removed_grants_require_intervention(
 def test_revoked_bridge_is_not_repaired(environment: _Environment) -> None:
     env = environment
     env.bridges.revoke(env.target_id)
-    before = _rows(env.sessions)
-    with pytest.raises(McpAdministrationError, match="bridge_not_paired"):
-        env.authorize()
-    assert _rows(env.sessions) == before
+    env.authorize()  # Inspection does not require screenshot readiness.
+    assert env.bridges.status(env.target_id).pairing_state.value == "revoked"
+    with pytest.raises(McpAuthorizationError, match="bridge_not_paired"):
+        env.tools.screenshot_capture(
+            env.principal, target_id=env.target_id, request_id=uuid4()
+        )
 
 
 def test_scope_failure_rolls_back_preset_grant_scope_and_audit(
     environment: _Environment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env = environment
-    original = env.administration._new_read_scope
 
-    def fail_visual(
+    def fail_inspect(
         session: Session, client: UUID, target: UUID, scope: str, *args: Any
     ) -> McpProductionTargetScopeRow:
-        if scope == "visual":
+        if scope == "inspect":
             session.flush()  # Prove even already-written rows roll back.
-            raise McpAdministrationError("injected_visual_failure")
-        return original(session, client, target, scope, *args)
+            raise McpAdministrationError("injected_inspect_failure")
+        raise AssertionError("unexpected scope")
 
     before = _rows(env.sessions)
-    monkeypatch.setattr(env.administration, "_new_read_scope", fail_visual)
-    with pytest.raises(McpAdministrationError, match="injected_visual_failure"):
+    monkeypatch.setattr(env.administration, "_new_read_scope", fail_inspect)
+    with pytest.raises(McpAdministrationError, match="injected_inspect_failure"):
         env.authorize()
     assert _rows(env.sessions) == before
 
@@ -455,7 +446,7 @@ def test_concurrent_initial_authorization_has_one_current_policy_winner(
             "read_only_state_changed",
         ]
     with env.sessions() as session:
-        assert len(session.scalars(select(McpProductionTargetScopeRow)).all()) == 2
+        assert len(session.scalars(select(McpProductionTargetScopeRow)).all()) == 1
 
 
 def test_concurrent_client_disable_is_observed_before_any_authorization(
@@ -537,26 +528,28 @@ def test_existing_inspection_only_target_policy_is_not_widened(
     env.administration.assign_target_preset(
         env.target_id, PRODUCTION_INSPECTION_PRESET_ID
     )
-    before = _rows(env.sessions)
-    with pytest.raises(
-        McpAdministrationError, match="read_only_target_policy_review_required"
-    ):
-        env.authorize()
-    assert _rows(env.sessions) == before
+    result = env.authorize()
+    assert result.target_preset_id == PRODUCTION_INSPECTION_PRESET_ID
+    assert env.tools.screenshot_capture(
+        env.principal, target_id=env.target_id, request_id=uuid4()
+    ).png
 
 
-def test_disabled_target_and_identity_drift_deny_without_partial_grants(
+def test_bridge_identity_drift_blocks_capture_without_repairing_trust(
     environment: _Environment,
 ) -> None:
     env = environment
     env.bridges.invalidate_production_native_identity(env.target_id)
-    before = _rows(env.sessions)
-    with pytest.raises(McpAdministrationError):
-        env.authorize()
-    assert _rows(env.sessions) == before
+    trust = env.bridges.status(env.target_id)
+    env.authorize()
+    assert env.bridges.status(env.target_id) == trust
+    with pytest.raises(McpAuthorizationError):
+        env.tools.screenshot_capture(
+            env.principal, target_id=env.target_id, request_id=uuid4()
+        )
 
 
-def test_old_bridge_bound_scope_needs_explicit_review(
+def test_retired_bridge_bound_visual_scope_does_not_block_inspection(
     environment: _Environment,
 ) -> None:
     env = environment
@@ -576,9 +569,29 @@ def test_old_bridge_bound_scope_needs_explicit_review(
                 "target": str(env.target_id),
             },
         )
+    result = env.authorize()
+    assert result.visual_scope is None
+    assert env.tools.screenshot_capture(
+        env.principal, target_id=env.target_id, request_id=uuid4()
+    ).png
+    with env.sessions() as session:
+        visual = session.scalar(
+            select(McpProductionTargetScopeRow).where(
+                McpProductionTargetScopeRow.scope == "visual"
+            )
+        )
+        assert visual is not None and visual.bridge_trust_revision == 99
+        scope_id = UUID(visual.id)
     before = _rows(env.sessions)
-    with pytest.raises(McpAdministrationError, match="read_only_scope_review_required"):
-        env.authorize()
+    with pytest.raises(McpAdministrationError, match="production_visual_scope_retired"):
+        env.administration.revoke_production_inspection_scope(scope_id)
+    with pytest.raises(McpAdministrationError, match="production_visual_scope_retired"):
+        env.administration.grant_production_visual_scope(
+            env.client_id,
+            env.target_id,
+            identity_generation=1,
+            bridge_trust_revision=1,
+        )
     assert _rows(env.sessions) == before
 
 
@@ -623,7 +636,25 @@ def test_target_without_screenshot_maximum_keeps_native_inspection(
         env.client_id, env.target_id, expected
     )
     assert result.visual_scope is None
-    assert result.visual_unavailable_reason == "target_not_configured_for_screenshots"
+    assert result.visual_unavailable_reason is None
     assert not result.capture_preference_enabled
     assert _rows(env.factory) == before
     env.authorization.authorize_target(env.principal, "target_status", env.target_id)
+    preference = ScreenshotPreferenceService(env.factory)
+    preference.update(
+        env.target_id,
+        enabled=True,
+        expected_revision=1,
+        administrator_reference="test_admin",
+    )
+    with env.factory() as session:
+        target = session.get(ExternalKodiTargetRow, str(env.target_id))
+        bridge = session.get(ExternalBridgePairingRow, str(env.target_id))
+        assert target is not None and bridge is not None
+        assert "screenshot" in json.loads(bridge.verified_capabilities_json)
+        assert "screenshot" not in json.loads(target.configured_capabilities_json)
+    with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
+        env.authorization.authorize_target(
+            env.principal, "screenshot_capture", env.target_id
+        )
+    assert preference.read(env.target_id).enabled

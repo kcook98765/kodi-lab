@@ -178,7 +178,7 @@ def test_household_safe_connected_defaults_and_single_use(env: Environment) -> N
     )
     preset = env.admin.get_target_policy(result.target_id).preset
     assert preset is not None and preset.id == PRODUCTION_VISUAL_PRESET_ID
-    assert ScreenshotPreferenceService(env.sessions).read(result.target_id).enabled
+    assert not ScreenshotPreferenceService(env.sessions).read(result.target_id).enabled
     bridge = env.bridges.status(result.target_id)
     assert bridge.pairing_state is ExternalBridgePairingState.PAIRED
     assert bridge.reviewed_build_id is not None
@@ -513,7 +513,7 @@ def test_screenshot_preference_retry_preserves_explicit_choice(
     preference = ScreenshotPreferenceService(env.sessions)
     preference.update(
         result.target_id,
-        enabled=False,
+        enabled=True,
         expected_revision=1,
         administrator_reference="web_admin",
     )
@@ -521,7 +521,7 @@ def test_screenshot_preference_retry_preserves_explicit_choice(
         env.service.resume(env.request.operation_id, HouseholdResumeRequest()).state
         == "connected"
     )
-    assert not preference.read(result.target_id).enabled
+    assert preference.read(result.target_id).enabled
 
 
 def test_native_credentials_bind_reserved_uuid_and_are_redacted(

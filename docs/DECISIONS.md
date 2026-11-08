@@ -7838,3 +7838,27 @@ authorization. Surface trust/privacy failures, unfinished pairing, saved reconne
 and outstanding credential cleanup; open required recovery controls. Page views
 remain read-only and never probe or grant authority. See the
 [presentation and controller contract review](EXTERNAL-DEVELOPMENT-UI.md).
+
+
+## D-0484: Screenshots use ordinary inspection authority and external opt-in
+
+Issue #265 makes screenshot_capture and managed-only screenshot_retrieve ordinary
+`target.inspect` tools. Managed Kodi keeps its existing technically supported
+capture/retrieval behavior with no preference. Both external classes default OFF
+and use the existing external preference row/API and an accessible Allow screenshots
+control in their current detail UI. ON requires current exact-target inspection
+authorization; production retains its inspect scope, native identity, reviewed
+Bridge trust, verified capability, transport acknowledgement, rate and replay gates.
+Production visual scopes are retired, including legacy grant/revoke administration;
+legacy preset IDs, assignments and stored permissions remain unchanged. Grouped
+read-only authorization creates only inspect authority and does not require Bridge
+readiness. Its legacy visual result fields are null and its optional expected Bridge
+revision is retained for request compatibility but no longer binds inspection grants.
+
+The narrow forward migration changes only the default initialization trigger and
+resets enabled external preferences OFF, advancing their revision with migration
+attribution. Existing OFF revisions and audit fields are preserved. Credentials,
+grants, pairing and unrelated state are untouched. Current external preference and
+revision checks continue to guard dispatch, replay and final pixel publication;
+OFF/ON cannot revive old cached pixels. No external retrieval tool, managed
+preference, screenshot archive, new storage or protocol change is introduced.

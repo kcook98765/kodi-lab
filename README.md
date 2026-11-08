@@ -50,8 +50,9 @@ per-version profiles when switching; see the
 
 **External Kodi** runs on your own device. **Add Kodi** connects it through
 Kodi JSON-RPC and pairs the optional Narrow Bridge for additional capabilities.
-Home inspection, screenshots, control and development have separate permission
-requirements. Kodi Lab provides no general-purpose shell or OS access to that
+Screenshots use ordinary inspection authorization; each external Kodi also
+requires Allow screenshots set to On (default Off). Control and development
+have separate permission requirements. Kodi Lab provides no general-purpose shell or OS access to that
 device; see [external setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
 
 ## Requirements
@@ -226,8 +227,9 @@ opencode
 
 Ask the agent to list its Kodi targets, inspect the chosen Kodi's health, then
 list its add-ons. Native managed status and add-on inspection need no Bridge
-setup. Screenshots require visual permission; richer UI/log inspection can
-require optional Bridge setup. Each tool uses the selected target's ID.
+setup. Screenshots use ordinary inspection permission; external Kodi also needs
+Allow screenshots set to On and verified Bridge support. Richer UI/log inspection
+can require optional Bridge setup. Each tool uses the selected target's ID.
 Configuration syntax and compatibility vary by client.
 See [OpenCode's MCP instructions](https://opencode.ai/docs/mcp-servers/),
 the [client compatibility notes](docs/PHASE11-MCP.md#final-client-and-conformance-matrix)

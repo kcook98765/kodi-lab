@@ -95,7 +95,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0005_managed_web"
+            == "0006_external_screenshots"
         )
         assert (
             connection.scalar(

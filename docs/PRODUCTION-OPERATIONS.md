@@ -92,7 +92,9 @@ bridge HMAC protection. Prefer normally validated HTTPS when available.
 - Install/pair the reviewed bridge when associated container/selected-item UI
   observations, screenshots or production control are needed. Native UI
   observation fallback remains available without it.
-- `Production Visual Inspection` adds exactly inspect plus visual authority.
+- Enable Allow screenshots on the individual external Kodi when screenshots are
+  intended. It defaults Off; no visual preset or scope is required. Legacy
+  Production Visual Inspection assignments remain compatible.
 - `Production Remote Kodi` is only a maximum; grant it only when remote control
   is intended.
 - Add `navigate` only for the seven standing navigation actions.
@@ -103,9 +105,8 @@ bridge HMAC protection. Prefer normally validated HTTPS when available.
 - Keep the global mutation block and per-target suspension set by default.
   Clearing either veto grants nothing by itself.
 
-Do not recommend the maximum preset by default. Inspection, visual inspection
-and remote control are separate intersections, not a progression every target
-must receive.
+Do not recommend the maximum preset by default. Screenshots use inspection
+authority plus the per-Kodi setting; remote control remains separate.
 
 ## Manual upgrade
 
@@ -155,9 +156,12 @@ condition: do not invent a new request UUID to “try again.”
 
 ## Screenshot and privacy
 
-Production screenshots require the exact reviewed/paired bridge, current visual
-scope and the complete native/bridge authority intersection. Visual scope is
-exactly `target.visual` beside current inspect authority; it grants no control.
+Production screenshots require ordinary `target.inspect` authorization, the exact
+target grant, current production inspect scope, Allow screenshots set to On and
+the complete native/Bridge trust and transport intersection. Screenshot must
+also be present in the configured capability maximum and verified Bridge support.
+The setting adds no technical support or control authority; no visual scope or
+additional visual preset is required.
 
 Kodi Lab does not durably retain production screenshot pixels, base64,
 thumbnail, preview or raw bridge response. It retains only bounded metadata

@@ -418,6 +418,7 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             **{
                 statement.split()[2]: statement
                 for statement in SCREENSHOT_PREFERENCE_TRIGGERS
+                if "trg_external_screenshot_preference_initialize" not in statement
             },
         }
         assert (
@@ -486,8 +487,14 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             old_columns,
         )
         assert {
-            name: _triggers(connection)[name] for name in original_triggers
-        } == original_triggers
+            name: _triggers(connection)[name]
+            for name in original_triggers
+            if name != "trg_external_screenshot_preference_initialize"
+        } == {
+            name: sql
+            for name, sql in original_triggers.items()
+            if name != "trg_external_screenshot_preference_initialize"
+        }
         assert {
             "external_secret_retirements",
             "household_onboarding_operations",
@@ -500,7 +507,7 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
                 ),
                 {"target": str(paired)},
             )
-            == 3
+            == 4
         )
     engine.dispose()
 

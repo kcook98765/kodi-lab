@@ -1067,34 +1067,13 @@ class McpAuthorizationService:
         ):
             raise McpAuthorizationError("permission_denied")
         visual = definition.name == "screenshot_capture"
-        allowed_client_presets = (
-            {
-                str(PRODUCTION_VISUAL_PRESET_ID),
-                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
-            }
-            if visual
-            else {
-                str(PRODUCTION_INSPECTION_PRESET_ID),
-                str(PRODUCTION_VISUAL_PRESET_ID),
-                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
-            }
-        )
+        allowed_presets = {
+            str(PRODUCTION_INSPECTION_PRESET_ID),
+            str(PRODUCTION_VISUAL_PRESET_ID),
+            str(PRODUCTION_REMOTE_KODI_PRESET_ID),
+        }
         client_preset = (
-            UUID(client.preset_id)
-            if client.preset_id in allowed_client_presets
-            else None
-        )
-        allowed_target_presets = (
-            {
-                str(PRODUCTION_VISUAL_PRESET_ID),
-                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
-            }
-            if visual
-            else {
-                str(PRODUCTION_INSPECTION_PRESET_ID),
-                str(PRODUCTION_VISUAL_PRESET_ID),
-                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
-            }
+            UUID(client.preset_id) if client.preset_id in allowed_presets else None
         )
         if (
             client.id != str(principal.client_id)
@@ -1102,7 +1081,7 @@ class McpAuthorizationService:
             or client_preset is None
             or client.preset_id != str(client_preset)
             or principal.preset_id != client_preset
-            or assignment.preset_id not in allowed_target_presets
+            or assignment.preset_id not in allowed_presets
         ):
             raise McpAuthorizationError("permission_denied")
         preset = session.get(McpPresetRow, str(client_preset))
@@ -1185,24 +1164,6 @@ class McpAuthorizationService:
             emit_screenshot_stage(
                 "http_acknowledgement", "passed", "http_acknowledgement_current"
             )
-            visual_scope = session.scalar(
-                select(McpProductionTargetScopeRow).where(
-                    McpProductionTargetScopeRow.client_id == client.id,
-                    McpProductionTargetScopeRow.target_id == target.id,
-                    McpProductionTargetScopeRow.identity_generation
-                    == visual_state.identity_generation,
-                    McpProductionTargetScopeRow.bridge_trust_revision
-                    == visual_state.bridge_trust_revision,
-                    McpProductionTargetScopeRow.scope == "visual",
-                    McpProductionTargetScopeRow.state == "active",
-                )
-            )
-            if visual_scope is None:
-                emit_screenshot_stage(
-                    "visual_authority", "failed", "visual_scope_not_current"
-                )
-                raise McpAuthorizationError("target_not_found_or_not_authorized")
-            emit_screenshot_stage("visual_authority", "passed", "visual_scope_current")
 
     def _require_current_credential(
         self, session: Session, principal: McpPrincipal, client: McpClientRow

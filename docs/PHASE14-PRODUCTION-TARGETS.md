@@ -44,7 +44,7 @@ Included:
 - Web-only production preset/grant/scope administration.
 - explicitly reviewed bridge-build provenance and Web-only production pairing;
 - independent monotonic bridge trust revision and exact HTTP-risk history;
-- generation/revision-bound visual scopes and Production Visual Inspection;
+- retained legacy visual-scope history and Production Visual Inspection identities;
 - replay-safe, rate/concurrency-bounded memory-only production screenshots;
 - immutable navigate scope and exact Production Remote Kodi maximum;
 - replay-safe, veto/rate/concurrency-bounded seven-action navigation;
@@ -304,21 +304,20 @@ capabilities are recorded but production policy verifies only `screenshot`.
 Bridge-only failure leaves native inspection effective; native drift invalidates
 all native and visual bindings.
 
-`mcp_production_target_scopes` now admits separate immutable `inspect` and
-`visual` rows. Visual binds exact client, target, native generation and current
-bridge revision and requires a current inspect row both when granted and used.
-Inspect revocation atomically terminates dependent visual rows. The immutable
-`Production Visual Inspection` built-in has exactly `target.inspect` and
-`target.visual`, is production-only and non-clonable, and is the only production
-screenshot preset. Inspection-only clients may still inspect a target assigned
-the visual preset through the safe effective intersection.
+Screenshot authorization now uses ordinary `target.inspect`, the exact target
+MCP grant, current production inspect scope and Allow screenshots set to On
+(default Off). Legacy visual scope rows and preset identities remain historical
+records, but visual scopes no longer authorize or revoke screenshots. Legacy
+visual grant/revoke administration explicitly rejects those operations. No preset
+permission records or existing assignments are rewritten.
 
 The existing `screenshot_capture` becomes the fourth production-eligible tool
 without changing its adapter identity or read-only classification. Its sole
 schema addition is optional `request_id`; production requires it while managed
 and external-development remain backward compatible. Complete preflight and
 fresh post-capture checks intersect credential, exact presets, generic grant,
-inspect and visual scopes, current generations, production/native state,
+the inspect scope and current screenshot preference, current generations,
+production/native state,
 reviewed paired reachable bridge, screenshot capability and current HTTP
 acknowledgement. Authority loss during capture suppresses pixels.
 
@@ -355,8 +354,8 @@ revision cannot make retained history effective.
 The exact built-in Production Remote Kodi UUID is activated as immutable,
 assignable, non-clonable and production-only with maximum permissions
 `target.inspect`, `target.visual` and `target.control`. It is not self-granting.
-Inspection, screenshots and navigation still require their independent scope
-intersections. Narrower Production Inspection or Production Visual Inspection
+Screenshots use the current inspect scope and per-Kodi setting; navigation
+retains its independent scope. Narrower Production Inspection or Production Visual Inspection
 clients can safely use only their smaller intersection against a target
 assigned the remote maximum.
 
