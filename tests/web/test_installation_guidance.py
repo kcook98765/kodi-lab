@@ -15,12 +15,17 @@ def test_rc1_guidance_distinguishes_installation_from_instances(
 ) -> None:
     Flow().attach(broker)
     login(client)
-    assert "5\u201315 minutes" not in client.get("/runtimes").text
-    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
-    text = client.get("/runtimes").text
-    assert "5\u201315 minutes" in text and "two cold-installation measurements" in text
-    assert "Additional managed instances use the installed runtime image" in text
-    assert "You can leave and return later" in text
+    for cookie in (None, "standard", "development", "invalid"):
+        if cookie is not None:
+            client.cookies.set(ADMIN_VIEW_COOKIE, cookie)
+        page = client.get("/runtimes")
+        assert page.status_code == 200
+        text = page.text
+        assert (
+            "5\u201315 minutes" in text and "two cold-installation measurements" in text
+        )
+        assert "Additional managed instances use the installed runtime image" in text
+        assert "You can leave and return later" in text
 
 
 def test_status_exposes_existing_durable_timestamps(

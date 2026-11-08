@@ -44,7 +44,8 @@ def test_preparation_requires_web_auth_and_empty_session_does_not_prepare(
     assert result.status_code == 200 and result.json() is None
     assert result.headers["cache-control"] == "no-store"
     page = client.get("/development-session/preparation")
-    assert page.status_code == 200 and "No development session is selected" in page.text
+    assert page.status_code == 200
+    assert "No Current Managed Kodi development selection is saved." in page.text
     assert page.headers["cache-control"] == "no-store"
     assert (
         'href="/development-session/preparation"'

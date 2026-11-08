@@ -15,6 +15,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.repository.stable import bootstrap_zip
+from kodi_lab.web.environment_identity import environment_identity
 from tests.web.conftest import login
 
 BASE = "http://192.168.50.10:18120"
@@ -62,7 +63,7 @@ def test_both_modes_have_shared_accurate_repository_instructions(
         "Require authentication",
         "JSON-RPC",
         "8765",
-        "Advanced ports (Development)",
+        "Advanced ports (External Development Kodi)",
     ]:
         assert instruction in text
     assert 'name="kodi_use" value="' + mode + '" checked' in text
@@ -176,6 +177,7 @@ def test_unconfigured_template_still_renders_without_new_controller_context() ->
         autoescape=True,
     )
     templates.globals["url_for"] = lambda *_args, **_kwargs: "/static/test"
+    templates.globals["environment_identity"] = environment_identity
     text = templates.get_template("add-kodi.html").render()
     assert "repository source URL is not configured" in text
     assert "<summary>Install Kodi Lab Bridge</summary>" in text

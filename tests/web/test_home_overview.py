@@ -22,7 +22,7 @@ def test_landing_has_four_slots_and_advanced_keeps_details(client: TestClient) -
     assert primary.count('class="managed-slot"') == 4
     for version in ("matrix", "nexus", "omega", "piers"):
         assert f'data-slot="{version}"' in primary
-    assert "Stop keeps your settings and add-ons." in primary
+    assert "Stop keeps settings and add-ons." in primary
     assert 'href="/development-session"' in primary
     assert f'href="/instances/{INSTANCE_ID}"' not in primary
     assert "Advanced status and runtime details" in details
