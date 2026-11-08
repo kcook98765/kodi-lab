@@ -7823,3 +7823,18 @@ warnings, permission errors and live control requests visible. Preserve all
 existing authentication, CSRF, grants, Bridge verification, OTP, reconnection,
 one-shot request and screenshot contracts. See the
 [presentation and controller contract review](EXTERNAL-PRODUCTION-UI.md).
+
+## D-0483: External Development verification is separate from testing authority
+
+Present the existing external development inventory with its own stored native
+and Bridge verification, recorded support and next setup action. Keep environment
+category, administrative setting, connection checks, configured maximum,
+verified capabilities, agent grants and workspace/deployment readiness distinct.
+Do not reuse Production trust semantics or create lifecycle/deployment actions.
+
+Use local Advanced for technical and privileged administration while preserving
+selectors, exact confirmations, OTP/reconnect operation identities and all service
+authorization. Surface trust/privacy failures, unfinished pairing, saved reconnect
+and outstanding credential cleanup; open required recovery controls. Page views
+remain read-only and never probe or grant authority. See the
+[presentation and controller contract review](EXTERNAL-DEVELOPMENT-UI.md).

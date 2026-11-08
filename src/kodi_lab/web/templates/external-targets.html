@@ -1,19 +1,26 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% from 'components/external-development-summary.html' import development_summary %}
 {% set nav_section = 'external_development' %}
 {% block title %}{{ environment_identity('external_development').display_name }} · Kodi Lab{% endblock %}
-{% block main_class %}responsive-forms{% endblock %}
+{% block main_class %}kodi-page development-targets-page responsive-forms{% endblock %}
 {% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>{{ environment_label('external_development') }}</h1>
       {{ environment_ownership('external_development') }}
+      <p>Kodi Lab does not host, start, stop or reset this device's Kodi process.</p>
       <p>Status reflects the last recorded checks. Viewing this page does not probe Kodi.</p>
       <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a>{% else %}<a class="button-link" href="/pair-kodi">Pair External Development Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
-      <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
-      <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
+      {% if test_loopback_enabled %}<p class="notice"><strong>Test-only loopback is enabled.</strong></p>{% endif %}
       <p class="error" data-error role="alert" hidden></p>
-      <details>
+      <section aria-labelledby="development-setup">
+        <h2 id="development-setup">Prepare for add-on testing</h2>
+        <p><a href="/development">Development Tools</a> · <a href="/development-sources">Development sources</a> · <a href="/agent-workspaces">Workspaces</a> · <a href="/mcp-clients">Agents &amp; Permissions</a></p>
+        <p>Use an existing authorized agent workflow with exact target and source grants and a configured workspace. A verified Bridge alone does not make an add-on ready to deploy. The Workspaces Web prerequisite check currently covers Managed Kodi; it does not validate this external connection.</p>
+      </section>
+      {% set registration %}<details class="kodi-diagnostics">
         <summary>Advanced target registration</summary>
+        <p>Allowed ports: {{ allowed_ports | join(', ') }}. Private-LAN IP literals only{% if not test_loopback_enabled %}; loopback is disabled{% endif %}.</p>
         <form data-register>
           <label>Name <input name="logical_name" maxlength="120" required></label>
           <label>Protocol <select name="protocol_kind"><option value="jsonrpc_http">HTTP</option><option value="jsonrpc_https">HTTPS with normal CA validation</option></select></label>
@@ -27,20 +34,22 @@
           </fieldset>
           <button type="submit">Register disabled target</button>
         </form>
-      </details>
+      </details>{% endset %}
       <section>
         <h2>{{ 'Connection history' if include_retired else 'Current connections' }}</h2>
         {% for target in targets %}
-        <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}">
+        <article class="kodi-panel" id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}">
           <h3>{{ target.logical_name }}</h3>
-          {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
           {% set bridge = bridge_statuses[target.target_id] %}
+          {% set view = development_views[target.target_id] %}
+          {{ development_summary(target, bridge, view) }}
+          <details class="development-advanced" data-development-advanced id="advanced-{{ target.target_id }}"{% if view.advanced_open %} open{% endif %}>
+          <summary aria-label="Advanced options for {{ target.logical_name }}">Advanced options</summary>
           <p>{{ target.host }}:{{ target.port }}</p>
           <p>Admin: {{ target.administrative_state.value }} · verification: {{ target.verification_state.value }} · observation: {{ target.observation_state.value if target.observation_state else 'none' }}</p>
           <p>Kodi {{ target.kodi_version or 'not observed' }} · last recorded check {{ target.last_observed_at or 'never' }}</p>
-          {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
-          {% if target.verification_state.value in ['identity_mismatch','needs_reverification'] or (bridge and (bridge.pairing_state.value == 'needs_reverification' or bridge.reachability_state.value in ['identity_mismatch','authentication_failed','protocol_unsupported'])) %}<p class="error" role="alert">Connection trust needs review. Reconnect or review the recorded identity before confirming.</p>{% endif %}
-          <details{% if target.pending_observation_id or target.verification_state.value in ["identity_mismatch","needs_reverification"] %} open{% endif %}><summary>Connection identity and capabilities</summary>
+          {% if view.reconnect_stage %}<p>Saved reconnect stage: {{ view.reconnect_stage }}. Use the existing Reconnect Kodi link to review its request.</p>{% endif %}
+          <details{% if (target.pending_observation_id and target.verification_state.value != 'verified') or target.verification_state.value in ["identity_mismatch","needs_reverification"] %} open{% endif %}><summary>Connection identity and capabilities</summary>
           <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/external-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}</p>
@@ -63,14 +72,13 @@
           </details>{% endif %}
           {% if capability_amendments[target.target_id] %}<details><summary>Capability amendment history</summary><ul>{% for amendment in capability_amendments[target.target_id] %}<li>{{ amendment.completed_at }} · {{ amendment.actor }} · {{ amendment.before_capabilities | join(', ') }} → {{ amendment.resulting_capabilities | join(', ') }} · bridge {{ amendment.bridge_id }}</li>{% endfor %}</ul></details>{% endif %}
           <section data-bridge>
-            <h4>Screenshot bridge</h4>
+            <h4>Bridge administration</h4>
             <p>Pairing: <span data-bridge-state>{{ bridge.pairing_state.value }}</span> · reachability: {{ bridge.reachability_state.value }} · port: {{ bridge.bridge_port or 'not configured' }}</p>
-            {% if bridge.http_screenshot_cleartext_warning %}<p class="notice"><strong>Screenshot pixels travel in cleartext on LAN HTTP; HMAC authenticates but does not encrypt them.</strong></p>{% endif %}
             <details{% if bridge.pairing_state.value in ['pairing_pending','needs_reverification'] %} open{% endif %}><summary>Bridge identity and capabilities</summary>
             <p>Bridge UUID: {{ bridge.pinned_bridge_id or bridge.observed_bridge_id or 'not observed' }} · protocol: {{ bridge.protocol_version or 'not observed' }} · add-on: {{ bridge.addon_id or 'not observed' }} {{ bridge.addon_version or '' }} · Kodi: {{ bridge.kodi_version or 'not observed' }}</p>
             <p>Verified capabilities: {{ bridge.verified_capabilities | join(', ') if bridge.verified_capabilities else 'none' }}</p>
             </details>
-            <details{% if bridge.pairing_state.value == "pairing_pending" %} open{% endif %}><summary>Bridge {{ supported_bridge_version }} OTP pairing</summary>
+            <details{% if bridge.pairing_state.value == "pairing_pending" or (target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and bridge.pairing_state.value in ['unpaired','revoked']) %} open{% endif %}><summary>Bridge {{ supported_bridge_version }} OTP pairing</summary>
             {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and bridge.pairing_state.value in ['unpaired','revoked'] %}<form data-bridge-otp>
               <label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}"{% if bridge.bridge_port == port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label>
               <label>Four-character code shown in Kodi <input name="code" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}" autocomplete="off" autocapitalize="characters" required></label>
@@ -81,8 +89,9 @@
             {% if bridge.pairing_state.value not in ['unpaired','revoked'] or bridge.pairing_token_pending %}<button type="button" data-bridge-action="revoke" class="destructive">Revoke bridge pairing</button>{% endif %}
           </section>
           {% if target.administrative_state.value != 'deactivated' %}
-          <button type="button" data-action="probe">Run read-only probe</button>
-          {% if target.pending_observation_id %}<button type="button" data-action="confirm" data-observation-id="{{ target.pending_observation_id }}">Confirm observed identity</button>{% endif %}
+          <button type="button" data-action="probe" aria-describedby="probe-note-{{ target.target_id }}"{% if target.administrative_state.value != 'disabled' %} disabled{% endif %}>Check Kodi connection</button>
+          <p id="probe-note-{{ target.target_id }}">This checks and records native Kodi identity, separately from Bridge. {% if target.administrative_state.value != 'disabled' %}Disable this registration before checking its native identity; use Reconnect Kodi for an active, verified connection.{% endif %}</p>
+          {% if target.pending_observation_id and target.verification_state.value != 'verified' %}<button type="button" data-action="confirm" data-observation-id="{{ target.pending_observation_id }}">Confirm observed identity</button>{% endif %}
           <button type="button" data-action="toggle" data-enabled="{{ 'true' if target.administrative_state.value == 'enabled' else 'false' }}">{{ 'Disable' if target.administrative_state.value == 'enabled' else 'Enable' }}</button>
           <details><summary>Connection settings</summary>
           <details><summary>Edit disabled endpoint</summary><form data-endpoint><label>Protocol <select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select></label><label>IP literal <input name="host" value="{{ target.host }}" maxlength="64" required></label><label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Change endpoint</button></form></details>
@@ -93,9 +102,11 @@
 <p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
           <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
           </details>
+          </details>
         </article>
         {% else %}<p>No External Development Kodi connected yet.</p>{% endfor %}
       </section>
+      {{ registration }}
       {% if include_retired %}<p><a href="/external-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/external-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
       <p><a href="/kodi">Back to Kodi environments</a></p>
     {% endblock %}
