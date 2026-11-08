@@ -3,6 +3,8 @@ const assert = require("node:assert/strict"), fs = require("node:fs"), vm = requ
 const source = fs.readFileSync(process.argv[2], "utf8"), key = "kodi-lab.managed-web.v1";
 const request = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", snapshot = "a".repeat(64);
 const versions = ["matrix", "nexus", "omega", "piers"];
+const stopGuidance = "Finish playback in Kodi first. Kodi Lab checks playback and active use before stopping, and may refuse the request. Your settings and add-ons are kept.";
+const resetGuidance = "If Kodi is running, finish playback first. Reset checks for playback and active use when you confirm, and may be refused.";
 const status = (extra = {}) => ({running:[], slots:versions.map(version => ({version, state:"stopped", state_label:"Stopped", preparation:"Profile prepared", native:"Not running", message:"Ready to start", start:true, stop:false, reset:true, snapshot, technical:{}, ...extra}))});
 const receipt = (intent, extra = {}) => ({version:intent.version, action:intent.action, phase:"prepared", can_resume:true, done:false, request:{request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset}, message:"Original request is saved", recovery_url:"/recovery", ...extra});
 // Anonymized real completed Stop receipt from Claw native acceptance.
@@ -29,18 +31,22 @@ function boot({storage = new Map(), denied = false, lanHttp = false} = {}) {
     card.querySelector = selector => {
       if (!card.nodes.has(selector)) card.nodes.set(selector, new Element());
       return card.nodes.get(selector);
-    }; return card;
+    };
+    for (const [action, description] of [["stop", stopGuidance], ["reset", resetGuidance]]) {
+      card.querySelector(`[data-slot-reason="${action}"]`).dataset.slotAvailableDescription = description;
+    }
+    return card;
   });
   root.querySelectorAll = () => cards;
   root.querySelector = selector => nodes[selector.match(/data-([\w-]+)/)[1]];
   const title = new Element();
   document.querySelector = selector => selector === "[data-managed-slots]" ? root : selector === "#managed-slots-config" ? {textContent:JSON.stringify(status())} : selector === "#slot-confirm-title" ? title : {content:"secret-csrf"};
-  const requests = [], timers = []; let uuidCount = 0;
+  const requests = [], timers = [], delays = []; let uuidCount = 0;
   const store = {getItem:k => storage.get(k), setItem(k,v) { if (denied) throw Error("storage denied"); storage.set(k,v); }, removeItem:k => storage.delete(k)};
-  vm.runInNewContext(source, {document, window, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:fn => timers.push(fn),
+  vm.runInNewContext(source, {document, window, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:(fn, delay) => { timers.push(fn); delays.push(delay); },
     fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
-  return {nodes, cards, requests, storage, document, window, timers, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
+  return {nodes, cards, requests, storage, document, window, timers, delays, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
 }
 async function reply(r, body = status(), code = 200) {
   r.resolve({ok:code < 400, status:code, json:async () => body}); await flush();
@@ -53,6 +59,9 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
   assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(JSON.parse(posts(lan)[0].options.body).request_id));
   const app = boot();
   assert.equal(app.requests.length, 1); await reply(app.requests[0]);
+  assert.deepEqual(app.delays, [3000], "guidance retains the single existing status timer");
+  assert.equal(app.cards[2].querySelector('[data-slot-reason="reset"]').textContent, resetGuidance);
+  assert.equal(app.cards[2].querySelector('[data-slot-reason="stop"]').textContent, "", "unavailable actions do not receive advice");
   app.timers[0](); await reply(app.requests.at(-1));
   assert.equal(posts(app).length, 0, "loading and polling never mutate");
   app.document.hidden = true; const count = app.requests.length; app.timers[0](); assert.equal(app.requests.length, count);
@@ -75,11 +84,16 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
   assert.equal(app.storage.has(key), false);
 
   const reset = boot(); await reply(reset.requests[0]);
+  const resetReads = reset.requests.length;
   reset.click("reset");
   assert(reset.nodes["slot-confirm"].open); assert.equal(posts(reset).length, 0);
+  assert.equal(reset.requests.length, resetReads, "Reset advice adds no preflight request");
+  assert.equal(reset.cards[2].querySelector('[data-slot-reason="reset"]').textContent, "Finish or cancel Reset confirmation.");
   reset.nodes["slot-confirm-form"].dispatch("submit"); assert.equal(posts(reset).length, 0, "checkbox required in addition to dialog");
   reset.nodes["slot-confirm"].dispatch("cancel");
   assert(!reset.nodes["slot-confirm"].open); assert(reset.cards[2].actions[2].focused);
+  assert.equal(reset.cards[2].querySelector('[data-slot-reason="reset"]').textContent, resetGuidance);
+  assert.equal(reset.requests.length, resetReads, "cancelling confirmation adds no request");
   reset.click("reset"); reset.nodes["slot-confirm-check"].checked = true;
   reset.nodes["slot-confirm-form"].dispatch("submit");
   assert.equal(posts(reset).length, 1);
@@ -119,6 +133,42 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
   await reply(uncertain.requests[0]); await reply(uncertain.requests.at(-1), receipt(intent, {phase:"uncertain", can_resume:false}));
   assert(uncertain.nodes["slot-resume"].hidden); assert(!uncertain.nodes["slot-request-recovery"].hidden);
   assert.equal(posts(uncertain).length, 0);
+  assert.equal(uncertain.cards[2].querySelector('[data-slot-reason="reset"]').textContent, "Check or resume the saved request above.");
+
+  const guidance = boot();
+  await reply(guidance.requests[0], status({state:"running", stop:true}));
+  assert.equal(guidance.cards[2].querySelector('[data-slot-reason="stop"]').textContent, stopGuidance);
+  for (const reason of ["Close the screen and finish any control session first.", "Another agent holds Kodi.", "A lifecycle operation is pending.", "Runtime identity needs review.", "Kodi is not Ready.", "Install and approve the Kodi files before starting."]) {
+    guidance.timers[0]();
+    await reply(guidance.requests.at(-1), status({stop:false, reset:false, stop_reason:reason, reset_reason:reason}));
+    for (const action of ["stop", "reset"]) {
+      assert.equal(guidance.cards[2].querySelector(`[data-slot-reason="${action}"]`).textContent, reason);
+      assert(guidance.cards[2].actions.find(b=>b.dataset.slotAction===action).disabled);
+    }
+  }
+  assert.equal(posts(guidance).length, 0, "rendering blockers and guidance never submits an action");
+
+  for (const action of ["stop", "reset"]) for (const message of ["Stop playback before stopping or resetting Kodi.", "Playback could not be checked. Check Kodi's connection, then refresh status."]) {
+    const deniedPlayback = boot();
+    await reply(deniedPlayback.requests[0], status({state:"running", stop:true}));
+    deniedPlayback.click(action);
+    if (action === "reset") {
+      deniedPlayback.nodes["slot-confirm-check"].checked = true;
+      deniedPlayback.nodes["slot-confirm-form"].dispatch("submit");
+    }
+    const original = JSON.parse(deniedPlayback.storage.get(key));
+    const blocked = receipt(original, {phase:"blocked", done:true, can_resume:false, message});
+    await reply(posts(deniedPlayback)[0], blocked);
+    await reply(deniedPlayback.requests.at(-1), status({state:"running", stop:true}));
+    await reply(deniedPlayback.requests.at(-1), blocked);
+    assert.equal(deniedPlayback.nodes["slot-request-message"].textContent, message);
+    assert(!deniedPlayback.storage.has(key));
+    assert(deniedPlayback.nodes["slot-resume"].hidden);
+    deniedPlayback.timers[0]();
+    await reply(deniedPlayback.requests.at(-1), status({state:"running", stop:true}));
+    assert.equal(deniedPlayback.nodes["slot-request-message"].textContent, message, "status advice must not conceal a refusal");
+    assert.equal(posts(deniedPlayback).length, 1, "refusal and status refresh never retry");
+  }
 
   const denied = boot({denied:true}); await reply(denied.requests[0]); denied.click("start"); await flush();
   assert.equal(posts(denied).length, 0, "no dispatch when original intent cannot be stored");

@@ -32,17 +32,26 @@ These exceptions prevent hiding an unresolved operation or the next action neede
 for safe continuation. All availability comes from the existing authorized status
 adapter; opening Advanced never enables an operation or grants authority.
 
-Existing availability gap: status polling does not precheck active playback.
-Stop/Reset can therefore appear enabled while Kodi is playing; dispatch still
-refuses the operation with an explicit playback reason and performs no Stop or
-removal. Reflecting that refusal before dispatch needs a separate status/preflight
-review. This presentation change preserves the existing admission boundary.
+An available Stop or Reset means the action can be requested. Status polling does
+not check playback. Its existing accessible action description explains that the
+server checks playback and active use when the action is requested and may refuse
+it. Reset's advice stays inside Advanced options. Known blockers, saved requests
+and confirmation state take precedence over this advice.
+
+Active or unavailable playback evidence still prevents safe shutdown. A refusal
+remains visible in the original saved request while status refreshes; reading its
+receipt never retries the action. If a late check leaves an uncertain operation,
+its recovery message and request identity remain authoritative. This guidance adds
+no playback observation, polling, endpoint or backend eligibility change. Actual
+native playback-sensitive and connected-external acceptance remain separate.
 
 ## DOM and receipt contract review
 
-`managed-slots.js` is unchanged. It finds `[data-slot]` cards under
+`managed-slots.js` finds `[data-slot]` cards under
 `[data-managed-slots]`, then queries descendants rather than direct children.
-Moving Reset under the disclosure therefore retains its existing listeners.
+Reset under the disclosure retains its existing listeners. The controller uses
+the description's `data-slot-available-description` only when the action is
+available and has no blocker or saved-request/confirmation message.
 
 | Required nodes | Placement / contract |
 | --- | --- |
@@ -53,8 +62,8 @@ Moving Reset under the disclosure therefore retains its existing listeners.
 | `data-slot-request*`, `data-slot-resume`, `data-slots-error`, `data-slots-refresh` | Existing global request/recovery controls remain outside card disclosures. |
 | `data-slot-confirm*`, `data-slot-cancel` | Same root-level modal, checkbox and focus-return targets. Advanced stays open when Reset confirmation closes. |
 
-Only human-facing `state_label` / routine status `message` wording changes in the
-Web status adapter. Machine state, snapshots, request UUIDs, saved local-storage
+Human-facing labels, refusal messages and action advice are presentation only.
+Machine state, snapshots, request UUIDs, saved local-storage
 key, receipt fields, polling, explicit continuation, stale-response fences,
 authorization and lifecycle services are unchanged. Failure/protection messages
 retain precedence over ordinary guidance. GET never continues a mutation.
