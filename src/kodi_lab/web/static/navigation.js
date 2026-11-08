@@ -44,6 +44,24 @@
   toggle.hidden = false;
   setOpen(!narrow.matches);
   toggle.addEventListener("click", () => setOpen(navigation.hidden));
+  navigation.addEventListener("click", event => {
+    if (!narrow.matches || event.defaultPrevented || event.button !== 0 ||
+        event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+    const destination = new URL(link.href, location.href);
+    if (destination.origin !== location.origin || destination.pathname !== location.pathname ||
+        destination.search !== location.search || !destination.hash) return;
+    const heading = document.getElementById(destination.hash.slice(1));
+    if (!heading) return;
+    setOpen(false);
+    if (!heading.hasAttribute("tabindex")) {
+      heading.setAttribute("tabindex", "-1");
+      heading.addEventListener("blur", () => heading.removeAttribute("tabindex"), {once: true});
+    }
+    // Keep the link's native fragment scrolling and Back/Forward history.
+    heading.focus({preventScroll: true});
+  });
   sidebar.addEventListener("keydown", event => {
     if (event.key === "Escape" && narrow.matches && !navigation.hidden) {
       event.preventDefault();

@@ -21,8 +21,15 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     flow.attach(broker)
     login(client)
     page = client.get("/runtimes").text
-    assert "Guided managed Kodi setup" in page
-    assert "Names for this guided setup are fixed by the reviewed recipe" in page
+    assert '<h2 id="managed-setup-heading">Install Kodi files</h2>' in page
+    assert "Guided managed Kodi setup" not in page
+    assert "Names for this installation are fixed by the reviewed recipe" in page
+    assert 'href="/kodi#managed-kodi-heading">Managed Kodi</a>' in page
+    assert "everyday Start, Stop and View Screen controls" in page
+    assert 'href="/development">Development Tools</a>' in page
+    assert 'href="/development-session">Current Managed Kodi</a>' in page
+    assert "stopped managed profile available" in page
+    assert "It does not start Kodi or authorize an agent" in page
     assert "Prepare Kodi" in page and "Start Kodi" in page
     assert "Each step requires a separate action" in page
     assert "data-install-review" in page and "data-install-approved" in page
