@@ -230,6 +230,9 @@ dd { margin: 0; }
 .kodi-diagnostics { margin-top: 1.5rem; }
 .kodi-diagnostics summary { cursor: pointer; font-weight: 600; padding-left: 0; }
 .kodi-diagnostics dl { margin: 1rem 0; }
+.production-page .production-advanced { border-top: 1px solid var(--admin-border); margin-top: 1rem; padding-top: .5rem; }
+.production-page .production-advanced > summary { font-weight: 600; }
+.production-page [data-production-summary] { max-width: 48rem; }
 @media (max-width: 600px) {
   .kodi-page-heading { align-items: flex-start; }
   .kodi-grid { grid-template-columns: minmax(0, 1fr); }

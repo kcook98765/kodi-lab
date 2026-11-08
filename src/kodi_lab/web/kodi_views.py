@@ -47,6 +47,36 @@ class KodiView:
     onboarding_stage: str | None
     diagnostic_code: str | None
 
+    @property
+    def needs_review(self) -> bool:
+        # An administrative disconnect must not conceal stored trust failures.
+        return self.status == "attention" or _recorded_trust_issue(
+            self.target, self.bridge
+        )
+
+
+def _recorded_trust_issue(
+    target: ExternalTargetRead, bridge: ExternalBridgeStatus | None
+) -> bool:
+    policy = target.production_policy
+    return (
+        target.verification_state in {"identity_mismatch", "needs_reverification"}
+        or target.observation_state in {"authentication_failed", "capability_missing"}
+        or (policy is not None and policy.designation_state == "invalidated")
+        or (
+            bridge is not None
+            and (
+                bridge.pairing_state in {"needs_reverification", "revoked"}
+                or bridge.reachability_state
+                in {
+                    "identity_mismatch",
+                    "authentication_failed",
+                    "protocol_unsupported",
+                }
+            )
+        )
+    )
+
 
 class KodiViews:
     def __init__(
@@ -180,23 +210,7 @@ def connection_presentation(
             "Inactive",
         )
     policy = target.production_policy
-    if (
-        target.verification_state in {"identity_mismatch", "needs_reverification"}
-        or target.observation_state in {"authentication_failed", "capability_missing"}
-        or (policy is not None and policy.designation_state == "invalidated")
-        or (
-            bridge is not None
-            and (
-                bridge.pairing_state in {"needs_reverification", "revoked"}
-                or bridge.reachability_state
-                in {
-                    "identity_mismatch",
-                    "authentication_failed",
-                    "protocol_unsupported",
-                }
-            )
-        )
-    ):
+    if _recorded_trust_issue(target, bridge):
         return (
             "attention",
             "Needs attention",

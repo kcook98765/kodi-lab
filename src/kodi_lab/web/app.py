@@ -4068,6 +4068,9 @@ def create_app(
                 "targets": targets,
                 "include_retired": include_retired,
                 "bridge_statuses": bridge_statuses,
+                "production_views": {
+                    target.target_id: kodi_views.present(target) for target in targets
+                },
                 "native_control_acknowledgements": (native_control_acknowledgements),
                 "production_scopes": (
                     context.mcp_administration.list_production_inspection_scopes()

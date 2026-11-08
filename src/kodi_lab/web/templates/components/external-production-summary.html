@@ -1,0 +1,41 @@
+{% macro production_summary(kodi, detail=false) -%}
+{% set target = kodi.target %}
+<div data-production-summary="{{ target.target_id }}">
+  <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
+  <p>{{ kodi.status_note }}</p>
+  {% if kodi.status == 'disconnected' and target.administrative_state.value == 'enabled' %}<p class="notice">Check that Kodi is running on the other device and connected to your network. Kodi Lab cannot start it for you.</p>{% endif %}
+  {% if kodi.needs_review %}<p class="error" role="alert">Connection trust or setup needs review.
+    {% if target.verification_state.value == 'identity_mismatch' or (kodi.bridge and kodi.bridge.reachability_state.value == 'identity_mismatch') %}<strong>Kodi or Bridge identity does not match the recorded connection.</strong>
+    {% elif target.production_policy and target.production_policy.designation_state.value == 'invalidated' %}<strong>Previous production trust is no longer valid.</strong>{% endif %}
+    Reconnect or review the recorded identity before confirming.</p>{% endif %}
+  {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
+  <dl>
+    <dt>Kodi version</dt><dd>{{ target.kodi_version or 'Not yet known' }}</dd>
+    <dt>Bridge connection</dt><dd>{{ kodi.bridge_label }}</dd>
+    <dt>Bridge software</dt><dd>{{ kodi.bridge.addon_version if kodi.bridge and kodi.bridge.addon_version else 'Not yet verified' }}</dd>
+    {% if kodi.bridge and kodi.bridge.verified_at %}<dt>Bridge last verified</dt><dd><time datetime="{{ kodi.bridge.verified_at.isoformat() }}">{{ kodi.bridge.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
+    {% if target.verified_at %}<dt>Kodi last verified</dt><dd><time datetime="{{ target.verified_at.isoformat() }}">{{ target.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
+  </dl>
+  <div class="actions">
+    {% if target.administrative_state.value == 'enabled' %}<a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect Kodi</a>
+    {% else %}<p>Reconnect unavailable: {{ 'this connection is retired. Connect Kodi again to create a new registration.' if target.administrative_state.value == 'deactivated' else 'this connection is disabled. Review Advanced options before enabling it.' }}</p>{% endif %}
+    {% if not detail and target.administrative_state.value != 'deactivated' %}<button type="button" data-action="probe" aria-describedby="probe-note-{{ target.target_id }}"{% if target.administrative_state.value != 'disabled' %} disabled{% endif %}>Check Kodi connection</button>{% endif %}
+  </div>
+  {% if not detail and target.administrative_state.value != 'deactivated' %}<p id="probe-note-{{ target.target_id }}">{% if target.administrative_state.value == 'disabled' %}Checks and records Kodi's native identity. Bridge verification and agent permissions remain separate.{% else %}This check requires a disabled registration. Use Reconnect Kodi to review an active connection.{% endif %}</p>{% endif %}
+  {% if kodi.onboarding_stage and kodi.onboarding_stage != 'connected' and target.administrative_state.value != 'deactivated' %}<p class="notice">Saved connection setup needs review. <a href="/add-kodi?mode=home">Review connection setup</a> using the existing connection guide.</p>{% endif %}
+  <section aria-labelledby="{{ 'access-heading' if detail else 'access-' ~ target.target_id }}">
+    <h{{ 3 if detail else 4 }} id="{{ 'access-heading' if detail else 'access-' ~ target.target_id }}">Inspection and access</h{{ 3 if detail else 4 }}>
+    <dl><dt>Access mode</dt><dd>{{ kodi.access_label }}</dd><dt>Remote control</dt><dd>{{ kodi.remote_label }}</dd></dl>
+    <p>Inspect through an authorized agent. Health, add-on and screen-information checks depend on this Kodi's verified support and the agent's permissions. These settings do not grant an agent access; a connected status does not grant access either.</p>
+    <p><a href="/mcp-clients">Review inspection and screenshot permissions</a>. Opening these pages does not run inspection or capture an image.</p>
+  </section>
+  <section aria-labelledby="{{ 'screenshots-heading' if detail else 'screenshots-' ~ target.target_id }}">
+    <h{{ 3 if detail else 4 }} id="{{ 'screenshots-heading' if detail else 'screenshots-' ~ target.target_id }}">Screenshots and privacy</h{{ 3 if detail else 4 }}>
+    <dl><dt>Capture preference</dt><dd>{% if kodi.preference %}{{ 'Enabled' if kodi.preference.enabled else 'Disabled' }}{% else %}Unavailable{% endif %}</dd></dl>
+    <p>Screenshots are ordinary read-only inspection. This preference is independent of the access mode; it does not grant capture permission.</p>
+    {% if not kodi.preference %}<p class="notice">The capture preference could not be read. Screenshot availability must not be assumed.</p>{% elif not kodi.preference.enabled %}<p class="notice">Screenshots are disabled by your capture preference.</p>{% endif %}
+    <p>Capture also requires a verified Bridge connection and separate screenshot authorization for your agent. This page does not change your preference.</p>
+    {% if kodi.bridge and kodi.bridge.http_screenshot_cleartext_warning %}<p class="notice"><strong>HTTP privacy warning:</strong> screenshot pixels are not encrypted on your local network.</p>{% endif %}
+  </section>
+</div>
+{%- endmacro %}

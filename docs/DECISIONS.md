@@ -7808,3 +7808,18 @@ checkbox and focus restoration. Recovery, failure/protection messages, pending
 requests and Reset trust warnings stay primary even while Advanced is collapsed.
 No lifecycle, MCP, Preview, database, runtime or external-page changes. See the
 [DOM/receipt review and presentation contract](MANAGED-CONTROLS.md).
+
+## D-0482: External Production presentation follows recorded trust and ownership
+
+Reuse the existing production inventory and read-only household projection for
+shared primary status, trust, reconnect and screenshot guidance. Keep stored
+category separate from availability and authority. Explain external ownership;
+do not introduce process/container lifecycle actions or an alternative connection
+flow. Native probing retains its disabled-registration requirement.
+
+Group routine technical and privileged administration under local Advanced
+options, initially open when review/cleanup is required. Keep failures, privacy
+warnings, permission errors and live control requests visible. Preserve all
+existing authentication, CSRF, grants, Bridge verification, OTP, reconnection,
+one-shot request and screenshot contracts. See the
+[presentation and controller contract review](EXTERNAL-PRODUCTION-UI.md).
