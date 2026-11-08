@@ -1,8 +1,9 @@
 # Piers Preview action consent (#248)
 
 The Standard/Development view cookie is a presentation preference, not Preview
-authorization. This change supersedes only the view-mode admission requirement
-in D-0425. Navigation and the global view toggle remain unchanged.
+authorization. The consent foundation supersedes the view-mode admission
+requirement in D-0425. The subsequent [unified navigation](UNIFIED-NAVIGATION.md)
+removes the global toggle while preserving this consent contract.
 
 ## Admission audit and replacement
 
@@ -62,10 +63,9 @@ Create. Its immutable owner-bound intent and continuation checks remain intact.
 It grants no later independent runtime-admin action. This PR does not change its
 onboarding, lifecycle or request schema.
 
-## Remaining #248 work
+## Navigation follow-on
 
-Removing Preview's cookie admission makes unified navigation possible, but does
-not itself remove template view flags, preset filtering or the global toggle.
-Review those presentation conditions separately while retaining actual session,
-CSRF, capability, target-grant and production protection boundaries. No deployment
-or release qualification is part of this change.
+The [unified-navigation follow-on](UNIFIED-NAVIGATION.md) removes template view
+filters, preset visibility restrictions and the global toggle. Its separate
+presentation review retains session, CSRF, capability, target-grant and production
+protection boundaries. Neither change includes deployment or release qualification.

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% from 'components/kodi-viewer.html' import kodi_viewer %}
-{% set nav_section = 'kodi' %}
+{% set nav_section = 'development' %}
 {% block title %}Current Managed Kodi · Kodi Lab{% endblock %}
 {% block main_class %}responsive-forms current-kodi-page{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/novnc-phase1.css') }}">{% endblock %}

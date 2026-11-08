@@ -83,12 +83,12 @@ def test_landing_pages_keep_existing_authentication(
         ("/", "/kodi"),
         ("/managed-instances", "/settings"),
         ("/kodi", "/kodi"),
-        ("/add-kodi", "/kodi"),
-        ("/production-targets", "/kodi"),
+        ("/add-kodi", "/production-targets"),
+        ("/production-targets", "/production-targets"),
         ("/mcp-clients", "/mcp-clients"),
         ("/development", "/development"),
-        ("/external-targets", "/development"),
-        ("/pair-kodi", "/development"),
+        ("/external-targets", "/external-targets"),
+        ("/pair-kodi", "/external-targets"),
         ("/runtimes", "/settings"),
         ("/development-sources", "/development"),
         ("/agent-workspaces", "/development"),
@@ -114,8 +114,11 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     assert navigation is not None
     assert re.findall(r'<a href="([^"]+)"', navigation.group()) == [
         "/kodi",
-        "/mcp-clients",
+        "/kodi#managed-kodi-heading",
+        "/production-targets",
+        "/external-targets",
         "/development",
+        "/mcp-clients",
         "/settings",
     ]
     assert re.findall(r'<a href="([^"]+)" aria-current="page"', html) == [active]
@@ -160,14 +163,6 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
             links = Links()
             links.feed(response.text)
             assert url.fragment in links.ids, destination
-
-
-@pytest.fixture(autouse=True)
-def development_admin_view(request: pytest.FixtureRequest) -> None:
-    """Existing full-administration contracts run in Development view."""
-    if "client" in request.fixturenames:
-        client: TestClient = request.getfixturevalue("client")
-        client.cookies.set("kodi_lab_admin_view", "development")
 
 
 def test_navigation_landing_priorities_and_unique_destinations(

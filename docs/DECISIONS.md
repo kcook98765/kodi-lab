@@ -7778,3 +7778,18 @@ not save authorization or replay uncertain operations. The existing owner-bound
 Create Managed Kodi compound intent retains its explicitly approved stages. Keep
 the global view toggle and other navigation filtering for a separate #248 change.
 See [the admission audit and request contract](PREVIEW-ACTION-CONSENT.md).
+
+## D-0480: One administrator navigation independent of legacy view cookies
+
+Replace the Standard/Development selector and presentation filters with seven
+shared destinations. Link Managed Kodi to its existing ordinary four-version
+section, and keep Current Managed Kodi under Development Tools. Preserve routes,
+bookmarks, the responsive sidebar, authentication and backend permission checks.
+
+Expose powerful agent preset choices, custom presets and Kodi policy controls
+inside existing Advanced disclosures, with empty new selections and unchanged
+stored assignments. Viewing a control never grants access. Retain `/admin-view`
+as an authenticated, same-origin/session-CSRF protected redirect compatibility
+endpoint; expire its old cookie and save no view or authorization state. Keep
+legacy context exports constant for older templates. See the
+[dependency audit and navigation contract](UNIFIED-NAVIGATION.md).

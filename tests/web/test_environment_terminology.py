@@ -79,9 +79,8 @@ def test_onboarding_wording_preserves_modes_and_existing_mechanisms(
     assert "External Development Kodi" in page.text
     assert 'data-home-label="External Production Kodi"' in page.text
     assert 'data-development-label="External Development Kodi"' in page.text
-    assert ('id="managed-kodi-choice-heading"' in page.text) == (view == "development")
-    if view == "standard":
-        assert "data-standard-view" in page.text
+    assert 'id="managed-kodi-choice-heading"' in page.text
+    assert "data-standard-view" not in page.text
     assert "data-consent" in page.text
     assert "data-pair-gate disabled" in page.text
     assert "data-js-gate disabled" in page.text

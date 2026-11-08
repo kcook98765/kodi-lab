@@ -1,176 +1,161 @@
-/* Isolated real-preview preference checks and real-controller synthetic fixtures. */
+/* Fully intercepted navigation fixtures. No listener, credentials or live broker. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const modules = process.env.KODI_LAB_BROWSER_TOOLS;
-assert.ok(modules, 'Set KODI_LAB_BROWSER_TOOLS');
+assert.ok(modules, 'Set KODI_LAB_BROWSER_TOOLS to an existing Playwright/Axe install');
 const {chromium} = require(path.join(modules, 'playwright'));
 const AxeBuilder = require(path.join(modules, '@axe-core/playwright')).default;
-const root = '/home/kyle/kodi-lab-web-preview';
-const baseURL = 'http://192.168.2.191:8180';
-const evidence = process.env.KODI_ADMIN_VIEW_EVIDENCE || `${root}/evidence/admin-modes-runtime`;
-const fixtures = JSON.parse(fs.readFileSync(`${evidence}/fixture-routes.json`));
-const initialInstallations = JSON.parse(fs.readFileSync(`${evidence}/fixture-installations.json`));
-const report = {baseURL, fixtureMethod:'Disposable database, real controllers; synthetic HTML/API interception, unchanged preview assets', layouts:[], accessibility:[], screenshots:[], requests:[], checks:[], errors:[]};
+const evidence = process.env.KODI_ADMIN_VIEW_EVIDENCE;
+assert.ok(evidence, 'Export disposable fixtures with KODI_ADMIN_VIEW_EVIDENCE first');
+const before = process.env.KODI_NAV_BEFORE_FIXTURES;
+const base = 'https://navigation-fixture.invalid';
+const source = path.resolve(__dirname, '../../src/kodi_lab/web/static');
+const fixtures = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-routes.json')));
+const apis = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-apis.json')));
+const installations = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-installations.json')));
+const destinations = [
+  ['Overview', '/kodi'], ['Managed Kodi', '/kodi#managed-kodi-heading'],
+  ['External Production Kodi', '/production-targets'], ['External Development Kodi', '/external-targets'],
+  ['Development Tools', '/development'], ['Agents & Permissions', '/mcp-clients'], ['Advanced', '/settings'],
+];
+const report = {method:'Rendered disposable controller fixtures, every browser request intercepted; no live service', layouts:[], accessibility:[], screenshots:[], mutations:[], errors:[]};
 (async () => {
   const browser = await chromium.launch({headless:true});
+  async function contextFor(cookie, width, theme, old=false) {
+    const context = await browser.newContext({viewport:{width,height:900},colorScheme:theme});
+    if (cookie !== 'missing') await context.addCookies([{name:'kodi_lab_admin_view',value:cookie,url:base}]);
+    const routes = old ? JSON.parse(fs.readFileSync(path.join(before,'fixture-routes.json'))) : fixtures;
+    await context.route('**/*',async route=>{
+      const request=route.request(), url=new URL(request.url());
+      assert.equal(url.origin,base,'No external network');
+      if(!['GET','HEAD'].includes(request.method())) {
+        report.mutations.push({method:request.method(),path:url.pathname});
+        return route.fulfill({status:409,json:{detail:'fixture_denies_mutation'}});
+      }
+      if(url.pathname.startsWith('/static/')) {
+        const file=path.join(old ? path.join(before,'assets') : source,path.basename(url.pathname));
+        return route.fulfill({path:file,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':undefined});
+      }
+      const pages=routes[cookie] || routes.standard;
+      const html=pages[url.pathname+url.search] || pages[url.pathname];
+      if(html) return route.fulfill({contentType:'text/html',body:html.replaceAll('https://127.0.0.1',base).replaceAll('http://127.0.0.1',base)});
+      if(url.pathname==='/api/runtime-installations') return route.fulfill({json:installations});
+      if(apis[url.pathname]) return route.fulfill({json:apis[url.pathname]});
+      return route.fulfill({json:{}});
+    });
+    const page=await context.newPage();
+    page.on('pageerror',error=>report.errors.push(error.message));
+    return {context,page};
+  }
+  async function checkLayout(page, info) {
+    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+    assert.equal(overflow,false,JSON.stringify(info)+' overflow');
+    const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
+    const violations=result.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}));
+    report.layouts.push({...info,overflow});report.accessibility.push({...info,violations});
+    assert.deepEqual(violations,[],JSON.stringify(info)+' accessibility');
+  }
   try {
-    const auth = await browser.newContext({baseURL});
-    const login = await auth.newPage();
-    await login.goto('/login');
-    await login.locator('[name=password]').fill(fs.readFileSync(`${root}/admin-password`,'utf8').trim());
-    await Promise.all([login.waitForURL(`${baseURL}/kodi`), login.getByRole('button',{name:'Sign in',exact:true}).click()]);
-    const csrf = await login.locator('meta[name=kodi-lab-csrf]').getAttribute('content');
-    const storageState = await auth.storageState();
-    await auth.close();
-    for (const [device,width,height] of [['desktop',1440,900],['ipad-landscape',1024,768],['ipad-portrait',768,1024],['phone',390,844]]) {
-      const context = await browser.newContext({baseURL,storageState,viewport:{width,height},hasTouch:device!=='desktop',isMobile:device==='phone'});
-      let useFixtures = false;
-      let installations = structuredClone(initialInstallations);
-      let installReply = 202;
-      await context.route('**/*', async route => {
-        const request = route.request();
-        const url = new URL(request.url());
-        assert.equal(url.origin,baseURL,'Only isolated preview requests');
-        report.requests.push({device,method:request.method(),path:url.pathname,fixture:useFixtures});
-        if (!['GET','HEAD'].includes(request.method())) {
-          if (useFixtures && url.pathname.startsWith('/api/runtime-installations/')) {
-            assert.equal(request.postData(),null);
-            assert.equal(request.headers()['x-kodi-lab-csrf'],csrf);
-            if (installReply !== 202) return route.fulfill({status:installReply,json:{detail:'installation_busy'}});
-            installations.installations[0] = {...installations.installations[0],status:'acquiring',phase:'Acquiring runtime',action:'none'};
-            return route.fulfill({status:202,json:installations.installations[0]});
-          }
-          assert.equal(url.pathname,'/admin-view','No pairing, MCP or lifecycle mutations');
+    for(const width of [1440,375,320]) for(const theme of ['light','dark']) {
+      for(const cookie of ['missing','standard','development','invalid']) {
+        const {context,page}=await contextFor(cookie,width,theme);
+        await page.goto(base+'/kodi');
+        const nav=page.locator('#admin-navigation'),menu=page.locator('[data-menu-toggle]');
+        const links=await nav.locator('li a').evaluateAll(items=>items.map(a=>[a.textContent.trim(),a.getAttribute('href')]));
+        assert.deepEqual(links,destinations);assert.equal(await page.locator('[data-admin-view-form]').count(),0);
+        for(const kind of ['managed','external_production','external_development']) assert.ok(await page.locator(`[data-environment-type="${kind}"]`).count());
+        if(width<=960) {
+          assert.equal(await nav.isVisible(),false);await menu.focus();await menu.press('Space');
+          assert.equal(await nav.isVisible(),true);
+          await nav.locator('a').first().focus();await page.keyboard.press('Escape');
+          assert.equal(await nav.isVisible(),false);assert.equal(await menu.evaluate(e=>document.activeElement===e),true);
+          await menu.press('Enter');
         }
-        if (useFixtures && request.isNavigationRequest() && request.method()==='GET') {
-          const cookies = await context.cookies();
-          const mode = cookies.find(c=>c.name==='kodi_lab_admin_view')?.value === 'development' ? 'development' : 'standard';
-          const content = fixtures[mode][url.pathname+url.search];
-          if (content) {
-            const fixtureCsrf = content.match(/name="kodi-lab-csrf" content="([^"]+)"/)[1];
-            return route.fulfill({status:200,contentType:'text/html',body:content.replaceAll('http://127.0.0.1',baseURL).replaceAll(fixtureCsrf,csrf)});
+        await checkLayout(page,{width,theme,cookie,page:'overview-menu'});
+        await nav.getByRole('link',{name:'Managed Kodi',exact:true}).click();
+        await page.waitForURL('**/kodi#managed-kodi-heading');
+        await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/kodi#managed-kodi-heading"]').getAttribute('aria-current')==='page');
+        assert.equal(await nav.getByRole('link',{name:'Managed Kodi',exact:true}).getAttribute('aria-current'),'page');
+        assert.equal(await page.locator('[data-managed-slots] [data-slot]').count(),4);
+        await page.evaluate(()=>{location.hash='';});
+        await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/kodi"]').getAttribute('aria-current')==='page');
+        if(cookie==='missing') {
+          if(width<=960 && !await nav.isVisible()) await menu.click();
+          const screenshot=`after-nav-${width}-${theme}.png`;
+          await page.locator('[data-admin-sidebar]').screenshot({path:path.join(evidence,screenshot)});report.screenshots.push(screenshot);
+          await page.goto(base+'/mcp-clients');
+          for(const selector of ['[data-create-client] select','[data-create-advanced-client] select','[name=template_preset_id]']) assert.equal(await page.locator(selector).inputValue(),'');
+          const current=await page.locator('[data-client-preset]').evaluateAll(items=>items.map(i=>i.value));
+          assert.equal(current.length,2);assert.equal(new Set(current).size,2);
+          await page.locator('[data-agent-advanced] > summary').click();
+          assert.equal(await page.locator('[data-create-preset] input[type=checkbox]:checked').count(),0);
+          assert.ok(await page.locator('[data-create-preset] input[type=checkbox]:disabled').count());
+          for(const element of await page.locator('[data-target-policy] select').all()) assert.equal(await element.inputValue(),'');
+          await page.locator('[data-target-policy] button').first().click();
+          assert.equal(report.mutations.length,0,'Unselected policy sends nothing');
+          await page.locator('[name=template_preset_id]').selectOption({label:'Read-only Inspection'});
+          assert.equal(await page.locator('[data-create-preset] input[type=checkbox]:checked').count(),0);
+          assert.deepEqual(await page.locator('[data-client-preset]').evaluateAll(items=>items.map(i=>i.value)),current);
+          await checkLayout(page,{width,theme,cookie,page:'agents-advanced'});
+          for(const mode of ['home','development']) {
+            await page.goto(base+'/add-kodi?mode='+mode);
+            await page.locator('[data-mode-controls]:not([disabled])').waitFor();
+            assert.equal(await page.locator('[data-mode-controls]').isVisible(),true);
+            assert.equal(await page.locator(`[data-onboarding-mode="${mode}"]`).isVisible(),true);
+            const next=mode==='home'?'development':'home';
+            await page.locator(`input[name=kodi_use][value="${next}"]`).check();
+            assert.equal(await page.locator(`[data-onboarding-mode="${next}"]`).isVisible(),true);
+            assert.equal(await page.locator(`[data-onboarding-mode="${mode}"]`).isVisible(),false);
+            await checkLayout(page,{width,theme,cookie,page:'onboarding-'+mode});
           }
         }
-        if (useFixtures && url.pathname==='/api/runtime-installations') return route.fulfill({json:installations});
-        if (useFixtures && url.pathname==='/api/instances') return route.fulfill({json:[]});
-        if (useFixtures && url.pathname.startsWith('/static/')) return route.fulfill({response:await route.fetch()});
-        return route.continue();
-      });
-      const page = await context.newPage();
-      page.on('pageerror',error=>report.errors.push({device,error:error.message}));
-      const choose = async mode => {
-        const button = page.getByRole('button',{name:mode==='standard'?'Standard':'Development',exact:true});
-        await Promise.all([page.waitForNavigation({waitUntil:'load'}),button.click()]);
-        assert.equal(await page.getByRole('button',{name:mode==='standard'?'Standard':'Development',exact:true}).getAttribute('aria-pressed'),'true');
-      };
-      await page.goto('/');
-      assert.equal(await page.getByRole('button',{name:'Standard',exact:true}).getAttribute('aria-pressed'),'true');
-      await choose('development');
-      await page.reload();
-      assert.equal(await page.locator('#admin-navigation li').count(),4);
-      const second = await context.newPage();
-      await second.goto('/kodi');
-      assert.equal(await second.getByRole('button',{name:'Development',exact:true}).getAttribute('aria-pressed'),'true');
-      const persistedShot = `${evidence}/${device}-actual-development-persisted.png`;
-      await second.screenshot({path:persistedShot,fullPage:true});
-      report.screenshots.push(persistedShot);
-      await second.close();
-      await choose('standard');
-      const switchedShot = `${evidence}/${device}-actual-switched-standard.png`;
-      await page.screenshot({path:switchedShot,fullPage:true});
-      report.screenshots.push(switchedShot);
-      await page.goto('/runtimes');
-      assert.equal(await page.locator('[data-install-action]').count(),0);
-      assert.equal(await page.locator('.runtime-install-phase').allTextContents().then(x=>x.every(t=>t==='Installation unavailable')),true);
-      assert.ok((await page.locator('.runtime-install-message').first().innerText()).includes('does not provide'));
-      const actualShot = `${evidence}/${device}-actual-preview-runtime-unavailable.png`;
-      await page.screenshot({path:actualShot,fullPage:true});
-      report.screenshots.push(actualShot);
-      report.checks.push({device,realPreview:'First use Standard; Development persists across reload/page; unsupported installer stays disabled'});
-      useFixtures = true;
-      for (const mode of ['standard','development']) {
-        await page.goto('/');
-        await choose(mode);
-        for (const [scenario,url] of [
-          ['kodi','/kodi'],['managed','/managed-instances'],['add-kodi',mode==='development'?'/add-kodi?mode=development':'/add-kodi'],['agents','/mcp-clients'],['settings','/settings'],...(mode==='development'?[['runtime-installation','/runtimes']]:[]),
-        ]) {
-          await page.goto(url,{waitUntil:'load'});
-          assert.equal(await page.getByRole('button',{name:mode==='standard'?'Standard':'Development',exact:true}).getAttribute('aria-pressed'),'true');
-          assert.equal(await page.locator('#admin-navigation li').count(),mode==='standard'?3:4);
-          if (scenario==='kodi') assert.equal(await page.locator('#development-kodi-heading').count(),mode==='development'?1:0);
-          if (scenario==='agents') assert.equal(await page.locator('[data-agent-advanced]').count(),mode==='development'?1:0);
-          if (scenario==='add-kodi') {
-            assert.equal(await page.locator('[data-onboarding-mode=home]').isVisible(),mode==='standard');
-            assert.equal(await page.locator('[data-mode-controls]').isVisible(),mode==='development');
-          }
-          const dimensions = await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth}));
-          assert.ok(dimensions.scroll<=dimensions.viewport,`${device} ${mode} ${scenario} overflow`);
-          report.layouts.push({device,mode,scenario,...dimensions});
-          const axe = await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
-          const violations = axe.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}));
-          report.accessibility.push({device,mode,scenario,violations});
-          assert.deepEqual(violations,[],`${device} ${mode} ${scenario} accessibility`);
-          const screenshot = `${evidence}/${device}-${mode}-${scenario}.png`;
-          await page.screenshot({path:screenshot,fullPage:true});
-          report.screenshots.push(screenshot);
-        }
+        await context.close();
       }
-      // Explicit legacy fragments expose existing controls without changing mode.
-      await page.goto('/');
-      await choose('standard');
-      await page.goto('/#instances');
-      await page.waitForURL('**/managed-instances#*');
-      assert.equal(await page.locator('#instances').isVisible(),true);
-      assert.equal(await page.getByRole('button',{name:'Standard',exact:true}).getAttribute('aria-pressed'),'true');
-      await page.goto('/#managed-details');
-      await page.waitForURL('**/managed-instances#*');
-      await page.goto('/');
-      await page.getByRole('button',{name:'Development',exact:true}).focus();
-      assert.ok(parseFloat(await page.getByRole('button',{name:'Development',exact:true}).evaluate(el=>getComputedStyle(el).outlineWidth))>=3);
-      await Promise.all([page.waitForNavigation({waitUntil:'load'}),page.keyboard.press('Enter')]);
-      await page.goto('/runtimes');
-      const matrix = page.locator('[data-generation=matrix]');
-      await matrix.getByRole('button',{name:'Install',exact:true}).focus();
-      await page.waitForTimeout(3300);
-      assert.equal(await matrix.getByRole('button',{name:'Install',exact:true}).evaluate(el=>document.activeElement===el),true,'Polling preserves keyboard focus');
-      installReply = 409;
-      await matrix.getByRole('button',{name:'Install',exact:true}).click();
-      await page.getByRole('alert').waitFor({state:'visible'});
-      assert.ok((await page.getByRole('alert').innerText()).includes('Another runtime installation'));
-      installReply = 202;
-      await matrix.getByRole('button',{name:'Install',exact:true}).click();
-      await matrix.locator('.runtime-install-phase').getByText('Acquiring runtime',{exact:true}).waitFor();
-      installations.installations[0] = {...installations.installations[0],status:'failed',phase:'Installation failed',action:'retry',failure_message:'The assembled Kodi runtime did not pass validation.'};
-      await matrix.getByRole('button',{name:'Retry',exact:true}).waitFor();
-      const failureShot = `${evidence}/${device}-installation-failure.png`;
-      await page.screenshot({path:failureShot,fullPage:true});
-      report.screenshots.push(failureShot);
-      const menu = page.getByRole('button',{name:'Menu',exact:true});
-      if (width<=960) {
-        await menu.focus();
-        await page.keyboard.press('Space');
-        assert.equal(await page.locator('#admin-navigation').isVisible(),true);
-        await page.keyboard.press('Escape');
-        assert.equal(await menu.evaluate(el=>document.activeElement===el),true);
+      if(before) for(const cookie of ['standard','development']) {
+        const {context,page}=await contextFor(cookie,width,theme,true);
+        await page.goto(base+'/kodi');
+        if(width<=960) await page.locator('[data-menu-toggle]').click();
+        const screenshot=`before-${cookie}-nav-${width}-${theme}.png`;
+        await page.locator('[data-admin-sidebar]').screenshot({path:path.join(evidence,screenshot)});report.screenshots.push(screenshot);
+        await context.close();
       }
-      report.checks.push({device,keyboard:'Selector Enter, visible focus, installation polling focus, disclosure Space/Escape',installation:'Controlled 409, acquiring, validation failure, Retry; no real acquisition',deepLinks:'Both managed Home hashes valid in Standard'});
-      await context.close();
     }
-    const noJS = await browser.newContext({baseURL,storageState,javaScriptEnabled:false,viewport:{width:390,height:844}});
-    const page = await noJS.newPage();
-    await page.goto('/');
-    await Promise.all([page.waitForNavigation(),page.getByRole('button',{name:'Development',exact:true}).click()]);
-    assert.equal(await page.locator('#admin-navigation').isVisible(),true);
-    assert.equal(await page.getByRole('button',{name:'Development',exact:true}).getAttribute('aria-pressed'),'true');
-    await Promise.all([page.waitForNavigation(),page.getByRole('button',{name:'Standard',exact:true}).click()]);
-    assert.equal(await page.getByRole('link',{name:'Open managed registrations and recovery'}).isVisible(),true);
-    report.checks.push({noJavaScript:'Both view switches and primary navigation work'});
-    await noJS.close();
-    assert.deepEqual(report.errors,[]);
-    console.log(JSON.stringify({layouts:report.layouts.length,axeStates:report.accessibility.length,screenshots:report.screenshots.length,errors:report.errors.length}));
+    // Preserved bookmarks and query strings use the original redirect contract.
+    const {context,page}=await contextFor('missing',375,'light');
+    for(const fragment of ['instances','managed-details']) {
+      await page.goto(base+'/?from=bookmark#'+fragment);
+      await page.waitForURL('**/managed-instances?from=bookmark#'+fragment);
+    }
+    await page.goto(base+'/kodi?from=bookmark#omega');
+    assert.equal(await page.locator('#admin-navigation a[aria-current]').getAttribute('href'),'/kodi#managed-kodi-heading');
+    // Resizing preserves usable focus when the mobile Menu button becomes hidden.
+    const menu=page.locator('[data-menu-toggle]');await menu.focus();
+    await page.setViewportSize({width:1440,height:900});
+    await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-current')==='page');
+    await context.close();
+    const noJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:320,height:900}});
+    await noJS.route('**/*',async route=>{
+      const url=new URL(route.request().url());
+      if(url.pathname.startsWith('/static/')) return route.fulfill({path:path.join(source,path.basename(url.pathname))});
+      return route.fulfill({contentType:'text/html',body:fixtures.missing['/kodi'].replaceAll('https://127.0.0.1',base)});
+    });
+    const basic=await noJS.newPage();await basic.goto(base+'/kodi');
+    assert.equal(await basic.locator('#admin-navigation').isVisible(),true);
+    assert.equal(await basic.locator('#admin-navigation li a').count(),7);await noJS.close();
+    assert.deepEqual(report.errors,[]);assert.deepEqual(report.mutations,[]);
+    if(before) {
+      const embed=file=>'data:image/png;base64,'+fs.readFileSync(path.join(evidence,file)).toString('base64');
+      const rows=[];
+      for(const width of [1440,375,320]) for(const theme of ['light','dark']) {
+        const files=[`before-standard-nav-${width}-${theme}.png`,`before-development-nav-${width}-${theme}.png`,`after-nav-${width}-${theme}.png`];
+        rows.push(`<section><h2>${width}px · ${theme}</h2><div class="comparison">${files.map((file,index)=>`<figure><figcaption>${['Before: Standard','Before: Development','After: unified'][index]}</figcaption><img alt="${file}" src="${embed(file)}"></figure>`).join('')}</div></section>`);
+      }
+      fs.writeFileSync(path.join(evidence,'navigation-comparison.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Kodi Lab navigation comparison</title><style>body{font:16px system-ui;margin:2rem;background:#eee;color:#222}.comparison{display:flex;flex-wrap:wrap;gap:1rem}figure{margin:0}figcaption{font-weight:bold;padding:.5rem 0}img{max-width:100%;height:auto;vertical-align:top}section{border-top:1px solid #888;margin-top:2rem}</style><h1>Kodi Lab #248: unified navigation</h1><p>Before: exact PR #254 head. After: disposable rendered fixtures. All requests intercepted; no runtime or production actions. All four legacy cookie states produce the same seven links.</p>${rows.join('')}</html>`);
+    }
+    console.log(JSON.stringify({layouts:report.layouts.length,axeStates:report.accessibility.length,screenshots:report.screenshots.length,mutations:report.mutations.length,errors:report.errors.length}));
   } finally {
-    fs.writeFileSync(`${evidence}/browser-report.json`,JSON.stringify(report,null,2));
+    fs.writeFileSync(path.join(evidence,'browser-report.json'),JSON.stringify(report,null,2));
     await browser.close();
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

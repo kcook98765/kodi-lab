@@ -161,7 +161,7 @@ def test_agents_requires_deliberate_preset_and_supported_config(
     )
     assert custom.status_code == 201
     page = client.get("/mcp-clients").text
-    assert "<h1>Agents</h1>" in page
+    assert "<h1>Agents &amp; Permissions</h1>" in page
     assert page.index("Create or select a client") < page.index("Create custom preset")
     assert '<option value="" selected>Choose a preset' in page
     recommended = re.search(
@@ -284,7 +284,10 @@ def test_agents_get_preserves_authority_and_never_recovers_token(
     assert 'data-token-result tabindex="-1"' in page
     assert "<code data-token></code>" in page
     assert '<details class="agent-client-details">' in page
-    assert '<details data-agent-advanced class="agent-advanced">' in page
+    assert (
+        '<details id="agent-advanced" data-agent-advanced class="agent-advanced">'
+        in page
+    )
     assert 'Client name <input name="display_name" value="My agent"' in page
     assert 'aria-label="Policy for Living room"' in page
     assert f'data-target-id="{household}"' in page
@@ -298,15 +301,7 @@ def test_agents_get_preserves_authority_and_never_recovers_token(
     ]:
         assert f'data-action="{action}"' in page
     assert "Exact permissions to grant" in page
-    assert "Development access and workspace bindings" in page
-
-
-@pytest.fixture(autouse=True)
-def development_admin_view(request: pytest.FixtureRequest) -> None:
-    """Original full-administration presentation remains available."""
-    if "client" in request.fixturenames:
-        client: TestClient = request.getfixturevalue("client")
-        client.cookies.set("kodi_lab_admin_view", "development")
+    assert "Advanced permissions and development access" in page
 
 
 @pytest.mark.parametrize("view", ["standard", "development"])
