@@ -456,6 +456,14 @@ def test_lost_http_result_requires_status_then_new_version_without_repeating_chi
         )
     assert response.status_code == 503 and "private" not in response.text
     assert response.json()["status_url"] == status["status_url"]
+    if stage == "startup":
+        # Start queues native readiness independently of the lost HTTP result.
+        # Finish that existing work before asserting status/continuation is passive.
+        readiness = env.app.state.kodi_lab.readiness
+        with readiness._lock:
+            future = readiness._entries[UUID(status["instance"]["target_id"])].future
+        assert future is not None
+        future.result(timeout=5)
     before = counts(env)
     saved = client.get(status["status_url"]).json()
     assert saved["checkpoint"] == "confirmed" and counts(env) == before
