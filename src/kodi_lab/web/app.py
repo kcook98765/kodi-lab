@@ -3171,8 +3171,18 @@ def create_app(
     async def mcp_administration_failure(
         _request: Request, error: McpAdministrationError
     ) -> JSONResponse:
-        status_code = 404 if error.code.endswith("_not_found") else 409
+        status_code = (
+            410
+            if error.code == "production_visual_scope_retired"
+            else 404
+            if error.code.endswith("_not_found")
+            else 409
+        )
         message = {
+            "production_visual_scope_retired": (
+                "Visual scopes are retired. Use Allow screenshots on the external "
+                "Kodi, or revoke its inspection access. No visual scope was changed."
+            ),
             "read_only_inspection_permission_required": (
                 "The client preset lacks target.inspect."
             ),

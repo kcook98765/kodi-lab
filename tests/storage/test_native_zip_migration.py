@@ -75,7 +75,7 @@ def test_repository_artifacts_prevent_destructive_downgrade(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0005_managed_web"
+            == "0006_external_screenshots"
         )
         assert (
             connection.scalar(

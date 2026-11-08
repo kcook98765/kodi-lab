@@ -1,0 +1,11 @@
+{% macro screenshot_preference(target_id) -%}
+<div data-screenshot-preference="{{ target_id }}">
+  <label for="screenshots-{{ target_id }}">Allow screenshots</label>
+  <select id="screenshots-{{ target_id }}" aria-describedby="screenshot-help-{{ target_id }}" disabled>
+    <option value="false">Off</option>
+    <option value="true">On</option>
+  </select>
+  <p id="screenshot-help-{{ target_id }}">When On, agents authorized to inspect this exact Kodi can receive screenshots, including agents you authorize later. Verified screenshot support is still required. Agents may keep copies outside Kodi Lab. Off blocks new capture and delivery of cached screenshots.</p>
+  <p data-preference-status role="status" aria-live="polite">Loading screenshot setting…</p>
+</div>
+{%- endmacro %}

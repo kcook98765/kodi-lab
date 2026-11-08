@@ -58,7 +58,7 @@
     card.querySelector("[data-capability-operation]")?.addEventListener("click", (event) => run(async () => {
       const operation = event.currentTarget.dataset.capabilityOperation;
       const warning = operation === "add"
-        ? "Add screenshot only to the operator-approved maximum? This creates no bridge trust, visual scope, acknowledgement, or screenshot authority."
+        ? "Add screenshot only to the operator-approved maximum? This creates no bridge trust, inspection access, acknowledgement, or screenshot authority."
         : "Remove screenshot from the approved maximum? This permanently stales bridge-derived scopes, trust, pairing material, and live approvals; old authority cannot revive automatically.";
       if (!confirm(warning)) return;
       await request(`/api/production-targets/${id}/capability-amendments`, "POST", {

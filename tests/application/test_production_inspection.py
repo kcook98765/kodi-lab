@@ -471,7 +471,7 @@ def test_wrong_client_target_and_client_preset_are_denied(
         )
 
 
-def test_exact_inspection_catalog_denies_visual_control_and_credential_mismatch(
+def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_checks(
     production_inspection: _Environment,
 ) -> None:
     env = production_inspection
@@ -479,11 +479,17 @@ def test_exact_inspection_catalog_denies_visual_control_and_credential_mismatch(
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
     )
     env.authorization.authorize_target(env.principal, "inspect_ui_state", env.target_id)
-    for tool_name in ("screenshot_capture", "remote_action"):
+    with pytest.raises(McpAuthorizationError, match="bridge_not_paired"):
+        env.authorization.authorize_target(
+            env.principal, "screenshot_capture", env.target_id
+        )
+    for tool_name in ("screenshot_retrieve", "remote_action"):
         with pytest.raises(McpAuthorizationError, match="permission_denied"):
             env.authorization.authorize_target(env.principal, tool_name, env.target_id)
 

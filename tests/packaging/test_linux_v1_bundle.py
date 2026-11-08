@@ -36,7 +36,7 @@ canonical = bundle_tool["canonical"]
 digest = bundle_tool["digest"]
 
 
-TEST_MIGRATION_HEAD = "0005_managed_web"
+TEST_MIGRATION_HEAD = "0006_external_screenshots"
 
 
 def _archive(

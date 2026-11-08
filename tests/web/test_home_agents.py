@@ -172,14 +172,11 @@ def test_agents_requires_deliberate_preset_and_supported_config(
     )
     assert recommended is not None
     assert re.findall(r'<option value="([^"]+)"', recommended.group(1)) == [
-        p["id"]
-        for p in presets
-        if p["display_name"]
-        in ["Production Inspection", "Production Visual Inspection"]
+        p["id"] for p in presets if p["display_name"] == "Production Inspection"
     ]
     assert custom.json()["id"] not in recommended.group(1)
     assert "read-only health, add-on and UI-state inspection" in page
-    assert "if you also need screenshots" in page
+    assert "Allow screenshots" in page
     configuration = re.search(r'<pre id="agent-config"[^>]*>(.*?)</pre>', page, re.S)
     assert configuration is not None
     template = json.loads(configuration.group(1))

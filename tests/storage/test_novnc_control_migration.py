@@ -67,7 +67,7 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0005_managed_web"
+            == "0006_external_screenshots"
         )
         assert connection.scalar(text("SELECT count(*) FROM novnc_sessions")) == 1
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"

@@ -21,6 +21,7 @@ from kodi_lab.application.mcp_administration import (
     McpPrincipal,
 )
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
+from kodi_lab.application.screenshot_preferences import ScreenshotPreferenceService
 from kodi_lab.development.deployment import capture_development_tree
 from kodi_lab.domain import ExternalBridgePairingState, ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient
@@ -104,6 +105,13 @@ def _seed(factory: sessionmaker[Session], target_id: UUID) -> None:
                 last_observed_at=NOW,
             )
         )
+    # Capture fixtures explicitly opt in; new registrations default OFF.
+    ScreenshotPreferenceService(factory).update(
+        target_id,
+        enabled=True,
+        expected_revision=1,
+        administrator_reference="fixture_admin",
+    )
 
 
 def _service(

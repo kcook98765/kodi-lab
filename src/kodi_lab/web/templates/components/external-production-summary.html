@@ -32,9 +32,9 @@
   <section aria-labelledby="{{ 'screenshots-heading' if detail else 'screenshots-' ~ target.target_id }}">
     <h{{ 3 if detail else 4 }} id="{{ 'screenshots-heading' if detail else 'screenshots-' ~ target.target_id }}">Screenshots and privacy</h{{ 3 if detail else 4 }}>
     <dl><dt>Capture preference</dt><dd>{% if kodi.preference %}{{ 'Enabled' if kodi.preference.enabled else 'Disabled' }}{% else %}Unavailable{% endif %}</dd></dl>
-    <p>Screenshots are ordinary read-only inspection. This preference is independent of the access mode; it does not grant capture permission.</p>
+    <p>Screenshots are ordinary read-only inspection. Agents also need authenticated inspection access to this exact Kodi.</p>
     {% if not kodi.preference %}<p class="notice">The capture preference could not be read. Screenshot availability must not be assumed.</p>{% elif not kodi.preference.enabled %}<p class="notice">Screenshots are disabled by your capture preference.</p>{% endif %}
-    <p>Capture also requires a verified Bridge connection and separate screenshot authorization for your agent. This page does not change your preference.</p>
+    <p>Capture also requires verified screenshot support and a trusted Bridge connection.</p>
     {% if kodi.bridge and kodi.bridge.http_screenshot_cleartext_warning %}<p class="notice"><strong>HTTP privacy warning:</strong> screenshot pixels are not encrypted on your local network.</p>{% endif %}
   </section>
 </div>

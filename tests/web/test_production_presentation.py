@@ -136,8 +136,8 @@ def test_export_production_review_states(
         assert "Connection trust or setup needs review" in listing_html
         assert parser.trust_alert_advanced == [False]
     for html in pages.values():
-        assert "does not grant capture permission" in html
-        assert "separate screenshot authorization" in html
+        assert "authenticated inspection access to this exact Kodi" in html
+        assert "trusted Bridge connection" in html
         if case == "unavailable":
             assert "Kodi Lab cannot start it for you" in html
         if case in {"disabled", "disabled-trust-failure", "retired"}:

@@ -47,9 +47,9 @@ def test_grouped_read_only_authorization_on_migrated_head(
             result = admin.authorize_production_read_only(
                 client.id, target_id, expected
             )
-            assert result.visual_scope is not None
+            assert result.visual_scope is None
             assert result.inspection_scope.effective_state == "active"
-            admin.revoke_production_inspection_scope(result.visual_scope.scope_id)
+            admin.revoke_production_inspection_scope(result.inspection_scope.scope_id)
             expected = expected.model_copy(
                 update={
                     "expected_target_policy_revision": result.target_policy_revision
@@ -65,7 +65,7 @@ def test_grouped_read_only_authorization_on_migrated_head(
                         client_id=client.id, target_id=target_id
                     )
                 )
-                == 2
+                == 1
             )
     finally:
         engine.dispose()

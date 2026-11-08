@@ -100,7 +100,8 @@ This maximum is assigned before transport disclosure so its policy revision chan
 is included in the original binding. The incomplete-operation admission gate still
 blocks every intermediate target from MCP access.
 Production mutation suspension remains set. The independent screenshot preference
-initializes enabled from the configured maximum. Retries preserve a later explicit
+initializes OFF regardless of the configured maximum. Administrators may enable
+Allow screenshots on the individual external Kodi detail page. Retries preserve a later explicit
 administrator preference. Structured UI observation remains subject to the existing
 reviewed-build support and ordinary authorization checks.
 

@@ -953,7 +953,7 @@ def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
         assert retained is not None and retained.capture_id == retained_capture
 
 
-def test_discovery_filters_visual_permission_without_bypassing_target_policy(
+def test_inspection_includes_managed_screenshots_without_visual_permission(
     client: TestClient, database: sessionmaker[Session]
 ) -> None:
     administration = _administration(client)
@@ -983,14 +983,9 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
         item["name"]
         for item in _post(client, token, "tools/list").json()["result"]["tools"]
     ]
-    assert inspect_names == [
-        "addon_list",
-        "inspect_ui_state",
-        "log_read",
-        "target_list",
-        "target_status",
-    ]
-    denied = _post(
+    assert {"screenshot_capture", "screenshot_retrieve"} <= set(inspect_names)
+    _make_target_ready(client)
+    captured = _post(
         client,
         token,
         "tools/call",
@@ -999,27 +994,17 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
             "arguments": {"target_id": str(INSTANCE_ID)},
         },
     ).json()["result"]
-    _assert_tool_error(denied, "permission_denied")
-
-    with database.begin() as session:
-        session.add(
-            McpPresetPermissionRow(
-                preset_id=str(inspect_only_id), permission="target.visual"
-            )
-        )
-    expanded_names = [
-        item["name"]
-        for item in _post(client, token, "tools/list").json()["result"]["tools"]
-    ]
-    assert expanded_names == [
-        "addon_list",
-        "inspect_ui_state",
-        "log_read",
-        "screenshot_capture",
-        "screenshot_retrieve",
-        "target_list",
-        "target_status",
-    ]
+    assert not captured["isError"]
+    denied = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "screenshot_capture",
+            "arguments": {"target_id": str(uuid4())},
+        },
+    ).json()["result"]
+    _assert_tool_error(denied, "target_not_found_or_not_authorized")
 
 
 def test_remote_action_discovery_schema_replay_conflict_and_current_authority(

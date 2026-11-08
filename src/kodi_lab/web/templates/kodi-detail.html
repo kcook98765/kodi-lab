@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
 {% from 'components/external-production-summary.html' import production_summary %}
+{% from 'components/screenshot-preference.html' import screenshot_preference %}
+{% block head %}<script src="{{ url_for('static', path='/screenshot-preference.js') }}" defer></script>{% endblock %}
 {% set nav_section = 'external_production' %}
 {% block title %}{{ kodi.target.logical_name }} · Kodi Lab{% endblock %}
 {% block main_class %}kodi-page kodi-detail{% endblock %}
@@ -15,6 +17,7 @@
 <section class="kodi-panel" aria-labelledby="overview-heading">
   <h2 id="overview-heading">Overview</h2>
   {{ production_summary(kodi, detail=true) }}
+  {{ screenshot_preference(kodi.target.target_id) }}
 </section>
 <section class="kodi-panel" aria-labelledby="connection-heading">
   <h2 id="connection-heading">Connection</h2>

@@ -25,7 +25,7 @@ from kodi_lab.application.mcp_administration import (
     McpPrincipal,
 )
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
-from kodi_lab.application.production_inspection import PRODUCTION_VISUAL_PRESET_ID
+from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
 from kodi_lab.application.production_screenshots import (
     ProductionScreenshotError,
     ProductionScreenshotService,
@@ -124,7 +124,7 @@ def test_off_blocks_capture_and_on_preserves_authenticated_pairing(
         assert env.bridges.status(env.target_id) == before
         assert env.bridges.capture_screenshot(env.target_id, request_id=uuid4()).png
         assert env.fake.capture_count == 1
-        assert env.preference.read(env.target_id).revision == 3
+        assert env.preference.read(env.target_id).revision == 4
 
 
 @pytest.mark.parametrize("production", [False, True])
@@ -179,7 +179,7 @@ def test_disabled_and_old_revision_replay_never_returns_cached_pixels(
     with _paired(tmp_path, True) as env:
         service = ProductionScreenshotService(env.sessions, env.bridges)
         client = McpAdministrationService(env.sessions).create_client(
-            display_name="Receipt reader", preset_id=PRODUCTION_VISUAL_PRESET_ID
+            display_name="Receipt reader", preset_id=PRODUCTION_INSPECTION_PRESET_ID
         )
         request: dict[str, Any] = dict(
             client_id=client.id,
@@ -210,7 +210,7 @@ def test_policy_change_during_mcp_receipt_completion_suppresses_result(
     with _paired(tmp_path, True) as env:
         service = ProductionScreenshotService(env.sessions, env.bridges)
         client = McpAdministrationService(env.sessions).create_client(
-            display_name="Receipt reader", preset_id=PRODUCTION_VISUAL_PRESET_ID
+            display_name="Receipt reader", preset_id=PRODUCTION_INSPECTION_PRESET_ID
         )
         complete = service._complete
 
@@ -240,9 +240,13 @@ def test_mcp_authorization_and_final_publication_require_current_preference(
     with _paired(tmp_path, production) as env:
         admin = McpAdministrationService(env.sessions)
         preset = (
-            PRODUCTION_VISUAL_PRESET_ID
+            PRODUCTION_INSPECTION_PRESET_ID
             if production
-            else READ_ONLY_INSPECTION_PRESET_ID
+            else admin.create_custom_preset(
+                display_name="Ordinary inspection",
+                template_preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+                permissions=frozenset({"target.inspect"}),
+            ).id
         )
         client = admin.create_client(display_name="Reader", preset_id=preset)
         token = admin.issue_credential(client.id)
@@ -288,9 +292,6 @@ def test_mcp_authorization_and_final_publication_require_current_preference(
                 )
             admin.grant_production_inspection_scope(
                 client.id, env.target_id, identity_generation=1
-            )
-            admin.grant_production_visual_scope(
-                client.id, env.target_id, identity_generation=1, bridge_trust_revision=1
             )
         env.set_enabled(False)
         with pytest.raises(McpAuthorizationError, match="screenshots_disabled"):
@@ -451,7 +452,7 @@ def test_cas_and_database_guards_prevent_revision_reset(tmp_path: Path) -> None:
                 env.preference.update(
                     env.target_id,
                     enabled=False,
-                    expected_revision=1,
+                    expected_revision=2,
                     administrator_reference="test",
                 )
                 return "updated"
@@ -467,7 +468,7 @@ def test_cas_and_database_guards_prevent_revision_reset(tmp_path: Path) -> None:
         ):
             with pytest.raises(IntegrityError), env.sessions.begin() as session:
                 session.execute(text(sql))
-        assert env.preference.read(env.target_id).revision == 2
+        assert env.preference.read(env.target_id).revision == 3
 
 
 @pytest.mark.parametrize("production", [False, True])
@@ -518,7 +519,7 @@ def test_pending_receipt_after_process_loss_cannot_adopt_new_preference(
             pending = session.get(ExternalBridgeRequestReceiptRow, key)
             assert pending is not None
             assert pending.state == "pending"
-            assert pending.capture_preference_revision == 1
+            assert pending.capture_preference_revision == 2
         with pytest.raises(IntegrityError), env.sessions.begin() as session:
             session.execute(
                 text(
@@ -527,13 +528,13 @@ def test_pending_receipt_after_process_loss_cannot_adopt_new_preference(
                 )
             )
         fresh = restarted.capture_screenshot(env.target_id, request_id=uuid4())
-        assert fresh.preference_revision == 3
+        assert fresh.preference_revision == 4
         with env.sessions() as session:
             receipt = session.get(
                 ExternalBridgeRequestReceiptRow,
                 {"target_id": str(env.target_id), "request_id": str(fresh.capture_id)},
             )
-            assert receipt is not None and receipt.capture_preference_revision == 3
+            assert receipt is not None and receipt.capture_preference_revision == 4
 
 
 def test_disable_after_uncertain_dispatch_prevents_development_retry(

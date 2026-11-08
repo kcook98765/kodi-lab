@@ -957,7 +957,9 @@ def build_mcp_http_transport(
             name="screenshot_capture",
             title="Capture a Kodi screenshot",
             description=(
-                "Capture one authorized target and return native PNG image content."
+                "Capture one authorized target and return native PNG image content. "
+                "Requires inspection access to that exact Kodi. External Kodi also "
+                "requires Allow screenshots set to On."
             ),
             input_schema=_ScreenshotCaptureInput.model_json_schema(),
             output_schema=ScreenshotCaptureMetadata.model_json_schema(),
@@ -1403,7 +1405,8 @@ def build_mcp_http_transport(
                 "Reuse the capture returned by a managed remote_action with "
                 "observe_ui=true. Supply the same target_id, request_id "
                 "and capture_id. "
-                "Requires current visual authority. Captures expire after two minutes "
+                "Requires current inspection authority. "
+                "Captures expire after two minutes "
                 "and can be replaced sooner. Unavailable images are never recaptured "
                 "and navigation is never replayed."
             ),

@@ -81,7 +81,7 @@ caps at 100, and returns only bounded semantic add-on fields. It returns no path
 install directory, repository URL, cache location, raw Kodi result or internal
 database identity.
 
-`screenshot_capture` requires `target.visual`, an exact authorized target, exact
+`screenshot_capture` requires `target.inspect`, an exact authorized target, exact
 curated screenshot capability and reconciled acceptable runtime state. It makes
 at most one call to the existing durable screenshot service and returns official
 MCP native `ImageContent` with `mimeType=image/png` plus compact structured
@@ -102,8 +102,9 @@ Built-in Add-on Development, Read-only Inspection and Full Lab Control presets
 contain both `target.inspect` and `target.visual`. Phase 14 Slice 4A later
 activates the non-clonable Production Remote Kodi maximum only for external
 production. A client with only `target.inspect` discovers
-`addon_list`, `inspect_ui_state`, `target_list` and `target_status`; `target.visual` additionally
-reveals `screenshot_capture`. Discovery does not replace invocation-time exact
+`addon_list`, `inspect_ui_state`, `target_list`, `target_status`, `screenshot_capture`
+and managed-only `screenshot_retrieve`. Both external target classes require
+Allow screenshots set to On (default OFF); no visual permission or scope is needed. Discovery does not replace invocation-time exact
 grant, target policy, target-class, capability or state checks.
 
 ## Slice 4 replay-safe remote control

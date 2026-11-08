@@ -96,6 +96,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
                 "0003_managed_version_operations.py",
                 "0004_managed_clean_reset.py",
                 "0005_managed_web_intents.py",
+                "0006_external_screenshots.py",
             }
         )
         for kind in ("templates", "static"):

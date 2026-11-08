@@ -21,19 +21,19 @@
           <label>Permissions preset <select name="preset_id" required aria-describedby="agent-preset-help">
             <option value="" selected>Choose a preset…</option>
             <optgroup label="Read-only External Production Kodi inspection">
-              {% for preset in presets if preset.builtin and preset.assignable and preset.display_name in ['Production Inspection','Production Visual Inspection'] %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
+              {% for preset in presets if preset.builtin and preset.assignable and preset.display_name == 'Production Inspection' %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>
 
           </select></label>
-          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots for External Production Kodi. Neither production preset authorizes Kodi created by Kodi Lab.</p>
+          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Screenshots follow <strong>Allow screenshots</strong> on each external Kodi. This production preset does not authorize Kodi created by Kodi Lab.</p>
           <details>
             <summary>Inspection for Kodi created by Kodi Lab</summary>
             <ol>
-              <li>Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select only <strong>Inspect Kodi health, add-ons and UI state</strong> for inspection-only access.</li>
+              <li>Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select <strong>Inspect Kodi health, add-ons and UI state</strong> for read-only access, including supported screenshots.</li>
               <li>Choose that preset for this client and for your Kodi's policy. An unassigned Kodi policy denies access.</li>
               <li>Under this client's <strong>Kodi access</strong>, grant only that Kodi, then issue a token.</li>
             </ol>
-            <p>The built-in <strong>Read-only Inspection</strong> preset also includes screenshot permission. A custom preset with only <code>target.inspect</code> keeps inspection-only access.</p>
+            <p>The built-in <strong>Read-only Inspection</strong> preset also includes screenshot permission. A custom preset with only <code>target.inspect</code> also permits supported screenshots; external Kodi must have Allow screenshots set to On.</p>
           </details>
           <p>For managed or test Kodi and other presets, open <a href="#agent-advanced">Advanced administration</a>.</p>
           <button type="submit">Create client</button>
@@ -128,7 +128,7 @@
       </section>
       <section aria-labelledby="agent-verify-heading">
         <h2 id="agent-verify-heading">5. Verify read-only access</h2>
-        <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both external production inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
+        <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both external production inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots follow Allow screenshots on the individual Kodi.</p>
         <p class="secondary">If connection fails, check the selected transport, supported MCP version and token expiry. For either LAN method, check endpoint and network access; HTTPS also requires certificate trust. For stdio, check the installed command and local port. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
       </details>
@@ -155,7 +155,7 @@
           <label>Permission ceiling <select name="template_preset_id" required><option value="" selected data-permissions="">Choose a permission ceiling…</option>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
           {% set permission_labels = {
             'target.inspect': 'Inspect Kodi health, add-ons and UI state',
-            'target.visual': 'Capture Kodi screenshots',
+            'target.visual': 'Legacy visual permission (not required for screenshots)',
             'target.control': 'Control Kodi',
             'managed.lifecycle': 'Start and release managed Kodi',
             'managed.reset': 'Destructively replace an approved managed Kodi profile',
@@ -172,7 +172,7 @@
           } %}
           <fieldset class="agent-permissions"><legend>Exact permissions to grant</legend>
             {% for title, description, members in [
-              ('Read-only Kodi inspection', 'Observe Kodi without control or development access. Target grants and any required current scopes still apply.', ['target.inspect', 'target.visual']),
+              ('Read-only Kodi inspection', 'Observe Kodi without control or development access. Target grants and any required current scopes still apply.', ['target.inspect']),
               ('Kodi control', 'Allows actions that change Kodi state when the target and its scopes authorize them.', ['target.control']),
               ('Managed Kodi resources', 'Explicit opt-in to start the same granted managed instance, hold it awake, and release it when safe. External Kodi is excluded.', ['managed.lifecycle']),
               ('Managed version slots', 'Separate opt-in for version-oriented Status, approved cached preparation, Start and safe Stop of exact granted canonical targets. Does not grant Reset, downloads or workspace access.', ['managed.versions']),
