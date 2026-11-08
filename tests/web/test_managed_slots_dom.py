@@ -31,9 +31,14 @@ class Semantics(HTMLParser):
         self.descriptions: set[str] = set()
         self.buttons: list[dict[str, str | None]] = []
         self.dialogs: list[dict[str, str | None]] = []
+        self.advanced: list[bool] = []
+        self.action_locations: dict[str, list[bool]] = {}
+        self.field_locations: dict[str, list[bool]] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
+        if tag == "details":
+            self.advanced.append("data-slot-options" in attributes)
         if attributes.get("id"):
             assert attributes["id"] not in self.ids
             self.ids.add(str(attributes["id"]))
@@ -41,8 +46,17 @@ class Semantics(HTMLParser):
             self.descriptions.update(str(attributes.get(name) or "").split())
         if tag == "button" and "data-slot-action" in attributes:
             self.buttons.append(attributes)
+            action = str(attributes["data-slot-action"])
+            self.action_locations.setdefault(action, []).append(any(self.advanced))
         if tag == "dialog":
             self.dialogs.append(attributes)
+        for key in attributes:
+            if key.startswith("data-slot-"):
+                self.field_locations.setdefault(key, []).append(any(self.advanced))
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "details":
+            self.advanced.pop()
 
 
 def test_four_slots_have_accessible_confirmation_controls_and_mobile_layout(
@@ -57,8 +71,22 @@ def test_four_slots_have_accessible_confirmation_controls_and_mobile_layout(
     assert len(parser.dialogs) == 1
     assert 'type="checkbox" required data-slot-confirm-check' in page.text
     assert "<noscript>" in page.text
-    assert "<summary>Advanced</summary>" in page.text
+    assert page.text.count("<summary>Advanced options") == 4
+    assert "Open Screen" not in page.text and "View Screen" in page.text
+    assert parser.action_locations == {
+        "start": [False] * 4,
+        "stop": [False] * 4,
+        "reset": [True] * 4,
+    }
+    for field in ["preparation", "native", "technical", "advanced", "history"]:
+        assert parser.field_locations["data-slot-" + field] == [True] * 4
+    for field in ["state", "message", "clean", "recovery", "screen", "install"]:
+        assert parser.field_locations["data-slot-" + field] == [False] * 4
+    for field in ["request-message", "request-recovery", "resume"]:
+        assert parser.field_locations["data-slot-" + field] == [False]
+    assert "Stop keeps settings and add-ons" in page.text
+    assert "Choosing a different retained version keeps its saved profile" in page.text
     css = client.get("/static/managed-slots.css").text
-    assert "minmax(min(100%,20rem),1fr)" in css
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" in css
     assert "@media(max-width:40rem)" in css
     assert "min-height:44px" in css and ":focus-visible" in css

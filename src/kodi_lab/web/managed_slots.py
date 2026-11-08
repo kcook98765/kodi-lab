@@ -491,7 +491,7 @@ class ManagedSlotsWeb:
                     release=value.kodi_release,
                     state=value.state,
                     state_label={
-                        "empty": "Not prepared",
+                        "empty": "Not set up",
                         "stopped": "Stopped",
                         "starting": "Starting",
                         "running": "Running",
@@ -511,12 +511,22 @@ class ManagedSlotsWeb:
                     else "Needs review",
                     message=reason
                     or (
-                        "Kodi is ready to view. Complete setup below for "
-                        "add-on testing."
+                        "Kodi is running and ready to use."
                         if ready
+                        else "Kodi is starting. Wait for the current request to finish."
+                        if value.state == "starting"
                         else (
-                            "Stop keeps settings and add-ons. Reset prepares a clean "
-                            "profile."
+                            "Start Kodi uses this version's saved settings and add-ons."
+                        )
+                        if value.state == "stopped"
+                        else (
+                            "Kodi files are installed. Start Kodi prepares "
+                            "and starts this version."
+                        )
+                        if cache_ok
+                        else (
+                            "Use Create Managed Kodi to install this version "
+                            "before starting."
                         )
                     ),
                     snapshot=snapshot,

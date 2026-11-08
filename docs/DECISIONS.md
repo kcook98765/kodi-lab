@@ -7793,3 +7793,18 @@ as an authenticated, same-origin/session-CSRF protected redirect compatibility
 endpoint; expire its old cookie and save no view or authorization state. Keep
 legacy context exports constant for older templates. See the
 [dependency audit and navigation contract](UNIFIED-NAVIGATION.md).
+
+## D-0481: Everyday managed controls with local Advanced options
+
+Keep the existing four-version inventory, lifecycle services, exact status
+eligibility and receipt/controller contract. Lead each card with release, status,
+retention and Start/Stop/View Screen; use the existing Create Managed Kodi URL
+when installation is needed. Explain automatic ordinary preparation separately
+from Current Managed Kodi's add-on workspace selection.
+
+Place destructive Reset, technical preparation/identity, diagnostics and history
+inside the existing per-card disclosure. Keep its separate confirmation dialog,
+checkbox and focus restoration. Recovery, failure/protection messages, pending
+requests and Reset trust warnings stay primary even while Advanced is collapsed.
+No lifecycle, MCP, Preview, database, runtime or external-page changes. See the
+[DOM/receipt review and presentation contract](MANAGED-CONTROLS.md).
