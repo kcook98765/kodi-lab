@@ -418,7 +418,7 @@ class KodiTargetAdapterService:
         if target_type is TargetType.EXTERNAL_PRODUCTION:
             snapshot = self._production_snapshot(
                 target_id,
-                required_capabilities=frozenset({"target_inspect", "addon_inventory"}),
+                required_capabilities=frozenset({"target_inspect"}),
                 load_secret=True,
             )
             try:
@@ -428,14 +428,11 @@ class KodiTargetAdapterService:
                 ):
                     production_result = self._production_adapter(
                         snapshot
-                    ).get_production_inventory()
-                self._require_production_identity(
-                    snapshot,
-                    ProductionKodiIdentityResult(
-                        identity=production_result.inventory.identity,
-                        protocol_version=production_result.protocol_version,
-                    ),
-                )
+                    ).get_production_inventory(
+                        validate_identity=lambda result: (
+                            self._require_production_identity(snapshot, result)
+                        )
+                    )
                 return self._normalized_external_inventory(
                     target_id, production_result.inventory
                 )

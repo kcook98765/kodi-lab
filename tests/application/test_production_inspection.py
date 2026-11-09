@@ -102,7 +102,9 @@ class _Environment:
 
 
 @pytest.fixture
-def production_inspection(tmp_path: Path) -> _Environment:
+def production_inspection(
+    tmp_path: Path, request: pytest.FixtureRequest
+) -> _Environment:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'inspection.db'}")
     Base.metadata.create_all(engine)
     factory = create_session_factory(engine)
@@ -133,7 +135,9 @@ def production_inspection(tmp_path: Path) -> _Environment:
         host="192.168.50.21",
         port=8080,
         authentication_mode=ExternalAuthenticationMode.NONE,
-        configured_capabilities={"target_inspect", "addon_inventory"},
+        configured_capabilities=getattr(
+            request, "param", {"target_inspect", "addon_inventory"}
+        ),
     )
     observed = targets.probe(target.target_id)
     assert observed.pending_observation_id is not None
@@ -295,6 +299,252 @@ def test_exact_intersection_list_status_and_inventory_are_bounded_and_private(
     assert "/" not in inventory.addons[0].addon_id
 
 
+@pytest.mark.parametrize(
+    "production_inspection", [{"screenshot", "target_inspect"}], indirect=True
+)
+def test_inventory_is_an_ordinary_read_with_legacy_inspection_only_evidence(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    before = env.targets.get(env.target_id)
+    assert "addon_inventory" not in before.configured_capabilities
+    assert "addon_inventory" not in before.verified_capabilities
+    assert "addon_inventory" not in env.adapters.resolve(env.target_id).capabilities
+    inventory = env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert inventory.total_count == 1
+    assert inventory.addons[0].addon_id == "plugin.video.safe"
+    assert env.targets.get(env.target_id) == before
+    assert [call["method"] for call in env.calls] == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+        "Addons.GetAddons",
+    ]
+    with pytest.raises(McpAuthorizationError, match="rate_limited"):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert len(env.calls) == 4
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "method_missing",
+        "invalid_params",
+        "malformed",
+        "oversized",
+        "too_many",
+        "timeout",
+    ],
+)
+@pytest.mark.parametrize(
+    "production_inspection", [{"screenshot", "target_inspect"}], indirect=True
+)
+def test_inventory_support_is_proved_by_a_bounded_native_read(
+    production_inspection: _Environment, failure: str
+) -> None:
+    env = production_inspection
+    before = env.targets.get(env.target_id)
+    original = env.adapters._external_transport
+    assert original is not None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] != "Addons.GetAddons":
+            return original.handle_request(request)
+        env.calls.append(body)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("inventory timed out")
+        if failure == "oversized":
+            return httpx.Response(200, content=b"x" * 65_537)
+        if failure in {"method_missing", "invalid_params"}:
+            return httpx.Response(
+                200,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": body["id"],
+                    "error": {
+                        "code": -32601 if failure == "method_missing" else -32602,
+                        "message": "Unavailable",
+                    },
+                },
+            )
+        result = (
+            {"addons": [], "limits": {"start": 0, "end": 0, "total": 2_049}}
+            if failure == "too_many"
+            else {"addons": []}
+        )
+        return httpx.Response(
+            200, json={"jsonrpc": "2.0", "id": body["id"], "result": result}
+        )
+
+    env.adapters._external_transport = httpx.MockTransport(handler)
+    expected = {
+        "method_missing": "capability_unavailable",
+        "invalid_params": "capability_unavailable",
+        "malformed": "inventory_unavailable",
+        "oversized": "invalid_kodi_response",
+        "too_many": "response_too_large",
+        "timeout": "target_unreachable",
+    }[failure]
+    with pytest.raises(McpAuthorizationError, match=expected):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert [call["method"] for call in env.calls] == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+        "Addons.GetAddons",
+    ]
+    assert env.targets.get(env.target_id) == before
+    with pytest.raises(McpAuthorizationError, match="rate_limited"):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert len(env.calls) == 4
+
+
+@pytest.mark.parametrize("drift", ["name", "version", "protocol"])
+def test_inventory_checks_native_identity_before_requesting_addons(
+    production_inspection: _Environment, drift: str
+) -> None:
+    env = production_inspection
+    original = env.adapters._external_transport
+    assert original is not None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        response = original.handle_request(request)
+        document = json.loads(response.content)
+        if drift == "protocol" and body["method"] == "JSONRPC.Version":
+            document["result"]["version"]["minor"] = 1
+        elif body["method"] == "Application.GetProperties":
+            if drift == "name":
+                document["result"]["name"] = "Other Kodi"
+            elif drift == "version":
+                document["result"]["version"]["minor"] = 4
+        return httpx.Response(200, json=document)
+
+    env.adapters._external_transport = httpx.MockTransport(handler)
+    with pytest.raises(McpAuthorizationError, match="identity_mismatch"):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert [call["method"] for call in env.calls] == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+    ]
+    with env.factory() as session:
+        policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
+        assert policy is not None
+        assert policy.identity_generation == 2
+        assert policy.designation_state is ProductionDesignationState.INVALIDATED
+
+
+@pytest.mark.parametrize("missing", ["grant", "scope", "preset"])
+def test_inventory_requires_exact_target_authorization_before_native_io(
+    production_inspection: _Environment, missing: str
+) -> None:
+    env = production_inspection
+    if missing == "grant":
+        env.administration.remove_target_grant(env.client_id, env.target_id)
+    elif missing == "scope":
+        env.administration.revoke_production_inspection_scope(env.scope_id)
+    else:
+        with env.factory.begin() as session:
+            assignment = session.get(McpTargetPresetAssignmentRow, str(env.target_id))
+            assert assignment is not None
+            session.delete(assignment)
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert env.calls == []
+
+
+def test_inventory_scope_revocation_during_read_suppresses_result(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    original = env.adapters._external_transport
+    assert original is not None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = original.handle_request(request)
+        if json.loads(request.content)["method"] == "Addons.GetAddons":
+            env.administration.revoke_production_inspection_scope(env.scope_id)
+        return response
+
+    env.adapters._external_transport = httpx.MockTransport(handler)
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert len(env.calls) == 4
+
+
+def test_inventory_native_pages_and_mcp_cursor_remain_bounded(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    original = env.adapters._external_transport
+    assert original is not None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] != "Addons.GetAddons":
+            return original.handle_request(request)
+        env.calls.append(body)
+        start = body["params"]["limits"]["start"]
+        end = body["params"]["limits"]["end"]
+        assert end - start == 64
+        assert body["params"]["properties"] == ["name", "version", "enabled"]
+        items = [
+            {
+                "addonid": f"plugin.video.safe{index:03d}",
+                "name": f"Safe {index}",
+                "version": "1.0.0",
+                "enabled": True,
+                "type": "xbmc.python.pluginsource",
+            }
+            for index in reversed(range(start, min(end, 129)))
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": body["id"],
+                "result": {
+                    "addons": items,
+                    "limits": {"start": start, "end": start + len(items), "total": 129},
+                },
+            },
+        )
+
+    env.adapters._external_transport = httpx.MockTransport(handler)
+    first = env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert first.target_id == env.target_id and first.kodi_version == "21.3"
+    assert first.total_count == 129 and len(first.addons) == 50
+    assert first.next_cursor == "plugin.video.safe049"
+    env.now[0] += 30
+    second = env.tools.addon_list(
+        env.principal, target_id=env.target_id, cursor=first.next_cursor, limit=100
+    )
+    assert len(second.addons) == 79 and second.next_cursor is None
+    assert [item.addon_id for item in (*first.addons, *second.addons)] == [
+        f"plugin.video.safe{index:03d}" for index in range(129)
+    ]
+    assert len(first.model_dump_json().encode()) <= 65_536
+    assert len(second.model_dump_json().encode()) <= 65_536
+    assert [call["method"] for call in env.calls] == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+        "Addons.GetAddons",
+        "Addons.GetAddons",
+        "Addons.GetAddons",
+    ] * 2
+    env.now[0] += 30
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        env.tools.addon_list(env.principal, target_id=env.target_id, limit=101)
+    assert len(env.calls) == 12
+
+
 def test_ui_observation_production_native_fallback_requires_current_inspection_scope(
     production_inspection: _Environment,
 ) -> None:
@@ -383,8 +633,10 @@ def test_target_preset_removal_omits_and_denies_before_native_io(
     assert env.calls == []
 
 
+@pytest.mark.parametrize("tool_name", ["target_status", "addon_list"])
 def test_real_second_production_target_scope_isolation(
     production_inspection: _Environment,
+    tool_name: str,
 ) -> None:
     env = production_inspection
     target_b = env.targets.register(
@@ -407,13 +659,11 @@ def test_real_second_production_target_scope_isolation(
     )
     env.administration.grant_target(env.client_id, target_b.target_id)
 
-    env.authorization.authorize_target(env.principal, "target_status", env.target_id)
+    env.authorization.authorize_target(env.principal, tool_name, env.target_id)
     with pytest.raises(
         McpAuthorizationError, match="target_not_found_or_not_authorized"
     ):
-        env.authorization.authorize_target(
-            env.principal, "target_status", target_b.target_id
-        )
+        env.authorization.authorize_target(env.principal, tool_name, target_b.target_id)
     listed = env.tools.target_list(env.principal)
     assert [item.target_id for item in listed.targets] == [env.target_id]
     assert env.calls == []
@@ -422,9 +672,7 @@ def test_real_second_production_target_scope_isolation(
         env.client_id, target_b.target_id, identity_generation=1
     )
     assert scope_b.target_id == target_b.target_id
-    env.authorization.authorize_target(
-        env.principal, "target_status", target_b.target_id
-    )
+    env.authorization.authorize_target(env.principal, tool_name, target_b.target_id)
     listed_with_b = env.tools.target_list(env.principal)
     assert {item.target_id for item in listed_with_b.targets} == {
         env.target_id,
@@ -536,7 +784,7 @@ def test_mutation_vetoes_do_not_block_reads_but_target_state_does(
         )
 
 
-def test_invalidated_designation_and_missing_capability_are_denied(
+def test_invalidated_designation_is_denied_and_inventory_is_verified_on_read(
     production_inspection: _Environment,
 ) -> None:
     env = production_inspection
@@ -565,8 +813,8 @@ def test_invalidated_designation_and_missing_capability_are_denied(
             row, observation
         )
         bind_external_production_transition(session, row, policy, now=datetime.now(UTC))
-    with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
-        env.authorization.authorize_target(env.principal, "addon_list", env.target_id)
+    inventory = env.tools.addon_list(env.principal, target_id=env.target_id)
+    assert inventory.total_count == 1
 
 
 def test_live_identity_drift_revokes_trust_and_advances_generation_once(

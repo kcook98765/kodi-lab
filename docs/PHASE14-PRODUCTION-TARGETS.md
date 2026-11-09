@@ -185,6 +185,20 @@ remain below 64 KiB with existing raw JSON and path-leakage bounds. Connect,
 response and aggregate deadlines are one, two and four seconds. There is no
 bridge, filesystem read or automatic retry.
 
+Issue #267 makes production `addon_list` an ordinary `target.inspect` read,
+with the same exact-target grant, preset, current-generation inspect scope and
+confirmed native identity requirements. Production admission requires configured
+and verified `target_inspect`; it does not require a separately configured or
+previously verified `addon_inventory`. Native name, version and protocol are
+checked before requesting inventory. Only a successful bounded native inventory
+read establishes support for that invocation. Native method errors return
+`capability_unavailable`; malformed inventory remains `inventory_unavailable`.
+Stored configured/verified capabilities and confirmed observations are never
+promoted by MCP. Stored target summaries remain evidence-based and may omit
+`addon_list` for legacy registrations even though an authorized call can try the
+native read. External-development inventory keeps its existing capability gates.
+There is no add-on inventory permission or production registration checkbox.
+
 Live name/version/protocol drift atomically records one bounded mismatch
 observation, disables the target, advances generation once, invalidates
 designation and suspends target mutation authority, then returns

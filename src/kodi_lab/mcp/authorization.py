@@ -1101,7 +1101,11 @@ class McpAuthorizationService:
                 required_capabilities=(
                     frozenset({"target_inspect"})
                     if visual
-                    else definition.required_capabilities
+                    else (
+                        definition.production_required_capabilities
+                        if definition.production_required_capabilities is not None
+                        else definition.required_capabilities
+                    )
                 ),
             )
         except ProductionInspectionError as error:
