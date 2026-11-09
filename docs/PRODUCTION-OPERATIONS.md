@@ -95,18 +95,24 @@ bridge HMAC protection. Prefer normally validated HTTPS when available.
 - Enable Allow screenshots on the individual external Kodi when screenshots are
   intended. It defaults Off; no visual preset or scope is required. Legacy
   Production Visual Inspection assignments remain compatible.
-- `Production Remote Kodi` is only a maximum; grant it only when remote control
-  is intended.
-- Add `navigate` only for the seven standing navigation actions.
-- Add `request_transient_control` only when one-shot playback/volume requests
-  are intended.
-- Record the applicable HTTP screenshot/native-control acknowledgement when
-  using HTTP; prefer HTTPS.
+- For Up, Down, Left, Right, Back, Home and Info, turn on **Allow remote
+  navigation** on that Kodi. It defaults Off and uses the same exact-target
+  inspection access. No control preset, navigation scope or native-control HTTP
+  acknowledgement is needed for these seven actions.
+- Global emergency blocking and target mutation suspension override navigation
+  and prevent turning it On. Clearing a block never restores a disabled preference
+  or grants access; review the connection and opt in again.
+- Only separately approved playback/volume controls require the `Production
+  Remote Kodi` preset, `request_transient_control` scope, exact one-shot Web
+  approval and, over HTTP, the native-control risk acknowledgement.
+- Record the HTTP screenshot risk acknowledgement when using HTTP for pixels;
+  prefer HTTPS. HTTP does not encrypt navigation or screenshots.
 - Keep the global mutation block and per-target suspension set by default.
   Clearing either veto grants nothing by itself.
 
-Do not recommend the maximum preset by default. Screenshots use inspection
-authority plus the per-Kodi setting; remote control remains separate.
+Screenshots and the seven navigation actions use inspection authority plus their
+individual per-Kodi settings. Both settings default Off. Playback and volume
+retain their separate permission and approval protections.
 
 ## Manual upgrade
 

@@ -1,7 +1,7 @@
 # External Production Kodi presentation (#249)
 
 `/production-targets` remains the existing production registration inventory;
-`/kodi/{target_id}` remains its read-only detail page. Both use the existing
+`/kodi/{target_id}` remains its detail page. Both use the existing
 `KodiViews` stored-state projection and a shared summary macro. No new inventory,
 connection mechanism, classification, backend permission or lifecycle is added.
 
@@ -36,9 +36,11 @@ remain outside disclosures. Only an empty queue is collapsed. The deny-only
 global production control remains available locally under Advanced, automatically
 open when blocked, with a primary notice/link when the block is active.
 
-The detail page remains free of mutation controls. Its connection link targets
-the existing registration fragment; overview, access, screenshots, connection,
-global safety and reviewed-build bookmark IDs remain intact.
+The detail page lets administrators edit Kodi Lab's screenshot and navigation
+preferences; saving a preference does not send a command to Kodi. It has no
+process/container lifecycle controls. Its connection link targets the existing
+registration fragment; overview, access, screenshots, connection, global safety
+and reviewed-build bookmark IDs remain intact.
 
 ## Authority and limitations
 
@@ -55,6 +57,18 @@ inspection access and the exact target grant remain required, with the current
 production inspect scope, trusted Bridge and verified capability/transport checks.
 No separate visual preset or scope is required. Managed screenshots have no toggle.
 Changing this setting does not capture an image or repair Bridge trust.
+
+**Allow remote navigation — Off / On** also defaults OFF. With exact-target
+inspection access and verified support, On permits Up, Down, Left, Right, Back,
+Home and Info. No separate navigation scope, control preset or native-control
+HTTP acknowledgement is required for these actions. Global emergency blocking
+and target mutation suspension override the setting and prevent turning it On.
+Playback and volume keep their separate permissions and one-shot approval
+protections. The labeled control and its live status message show the current
+preference on the detail page; there is no duplicate recorded navigation value.
+Rejected or uncertain saves retain the last confirmed value and require a reload
+before another edit.
+
 An existing blocked onboarding record can be identified here, but the page cannot
 reconstruct its owner's in-browser request identity. The existing connection guide
 is linked without promising that an arbitrary saved request can be resumed.

@@ -21,6 +21,8 @@ const cases = fs.readdirSync(evidence).filter(f => /^case-.*\.json$/.test(f)).ma
         report.requests.push({url: target.pathname, method: request.method(), body: request.postDataJSON(), csrf: !!request.headers()['x-kodi-lab-csrf']});
         return route.fulfill({status: 403, json: {error: {code: 'permission_denied', message: 'Inspection permission denied.'}}});
       }
+      if (target.pathname.endsWith('/screenshot-preference')) return route.fulfill({json: {enabled: fixture.case !== 'screenshots-off', revision: 1}});
+      if (target.pathname.endsWith('/navigation-preference')) return route.fulfill({json: {enabled: false, revision: 1, blocked_reason: null}});
       if (fixture.pages[target.pathname + target.search]) return route.fulfill({contentType: 'text/html', body: fixture.pages[target.pathname + target.search].replaceAll('http://127.0.0.1', origin).replaceAll('https://127.0.0.1', origin)});
       if (target.pathname.startsWith('/static/')) {
         const file = path.join(old ? path.join(before, 'assets') : assets, path.basename(target.pathname));
@@ -52,12 +54,22 @@ const cases = fs.readdirSync(evidence).filter(f => /^case-.*\.json$/.test(f)).ma
         const summary = page.locator('[data-production-summary]');
         assert.equal(await summary.count(), 1);
         assert.equal(await summary.isVisible(), true);
-        assert.match(await summary.innerText(), /separate screenshot authorization/);
+        assert.match(await summary.innerText(), /Screenshots are ordinary read-only inspection/);
+        assert.match(await summary.innerText(), /authenticated inspection access to this exact Kodi/);
+        if (!listing) {
+          await page.waitForFunction(() => !document.querySelector('[data-screenshot-preference] select').disabled
+            && !document.querySelector('[data-navigation-preference] select').disabled);
+          assert.equal(await page.getByRole('combobox', {name: 'Allow screenshots', exact: true}).inputValue(), String(fixture.case !== 'screenshots-off'));
+          assert.equal(await summary.locator('dt').filter({hasText: /^Remote control$/}).count(), 0);
+        } else assert.equal(await summary.locator('dt').filter({hasText: /^Remote control$/}).count(), 1, 'The listing retains its recorded summary');
         if (fixture.case.includes('trust') || fixture.case === 'identity-mismatch') {
           assert.equal(await summary.getByRole('alert').isVisible(), true);
           assert.equal(await summary.getByRole('alert').evaluate(e => !!e.closest('details')), false);
         }
-        if (fixture.case === 'screenshots-off') assert.match(await summary.innerText(), /Screenshots are disabled by your capture preference/);
+        if (fixture.case === 'screenshots-off') {
+          if (listing) assert.match(await summary.innerText(), /Screenshots are disabled by your capture preference/);
+          else assert.equal(await summary.getByText('Screenshots are disabled by your capture preference.', {exact: true}).count(), 0, 'The detail preference has one displayed state');
+        }
         if (fixture.case === 'recovery') assert.equal(await summary.getByRole('link', {name: 'Review connection setup'}).isVisible(), true);
         if (listing) {
           const card = page.locator('[data-target-id]');
@@ -118,7 +130,7 @@ const cases = fs.readdirSync(evidence).filter(f => /^case-.*\.json$/.test(f)).ma
     const images = report.screenshots.filter(f => f.startsWith('after-')).map(file => {
       const old = file.replace('after-', 'before-');
       const image = f => `data:image/png;base64,${fs.readFileSync(path.join(evidence, f)).toString('base64')}`;
-      return `<section><h2>${file.slice(6, -4)}</h2><div><figure><figcaption>Before #256</figcaption><img src="${image(old)}"></figure><figure><figcaption>After</figcaption><img src="${image(file)}"></figure></div></section>`;
+      return `<section><h2>${file.slice(6, -4)}</h2><div><figure><figcaption>Before</figcaption><img src="${image(old)}"></figure><figure><figcaption>After</figcaption><img src="${image(file)}"></figure></div></section>`;
     });
     fs.writeFileSync(path.join(evidence, 'comparison.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>External Production Kodi comparison</title><style>body{font:16px system-ui;margin:24px;background:#eee;color:#171717}section div{display:flex;align-items:flex-start;gap:16px}figure{margin:0;flex:1;min-width:0}img{max-width:100%;height:auto;border:1px solid #555}figcaption{font-weight:bold;margin:8px}section{margin-bottom:32px}@media(max-width:700px){section div{display:block}}</style><h1>External Production Kodi: before / after</h1><p>Isolated recorded-state fixtures. No live Kodi, capture or production requests. Images include the full existing pages, including Advanced recovery sections.</p>' + images.join('') + '</html>');
     console.log(JSON.stringify({layouts: report.layouts.length, violations: 0, errors: 0, keyboard: report.keyboard.length, screenshots: report.screenshots.length}));
