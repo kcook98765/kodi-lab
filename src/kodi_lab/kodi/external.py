@@ -653,14 +653,25 @@ class NativeExternalKodiAdapter:
             items=tuple(sorted(records, key=lambda item: item.addon_id)),
         )
 
-    def get_production_inventory(self) -> ProductionKodiInventoryResult:
+    def get_production_inventory(
+        self,
+        *,
+        validate_identity: Callable[[ProductionKodiIdentityResult], None],
+    ) -> ProductionKodiInventoryResult:
         """Run the production identity preamble then fixed bounded inventory."""
 
         started = time.monotonic()
         try:
             with self._client() as client:
                 identity, protocol_version = self._production_preamble(client, started)
-                records = self._inventory_pages(client, started)
+                validate_identity(
+                    ProductionKodiIdentityResult(
+                        identity=identity, protocol_version=protocol_version
+                    )
+                )
+                records = self._inventory_pages(
+                    client, started, allow_method_error=True
+                )
         except (
             KodiAddonInventoryLimitExceededError,
             KodiAddonInventoryMalformedDataError,
@@ -702,7 +713,11 @@ class NativeExternalKodiAdapter:
         )
 
     def _inventory_pages(
-        self, client: httpx.Client, started: float
+        self,
+        client: httpx.Client,
+        started: float,
+        *,
+        allow_method_error: bool = False,
     ) -> list[KodiAddonInventoryRecord]:
         records: list[KodiAddonInventoryRecord] = []
         seen: set[str] = set()
@@ -722,7 +737,10 @@ class NativeExternalKodiAdapter:
                     "limits": {"start": start, "end": end},
                 },
                 started,
+                allow_method_error=allow_method_error,
             )
+            if result is _METHOD_UNAVAILABLE:
+                raise ExternalProbeError("capability_unavailable")
             if not isinstance(result, dict) or not set(result) <= {
                 "addons",
                 "limits",
