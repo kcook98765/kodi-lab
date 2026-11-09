@@ -86,6 +86,15 @@ computer; these requirements apply to the Kodi Lab server.
 These steps install Kodi Lab for the first time. Kodi is acquired separately
 when you choose **Create Kodi** after signing in.
 
+Choose how to access the Web UI **before installing**:
+
+| Where you will use Kodi Lab | Access choice |
+| --- | --- |
+| Only on the installation computer | **Default local HTTP:** `http://127.0.0.1:18100/login`. Simplest option; no certificate or proxy required. |
+| From other devices on a trusted private network | **Optional Ubuntu LAN HTTP:** choose `--web-lan-ip` during a fresh installation, as shown below. No certificate required. |
+| With encrypted browser access | **Optional HTTPS:** requires the [supported proxy configuration](docs/WEB-NETWORKING.md#https-with-a-user-managed-proxy) and certificate trust before login. |
+| On Windows/WSL2 | Follow the separate [Windows networking instructions](docs/WINDOWS-WSL2-INSTALL.md); Ubuntu's LAN HTTP flag is unavailable there. |
+
 With the prerequisites installed, download and run one installer script.
 On **Ubuntu**, use Bash:
 
@@ -93,6 +102,19 @@ On **Ubuntu**, use Bash:
 curl -fL https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install.py -o install-kodi-lab.py
 python3 install-kodi-lab.py bootstrap
 ```
+
+For **LAN Web access on a fresh Ubuntu installation**, replace the second command with:
+
+```sh
+python3 install-kodi-lab.py bootstrap --web-lan-ip YOUR_PRIVATE_IPV4
+```
+
+Replace `YOUR_PRIVATE_IPV4` with a private IPv4 address assigned to the Ubuntu
+server. After installation, open `http://YOUR_PRIVATE_IPV4:18100/login` from
+another LAN device.
+LAN HTTP sends passwords, sessions and screen/control traffic **unencrypted**.
+Use it only on a trusted private network; never add router port forwarding or
+expose it publicly. See [Web networking](docs/WEB-NETWORKING.md) for details.
 
 On **Windows**, use PowerShell after enabling Ubuntu's Docker Desktop/WSL2 integration:
 
@@ -106,15 +128,25 @@ and default to `~/kodi-lab-install`. Windows discovers that user's Linux home
 automatically. No manual checkout path is needed. The selected source commit is
 recorded; an exact commit can be selected with `--revision` / `-Revision`.
 
-It prompts for your private LAN repository address and Web administrator
-password, then builds/verifies the application bundle, initializes fresh state
-and starts services. Open **http://127.0.0.1:18100/login** on this computer,
+The scripts ask for your private LAN repository address, build/verify the
+application bundle and initialize fresh state. After you choose the Web
+administrator password, they start services. Open
+**http://127.0.0.1:18100/login** on this computer,
 sign in with your chosen password and continue
 with [First-Time Setup](#first-time-setup). See the
 [installer guide](docs/HOST-INSTALLER.md) for prerequisites, configuration,
 start/stop and recovery. Windows users follow the
 [WSL2 guide](docs/WINDOWS-WSL2-INSTALL.md), including its explicit repository
 forwarding setup.
+
+The prompted **Kodi add-on repository address** is separate from Web access.
+Local agents use `http://127.0.0.1:18100/mcp` with separate bearer-token
+authentication; Ubuntu's LAN Web listener rejects MCP.
+
+For an existing installation, follow the documented
+[mode-preservation and upgrade procedure](docs/WEB-NETWORKING.md#restarts-and-upgrades).
+Do not rerun `bootstrap` or add installation flags to a restart to change
+its saved access mode.
 
 ### Manual installation
 
