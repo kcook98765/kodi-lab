@@ -970,8 +970,12 @@ def build_mcp_http_transport(
             name="remote_action",
             title="Control Kodi with one semantic action",
             description=(
-                "Dispatch one replay-safe semantic remote action to an authorized "
-                "internal target."
+                "Dispatch one replay-safe semantic remote action. External Production "
+                "Kodi permits Up, Down, Left, Right, Back, Home and Info with "
+                "exact-target inspection access and Allow remote navigation On. "
+                "Other target classes require control authority; production "
+                "playback and volume retain their "
+                "separate approval controls."
             ),
             input_schema=_RemoteActionInput.model_json_schema(),
             output_schema=remote_action_output_schema,

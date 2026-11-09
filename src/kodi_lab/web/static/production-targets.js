@@ -28,11 +28,11 @@
       }
     }
   };
-  root.querySelector("[data-global-block]")?.addEventListener("click", (event) => run(async () => {
+  root.querySelectorAll("[data-global-block]").forEach((button) => button.addEventListener("click", (event) => run(async () => {
     const blocked = event.currentTarget.dataset.blocked === "true";
-    if (!confirm(blocked ? "Clear the global deny-only block? This grants no authority." : "Block all future production mutations?")) return;
+    if (!confirm(blocked ? "Clear the global deny-only block? This grants no authority." : "Turn remote navigation Off for every production Kodi and block higher-risk mutations?")) return;
     await request("/api/production-targets/mutation-control", "POST", {blocked: !blocked}); location.reload();
-  }));
+  })));
   root.querySelectorAll("[data-approval-id]").forEach((card) => card.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-approval-action-kind]"); if (!button) return;
     return run(async () => {

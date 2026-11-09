@@ -156,7 +156,7 @@ def test_detail_safe_auth_and_classification(
     assert 'data-status="connected">Connected' in page
     assert "21.3" in page and "Verified relationship" in page
     assert "08 Oct 2026, 12:00 UTC" in page
-    assert "Read-only" in page and "Not configured" in page
+    assert "Inspection access required" in page and "Navigation Off" in page
     assert 'class="kodi-diagnostics"' in page
     assert "<summary>Advanced options</summary>" in page
     assert (
@@ -366,11 +366,7 @@ def test_remote_configuration_is_not_authorization(
             advance_production_policy(policy, now=datetime.now(UTC))
     login(client)
     page = detail(client, household)
-    assert (
-        "Configured, currently suspended"
-        if suspended
-        else "Configured; separate authorization is required"
-    ) in page
+    assert ("Navigation Off") in page
     assert "These settings do not grant an agent access" in page
     assert "<button" not in page.split("<main ")[1]
 

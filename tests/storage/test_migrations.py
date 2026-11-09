@@ -69,7 +69,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0006_external_screenshots",)
+        ).fetchone() == ("0007_production_navigation",)
 
 
 def test_workspace_execution_recovery_schema_retains_historical_ineligibility(
@@ -203,7 +203,7 @@ def test_workspace_execution_recovery_schema_retains_historical_ineligibility(
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
     engine.dispose()
 
@@ -221,7 +221,7 @@ def test_historical_containment_schema_and_reinitialization(
     table = "historical_workspace_execution_containment_resolutions"
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
         assert table in inspect(connection).get_table_names()
         foreign_keys = {
@@ -549,7 +549,7 @@ def test_smoke_exception_upgrade_constraints_and_safe_downgrade(
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
         connection.execute(
             text(
@@ -787,7 +787,7 @@ def test_migrates_populated_reset_phase_history_and_keeps_contract(
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
     with engine.begin() as connection:
         connection.execute(
@@ -2107,7 +2107,7 @@ def test_uploaded_zip_schema_reinitialization(
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
     engine.dispose()
 
@@ -2144,7 +2144,7 @@ def test_zip_enablement_schema_reinitialization_and_mutation_kind(
     assert "original_managed_instance_id" not in foreign_keys
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006_external_screenshots"
+            "0007_production_navigation"
         )
         mutation_sql = connection.scalar(
             text(
@@ -4545,7 +4545,12 @@ def test_direct_state_guards_reject_revision_bypass_and_recreation(
         ):
             connection.execute(
                 text(
-                    "INSERT OR REPLACE INTO external_production_policies SELECT "
+                    "INSERT OR REPLACE INTO external_production_policies "
+                    "(target_id,designation_state,confirmed_observation_id,"
+                    "confirmed_observation_digest,identity_generation,policy_revision,"
+                    "mutations_suspended,designation_confirmed_by,"
+                    "designation_confirmed_at,designation_invalidated_at,created_at,"
+                    "updated_at) SELECT "
                     "target_id,designation_state,confirmed_observation_id,"
                     "confirmed_observation_digest,identity_generation,2,"
                     "mutations_suspended,designation_confirmed_by,"
@@ -4800,7 +4805,7 @@ def test_populated_upgrade_preserves_target_without_seeding_authority(
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0001_initial_release",
+        start_revision="head",
     )
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
@@ -4822,6 +4827,9 @@ def test_populated_upgrade_preserves_target_without_seeding_authority(
     )
     engine.dispose()
 
+    # Current services seed a policy; the actual old schema is then restored
+    # before exercising the populated forward transition.
+    command.downgrade(config, "0001_initial_release")
     command.upgrade(config, "head")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:

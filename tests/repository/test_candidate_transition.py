@@ -89,7 +89,7 @@ def migrations(
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
     (tree / "versions/0002_public_test.py").write_text(
         "from alembic import op\n"
-        "revision='0002_public_test'\ndown_revision='0006_external_screenshots'\n"
+        "revision='0002_public_test'\ndown_revision='0007_production_navigation'\n"
         "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
         "def downgrade(): op.execute('DROP TABLE future_marker')\n"
     )

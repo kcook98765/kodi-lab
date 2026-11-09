@@ -136,10 +136,9 @@ class KodiViews:
         status, label, note, bridge_label = connection_presentation(
             target, bridge, stage, anchor_verified, diagnostic_code
         )
-        remote_configured = "semantic_remote" in target.configured_capabilities
-        suspended = (
-            target.production_policy is None
-            or target.production_policy.mutations_suspended
+        navigation_on = bool(
+            target.production_policy
+            and target.production_policy.remote_navigation_enabled
         )
         return KodiView(
             target=target,
@@ -148,18 +147,10 @@ class KodiViews:
             status_label=label,
             status_note=note,
             bridge_label=bridge_label,
-            access_label=(
-                "Read-only with remote control configured"
-                if remote_configured and not suspended
-                else "Read-only"
-            ),
-            remote_label=(
-                "Configured, currently suspended"
-                if remote_configured and suspended
-                else "Configured; separate authorization is required"
-                if remote_configured
-                else "Not configured"
-            ),
+            access_label="Inspection access required",
+            remote_label="Navigation On (verified support required)"
+            if navigation_on
+            else "Navigation Off",
             preference=preference,
             onboarding_stage=stage,
             diagnostic_code=diagnostic_code,

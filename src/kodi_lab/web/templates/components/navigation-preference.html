@@ -1,0 +1,11 @@
+{% macro navigation_preference(target_id) -%}
+<div data-navigation-preference="{{ target_id }}">
+  <label for="navigation-{{ target_id }}">Allow remote navigation</label>
+  <select id="navigation-{{ target_id }}" aria-describedby="navigation-help-{{ target_id }}" disabled>
+    <option value="false">Off</option>
+    <option value="true">On</option>
+  </select>
+  <p id="navigation-help-{{ target_id }}">When On, agents authorized to inspect this exact Kodi may use Up, Down, Left, Right, Back, Home and Info, including agents you authorize later. Select, Context Menu, playback and volume receive no additional access. On permits these seven actions over this Kodi’s current verified connection; HTTP connections are unencrypted and require a trusted local network. Changing the connection or Bridge requires a new opt-in. Off stops new navigation and invalidates old requests.</p>
+  <p data-navigation-status role="status" aria-live="polite">Loading navigation setting…</p>
+</div>
+{%- endmacro %}

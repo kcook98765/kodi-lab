@@ -46,9 +46,9 @@ Included:
 - independent monotonic bridge trust revision and exact HTTP-risk history;
 - retained legacy visual-scope history and Production Visual Inspection identities;
 - replay-safe, rate/concurrency-bounded memory-only production screenshots;
-- immutable navigate scope and exact Production Remote Kodi maximum;
-- replay-safe, veto/rate/concurrency-bounded seven-action navigation;
-- separate exact native-HTTP control acknowledgement; and
+- one OFF-by-default per-Kodi navigation opt-in with ordinary inspection access;
+- replay-safe, rate/concurrency-bounded seven-action navigation;
+- separate exact native-HTTP control acknowledgement for higher-risk controls; and
 - immutable transient-request scope and generic grant identity;
 - Web-only pending/approve/deny/cancel administration;
 - atomic one-shot transient approval consumption and Phase 11 receipt claim;
@@ -342,61 +342,56 @@ dimensions, size, digest, outcome and timestamp metadata. The Web warns that
 screenshots can contain personal/media information and the receiving MCP client
 may persist them outside Kodi Lab.
 
-## Slice 4A constrained production navigation
+## Production remote navigation (#268)
 
-Migration `0050_production_navigation` extends the immutable scope vocabulary
-with `navigate`. Each row binds exact client, target, native generation and
-current reviewed bridge revision, requires active current inspect when created
-and used, and is terminal after revocation. Inspect revocation atomically
-revokes active visual and navigate dependents. Rollback of generation or bridge
-revision cannot make retained history effective.
+On each External Production Kodi detail page, **Allow remote navigation: Off / On**
+is OFF by default, including existing registrations. ON permits only Up, Down,
+Left, Right, Back, Home and Info for agents with ordinary authenticated inspection
+access to this exact target. The current credential/client, production inspection
+preset intersection, exact-target grant, current-generation inspect scope,
+confirmed native identity/designation and reviewed reachable Bridge remain required.
+No control permission, Production Remote Kodi preset, navigate scope or additional
+navigation confirmation is needed. Legacy scope records remain historical.
 
-The exact built-in Production Remote Kodi UUID is activated as immutable,
-assignable, non-clonable and production-only with maximum permissions
-`target.inspect`, `target.visual` and `target.control`. It is not self-granting.
-Screenshots use the current inspect scope and per-Kodi setting; navigation
-retains its independent scope. Narrower Production Inspection or Production Visual Inspection
-clients can safely use only their smaller intersection against a target
-assigned the remote maximum.
+The toggle is consent for those seven actions over the current verified connection.
+HTTP is unencrypted and requires a trusted LAN; HTTPS keeps certificate validation.
+Consent is bound to the confirmed native observation, native credential reference,
+identity generation, reviewed Bridge identity/trust revision and transport policy.
+A changed connection requires a new opt-in. It never creates the native HTTP
+control acknowledgement used by playback/volume approvals. Native technical support
+is proved by exact-method introspection before every send, independently of a
+legacy registration's configured/verified `semantic_remote` bit. Stored capability
+evidence is not promoted. Bridge HMAC authenticates the machine anchor, not the
+native command. The Bridge receives no navigation commands.
 
-The existing sixteen remote actions are centrally classified. Production
-allows only `up`, `down`, `left`, `right`, `back`, `home` and `info`.
-`context_menu` and `select` are prohibited, and `play_pause`, `stop`,
-`previous`, `next`, `volume_up`, `volume_down` and `mute_toggle` are hard denied
-until separately reviewed Slice 4B. External development remains unchanged.
+The existing sixteen-action classifier remains authoritative. Select and Context
+Menu remain prohibited. Playback, track and volume controls retain their separate
+control preset, request scope, exact one-shot approval, native HTTP acknowledgement
+and mutation vetoes. Inspection discovery of `remote_action` gives none of that
+access. Managed and external-development control authorization stays unchanged.
 
-Every new navigation claim binds current credential/client, exact presets,
-generic grant, inspect/navigate scope UUIDs, native generation, bridge revision,
-target policy revision, mutation epoch and applicable native-HTTP control
-acknowledgement into the existing Phase 11 receipt. The required bounded audit
-is created in the same transaction. Terminal exact replay is historical lookup
-for the same enabled authenticated client; changed target/action conflicts and
-pending/ambiguous work never redispatches.
+The global mutation latch and target mutation suspension continue to block
+higher-risk controls. Routine opt-in navigation is separate from those latches.
+**Emergency Block** atomically turns navigation OFF on every production Kodi,
+even when the higher-risk latch is already blocked. A later explicit per-Kodi ON
+can allow the seven actions while higher-risk mutations stay blocked. Clearing
+the global latch grants no authority and restores no navigation settings.
 
-Both mutation vetoes are checked before claim and after fresh bridge/native
-preflight immediately before send. The bridge supplies authenticated identity
-only and receives no control command. Native preflight uses Ping, protocol and
-application identity plus exact semantic-method introspection under one
-aggregate deadline, then sends one fixed mapped method without retry. HTTP
-requires separate immutable Web acknowledgement that bridge HMAC does not
-protect native JSON-RPC and HTTP adds no transport security. HTTPS retains
-ordinary certificate validation.
+The policy revision advances for every toggle transition. Receipts bind that
+revision, inspect scope, exact grant identity, native generation, Bridge revision,
+client/target presets and global epoch. Current authority is checked for replay
+and immediately before dispatch. OFF blocks replay; OFF then ON cannot revive
+old request IDs. Pending/ambiguous work never redispatches. An action already sent
+cannot be recalled; an authority change after acknowledgement is retained as
+`authority_changed_after_dispatch`.
 
-Replay lookup precedes new-work rate charge. Navigation is two actions/second
-per durable client-target with burst three, one mutation per target and four
-globally beneath the eight-operation external-native ceiling. Admission is
-immediate with no queue. Pending, ambiguous or incoherent production evidence is
-protected and continues to consume capacity. Only a coherent completed base
-receipt, binding and matching audit expire atomically after 30 days; cleanup
-cannot prune uncertainty into a duplicate, and capacity exhaustion rejects new
-work.
-
-Web administration exposes only preset assignment, navigate grant/revoke,
-dependency/revision/veto status and native-HTTP acknowledgement. There is no Web
-remote button or MCP grant management. The production registry is exactly
-`target_list`, `target_status`, `addon_list`, `screenshot_capture` and
-`remote_action`; the other ten tools remain denied. Local/mock tests only were
-used and no production Kodi or LAN host was contacted.
+Navigation remains two actions/second per client-target, burst three, beneath
+existing per-target/global native operation gates and deadlines, with one fixed
+mapped JSON-RPC method and no retries. Only coherent completed receipt/binding/
+audit bundles expire after 30 days. The narrow `0007_production_navigation`
+migration adds the policy setting and connection binding, permits null retired
+navigate-scope references in new receipts/audits, and preserves historical rows,
+indexes and triggers. Downgrade refuses enabled opt-ins or new receipt history.
 
 ## Slice 4B one-shot transient production control
 

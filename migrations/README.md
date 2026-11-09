@@ -70,3 +70,10 @@ revision/audit state. After downgrade, newly registered external targets again
 inherit the legacy default: enabled when their configured maximum includes
 `screenshot`. This limitation affects new registrations, not existing OFF choices.
 See D-0484 and issue #265.
+
+`0007_production_navigation` follows `0006_external_screenshots`. Existing and new
+production policies default remote navigation OFF. It adds the connection consent
+digest, extends the material revision guard, and allows new navigation receipts
+and audits to omit retired navigate-scope references. Historical rows, indexes,
+triggers and unrelated authority are preserved. Downgrade refuses active opt-ins
+or new receipt history that the predecessor cannot represent. See D-0486.

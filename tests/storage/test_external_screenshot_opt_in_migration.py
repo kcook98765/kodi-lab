@@ -29,7 +29,9 @@ OLD, NEW = "0005_managed_web", "0006_external_screenshots"
 def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
+    # Seed with current services, then restore the actual predecessor schema.
+    # Current production policy mappings include the later navigation opt-in.
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision="head")
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     preferences = ScreenshotPreferenceService(sessions)
@@ -53,12 +55,18 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
                 configured_capabilities={"target_inspect", "screenshot"},
             )
             ids.append(target.target_id)
+            preferences.update(
+                target.target_id,
+                enabled=True,
+                expected_revision=1,
+                administrator_reference="previous_admin",
+            )
             assert preferences.read(target.target_id).enabled
             if number:
                 preferences.update(
                     target.target_id,
                     enabled=False,
-                    expected_revision=1,
+                    expected_revision=2,
                     administrator_reference="previous_admin",
                 )
     admin = McpAdministrationService(sessions)
@@ -81,6 +89,7 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
                 connection_state="connected",
             )
         )
+    command.downgrade(config, OLD)
     with engine.connect() as connection:
         tables = set(inspect(engine).get_table_names()) - {
             "external_screenshot_preferences",
@@ -167,7 +176,15 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
         }
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    legacy_target = service.register(
+    legacy_service = ExternalTargetAdministrationService(
+        sessions,
+        target_type=TargetType.EXTERNAL_DEVELOPMENT,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "legacy-secrets", master_key=None, key_version=1
+        ),
+    )
+    legacy_target = legacy_service.register(
         logical_name="New after downgrade",
         protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
         host="192.168.50.43",
