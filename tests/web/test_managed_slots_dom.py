@@ -75,7 +75,13 @@ def test_four_slots_have_accessible_confirmation_controls_and_mobile_layout(
     client: TestClient,
 ) -> None:
     login(client)
-    page = client.get("/kodi")
+    page = client.get("/managed-kodi")
+    assert "<h1>Managed Kodi</h1>" in page.text
+    heading = page.text.split('<h2 id="managed-kodi-heading">', 1)[1].split("</h2>", 1)[
+        0
+    ]
+    assert "<span>Kodi versions</span>" in heading
+    assert "Managed Kodi" not in heading
     parser = Semantics()
     parser.feed(page.text)
     assert parser.descriptions <= parser.ids

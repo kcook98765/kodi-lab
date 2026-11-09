@@ -34,7 +34,7 @@ def test_add_kodi_requires_auth_and_preserves_legacy_page(client: TestClient) ->
     assert "frame-ancestors" in response.headers["content-security-policy"]
     assert response.headers["cache-control"] == "no-store"
     assert client.get("/pair-kodi").status_code == 200
-    assert 'href="/add-kodi"' in client.get("/kodi").text
+    assert 'href="/add-kodi?mode=home"' in client.get("/production-targets").text
 
 
 def test_add_kodi_recovery_namespace_changes_on_new_sign_in(client: TestClient) -> None:

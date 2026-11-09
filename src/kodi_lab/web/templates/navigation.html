@@ -6,7 +6,7 @@
   </div>
   <nav id="admin-navigation" class="admin-navigation" aria-label="Main navigation" data-admin-navigation>
     <ul>
-      {% for section, label, destination in [('kodi', 'Overview', '/kodi'), ('managed', 'Managed Kodi', '/kodi#managed-kodi-heading'), ('external_production', 'External Production Kodi', '/production-targets'), ('external_development', 'External Development Kodi', '/external-targets'), ('development', 'Development Tools', '/development'), ('agents', 'Agents & Permissions', '/mcp-clients'), ('settings', 'Advanced', '/settings')] %}
+      {% for section, label, destination in [('kodi', 'Overview', '/kodi'), ('managed', 'Managed Kodi', '/managed-kodi'), ('external_production', 'External Production Kodi', '/production-targets'), ('external_development', 'External Development Kodi', '/external-targets'), ('development', 'Development Tools', '/development'), ('agents', 'Agents & Permissions', '/mcp-clients'), ('settings', 'Advanced', '/settings')] %}
       <li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>
       {% endfor %}
     </ul>

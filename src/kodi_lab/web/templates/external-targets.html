@@ -110,7 +110,7 @@
       </section>
       {{ registration }}
       {% if include_retired %}<p><a href="/external-targets">Show current connections</a> · Showing current and retired connections.</p>{% else %}<details class="navigation-group"><summary>Connection history</summary><p><a href="/external-targets?include_retired=true">Connection history (including retired)</a></p></details>{% endif %}
-      <p><a href="/kodi">Back to Kodi environments</a></p>
+      <p><a href="/kodi">Back to Overview</a></p>
     {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', path='/screenshot-preference.js') }}" defer></script>
 <script src="{{ url_for('static', path='/external-targets.js') }}" defer></script>

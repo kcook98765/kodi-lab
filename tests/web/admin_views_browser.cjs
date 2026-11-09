@@ -15,7 +15,7 @@ const fixtures = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-routes.
 const apis = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-apis.json')));
 const installations = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-installations.json')));
 const destinations = [
-  ['Overview', '/kodi'], ['Managed Kodi', '/kodi#managed-kodi-heading'],
+  ['Overview', '/kodi'], ['Managed Kodi', '/managed-kodi'],
   ['External Production Kodi', '/production-targets'], ['External Development Kodi', '/external-targets'],
   ['Development Tools', '/development'], ['Agents & Permissions', '/mcp-clients'], ['Advanced', '/settings'],
 ];
@@ -45,8 +45,9 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
       return route.fulfill({json:{}});
     });
     const page=await context.newPage();
+    const requests=[]; page.on("request", request=>requests.push(new URL(request.url()).pathname));
     page.on('pageerror',error=>report.errors.push(error.message));
-    return {context,page};
+    return {context,page,requests};
   }
   async function checkLayout(page, info) {
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
@@ -59,8 +60,10 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
   try {
     for(const width of [1440,375,320]) for(const theme of ['light','dark']) {
       for(const cookie of ['missing','standard','development','invalid']) {
-        const {context,page}=await contextFor(cookie,width,theme);
+        const {context,page,requests}=await contextFor(cookie,width,theme);
         await page.goto(base+'/kodi');
+        assert.equal(requests.some(path=>path.startsWith('/api/')),false,'Overview makes no API calls');
+        assert.equal(await page.locator('main form, main button, [data-managed-slots]').count(),0);
         const nav=page.locator('#admin-navigation'),menu=page.locator('[data-menu-toggle]');
         const links=await nav.locator('li a').evaluateAll(items=>items.map(a=>[a.textContent.trim(),a.getAttribute('href')]));
         assert.deepEqual(links,destinations);assert.equal(await page.locator('[data-admin-view-form]').count(),0);
@@ -74,13 +77,18 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
         }
         await checkLayout(page,{width,theme,cookie,page:'overview-menu'});
         await nav.getByRole('link',{name:'Managed Kodi',exact:true}).click();
-        await page.waitForURL('**/kodi#managed-kodi-heading');
-        await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/kodi#managed-kodi-heading"]').getAttribute('aria-current')==='page');
-        assert.equal(await nav.getByRole('link',{name:'Managed Kodi',exact:true}).getAttribute('aria-current'),'page');
+        await page.waitForURL('**/managed-kodi');
+        await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/managed-kodi"]').getAttribute('aria-current')==='page');
+        assert.equal(await nav.locator('a[href="/managed-kodi"]').getAttribute('aria-current'),'page');
         assert.equal(await page.locator('[data-managed-slots] [data-slot]').count(),4);
-        await page.evaluate(()=>{location.hash='';});
+        await checkLayout(page,{width,theme,cookie,page:'managed-kodi'});
+        if(cookie==='missing') {
+          await page.screenshot({path:path.join(evidence,`managed-${width}-${theme}.png`),fullPage:true});
+        }
+        await page.goBack();
         await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/kodi"]').getAttribute('aria-current')==='page');
         if(cookie==='missing') {
+          await page.screenshot({path:path.join(evidence,`overview-${width}-${theme}.png`),fullPage:true});
           if(width<=960 && !await nav.isVisible()) await menu.click();
           const screenshot=`after-nav-${width}-${theme}.png`;
           await page.locator('[data-admin-sidebar]').screenshot({path:path.join(evidence,screenshot)});report.screenshots.push(screenshot);
@@ -121,14 +129,38 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
         await context.close();
       }
     }
+    // Render empty, disconnected and attention summaries from the same real
+    // controller fixtures; every request remains intercepted.
+    const overviewEvidence=process.env.KODI_OVERVIEW_EVIDENCE;
+    if(overviewEvidence) for(const width of [1440,375,320]) for(const theme of ['light','dark']) {
+      const {context,page,requests}=await contextFor('missing',width,theme);
+      for(const file of fs.readdirSync(overviewEvidence).filter(file=>file.endsWith('.html'))) {
+        const html=fs.readFileSync(path.join(overviewEvidence,file),'utf8');
+        await context.route(base+'/overview-case',route=>route.fulfill({contentType:'text/html',body:html.replaceAll('https://127.0.0.1',base)}));
+        requests.length=0;
+        await page.goto(base+'/overview-case');
+        assert.equal(await page.locator('h1').innerText(),'Overview');
+        assert.equal(requests.some(path=>path.startsWith('/api/')),false);
+        assert.equal(await page.locator('main form, main button, [data-managed-slots]').count(),0);
+        await checkLayout(page,{width,theme,page:file});
+        await context.unroute(base+'/overview-case');
+      }
+      await context.close();
+    }
     // Preserved bookmarks and query strings use the original redirect contract.
     const {context,page}=await contextFor('missing',375,'light');
     for(const fragment of ['instances','managed-details']) {
       await page.goto(base+'/?from=bookmark#'+fragment);
       await page.waitForURL('**/managed-instances?from=bookmark#'+fragment);
     }
-    await page.goto(base+'/kodi?from=bookmark#omega');
-    assert.equal(await page.locator('#admin-navigation a[aria-current]').getAttribute('href'),'/kodi#managed-kodi-heading');
+    for(const fragment of ['managed-kodi-heading','matrix','nexus','omega','piers']) {
+      await page.goto(base+'/development');
+      await page.goto(base+'/kodi?from=bookmark#'+fragment);
+      await page.waitForURL('**/managed-kodi?from=bookmark#'+fragment);
+      assert.equal(await page.locator('#admin-navigation a[aria-current]').getAttribute('href'),'/managed-kodi');
+      await page.goBack(); await page.waitForURL('**/development');
+      await page.goForward(); await page.waitForURL('**/managed-kodi?from=bookmark#'+fragment);
+    }
     // Resizing preserves usable focus when the mobile Menu button becomes hidden.
     const menu=page.locator('[data-menu-toggle]');await menu.focus();
     await page.setViewportSize({width:1440,height:900});

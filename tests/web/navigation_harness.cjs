@@ -23,7 +23,7 @@ function fixture(url, mobile = false) {
   let id = 0;
   function target() { const item = node(); item.toString = () => String(item.id); item.id = ++id; return item; }
   const toggle = target(), nav = target(), active = target(), managed = target(), sidebar = target(), heading = target();
-  active.attrs.href='/kodi';managed.attrs.href='/kodi#managed-kodi-heading';
+  active.attrs.href='/kodi';managed.attrs.href='/managed-kodi';
   active.href=active.attrs.href;managed.href=managed.attrs.href;
   active.closest=() => active;managed.closest=() => managed;
   nav.contains = el => el === active || el === managed;
@@ -82,16 +82,16 @@ f.emit(f.narrow, 'change');
 assert.equal(f.nav.hidden, false);
 assert.equal(f.document.activeElement, f.active);
 for(const hash of ['#managed-kodi-heading','#matrix','#nexus','#omega','#piers']) {
-  const f=fixture('/kodi?from=bookmark'+hash);
-  assert.deepEqual(f.replacements,[]);
-  assert.equal(f.managed.attrs['aria-current'],'page');
-  assert.equal(f.active.attrs['aria-current'],undefined);
-  f.location.hash='';f.emit(f.window,'hashchange');
-  assert.equal(f.active.attrs['aria-current'],'page');
-  assert.equal(f.managed.attrs['aria-current'],undefined);
+  for (const path of ['/', '/kodi']) {
+    const f=fixture(path+'?from=bookmark'+hash);
+    assert.deepEqual(f.replacements,['/managed-kodi?from=bookmark'+hash]);
+  }
+  const f=fixture('/kodi');f.location.hash=hash;f.emit(f.window,'hashchange');
+  assert.deepEqual(f.replacements,['/managed-kodi'+hash]);
 }
-for (const fragment of ['', '#managed-kodi-heading']) {
-  const f=fixture('/kodi'+fragment,true);
+for (const fragment of ['', '#main-content']) {
+  const f=fixture('/managed-kodi'+fragment,true);
+  f.managed.href='/managed-kodi#managed-kodi-heading';
   f.emit(f.toggle,'click');f.managed.focus();
   let prevented=false;
   f.emit(f.nav,'click',{target:f.managed,button:0,preventDefault(){prevented=true;}});
@@ -115,7 +115,7 @@ for(const [url,mobile] of [['/development',true],['/kodi?filter=home',true],['/k
   assert.equal(f.document.activeElement,f.managed);
 }
 {
-  const f=fixture('/kodi',true);f.heading.attrs.tabindex='0';f.emit(f.toggle,'click');
+  const f=fixture('/managed-kodi',true);f.managed.href='/managed-kodi#managed-kodi-heading';f.heading.attrs.tabindex='0';f.emit(f.toggle,'click');
   f.emit(f.nav,'click',{target:{closest:()=>f.managed},button:0});
   assert.equal(f.document.activeElement,f.heading);
   assert.equal(f.heading.attrs.tabindex,'0','Existing focus semantics are preserved');

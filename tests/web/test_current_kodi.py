@@ -302,7 +302,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
     login(client)
     for mode in ("standard", "development"):
         client.cookies.set("kodi_lab_admin_view", mode)
-        assert "Current Managed Kodi" in client.get("/kodi").text
+        assert "Current Managed Kodi" in client.get("/managed-kodi").text
         advanced = client.get("/settings").text
         for destination in (
             "/runtimes",
@@ -318,7 +318,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
 
 
 @pytest.mark.parametrize("mode", ["standard", "development"])
-def test_landing_prioritizes_version_slots_and_keeps_development_advanced(
+def test_overview_keeps_selected_development_and_operations_on_dedicated_pages(
     client: TestClient,
     database: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
@@ -336,11 +336,9 @@ def test_landing_prioritizes_version_slots_and_keeps_development_advanced(
     monkeypatch.setattr(context.status, "list_statuses", forbidden)
     page = client.get("/kodi").text
     assert 'class="current-kodi-card"' not in page
-    assert all(
-        f'data-slot="{version}"' in page
-        for version in ("matrix", "nexus", "omega", "piers")
-    )
-    assert "Current Managed Kodi development setup" in page
+    assert 'data-slot="' not in page
+    assert 'href="/managed-kodi"' in page
+    assert "Current Managed Kodi development setup" not in page
     assert "Session source" not in page
     assert "app.js" not in page
 
@@ -798,7 +796,9 @@ def test_expanded_page_preserves_selected_fences_and_adds_standalone_context(
         assert "data-view-workspace" not in page
 
 
-@pytest.mark.parametrize("path", ["/kodi", "/runtimes", f"/instances/{INSTANCE_ID}"])
+@pytest.mark.parametrize(
+    "path", ["/managed-kodi", "/runtimes", f"/instances/{INSTANCE_ID}"]
+)
 def test_shared_templates_tolerate_older_process_without_current_context(
     client: TestClient,
     database: sessionmaker[Session],
@@ -810,7 +810,7 @@ def test_shared_templates_tolerate_older_process_without_current_context(
     response = client.get(path)
     assert response.status_code == 200
     context = dict(cast(Any, response).context)
-    context.pop("current_kodi")
+    context.pop("current_kodi", None)
     if path == "/":
         # The new app also provides this value as a template global. Override
         # it explicitly to simulate an older process with no Add Kodi route.

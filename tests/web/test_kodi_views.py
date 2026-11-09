@@ -137,9 +137,9 @@ def test_empty_kodi_list(client: TestClient) -> None:
     login(client)
     page = client.get("/kodi")
     assert page.status_code == 200
-    assert "No External Production Kodi connected yet" in page.text
-    assert 'href="/add-kodi"' in page.text
-    assert 'class="kodi-card"' not in page.text
+    assert "No devices registered yet" in page.text
+    assert 'href="/production-targets"' in page.text
+    assert 'data-target-id="' not in page.text
 
 
 def test_detail_safe_auth_and_classification(
@@ -305,7 +305,7 @@ def test_authoritative_status(
             client.get("/production-targets").text
         )
     assert 'data-status="connected"' not in page
-    current = client.get("/kodi").text
+    current = client.get("/production-targets").text
     if field == "admin" and value == "deactivated":
         assert str(household) not in current
         history = client.get("/production-targets?include_retired=true").text
@@ -444,27 +444,24 @@ def test_multiple_household_and_development_separation(
         configured_capabilities={"target_inspect"},
     )
     client.cookies.set("kodi_lab_admin_view", "development")
-    page = client.get("/kodi").text
-    assert page.count('class="kodi-card"') == 2
+    page = client.get("/production-targets").text
+    assert page.count('class="kodi-panel"') == 2
     assert page.index("Bedroom") < page.index("Living room")
     assert f'href="/kodi/{second.target_id}"' in page
-    household_html = page.split(
-        '<section aria-labelledby="household-kodi-heading">', 1
-    )[1].split("</section>", 1)[0]
-    assert "Managed Kodi" not in household_html
-    assert "External Development Kodi" not in household_html
     with database() as session:
         managed_name = session.scalar(
             select(TargetRow.name).where(TargetRow.id == str(INSTANCE_ID))
         )
     assert managed_name is not None and escape(managed_name) not in page
-    assert "Current Managed Kodi" in page
-    assert page.count('class="managed-slot"') == 4
-    assert 'href="/development-session"' in page
+    overview = client.get("/kodi").text
+    assert "Living room" not in overview and "Bedroom" not in overview
+    assert 'data-slot="' not in overview
+    managed_page = client.get("/managed-kodi").text
+    assert managed_page.count('class="managed-slot"') == 4
+    assert "Current Managed Kodi" in managed_page
+    assert 'href="/development-session"' in managed_page
+    assert "Living room" not in managed_page and "Bedroom" not in managed_page
     assert "<script>not markup</script>" not in page
-    assert 'href="/development"' in page
-    assert 'href="/external-targets"' in page
-    assert "Target identifier" not in page and "fingerprint" not in page
     # Save real controller-rendered fixture HTML only when explicitly requested
     # by the browser validation runner. Never touches persistent preview data.
     if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):

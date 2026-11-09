@@ -29,7 +29,7 @@ def navigation(html: str) -> list[str]:
 
 NAVIGATION = [
     "/kodi",
-    "/kodi#managed-kodi-heading",
+    "/managed-kodi",
     "/production-targets",
     "/external-targets",
     "/development",
@@ -52,8 +52,10 @@ def test_unified_navigation_ignores_legacy_cookie(
         assert "Choose Development" not in page
         assert "data-standard-view" not in page
     page = client.get("/kodi").text
-    assert 'id="managed-kodi-heading"' in page
-    assert 'id="development-kodi-heading"' in page
+    assert 'id="managed-summary-heading"' in page
+    assert 'id="external_development-summary-heading"' in page
+    assert "data-managed-slots" not in page
+    assert 'id="managed-kodi-heading"' in client.get("/managed-kodi").text
     assert "Create custom preset" in client.get("/mcp-clients").text
     assert 'href="/agent-workspaces"' in client.get("/development").text
     assert 'data-mode-controls disabled aria-describedby="mode-help">' in (
@@ -205,6 +207,7 @@ def test_export_isolated_browser_fixtures(
             for path in [
                 "/",
                 "/kodi",
+                "/managed-kodi",
                 "/managed-instances",
                 "/production-targets",
                 "/external-targets",
@@ -218,8 +221,10 @@ def test_export_isolated_browser_fixtures(
                 "/runtimes",
             ]
         }
-        assert "Living room" in routes[mode]["/kodi"]
-        assert str(household) in routes[mode]["/kodi"]
+        assert "Living room" in routes[mode]["/production-targets"]
+        assert str(household) in routes[mode]["/production-targets"]
+        assert str(household) not in routes[mode]["/kodi"]
+        assert str(household) not in routes[mode]["/managed-kodi"]
     installations = client.get("/api/runtime-installations").json()
     assert [i["action"] for i in installations["installations"]] == [
         "install",

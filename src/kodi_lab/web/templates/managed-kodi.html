@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% set nav_section = 'managed' %}
+{% block title %}Managed Kodi · Kodi Lab{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/managed-slots.css') }}">{% endblock %}
+{% block main_class %}kodi-page{% endblock %}
+{% block content %}
+<h1>Managed Kodi</h1>
+<p>Use Kodi versions hosted inside Kodi Lab.</p>
+{% include 'components/managed-version-slots.html' %}
+<details class="kodi-diagnostics">
+  <summary>Advanced managed administration</summary>
+  <p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/managed-resources">Resource and idle settings</a></p>
+</details>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/managed-slots.js') }}" defer></script>{% endblock %}

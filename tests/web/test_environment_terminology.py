@@ -26,6 +26,7 @@ def test_export_terminology_review_pages(
     client.cookies.set("kodi_lab_admin_view", "development")
     paths = (
         "/kodi",
+        "/managed-kodi",
         "/add-kodi?mode=home",
         "/add-kodi?mode=development",
         "/create-kodi",
@@ -103,7 +104,7 @@ def test_current_managed_identity_is_distinct_from_version_slots(
     assert "Current Managed Kodi" in page.text
     assert "selected with an add-on workspace" in page.text
     assert "Selecting a retained version keeps the other profiles." in page.text
-    assert 'href="/kodi#managed-kodi-heading"' in page.text
+    assert 'href="/managed-kodi"' in page.text
     assert set(IdentityLabels(page.text).types) == {"managed"}
     assert "data-managed-slots" not in page.text
     if has_selection:
@@ -112,7 +113,7 @@ def test_current_managed_identity_is_distinct_from_version_slots(
         assert f'data-rendered-target="{current["target_id"]}"' in page.text
     else:
         assert "No profile selected" in page.text
-    assert client.get("/kodi").text.count('class="managed-slot"') == 4
+    assert client.get("/managed-kodi").text.count('class="managed-slot"') == 4
 
 
 def test_grouped_identity_is_not_repeated_on_every_card(

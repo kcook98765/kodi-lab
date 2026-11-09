@@ -1,64 +1,44 @@
 {% extends 'base.html' %}
-{% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% from 'components/environment-identity.html' import environment_label %}
 {% set nav_section = 'kodi' %}
-{% block title %}Kodi environments · Kodi Lab{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/managed-slots.css') }}">{% endblock %}
-{% block main_class %}kodi-page{% endblock %}
+{% block title %}Overview · Kodi Lab{% endblock %}
 {% block content %}
-<div class="kodi-page-heading">
-  <div><h1>Kodi environments</h1><p>See where Kodi runs and review each environment’s status.</p></div>
-  <div class="actions">
-    <a class="button-link" href="/add-kodi">Connect External Kodi</a>
-    <a class="button-link" href="/mcp-clients">Connect an agent</a>
-  </div>
-</div>
-{% include 'components/managed-version-slots.html' %}
-<p class="secondary">Household connection status below reflects its last recorded checks.</p>
-<section aria-labelledby="household-kodi-heading">
-  <h2 id="household-kodi-heading">{{ environment_label('external_production') }}</h2>
-  {{ environment_ownership('external_production') }}
-  <p><a class="button-link" href="/add-kodi?mode=home">Connect {{ environment_identity('external_production').display_name }}</a></p>
-  {% if kodis %}
-  <ul class="kodi-grid">
-    {% for kodi in kodis %}
-    <li class="kodi-card" data-status="{{ kodi.status }}">
-      <h3>{{ kodi.target.logical_name }}</h3>
-      <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
-      <p class="kodi-card-note">{{ kodi.status_note }}</p>
-      <dl>
-        <dt>Kodi version</dt><dd>{{ kodi.target.kodi_version or 'Not yet known' }}</dd>
-        <dt>Access</dt><dd>{{ kodi.access_label }}</dd>
-      </dl>
-      <a class="button-link kodi-view-action" href="/kodi/{{ kodi.target.target_id }}" aria-label="View settings for {{ kodi.target.logical_name }}">View / Settings</a>
-      {% if kodi.target.administrative_state.value == 'enabled' %}<a class="button-link" href="/reconnect-kodi/{{ kodi.target.target_id }}">Reconnect</a>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="kodi-empty">
-    <h3>No External Production Kodi connected yet</h3>
-    <p>Connect your household Kodi to view its connection, access and screenshot settings here.</p>
-  </div>
+<h1>Overview</h1>
+<p>Your Kodi Lab at a glance.</p>
+<section class="navigation-group" aria-labelledby="system-heading">
+  <h2 id="system-heading">System summary</h2>
+  <p>Kodi Lab Web is available. Version {{ application_version }}.</p>
+  <p class="secondary">The summaries below use recorded information. They do not check whether Kodi or other services are ready now. Open a dedicated page to check current status.</p>
+  {% if overview.managed_attention or overview.production.attention or overview.development.attention %}
+  <p class="notice">Some Kodi versions or connections need attention. Review the summaries below.</p>
   {% endif %}
+  <p><a href="/settings">Advanced recovery and diagnostics</a></p>
 </section>
-<details class="kodi-diagnostics"><summary>Advanced managed Kodi administration</summary><p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/development-session">Current Managed Kodi development setup</a> · <a href="/settings">Security and Advanced settings</a></p></details>
-<section class="navigation-group" aria-labelledby="development-kodi-heading">
-  <h2 id="development-kodi-heading">{{ environment_label('external_development') }}</h2>
-  {{ environment_ownership('external_development') }}
-  <p>Connect a test device or open the existing development tools.</p>
-  <ul class="destination-list">
-    <li><a href="/development">Development sources and testing tools</a></li>
-    <li><a href="/external-targets">{{ environment_identity('external_development').display_name }}</a></li>
-    <li><a href="/add-kodi?mode=development">Connect {{ environment_identity('external_development').display_name }}</a></li>
-  </ul>
-</section>
-<details class="kodi-diagnostics">
-  <summary>Advanced administration</summary>
-  <ul class="destination-list">
-    <li><a href="/production-targets">External Kodi administration</a><p>Connection verification and existing advanced settings.</p></li>
-    <li><a href="/kodi-repository">Kodi Lab repository</a><p>Repository installation instructions and Bridge information.</p></li>
-  </ul>
-</details>
+<div class="kodi-grid">
+  <section class="kodi-card" aria-labelledby="managed-summary-heading">
+    <h2 id="managed-summary-heading">{{ environment_label('managed') }}</h2>
+    <p>Versions prepared: <strong>{{ overview.prepared }} of {{ overview.supported }}</strong>.</p>
+    <p class="secondary">Prepared means installation was recorded as ready.</p>
+    <p>Last recorded running: <strong>{{ overview.running|join(', ') if overview.running else 'None' }}</strong>.</p>
+    <p>Versions needing attention: <strong>{{ overview.managed_attention }}</strong>.</p>
+    <a href="/managed-kodi">Open Managed Kodi</a>
+  </section>
+  {% for kind, summary, destination in [('external_production', overview.production, '/production-targets'), ('external_development', overview.development, '/external-targets')] %}
+  <section class="kodi-card" aria-labelledby="{{ kind }}-summary-heading">
+    <h2 id="{{ kind }}-summary-heading">{{ environment_label(kind) }}</h2>
+    <p>Registered devices: <strong>{{ summary.total }}</strong>.</p>
+    {% if summary.total %}
+    <p>Last recorded checks: {{ summary.connected }} {{ 'connected' if kind == 'external_production' else 'reachable' }}, {{ summary.disconnected }} disconnected, {{ summary.attention }} needing attention, {{ summary.unknown }} unknown.</p>
+    {% else %}<p>No devices registered yet.</p>{% endif %}
+    <a href="{{ destination }}">Open {{ environment_identity(kind).display_name }}</a>
+  </section>
+  {% endfor %}
+  <section class="kodi-card" aria-labelledby="agents-summary-heading">
+    <h2 id="agents-summary-heading">Agents</h2>
+    <p>Registered clients: <strong>{{ overview.clients }}</strong>. Enabled: <strong>{{ overview.enabled_clients }}</strong>.</p>
+    <p class="secondary">Client configuration does not establish current connectivity or Kodi access.</p>
+    <a href="/mcp-clients">Open Agents &amp; Permissions</a>
+  </section>
+</div>
+<noscript><p>Looking for an old managed version bookmark? <a href="/managed-kodi">Open Managed Kodi</a>.</p></noscript>
 {% endblock %}
-
-{% block scripts %}<script src="{{ url_for('static', path='/managed-slots.js') }}" defer></script>{% endblock %}
