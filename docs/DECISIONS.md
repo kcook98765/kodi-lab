@@ -7862,3 +7862,26 @@ grants, pairing and unrelated state are untouched. Current external preference a
 revision checks continue to guard dispatch, replay and final pixel publication;
 OFF/ON cannot revive old cached pixels. No external retrieval tool, managed
 preference, screenshot archive, new storage or protocol change is introduced.
+
+## D-0485: Production add-on inventory proves native support on each inspection read
+
+Issue #267 makes production `addon_list` an ordinary exact-target `target.inspect`
+read. Legacy registration can have configured `screenshot,target_inspect` and
+verified `target_inspect` only, which previously prevented any inventory request.
+Production admission now requires configured and verified `target_inspect`, plus
+the unchanged confirmed identity, designation, credential, preset, grant and
+current-generation inspect scope. `addon_inventory` remains stored technical
+evidence, not a separate production read permission. Its absence does not imply
+that native Kodi lacks inventory support. The production registration form no
+longer presents an inventory checkbox.
+
+The existing native adapter validates fresh name/version/protocol before its
+fixed `Addons.GetAddons` read. Successful bounded inventory proves support only
+for that invocation; method errors report capability unavailable, never assumed
+support. No stored capability, confirmed observation or digest is rewritten.
+Existing 64-record native pages, 2,048-item ceiling, 64 KiB response bounds,
+one/two/four-second connect/response/total deadlines, 30-second client-target
+read limit, operation gates and post-read authorization remain. External
+development retains configured/verified inventory admission. No migration,
+Bridge/add-on protocol, production navigation authority or remote mutation is
+part of this change.

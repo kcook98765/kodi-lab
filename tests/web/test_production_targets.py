@@ -54,6 +54,13 @@ def test_production_web_flow_is_separate_two_step_and_web_only(
 ) -> None:
     assert client.get("/api/production-targets").status_code == 401
     csrf = login(client)
+    registration_page = client.get("/production-targets")
+    assert registration_page.status_code == 200
+    assert 'name="capability" value="addon_inventory"' not in registration_page.text
+    assert (
+        "Installed add-on inspection is included with inspection access"
+        in registration_page.text
+    )
     forged_class = _registration()
     forged_class["target_class"] = "external_development"
     assert (

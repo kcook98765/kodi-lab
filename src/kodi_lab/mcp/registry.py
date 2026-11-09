@@ -56,6 +56,7 @@ class McpToolDefinition:
     production_eligible: bool
     target_scope_required: bool
     scope: ToolScope = ToolScope.GLOBAL
+    production_required_capabilities: frozenset[str] | None = None
 
     @property
     def resolved_scope(self) -> ToolScope:
@@ -363,6 +364,10 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 }
             ),
             required_capabilities=frozenset({"target_inspect", "addon_inventory"}),
+            # Production inventory is an ordinary inspection read. Native
+            # support is proved by the bounded inventory request on each call,
+            # including registrations that predate inventory discovery.
+            production_required_capabilities=frozenset({"target_inspect"}),
             required_states=frozenset({"reconciled"}),
             rate_class=ToolRateClass.READ_BOUNDED,
             adapter="kodi_target.addon_inventory.list",
