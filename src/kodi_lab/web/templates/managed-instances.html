@@ -20,8 +20,8 @@
       {% endfor %}
       <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Advanced managed registrations need review: <span>{{ attention.names|join(', ') }}</span>. <a href="#instances">Review status</a></p>
       <section id="managed-details">
-      <p>Runtime, reset and lifecycle controls for development and testing. <a href="/development">All development tools</a></p>
-      <h2>Managed Kodi instances</h2>
+      <p>Advanced registrations, diagnostics and recovery. For everyday Start, Stop and View Screen, use <a href="/managed-kodi">Managed Kodi</a>. <a href="/development">All development tools</a></p>
+      <h2>Advanced managed registrations</h2>
       <p>Running slots: <strong data-managed-capacity>Loading</strong> · <a href="/managed-resources">Resource and idle settings</a></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}

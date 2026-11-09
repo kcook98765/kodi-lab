@@ -286,6 +286,7 @@ async function approved(app) {
   const complete = boot(); await reply(complete.requests[0], status(20, {complete:true, next_action:"complete", phase:"Ready", checkpoint:"complete", instance:{target_id:target, state:"stopped", details_url:`/instances/${target}`, message:"Stopped"}}));
   assert(complete.nodes.screen.hidden);
   assert(!complete.nodes.start.hidden);
+  assert.equal(complete.nodes.start.href, "/managed-kodi#omega");
   assert(complete.nodes.message.textContent.includes("currently stopped"));
   assert.equal(posts(complete).length, 0);
   complete.document.hidden = true; complete.document.dispatchEvent({type:"visibilitychange"});

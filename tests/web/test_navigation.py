@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,7 +61,9 @@ class Links(HTMLParser):
             self.ids.add(str(attributes["id"]))
 
 
-@pytest.mark.parametrize("path", ["/kodi", "/development", "/settings"])
+@pytest.mark.parametrize(
+    "path", ["/kodi", "/managed-kodi", "/development", "/settings"]
+)
 def test_landing_pages_keep_existing_authentication(
     client: TestClient, path: str
 ) -> None:
@@ -83,6 +85,7 @@ def test_landing_pages_keep_existing_authentication(
         ("/", "/kodi"),
         ("/managed-instances", "/settings"),
         ("/kodi", "/kodi"),
+        ("/managed-kodi", "/managed-kodi"),
         ("/add-kodi", "/production-targets"),
         ("/production-targets", "/production-targets"),
         ("/mcp-clients", "/mcp-clients"),
@@ -114,7 +117,7 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     assert navigation is not None
     assert re.findall(r'<a href="([^"]+)"', navigation.group()) == [
         "/kodi",
-        "/kodi#managed-kodi-heading",
+        "/managed-kodi",
         "/production-targets",
         "/external-targets",
         "/development",
@@ -134,12 +137,20 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
 def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
     login(client)
     destinations: set[str] = set()
-    for path in ["/", "/kodi", "/development", "/settings"]:
+    for path in [
+        "/",
+        "/kodi",
+        "/managed-kodi",
+        "/production-targets",
+        "/external-targets",
+        "/development",
+        "/settings",
+    ]:
         links = Links()
         links.feed(client.get(path).text)
-        destinations.update(links.destinations)
+        destinations.update(urljoin(path, link) for link in links.destinations)
     assert {
-        "/add-kodi",
+        "/add-kodi?mode=home",
         "/managed-instances",
         "/production-targets",
         "/external-targets",
@@ -157,7 +168,7 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
     for destination in sorted(destinations):
         url = urlsplit(destination)
         assert not url.netloc
-        response = client.get(url.path or "/")
+        response = client.get(url._replace(fragment="").geturl())
         assert response.status_code == 200, destination
         if url.fragment:
             links = Links()

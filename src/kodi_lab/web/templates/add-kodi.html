@@ -13,13 +13,13 @@
 {% block main_class %}household-panel{% endblock %}
 {% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}" data-home-label="{{ environment_identity('external_production').display_name }}" data-development-label="{{ environment_identity('external_development').display_name }}"{% endblock %}
 {% block content %}
-      <p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Connect External Kodi</p>
+      <p class="breadcrumb"><a href="/kodi">Overview</a> / Connect External Kodi</p>
       <h1>Connect External Kodi</h1>
       <p>Connect Kodi running on another device. Choose its purpose below; agent permissions remain separate.</p>
       <section aria-labelledby="managed-kodi-choice-heading">
         <h2 id="managed-kodi-choice-heading">{{ environment_label('managed') }}</h2>
         {{ environment_ownership('managed') }}
-        <p>Use <a href="/kodi#managed-kodi-heading">Start Managed Kodi</a> for an existing version, or <a href="/create-kodi">Create Managed Kodi</a> to install and prepare one. Existing retained profiles are kept. You can connect an agent later.</p>
+        <p>Use <a href="/managed-kodi">Start Managed Kodi</a> for an existing version, or <a href="/create-kodi">Create Managed Kodi</a> to install and prepare one. Existing retained profiles are kept. You can connect an agent later.</p>
       </section>
       <details class="household-details kodi-installation" data-installation>
         <summary>Install Kodi Lab Bridge</summary>
@@ -167,5 +167,5 @@
         {% set unified_add_kodi = true %}
         {% include 'development-pairing.html' %}
       </section>
-      <p><a href="/kodi">Back to Kodi environments</a></p>
+      <p><a href="/kodi">Back to Overview</a></p>
     {% endblock %}

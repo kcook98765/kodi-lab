@@ -30,9 +30,9 @@ def test_landing_empty_keeps_next_actions_and_advanced_controls(
     assert client.get("/", follow_redirects=False).status_code == 303
     login(client)
     page = client.get("/kodi").text
-    assert "No External Production Kodi connected yet" in page
-    assert 'href="/add-kodi"' in page
-    assert 'href="/mcp-clients">Connect an agent' in page
+    assert "No devices registered yet" in page
+    assert 'href="/production-targets"' in page
+    assert 'href="/mcp-clients">Open Agents &amp; Permissions' in page
     assert "Fixture and reset" not in page
     assert '<section id="managed-details"' not in page
     managed = client.get("/managed-instances").text
@@ -95,22 +95,19 @@ def test_home_household_is_recorded_and_network_free(
         event.remove(bind, "before_cursor_execute", record)
     assert response.status_code == 200
     primary = response.text
-    assert primary.count('class="kodi-card"') == 1
-    assert primary.count('class="managed-slot"') == 4
+    assert primary.count('class="kodi-card"') == 4
+    assert primary.count('class="managed-slot"') == 0
     assert "app.js" not in primary and "managed-resources.js" not in primary
-    assert "Living room" in primary
-    assert f'href="/kodi/{household}"' in primary
+    assert "managed-slots.js" not in primary
+    assert "Living room" not in primary
+    assert str(household) not in primary
+    assert "recorded information" in primary
+    assert "Registered devices: <strong>1</strong>" in primary
     assert (
-        "Household connection status below reflects its last recorded checks."
-        in primary
-    )
-    assert (
-        'data-status="disconnected"' in primary
+        "0 connected, 1 disconnected" in primary
         if unreachable
-        else 'data-status="connected"' in primary
+        else "1 connected, 0 disconnected" in primary
     )
-    if unreachable:
-        assert "Temporarily unreachable" in primary
     assert not [
         statement
         for statement in statements

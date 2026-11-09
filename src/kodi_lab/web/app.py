@@ -3673,6 +3673,9 @@ def create_app(
 
     @app.get("/kodi", response_class=HTMLResponse)
     def kodi_page(request: Request) -> Response:
+        from kodi_lab import __version__
+        from kodi_lab.web.overview import overview_summary
+
         try:
             authenticated = current_session(request)
         except HTTPException:
@@ -3682,9 +3685,22 @@ def create_app(
             "kodi.html",
             {
                 "csrf_token": authenticated.csrf_token,
-                "kodis": kodi_views.list(),
+                "overview": overview_summary(session_factory, kodi_views),
+                "application_version": __version__,
+            },
+        )
+
+    @app.get("/managed-kodi", response_class=HTMLResponse)
+    def managed_kodi_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "managed-kodi.html",
+            {
+                "csrf_token": authenticated.csrf_token,
                 "managed_slots": managed_web.status(managed_web_authority(request)),
-                "current_kodi": current_kodi.identity(),
             },
         )
 

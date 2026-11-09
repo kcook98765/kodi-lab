@@ -7,10 +7,10 @@
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/novnc-phase1.css') }}">{% endblock %}
 {% block content %}
 {% set current = current_kodi.current %}
-<p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Current Managed Kodi</p>
+<p class="breadcrumb"><a href="/kodi">Overview</a> / Current Managed Kodi</p>
 <p>{{ environment_label('managed') }}</p>
 {{ environment_ownership('managed') }}
-<p>Current Managed Kodi is the managed profile selected with an add-on workspace for development. The <a href="/kodi#managed-kodi-heading">four managed version slots</a> provide everyday Start, Stop and View Screen without a workspace. Selecting a retained version keeps the other profiles.</p>
+<p>Current Managed Kodi is the managed profile selected with an add-on workspace for development. The <a href="/managed-kodi">four managed version slots</a> provide everyday Start, Stop and View Screen without a workspace. Selecting a retained version keeps the other profiles.</p>
 <section data-development-session data-rendered-generation="{{ current.generation if current else '' }}" data-rendered-target="{{ current.target_id if current else '' }}" data-rendered-workspace="{{ current.workspace_id if current else '' }}" data-rendered-source="{{ current.source_id if current else '' }}" data-rendered-runtime="{{ current.runtime_revision_id if current else '' }}" data-rendered-container="{{ current.container_id or '' if current else '' }}">
   <div class="current-kodi-heading">
     <div><p class="eyebrow">Current Managed Kodi · development selection</p>
@@ -22,7 +22,7 @@
   </div>
   <p data-session-status role="status" aria-live="polite">Checking the selected environment…</p>
   <p data-current-recovery hidden><a data-current-recovery-link>Review the exact operation and recovery options</a></p>
-  <p><a class="button-link" href="/kodi">Start, Stop or Reset a Kodi version</a></p>
+  <p><a class="button-link" href="/managed-kodi">Start, Stop or Reset a Kodi version</a></p>
   <details><summary>Advanced development lifecycle controls</summary>
   <div class="actions current-lifecycle" aria-label="Kodi lifecycle">
     <button type="button" data-session-action="prepare" hidden disabled>Prepare Kodi</button>

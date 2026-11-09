@@ -17,7 +17,7 @@ const report={method:'Disposable real lifecycle/controller fixtures, fake broker
      const request=route.request(),url=new URL(request.url());
      assert.equal(url.origin,origin,'No external requests');
      if(request.method()!=='GET'){report.mutations.push(url.pathname);return route.fulfill({status:409,json:{message:'Fixture denies all mutations'}});}
-     if(url.pathname==='/kodi')return route.fulfill({contentType:'text/html',body:fixture.html.replaceAll('https://127.0.0.1',origin).replaceAll('http://127.0.0.1',origin)});
+     if(url.pathname==='/managed-kodi')return route.fulfill({contentType:'text/html',body:fixture.html.replaceAll('https://127.0.0.1',origin).replaceAll('http://127.0.0.1',origin)});
      if(url.pathname.startsWith('/static/')){const file=path.join(old?path.join(before,'assets'):assets,path.basename(url.pathname));return route.fulfill({path:file,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':undefined});}
      if(url.pathname==='/api/managed-kodi/slots')return route.fulfill({json:current});
      if(fixture.receipts[url.pathname])return route.fulfill({json:fixture.receipts[url.pathname]});
@@ -25,7 +25,7 @@ const report={method:'Disposable real lifecycle/controller fixtures, fake broker
      return route.fulfill({status:404,body:'Outside managed-card fixture'});
    });
    const page=await context.newPage();page.on('pageerror',error=>report.errors.push(error.message));
-   await page.goto(origin+'/kodi#managed-kodi-heading');
+   await page.goto(origin+'/managed-kodi#managed-kodi-heading');
    if(!old&&name==='uncertain-reset')await page.locator('[data-slot-request-recovery]:not([hidden])').waitFor();
    return {page,context,current};
  }

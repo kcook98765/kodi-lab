@@ -1,6 +1,6 @@
 # Everyday Managed Kodi controls (#249)
 
-The existing `/kodi#managed-kodi-heading` inventory keeps all four canonical
+The dedicated `/managed-kodi` page keeps all four canonical
 versions. Each card leads with the Kodi release, version name, status, profile
 retention guidance and Start / Stop / View Screen controls. Desktop uses two
 columns; narrow screens use one. View Screen is the former Open Screen control,

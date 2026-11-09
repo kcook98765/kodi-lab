@@ -57,7 +57,7 @@ def test_default_home_and_development_navigation(client: TestClient) -> None:
     page = client.get("/add-kodi").text
     assert 'name="kodi_use" value="home" checked' in page
     assert client.get("/add-kodi?mode=managed").status_code == 422
-    assert 'href="/add-kodi"' in client.get("/kodi").text
+    assert 'href="/add-kodi?mode=home"' in client.get("/production-targets").text
     assert 'href="/add-kodi?mode=development"' in client.get("/development").text
     assert 'href="/add-kodi?mode=development"' in client.get("/external-targets").text
     assert 'href="/pair-kodi">Pair Kodi' not in client.get("/development").text

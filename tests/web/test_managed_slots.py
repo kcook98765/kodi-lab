@@ -61,7 +61,7 @@ def test_four_version_cards_and_cached_empty_start_without_mcp_identity(
     client: TestClient, database: sessionmaker[Session], broker: Broker
 ) -> None:
     csrf = setup(client, database)
-    page = client.get("/kodi")
+    page = client.get("/managed-kodi")
     assert page.status_code == 200
     for version in ("matrix", "nexus", "omega", "piers"):
         assert f'data-slot="{version}"' in page.text
@@ -259,7 +259,7 @@ def test_refresh_and_replay_after_uncertain_provision_never_repeat_create(
     assert reply.json()["phase"] == "uncertain", reply.text
     counts = broker.provisions, broker.starts
     for _ in range(3):
-        assert client.get("/kodi").status_code == 200
+        assert client.get("/managed-kodi").status_code == 200
         assert client.get("/api/managed-kodi/slots").status_code == 200
         receipt = client.get("/api/managed-kodi/requests/" + original["request_id"])
         assert receipt.status_code == 200
@@ -302,7 +302,7 @@ def test_uncertain_reset_remains_visible_and_reading_never_replays_destruction(
     for _ in range(2):
         receipt = client.get("/api/managed-kodi/requests/" + original["request_id"])
         assert receipt.json()["can_resume"] is False
-        assert client.get("/kodi").status_code == 200
+        assert client.get("/managed-kodi").status_code == 200
     replay = act(client, csrf, "reset", payload=original)
     assert replay.status_code == 200 and replay.json()["phase"] == "uncertain"
     assert broker.removals == 1 and broker.provisions == 1
@@ -347,7 +347,7 @@ def test_concurrent_confirmation_fences_other_start_and_reset_and_reuses_request
                 current["state"] == "blocked"
                 and current["pending_request"] == original["request_id"]
             )
-            assert client.get("/kodi").status_code == 200
+            assert client.get("/managed-kodi").status_code == 200
             assert broker.removals == 0
         finally:
             proceed.set()
@@ -598,7 +598,7 @@ def test_playback_refusal_explains_the_next_action_without_stopping(
         )
         current = slot(client)
         assert current["stop"] and current["reset"]
-        assert client.get("/kodi").status_code == 200
+        assert client.get("/managed-kodi").status_code == 200
     response = act(client, csrf, action)
     assert response.status_code == 200 and response.json()["phase"] == "blocked", (
         response.text

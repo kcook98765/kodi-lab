@@ -75,7 +75,7 @@ def test_four_slots_have_accessible_confirmation_controls_and_mobile_layout(
     client: TestClient,
 ) -> None:
     login(client)
-    page = client.get("/kodi")
+    page = client.get("/managed-kodi")
     parser = Semantics()
     parser.feed(page.text)
     assert parser.descriptions <= parser.ids

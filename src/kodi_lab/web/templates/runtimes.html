@@ -14,7 +14,7 @@
         <ol>
           <li>Choose a reviewed version below and review its canonical instance name.</li>
           <li>Review and approve installation. The runtime is downloaded and validated; stable versions create their stopped instance automatically. Preview offers a separate Create managed instance step after validation.</li>
-          <li>Open <a href="/kodi#managed-kodi-heading">Managed Kodi</a> for everyday Start, Stop and View Screen controls.</li>
+          <li>Open <a href="/managed-kodi">Managed Kodi</a> for everyday Start, Stop and View Screen controls.</li>
         </ol>
         <p>For add-on testing, open <a href="/development">Development Tools</a>. In <a href="/development-session">Current Managed Kodi</a>, select a runtime and workspace, then use Prepare Kodi and Start Kodi. Each step requires a separate action.</p>
         <label>1. Kodi version <select data-setup-version><option value="">Choose a version…</option>{% for item in installations %}<option value="{{ item.generation }}">{{ item.display_name }} · {{ item.version }}</option>{% endfor %}</select></label>

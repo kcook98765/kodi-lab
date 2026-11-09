@@ -4,9 +4,10 @@
   // Fragments never reach the server. Replace the old entry in history so Back
   // returns to the previous page instead of redirecting through Home again.
   function redirectLegacyEntry() {
-    const managedFragment = ["#instances", "#managed-details"].includes(location.hash);
-    if (location.pathname === "/" || (location.pathname === "/kodi" && managedFragment)) {
-      const destination = managedFragment ? "/managed-instances" : "/kodi";
+    const registrationFragment = ["#instances", "#managed-details"].includes(location.hash);
+    const slotFragment = ["#managed-kodi-heading", "#matrix", "#nexus", "#omega", "#piers"].includes(location.hash);
+    if (location.pathname === "/" || (location.pathname === "/kodi" && (registrationFragment || slotFragment))) {
+      const destination = registrationFragment ? "/managed-instances" : slotFragment ? "/managed-kodi" : "/kodi";
       location.replace(destination + location.search + location.hash);
       return true;
     }
@@ -18,16 +19,6 @@
   if (!sidebar) return;
   const toggle = sidebar.querySelector("[data-menu-toggle]");
   const navigation = sidebar.querySelector("[data-admin-navigation]");
-  function markKodiSection() {
-    if (location.pathname !== "/kodi") return;
-    const managed = ["#managed-kodi-heading", "#matrix", "#nexus", "#omega", "#piers"].includes(location.hash);
-    for (const link of navigation.querySelectorAll('a[href="/kodi"], a[href="/kodi#managed-kodi-heading"]')) {
-      if (link.getAttribute("href") === (managed ? "/kodi#managed-kodi-heading" : "/kodi")) link.setAttribute("aria-current", "page");
-      else link.removeAttribute("aria-current");
-    }
-  }
-  markKodiSection();
-  window.addEventListener("hashchange", markKodiSection);
   const narrow = window.matchMedia("(max-width: 960px)");
   // CSS may hide the focused button before the media-query event arrives.
   let menuHadFocus = false;

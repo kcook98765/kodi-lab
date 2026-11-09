@@ -15,9 +15,9 @@ from kodi_lab.web.presentation import managed_next_step, state_label
 from tests.web.conftest import INSTANCE_ID, login
 
 
-def test_landing_has_four_slots_and_advanced_keeps_details(client: TestClient) -> None:
+def test_managed_has_four_slots_and_advanced_keeps_details(client: TestClient) -> None:
     login(client)
-    primary = client.get("/kodi").text
+    primary = client.get("/managed-kodi").text
     details = client.get("/managed-instances").text
     assert primary.count('class="managed-slot"') == 4
     for version in ("matrix", "nexus", "omega", "piers"):
@@ -139,10 +139,18 @@ def test_export_isolated_home_browser_fixtures(client: TestClient) -> None:
     login(client)
     routes = {
         path: client.get(path).text
-        for path in ("/", "/kodi", "/managed-instances", "/settings", "/development")
+        for path in (
+            "/",
+            "/kodi",
+            "/managed-kodi",
+            "/managed-instances",
+            "/settings",
+            "/development",
+        )
     }
     routes["/login"] = sign_in
-    assert "Current Managed Kodi" in routes["/kodi"]
+    assert "Current Managed Kodi" in routes["/managed-kodi"]
+    assert 'data-slot="' not in routes["/kodi"]
     if destination := os.getenv("KODI_LAB_CAMPAIGN_BROWSER_EVIDENCE"):
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)

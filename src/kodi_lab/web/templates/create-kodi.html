@@ -6,11 +6,11 @@
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/create-kodi.css') }}">{% endblock %}
 {% block main_class %}create-kodi-page{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="/kodi">Kodi environments</a> / Create Managed Kodi</p>
+<p class="breadcrumb"><a href="/managed-kodi">Managed Kodi</a> / Create Managed Kodi</p>
 <h1>Create Managed Kodi</h1>
 <p>{{ environment_label('managed') }}</p>
 {{ environment_ownership('managed') }}
-<p>Install and prepare a managed version. Existing retained profiles are kept. For everyday Start, Stop and View Screen, use the <a href="/kodi#managed-kodi-heading">managed version slots</a>. You can connect an agent later.</p>
+<p>Install and prepare a managed version. Existing retained profiles are kept. For everyday Start, Stop and View Screen, use the <a href="/managed-kodi">managed version slots</a>. You can connect an agent later.</p>
 <div data-create-kodi aria-busy="false">
   <section aria-labelledby="create-choice-heading">
     <h2 id="create-choice-heading">Choose your managed version</h2>

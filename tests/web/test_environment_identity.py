@@ -149,17 +149,20 @@ def test_identity_pages_keep_links_and_accessible_labels(
     overview = pages["/kodi"]
     assert set(IdentityLabels(overview).types) == {kind.value for kind in TargetType}
     for destination in (
-        f"/kodi/{household}",
-        f"/reconnect-kodi/{household}",
-        "/add-kodi",
-        "/add-kodi?mode=development",
+        "/managed-kodi",
+        "/production-targets",
         "/external-targets",
-        "/development-session",
+        "/mcp-clients",
     ):
         assert f'href="{destination}"' in overview
     assert 'data-status="connected"' in pages[f"/kodi/{household}"]
-    assert 'data-slot="omega"' in overview
-    assert 'data-slot-action="start"' in overview
+    assert 'data-slot="omega"' not in overview
+    managed = client.get("/managed-kodi").text
+    assert set(IdentityLabels(managed).types) == {"managed"}
+    assert 'data-slot="omega"' in managed
+    assert 'data-slot-action="start"' in managed
+    assert str(household) not in managed
+    assert "Living room" not in managed
     # Optional controller-rendered fixtures for an entirely intercepted browser.
     if evidence := os.getenv("KODI_ENVIRONMENT_IDENTITY_EVIDENCE"):
         output = Path(evidence)

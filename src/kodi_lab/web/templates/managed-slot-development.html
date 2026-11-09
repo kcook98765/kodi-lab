@@ -2,7 +2,7 @@
 {% set nav_section = 'development' %}
 {% block title %}Add-on testing · {{ slot.name }} · Kodi Lab{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="/kodi#{{ slot.version }}">Kodi environments</a> / Add-on testing</p>
+<p class="breadcrumb"><a href="/managed-kodi#{{ slot.version }}">Managed Kodi</a> / Add-on testing</p>
 <h1>Set up {{ slot.name }} for add-on testing</h1>
 <p>Starting Kodi and viewing its screen do not require a workspace. Development adds separate source, workspace, Bridge and agent permissions.</p>
 {% if slot.reset_note %}<p class="notice">Reset replaced this Kodi profile. Its previous Bridge trust, installed add-ons and deployment baselines cannot be reused.</p>{% endif %}
@@ -14,5 +14,5 @@
   <li><strong>Hand the prepared Kodi to your agent.</strong> Close your screen, finish control cleanup and Stop Kodi before the agent begins. The agent can Start the same prepared profile. For an intentional running handoff, <a href="{{ slot.resource_url }}">Advanced administrator keep-awake settings</a> accepts zero to end your own hold and recent use. That alternative leaves Kodi running; it does not clear another client's hold or prove Stop.</li>
 </ol>
 <p>The replacement is not automatically attached to an old container-bound development session. Fully automatic agent reattachment requires a separately reviewed coordinator; these existing setup steps preserve exact identity and workspace authority.</p>
-<p><a href="/kodi#{{ slot.version }}">Return to Kodi environments</a> · <a href="{{ slot.advanced_url }}">Advanced profile and Bridge details</a></p>
+<p><a href="/managed-kodi#{{ slot.version }}">Return to Managed Kodi</a> · <a href="{{ slot.advanced_url }}">Advanced profile and Bridge details</a></p>
 {% endblock %}

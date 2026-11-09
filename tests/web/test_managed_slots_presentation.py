@@ -38,7 +38,7 @@ def test_export_managed_card_review_states(
     cases: dict[str, object] = {}
 
     def capture(name: str) -> None:
-        response = client.get("/kodi")
+        response = client.get("/managed-kodi")
         assert response.status_code == 200
         status = client.get("/api/managed-kodi/slots").json()
         receipts = {}
@@ -48,7 +48,12 @@ def test_export_managed_card_review_states(
                 receipt = client.get(path)
                 assert receipt.status_code == 200
                 receipts[path] = receipt.json()
-        cases[name] = {"html": response.text, "status": status, "receipts": receipts}
+        cases[name] = {
+            "html": response.text,
+            "status": status,
+            "receipts": receipts,
+            "overview": client.get("/kodi").text,
+        }
 
     capture("installation-and-preparation")
     readiness = Event()
@@ -114,6 +119,6 @@ def test_plain_guidance_keeps_ordinary_setup_and_development_separate(
     assert retained["state"] == "stopped"
     assert "saved settings and add-ons" in retained["message"]
     assert "Reset" not in retained["message"]
-    page = client.get("/kodi").text
+    page = client.get("/managed-kodi").text
     assert 'href="/development-session">Current Managed Kodi' in page
     assert "Everyday Start, Stop and View Screen do not need a workspace" in page

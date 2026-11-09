@@ -41,8 +41,7 @@ async function context(generation) {
   await page.evaluate(async () => {
     await fetch("/login", {method:"POST", redirect:"manual", body:new URLSearchParams(new FormData(document.querySelector("form")))});
   });
-  await page.goto(base + "/kodi");
-  await page.getByRole("link", {name:"Create Managed Kodi", exact:true}).click();
+  await page.goto(base + "/create-kodi");
   if (generation !== "omega") await page.locator("[data-create-generation]").selectOption(generation);
   assert.equal(await page.locator("[data-create-start-after-setup]").isChecked(),false,"guided setup defaults to installed and stopped");
   await page.locator("[data-create-start-after-setup]").check();
