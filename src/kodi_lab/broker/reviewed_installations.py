@@ -242,10 +242,17 @@ def _installation_mounts_match(
         seen.add(destination)
         kind, source, writable = expected[destination]
         actual = mount.get("Name" if kind == "volume" else "Source")
+        # Docker may leave resolved Mode empty for a read-only bind. Require
+        # the exact RW boolean and the matching read-only request descriptor too.
+        modes = (
+            ("ro", "")
+            if kind == "bind" and not writable
+            else ("rw" if writable else "ro",)
+        )
         if (
             mount.get("Type") != kind
             or mount.get("RW") is not writable
-            or mount.get("Mode") != ("rw" if writable else "ro")
+            or mount.get("Mode") not in modes
             or not _source_matches(actual, source, desktop if kind == "bind" else None)
         ):
             return False
