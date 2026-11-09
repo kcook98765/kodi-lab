@@ -45,7 +45,7 @@ def _environment(tmp_path: Path, *, enabled: bool = True) -> Any:
     )
 
 
-def _tools(env: Any, remote: Any) -> McpTargetToolService:
+def _tools(env: Any, remote: Any, *, transient: Any = None) -> McpTargetToolService:
     receipts = McpRemoteActionReceiptService(env.factory, remote, _OuterLimiter())
     return McpTargetToolService(
         env.factory,
@@ -54,6 +54,7 @@ def _tools(env: Any, remote: Any) -> McpTargetToolService:
         cast(Any, None),
         cast(Any, None),
         remote_actions=receipts,
+        production_transient_approvals=transient,
     )
 
 
@@ -89,29 +90,202 @@ def test_default_off_and_no_navigation_grants_or_control_consent(
         )
 
 
+def _set_block(env: Any, block: str, *, enabled: bool = True) -> None:
+    from datetime import UTC, datetime
+
+    from kodi_lab.application.production_policy import advance_production_policy
+
+    with env.factory.begin() as session:
+        if block == "global":
+            control = session.get(ProductionMutationControlRow, 1)
+            assert control is not None
+            control.production_mutations_blocked = enabled
+            control.policy_epoch += 1
+        else:
+            policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
+            assert policy is not None
+            policy.mutations_suspended = enabled
+            advance_production_policy(policy, now=datetime.now(UTC))
+
+
+def _block_code(block: str) -> str:
+    return (
+        "production_mutations_blocked"
+        if block == "global"
+        else "production_target_mutations_suspended"
+    )
+
+
 @pytest.mark.parametrize("action", sorted(PRODUCTION_NAVIGATION_ACTIONS, key=str))
-def test_inspection_client_can_send_only_seven_actions_with_mutation_vetoes_set(
+def test_inspection_client_can_send_only_seven_actions_when_unblocked(
     tmp_path: Path, action: BrowserRemoteAction
 ) -> None:
     env = _environment(tmp_path)
-    with env.factory.begin() as session:
-        from datetime import UTC, datetime
-
-        from kodi_lab.application.production_policy import advance_production_policy
-
-        control = session.get(ProductionMutationControlRow, 1)
-        policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
-        assert control is not None and policy is not None
-        control.production_mutations_blocked = True
-        control.policy_epoch += 1
-        policy.mutations_suspended = True
-        advance_production_policy(policy, now=datetime.now(UTC))
     remote = _Remote()
     result = _tools(env, remote).remote_action(
         env.principal, target_id=env.target_id, request_id=uuid4(), action=action
     )
     assert isinstance(result, McpRemoteActionResult)
     assert result.outcome == "succeeded" and remote.sends == 1
+
+
+@pytest.mark.parametrize("block", ["global", "target"])
+@pytest.mark.parametrize("action", sorted(PRODUCTION_NAVIGATION_ACTIONS, key=str))
+def test_both_vetoes_deny_every_navigation_action_with_preference_on(
+    tmp_path: Path, block: str, action: BrowserRemoteAction
+) -> None:
+    env = _environment(tmp_path)
+    _set_block(env, block)
+    assert (
+        ProductionNavigationPreferenceService(env.factory).read(env.target_id).enabled
+    )
+    remote = _Remote()
+    with pytest.raises(McpAuthorizationError, match=_block_code(block)):
+        _tools(env, remote).remote_action(
+            env.principal, target_id=env.target_id, request_id=uuid4(), action=action
+        )
+    assert remote.calls == 0 and remote.sends == 0
+
+
+@pytest.mark.parametrize("block", ["global", "target"])
+@pytest.mark.parametrize("initially_enabled", [False, True])
+def test_toggle_on_cannot_override_blocks_and_off_remains_available(
+    tmp_path: Path, block: str, initially_enabled: bool
+) -> None:
+    from kodi_lab.application.production_inspection import ProductionInspectionError
+
+    env = _environment(tmp_path, enabled=initially_enabled)
+    preference = ProductionNavigationPreferenceService(env.factory)
+    _set_block(env, block)
+    before = preference.read(env.target_id)
+    assert before.blocked_reason == _block_code(block)
+    with pytest.raises(ProductionInspectionError, match=_block_code(block)):
+        preference.update(
+            env.target_id, enabled=True, expected_revision=before.revision
+        )
+    assert preference.read(env.target_id) == before
+    off = preference.update(
+        env.target_id, enabled=False, expected_revision=before.revision
+    )
+    assert off.enabled is False
+    _set_block(env, block, enabled=False)
+    current = preference.read(env.target_id)
+    assert current.enabled is False and current.blocked_reason is None
+    assert preference.update(
+        env.target_id, enabled=True, expected_revision=current.revision
+    ).enabled
+
+
+@pytest.mark.parametrize("block", ["global", "target"])
+def test_active_blocks_deny_navigation_replay_and_do_not_revive_old_requests(
+    tmp_path: Path, block: str
+) -> None:
+    env = _environment(tmp_path)
+    remote = _Remote()
+    tools = _tools(env, remote)
+    request_id = uuid4()
+    first = tools.remote_action(
+        env.principal,
+        target_id=env.target_id,
+        request_id=request_id,
+        action=BrowserRemoteAction.HOME,
+    )
+    assert (
+        tools.remote_action(
+            env.principal,
+            target_id=env.target_id,
+            request_id=request_id,
+            action=BrowserRemoteAction.HOME,
+        )
+        == first
+    )
+    _set_block(env, block)
+    with pytest.raises(McpAuthorizationError, match=_block_code(block)):
+        tools.remote_action(
+            env.principal,
+            target_id=env.target_id,
+            request_id=request_id,
+            action=BrowserRemoteAction.HOME,
+        )
+    _set_block(env, block, enabled=False)
+    with pytest.raises(McpAuthorizationError, match="production_authority_changed"):
+        tools.remote_action(
+            env.principal,
+            target_id=env.target_id,
+            request_id=request_id,
+            action=BrowserRemoteAction.HOME,
+        )
+    assert remote.sends == 1
+
+
+@pytest.mark.parametrize("block", ["global", "target"])
+def test_block_applied_during_inflight_request_prevents_dispatch(
+    tmp_path: Path, block: str
+) -> None:
+    from kodi_lab.storage.models import McpRemoteActionReceiptRow
+
+    env = _environment(tmp_path)
+
+    class Remote(_Remote):
+        def invoke(self, *args: Any, **kwargs: Any) -> Any:
+            _set_block(env, block)
+            return super().invoke(*args, **kwargs)
+
+    remote = Remote()
+    with pytest.raises(McpAuthorizationError, match=_block_code(block)):
+        _tools(env, remote).remote_action(
+            env.principal,
+            target_id=env.target_id,
+            request_id=uuid4(),
+            action=BrowserRemoteAction.HOME,
+        )
+    assert remote.sends == 0
+    with env.factory() as session:
+        receipt = session.scalar(select(McpRemoteActionReceiptRow))
+        assert receipt is not None and receipt.state == "completed"
+        assert receipt.final_result == _block_code(block)
+
+
+@pytest.mark.parametrize("block", ["global", "target"])
+@pytest.mark.parametrize(
+    "action", [BrowserRemoteAction.PLAY_PAUSE, BrowserRemoteAction.VOLUME_UP]
+)
+def test_blocks_guard_higher_risk_requests_and_cached_replay_without_new_permissions(
+    tmp_path: Path, block: str, action: BrowserRemoteAction
+) -> None:
+    from kodi_lab.application.production_transient_approvals import (
+        ProductionApprovalRequiredResult,
+    )
+    from tests.application.test_production_transient_approvals import _service
+
+    env, _scope, _clock, remote, _preflight, transient = _service(tmp_path)
+    tools = _tools(env, remote, transient=transient)
+    request_id = uuid4()
+    pending = tools.remote_action(
+        env.principal, target_id=env.target_id, request_id=request_id, action=action
+    )
+    assert isinstance(pending, ProductionApprovalRequiredResult)
+    transient.approve(pending.approval_id, action=action)
+    first = tools.remote_action(
+        env.principal, target_id=env.target_id, request_id=request_id, action=action
+    )
+    assert isinstance(first, McpRemoteActionResult) and first.outcome == "succeeded"
+    assert (
+        tools.remote_action(
+            env.principal, target_id=env.target_id, request_id=request_id, action=action
+        )
+        == first
+    )
+    _set_block(env, block)
+    for identity in (request_id, uuid4()):
+        with pytest.raises(McpAuthorizationError, match=_block_code(block)):
+            tools.remote_action(
+                env.principal,
+                target_id=env.target_id,
+                request_id=identity,
+                action=action,
+            )
+    assert remote.sends == 1
 
 
 @pytest.mark.parametrize(
@@ -215,9 +389,14 @@ def test_emergency_block_turns_navigation_off_even_when_mutations_already_blocke
     service.set_mutation_block(blocked=True)
     assert not preferences.read(env.target_id).enabled
     saved = preferences.read(env.target_id)
-    preferences.update(env.target_id, enabled=True, expected_revision=saved.revision)
+    from kodi_lab.application.production_inspection import ProductionInspectionError
+
+    with pytest.raises(ProductionInspectionError, match="production_mutations_blocked"):
+        preferences.update(
+            env.target_id, enabled=True, expected_revision=saved.revision
+        )
     service.set_mutation_block(blocked=True)
-    assert not preferences.read(env.target_id).enabled
+    assert preferences.read(env.target_id) == saved
     service.set_mutation_block(blocked=False)
     assert not preferences.read(env.target_id).enabled
 

@@ -28,6 +28,7 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpSecurityEventRow,
+    ProductionMutationControlRow,
     ProductionNativeControlHttpAcknowledgementRow,
     TargetRow,
 )
@@ -137,7 +138,20 @@ class NavigationPreferenceUpdate(BaseModel):
     expected_revision: int = Field(ge=1, strict=True)
 
 
+def require_production_remote_unblocked(session: Session, target_id: UUID) -> None:
+    """Emergency and target vetoes apply to all remote dispatch and replay."""
+    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+    mutation = session.get(ProductionMutationControlRow, 1)
+    if policy is None or mutation is None:
+        raise ProductionInspectionError("production_policy_not_confirmed")
+    if mutation.production_mutations_blocked:
+        raise ProductionInspectionError("production_mutations_blocked")
+    if policy.mutations_suspended:
+        raise ProductionInspectionError("production_target_mutations_suspended")
+
+
 def require_navigation_preference(session: Session, target_id: UUID) -> None:
+    require_production_remote_unblocked(session, target_id)
     policy = session.get(ExternalProductionPolicyRow, str(target_id))
     if policy is None or not policy.remote_navigation_enabled:
         raise ProductionInspectionError("remote_navigation_disabled")
@@ -169,11 +183,12 @@ class ProductionNavigationPreferenceService:
         with self._sessions() as session:
             policy = self._policy(session, target_id)
             blocked = None
-            if policy.remote_navigation_enabled:
-                try:
+            try:
+                require_production_remote_unblocked(session, target_id)
+                if policy.remote_navigation_enabled:
                     require_navigation_preference(session, target_id)
-                except ProductionInspectionError as error:
-                    blocked = error.code
+            except ProductionInspectionError as error:
+                blocked = error.code
             return NavigationPreferenceRead(
                 target_id=target_id,
                 enabled=policy.remote_navigation_enabled,
@@ -189,6 +204,8 @@ class ProductionNavigationPreferenceService:
             policy = self._policy(session, target_id)
             if policy.policy_revision != expected_revision:
                 raise ProductionInspectionError("navigation_preference_conflict")
+            if enabled:
+                require_production_remote_unblocked(session, target_id)
             digest = navigation_binding_digest(session, target_id) if enabled else None
             if (
                 policy.remote_navigation_enabled != enabled

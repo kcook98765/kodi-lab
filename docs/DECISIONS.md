@@ -7884,11 +7884,14 @@ volume and other controls retain their independent authority, approvals, transpo
 acknowledgements and global/target mutation vetoes. Managed/development rights
 are unchanged.
 
-Routine opt-in navigation ignores the higher-risk mutation latches. Pressing
+Global emergency blocking vetoes every production remote_action, including
+navigation and replay. Target mutation suspension also vetoes navigation on that
+Kodi. Neither can be bypassed by enabling the per-Kodi preference: ON is rejected
+while either block is active, with a specific explanation in the Web UI. Pressing
 Emergency Block also atomically turns every production opt-in OFF, even if the
-latch was already blocked. Re-enabling one Kodi requires a subsequent explicit
-opt-in; clearing the global latch restores nothing. Replay and the final
-pre-dispatch check re-evaluate current authority and the receipt's policy revision.
+block was already ON. Clearing a block restores no disabled preference and grants
+no authority. Replay and the final pre-dispatch check re-evaluate both vetoes,
+current authority and the receipt's policy revision.
 OFF then ON cannot revive an old request. Existing rates, operation gates,
 deadlines, fixed action mapping, at-most-once receipts and retained uncertainty
 remain. Migration 0007 adds only policy fields and nullable retired navigation

@@ -16,14 +16,17 @@ const origin = 'https://navigation-fixture.invalid';
       assert.equal(url.origin, origin, 'All network traffic stays in this fixture');
       const id = url.pathname.split('/')[3];
       if (url.pathname.endsWith('/navigation-preference')) {
+        const veto = failure === 'global' ? 'production_mutations_blocked'
+          : failure === 'target' ? 'production_target_mutations_suspended' : null;
         if (failure === 'load' || (failure === 'save' && req.method() === 'PUT')) return route.fulfill({status: 503, json: {}});
         if (req.method() === 'PUT') {
           assert(req.headers()['x-kodi-lab-csrf']);
           const body = req.postDataJSON(); writes.push({id, body});
+          if (veto) return route.fulfill({status: 409, json: {error: {code: veto}}});
           if (failure === 'conflict' || body.expected_revision !== values[id].revision) return route.fulfill({status: 409, json: {}});
           values[id] = {enabled: body.enabled, revision: values[id].revision + 1};
         }
-        return route.fulfill({json: values[id]});
+        return route.fulfill({json: {...values[id], blocked_reason: veto}});
       }
       if (url.pathname.endsWith('/screenshot-preference')) return route.fulfill({json: {enabled: false, revision: 1}});
       if (url.pathname.startsWith('/kodi/')) return route.fulfill({contentType: 'text/html', body: fixture.pages[url.pathname.split('/')[2]].replaceAll('http://127.0.0.1', origin).replaceAll('https://127.0.0.1', origin)});
@@ -64,6 +67,19 @@ const origin = 'https://navigation-fixture.invalid';
       failure = null;
       select = await open(fixture.second);
     }
+    for (const mode of ['global', 'target']) {
+      failure = mode;
+      select = await open(fixture.second);
+      const reason = mode === 'global' ? 'global emergency block' : 'target mutation suspension';
+      const status = page.locator('[data-navigation-status]');
+      assert((await status.textContent()).includes(reason));
+      await select.selectOption('true');
+      await page.waitForFunction(() => document.querySelector('[data-navigation-preference] select').disabled
+        && !document.querySelector('[data-navigation-status]').textContent.includes('Saving'));
+      assert((await status.textContent()).includes(reason));
+      assert.equal(await select.inputValue(), 'false');
+      assert.equal(values[fixture.second].enabled, false);
+    }
     failure = 'load';
     await page.reload();
     await page.getByText('The navigation setting is unavailable. Reload this page to try again.', {exact: true}).waitFor();
@@ -71,6 +87,6 @@ const origin = 'https://navigation-fixture.invalid';
     assert.equal(values[fixture.first].enabled, true);
     assert.equal(values[fixture.second].enabled, false);
     assert.deepEqual(errors, []);
-    console.log('CHROMIUM PASS: default, save, reload, per-Kodi isolation, keyboard focus, conflict, failed save and failed load');
+    console.log('CHROMIUM PASS: default, save, reload, per-Kodi isolation, keyboard focus, conflict, failed save/load and both active veto explanations');
   } finally { await browser.close(); }
 })().catch(error => {console.error(error); process.exitCode = 1;});

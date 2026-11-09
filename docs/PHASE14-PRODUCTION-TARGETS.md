@@ -370,12 +370,16 @@ control preset, request scope, exact one-shot approval, native HTTP acknowledgem
 and mutation vetoes. Inspection discovery of `remote_action` gives none of that
 access. Managed and external-development control authorization stays unchanged.
 
-The global mutation latch and target mutation suspension continue to block
-higher-risk controls. Routine opt-in navigation is separate from those latches.
-**Emergency Block** atomically turns navigation OFF on every production Kodi,
-even when the higher-risk latch is already blocked. A later explicit per-Kodi ON
-can allow the seven actions while higher-risk mutations stay blocked. Clearing
-the global latch grants no authority and restores no navigation settings.
+The global emergency block denies every production `remote_action`, including
+navigation and request replay. Target mutation suspension also vetoes navigation
+on that Kodi. An attempted ON setting is rejected while either block is active;
+the Web UI explains which block must be cleared. These vetoes are checked on
+request admission, replay validation and immediately before dispatch.
+**Emergency Block** also atomically turns navigation OFF on every production
+Kodi, including when the global block is already ON. Clearing a block grants no
+authority and never restores a disabled navigation preference. The existing
+per-Kodi toggle remains the only ordinary navigation preference. Playback and
+volume keep their existing independent permissions and approvals.
 
 The policy revision advances for every toggle transition. Receipts bind that
 revision, inspect scope, exact grant identity, native generation, Bridge revision,

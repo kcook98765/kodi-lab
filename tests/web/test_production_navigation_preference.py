@@ -143,6 +143,46 @@ def test_verified_navigation_api_saves_reload_and_rejects_stale_revision(
     assert off.json()["revision"] > on.json()["revision"]
 
 
+@pytest.mark.parametrize("block", ["global", "target"])
+def test_navigation_api_explains_active_blocks_and_rejects_on(
+    client: TestClient, tmp_path: Path, block: str
+) -> None:
+    from tests.application.test_production_navigation_opt_in import (
+        _block_code,
+        _set_block,
+    )
+
+    env = _authority_environment(
+        tmp_path, acknowledge_http=False, navigation_enabled=False
+    )
+    app = cast(FastAPI, client.app)
+    object.__setattr__(
+        app.state.kodi_lab,
+        "navigation_preferences",
+        ProductionNavigationPreferenceService(env.factory),
+    )
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    url = f"/api/production-targets/{env.target_id}/navigation-preference"
+    _set_block(env, block)
+    before = client.get(url).json()
+    assert before["blocked_reason"] == _block_code(block)
+    response = client.put(
+        url,
+        headers=headers,
+        json={"enabled": True, "expected_revision": before["revision"]},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == _block_code(block)
+    assert client.get(url).json() == before
+    off = client.put(
+        url,
+        headers=headers,
+        json={"enabled": False, "expected_revision": before["revision"]},
+    )
+    assert off.status_code == 200 and off.json()["enabled"] is False
+
+
 @pytest.mark.skipif(
     not os.getenv("KODI_LAB_BROWSER_TOOLS"), reason="Bounded Chromium opt-in"
 )

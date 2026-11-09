@@ -14,7 +14,7 @@
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
       <p class="error" data-error role="alert" hidden></p>
       <details data-error-diagnostics hidden><summary>Advanced error details</summary><p data-error-code></p></details>
-      {% if mutation_control.production_mutations_blocked %}<p class="notice" role="status">Playback and volume control are blocked; remote navigation uses each Kodi’s opt-in. <a href="#global-mutation-control">Review safety settings</a>.</p>{% endif %}
+      {% if mutation_control.production_mutations_blocked %}<p class="notice" role="status">Global emergency blocking is On: all production remote actions, including navigation, are blocked. <a href="#global-mutation-control">Review safety settings</a>.</p>{% endif %}
       {% if not approval_queue %}<details class="kodi-diagnostics"><summary>Control requests — none pending</summary>{% endif %}
       <section data-production-approval-queue>
         <h2>One-shot transient-control approval queue</h2>
@@ -48,7 +48,7 @@
           <p>Connection registration state: <strong>{{ policy.lifecycle_state }}</strong></p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
           <p>Last recorded check: {{ target.last_observed_at or 'never' }}</p>
-          <p>Per-target higher-risk mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
+          <p>Per-target mutation suspension: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · reachability {{ bridge.reachability_state.value if bridge else 'unknown' }}</p>
           <p>Native HTTP production control acknowledgement: <strong>{{ 'recorded' if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
           {% if target.verification_state.value in ['identity_mismatch','needs_reverification'] or (bridge and (bridge.pairing_state.value == 'needs_reverification' or bridge.reachability_state.value in ['identity_mismatch','authentication_failed','protocol_unsupported'])) %}<p class="error" role="alert">Connection trust needs review. Reconnect or review the recorded identity before confirming.</p>{% endif %}
@@ -83,7 +83,7 @@
           {% if target.pending_observation_id and target.verification_state.value != 'verified' %}<button type="button" data-action="confirm-native" data-observation-id="{{ target.pending_observation_id }}">Confirm native identity</button>{% endif %}
           {% if target.pending_observation_id and policy.designation_state.value == 'pending_confirmation' %}<button type="button" data-action="confirm-designation" data-observation-id="{{ target.pending_observation_id }}">Confirm production designation</button>{% endif %}
           <button type="button" data-action="toggle" data-enabled="{{ 'true' if target.administrative_state.value == 'enabled' else 'false' }}">{{ 'Disable' if target.administrative_state.value == 'enabled' else 'Enable read-only' }}</button>
-          <button type="button" data-action="suspension" data-suspended="{{ 'true' if policy.mutations_suspended else 'false' }}">{{ 'Clear higher-risk mutation suspension' if policy.mutations_suspended else 'Suspend higher-risk mutations' }}</button>
+          <button type="button" data-action="suspension" data-suspended="{{ 'true' if policy.mutations_suspended else 'false' }}">{{ 'Clear target mutation suspension' if policy.mutations_suspended else 'Suspend target mutations' }}</button>
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and policy.designation_state.value == 'confirmed' %}
           {% if bridge and bridge.pairing_state.value == 'revoked' %}<p class="notice">Reconnect with a current code from Kodi. First acknowledge the current HTTP risks for this Bridge port using the control below; revocation invalidated the previous acknowledgement. Pairing does not grant an agent access or permit control.</p>{% endif %}
           {% if target.protocol_kind.value == 'jsonrpc_http' %}<form data-http-ack><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}"{% if bridge and bridge.bridge_port == port or (not bridge or not bridge.bridge_port) and port == 8765 %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Acknowledge exact HTTP transport risk</button></form>{% endif %}
@@ -109,9 +109,9 @@
       <details class="kodi-diagnostics"{% if mutation_control.production_mutations_blocked %} open{% endif %}><summary>Advanced production control safety</summary>
       <section>
         <h2 id="global-mutation-control">Production control safety</h2>
-        <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. The latch blocks playback, volume and other higher-risk mutations. Emergency Block also turns remote navigation Off for every production Kodi. A later per-Kodi opt-in can allow the seven navigation actions while higher-risk mutations remain blocked. Clearing the block grants no authority and never restores navigation.</p>
+        <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. The global block denies all production remote actions, including navigation. Target mutation suspension also blocks navigation on that Kodi. Neither block can be bypassed by Allow remote navigation. Emergency Block also turns navigation Off for every production Kodi. Clear the active blocks before turning navigation On. Clearing a block grants no authority and never restores a disabled navigation preference.</p>
         <button type="button" data-global-block data-blocked="false">Emergency Block: stop navigation and higher-risk mutations</button>
-        {% if mutation_control.production_mutations_blocked %}<button type="button" data-global-block data-blocked="true">Clear higher-risk mutation block</button>{% endif %}
+        {% if mutation_control.production_mutations_blocked %}<button type="button" data-global-block data-blocked="true">Clear global production block</button>{% endif %}
       </section>
       </details>
       <details class="navigation-group"><summary>Advanced External Production Kodi registration</summary>

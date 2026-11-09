@@ -32,6 +32,7 @@ from kodi_lab.application.production_navigation import (
     ProductionNavigationAuthority,
     classify_production_action,
     require_navigation_preference,
+    require_production_remote_unblocked,
 )
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.application.runtime_status import (
@@ -517,8 +518,7 @@ class McpAuthorizationService:
                 )
             )
             assert inspect_scope is not None
-            # Global/per-target mutation flags continue to veto higher-risk
-            # controls. The emergency block operation also turns every opt-in OFF.
+            # The preference check includes both production mutation vetoes.
             return ProductionNavigationAuthority(
                 native_identity_generation=policy.identity_generation,
                 bridge_trust_revision=bridge.bridge_trust_revision,
@@ -549,6 +549,11 @@ class McpAuthorizationService:
             ):
                 raise McpAuthorizationError("permission_denied")
             self._require_current_credential(session, principal, client)
+
+            try:
+                require_production_remote_unblocked(session, target_id)
+            except ProductionInspectionError as error:
+                raise McpAuthorizationError(error.code) from error
 
     def recheck_native_zip_installation(
         self,
