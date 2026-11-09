@@ -7885,3 +7885,37 @@ read limit, operation gates and post-read authorization remain. External
 development retains configured/verified inventory admission. No migration,
 Bridge/add-on protocol, production navigation authority or remote mutation is
 part of this change.
+
+## D-0486: Production remote navigation uses an exact-peer per-Kodi opt-in
+
+Issue #268 permits only the existing seven navigation actions with ordinary
+exact-target inspection authority and Allow remote navigation ON. Both existing
+and new production policies default OFF. The setting uses the existing monotonic
+policy revision and binds consent to the confirmed native observation, native
+credential reference, identity generation, reviewed Bridge identity/trust revision
+and transport policy. Native exact-method introspection proves technical support
+on each call; legacy configured/verified semantic_remote evidence is not promoted.
+The toggle includes the current connection's transport consent for these seven
+actions only and creates no higher-risk native HTTP control acknowledgement.
+
+Inspection clients discover remote_action without gaining target.control. The
+action-aware production path retains current credentials, client/target presets,
+exact grants, current inspect scope, native identity and reviewed Bridge checks.
+Navigate scopes and the control preset are no longer routine navigation setup;
+historical records remain. Select/Context Menu remain prohibited; playback,
+volume and other controls retain their independent authority, approvals, transport
+acknowledgements and global/target mutation vetoes. Managed/development rights
+are unchanged.
+
+Global emergency blocking vetoes every production remote_action, including
+navigation and replay. Target mutation suspension also vetoes navigation on that
+Kodi. Neither can be bypassed by enabling the per-Kodi preference: ON is rejected
+while either block is active, with a specific explanation in the Web UI. Pressing
+Emergency Block also atomically turns every production opt-in OFF, even if the
+block was already ON. Clearing a block restores no disabled preference and grants
+no authority. Replay and the final pre-dispatch check re-evaluate both vetoes,
+current authority and the receipt's policy revision.
+OFF then ON cannot revive an old request. Existing rates, operation gates,
+deadlines, fixed action mapping, at-most-once receipts and retained uncertainty
+remain. Migration 0007 adds only policy fields and nullable retired navigation
+scope references in receipt/audit shapes, preserving history and triggers.

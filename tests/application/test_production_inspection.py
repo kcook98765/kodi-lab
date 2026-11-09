@@ -727,6 +727,7 @@ def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_ch
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "remote_action",
         "screenshot_capture",
         "screenshot_retrieve",
         "target_list",

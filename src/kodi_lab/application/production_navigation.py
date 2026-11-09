@@ -12,20 +12,25 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
+    evaluate_production_bridge_anchor_state,
     evaluate_production_inspection_state,
 )
-from kodi_lab.domain import ExternalProtocolKind
+from kodi_lab.application.production_policy import advance_production_policy
+from kodi_lab.domain import ExternalProtocolKind, TargetType
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    McpSecurityEventRow,
+    ProductionMutationControlRow,
     ProductionNativeControlHttpAcknowledgementRow,
+    TargetRow,
 )
 
 PRODUCTION_NATIVE_CONTROL_TRANSPORT_POLICY_REVISION = 1
@@ -83,12 +88,146 @@ class ProductionNavigationAuthority:
     target_policy_revision: int
     mutation_control_epoch: int
     inspect_scope_id: UUID
-    navigate_scope_id: UUID
+    navigate_scope_id: UUID | None
     client_preset_id: UUID
     target_preset_id: UUID
     generic_grant_created_at: str
     generic_grant_id: UUID = field(default_factory=lambda: UUID(int=0))
     native_http_acknowledgement_id: UUID | None = None
+
+
+def navigation_binding_digest(session: Session, target_id: UUID) -> str:
+    """Bind the opt-in, including native HTTP consent, to current verified peers."""
+    native = evaluate_production_inspection_state(
+        session, target_id, required_capabilities=frozenset({"target_inspect"})
+    )
+    bridge = evaluate_production_bridge_anchor_state(session, target_id)
+    external = session.get(ExternalKodiTargetRow, str(target_id))
+    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+    assert external is not None and policy is not None
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "observation": policy.confirmed_observation_digest,
+                "identity_generation": native.identity_generation,
+                "bridge_id": str(bridge.bridge_id),
+                "bridge_trust_revision": bridge.bridge_trust_revision,
+                "reviewed_build": str(bridge.reviewed_build_id),
+                "native_credential": external.secret_reference,
+                "transport_policy_revision": (
+                    PRODUCTION_NATIVE_CONTROL_TRANSPORT_POLICY_REVISION
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+class NavigationPreferenceRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    target_id: UUID
+    enabled: bool
+    revision: int
+    blocked_reason: str | None = None
+
+
+class NavigationPreferenceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    enabled: StrictBool
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+def require_production_remote_unblocked(session: Session, target_id: UUID) -> None:
+    """Emergency and target vetoes apply to all remote dispatch and replay."""
+    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+    mutation = session.get(ProductionMutationControlRow, 1)
+    if policy is None or mutation is None:
+        raise ProductionInspectionError("production_policy_not_confirmed")
+    if mutation.production_mutations_blocked:
+        raise ProductionInspectionError("production_mutations_blocked")
+    if policy.mutations_suspended:
+        raise ProductionInspectionError("production_target_mutations_suspended")
+
+
+def require_navigation_preference(session: Session, target_id: UUID) -> None:
+    require_production_remote_unblocked(session, target_id)
+    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+    if policy is None or not policy.remote_navigation_enabled:
+        raise ProductionInspectionError("remote_navigation_disabled")
+    if policy.navigation_binding_digest != navigation_binding_digest(
+        session, target_id
+    ):
+        raise ProductionInspectionError("navigation_connection_changed")
+
+
+class ProductionNavigationPreferenceService:
+    """One administrator opt-in on the existing production policy revision."""
+
+    def __init__(self, sessions: sessionmaker[Session]) -> None:
+        self._sessions = sessions
+
+    @staticmethod
+    def _policy(session: Session, target_id: UUID) -> ExternalProductionPolicyRow:
+        target = session.get(TargetRow, str(target_id))
+        policy = session.get(ExternalProductionPolicyRow, str(target_id))
+        if (
+            target is None
+            or target.target_type is not TargetType.EXTERNAL_PRODUCTION
+            or policy is None
+        ):
+            raise ProductionInspectionError("target_not_found")
+        return policy
+
+    def read(self, target_id: UUID) -> NavigationPreferenceRead:
+        with self._sessions() as session:
+            policy = self._policy(session, target_id)
+            blocked = None
+            try:
+                require_production_remote_unblocked(session, target_id)
+                if policy.remote_navigation_enabled:
+                    require_navigation_preference(session, target_id)
+            except ProductionInspectionError as error:
+                blocked = error.code
+            return NavigationPreferenceRead(
+                target_id=target_id,
+                enabled=policy.remote_navigation_enabled,
+                revision=policy.policy_revision,
+                blocked_reason=blocked,
+            )
+
+    def update(
+        self, target_id: UUID, *, enabled: bool, expected_revision: int
+    ) -> NavigationPreferenceRead:
+        with self._sessions.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            policy = self._policy(session, target_id)
+            if policy.policy_revision != expected_revision:
+                raise ProductionInspectionError("navigation_preference_conflict")
+            if enabled:
+                require_production_remote_unblocked(session, target_id)
+            digest = navigation_binding_digest(session, target_id) if enabled else None
+            if (
+                policy.remote_navigation_enabled != enabled
+                or policy.navigation_binding_digest != digest
+            ):
+                now = datetime.now(UTC)
+                policy.remote_navigation_enabled = enabled
+                policy.navigation_binding_digest = digest
+                advance_production_policy(policy, now=now)
+                session.add(
+                    McpSecurityEventRow(
+                        id=str(uuid4()),
+                        target_id=str(target_id),
+                        event_kind="remote_navigation_enabled"
+                        if enabled
+                        else "remote_navigation_disabled",
+                        actor="web_admin",
+                        identity_generation=policy.identity_generation,
+                        occurred_at=_text(now),
+                    )
+                )
+        return self.read(target_id)
 
 
 class ProductionNativeControlAcknowledgementRead(BaseModel):

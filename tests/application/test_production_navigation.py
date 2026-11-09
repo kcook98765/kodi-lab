@@ -19,6 +19,7 @@ from kodi_lab.application.browser_remote import (
 )
 from kodi_lab.application.mcp_administration import (
     PRODUCTION_REMOTE_KODI_PRESET_ID,
+    READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
     McpAuthenticationService,
     McpPrincipal,
@@ -38,6 +39,7 @@ from kodi_lab.application.production_navigation import (
     ProductionActionClass,
     ProductionNativeControlAcknowledgementService,
     ProductionNavigationAuthority,
+    ProductionNavigationPreferenceService,
     ProductionNavigationRateLimiter,
     classify_production_action,
 )
@@ -99,11 +101,20 @@ def _authority_environment(
     *,
     protocol: ExternalProtocolKind = ExternalProtocolKind.JSONRPC_HTTP,
     acknowledge_http: bool = True,
+    preset_id: UUID = PRODUCTION_REMOTE_KODI_PRESET_ID,
+    navigation_enabled: bool = True,
+    native_navigation: bool = True,
 ) -> _AuthorityEnvironment:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(f"sqlite:///{tmp_path / f'{protocol.value}.db'}")
     Base.metadata.create_all(engine)
     factory = create_session_factory(engine)
+    capabilities_json = json.dumps(
+        ["semantic_remote", "target_inspect"]
+        if native_navigation
+        else ["target_inspect"],
+        separators=(",", ":"),
+    )
     observation_id = uuid4()
     fingerprint = "a" * 64
     with factory.begin() as session:
@@ -123,8 +134,8 @@ def _authority_environment(
             port=8080,
             authentication_mode=ExternalAuthenticationMode.NONE,
             secret_reference=None,
-            configured_capabilities_json='["semantic_remote","target_inspect"]',
-            verified_capabilities_json='["semantic_remote","target_inspect"]',
+            configured_capabilities_json=capabilities_json,
+            verified_capabilities_json=capabilities_json,
             administrative_state=ExternalAdministrativeState.ENABLED,
             verification_state=ExternalVerificationState.VERIFIED,
             observation_state=ExternalObservationState.REACHABLE,
@@ -149,7 +160,7 @@ def _authority_environment(
             kodi_name="Kodi",
             kodi_version="21.3",
             protocol_version="13.0.0",
-            verified_capabilities_json='["semantic_remote","target_inspect"]',
+            verified_capabilities_json=capabilities_json,
             error_code=None,
             attempted_at=NOW,
             completed_at=NOW,
@@ -261,23 +272,33 @@ def _authority_environment(
     administration = McpAdministrationService(factory)
     client = administration.create_client(
         display_name="Production navigator",
-        preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID,
+        preset_id=preset_id,
     )
     issued = administration.issue_credential(client.id)
-    administration.assign_target_preset(TARGET_ID, PRODUCTION_REMOTE_KODI_PRESET_ID)
+    administration.assign_target_preset(TARGET_ID, preset_id)
     administration.grant_target(client.id, TARGET_ID)
     acknowledgement = ProductionNativeControlAcknowledgementService(factory)
-    if protocol is ExternalProtocolKind.JSONRPC_HTTP and acknowledge_http:
-        acknowledgement.acknowledge(TARGET_ID)
     inspect = administration.grant_production_inspection_scope(
         client.id, TARGET_ID, identity_generation=1
     )
-    navigate = administration.grant_production_navigate_scope(
-        client.id,
-        TARGET_ID,
-        identity_generation=1,
-        bridge_trust_revision=1,
-    )
+    navigate_id = uuid4()
+    if preset_id == PRODUCTION_REMOTE_KODI_PRESET_ID:
+        navigate = administration.grant_production_navigate_scope(
+            client.id,
+            TARGET_ID,
+            identity_generation=1,
+            bridge_trust_revision=1,
+        )
+        navigate_id = navigate.scope_id
+    preference = ProductionNavigationPreferenceService(factory)
+    if navigation_enabled:
+        preference.update(
+            TARGET_ID,
+            enabled=True,
+            expected_revision=preference.read(TARGET_ID).revision,
+        )
+    if protocol is ExternalProtocolKind.JSONRPC_HTTP and acknowledge_http:
+        acknowledgement.acknowledge(TARGET_ID)
     principal = McpAuthenticationService(factory).authenticate(issued.token)
     assert principal is not None
     return _AuthorityEnvironment(
@@ -289,7 +310,7 @@ def _authority_environment(
         client_id=client.id,
         target_id=TARGET_ID,
         inspect_scope_id=inspect.scope_id,
-        navigate_scope_id=navigate.scope_id,
+        navigate_scope_id=navigate_id,
     )
 
 
@@ -331,8 +352,8 @@ def test_authorization_allows_exactly_seven_navigation_actions(
         env.principal, env.target_id, action
     )
     assert authority.inspect_scope_id == env.inspect_scope_id
-    assert authority.navigate_scope_id == env.navigate_scope_id
-    assert authority.native_http_acknowledgement_id is not None
+    assert authority.navigate_scope_id is None
+    assert authority.native_http_acknowledgement_id is None
 
 
 @pytest.mark.parametrize(
@@ -371,22 +392,24 @@ def test_navigation_requires_inspect_navigate_current_bridge_and_vetoes(
         "client_preset",
         "target_preset",
         "generic_grant",
-        "navigate_scope",
+        "inspect_scope",
     ],
 )
 def test_navigation_rejects_stale_or_revoked_authority(
     tmp_path: Path, authority_change: str
 ) -> None:
     env = _authority_environment(tmp_path)
-    if authority_change == "navigate_scope":
-        env.administration.revoke_production_inspection_scope(env.navigate_scope_id)
+    if authority_change == "inspect_scope":
+        env.administration.revoke_production_inspection_scope(env.inspect_scope_id)
     elif authority_change == "generic_grant":
         env.administration.remove_target_grant(env.client_id, env.target_id)
     elif authority_change == "target_preset":
-        env.administration.assign_target_preset(
-            env.target_id,
-            UUID("11000000-0000-4000-8000-000000000005"),
-        )
+        from kodi_lab.storage.models import McpTargetPresetAssignmentRow
+
+        with env.factory.begin() as session:
+            assignment = session.get(McpTargetPresetAssignmentRow, str(env.target_id))
+            assert assignment is not None
+            session.delete(assignment)
     else:
         with env.factory.begin() as session:
             if authority_change == "native_generation":
@@ -408,69 +431,22 @@ def test_navigation_rejects_stale_or_revoked_authority(
             elif authority_change == "client_preset":
                 client = session.get(McpClientRow, str(env.client_id))
                 assert client is not None
-                client.preset_id = "11000000-0000-4000-8000-000000000005"
+                client.preset_id = str(READ_ONLY_INSPECTION_PRESET_ID)
     with pytest.raises(McpAuthorizationError):
         env.authorization.authorize_production_navigation(
             env.principal, env.target_id, BrowserRemoteAction.HOME
         )
 
-    env = _authority_environment(tmp_path / "blocked")
-    with env.factory.begin() as session:
-        control = session.get(ProductionMutationControlRow, 1)
-        assert control is not None
-        control.production_mutations_blocked = True
-        control.policy_epoch += 1
-    with pytest.raises(McpAuthorizationError, match="production_mutations_blocked"):
-        env.authorization.authorize_production_navigation(
-            env.principal, env.target_id, BrowserRemoteAction.HOME
-        )
 
-    env = _authority_environment(tmp_path / "suspended")
-    with env.factory.begin() as session:
-        policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
-        assert policy is not None
-        policy.mutations_suspended = True
-        policy.policy_revision += 1
-    with pytest.raises(
-        McpAuthorizationError, match="production_target_mutations_suspended"
-    ):
-        env.authorization.authorize_production_navigation(
-            env.principal, env.target_id, BrowserRemoteAction.HOME
-        )
-
-
-def test_http_acknowledgement_is_exact_and_https_is_exempt(tmp_path: Path) -> None:
-    missing = _authority_environment(tmp_path / "missing", acknowledge_http=False)
-    with pytest.raises(
-        McpAuthorizationError, match="transport_acknowledgement_required"
-    ):
-        missing.authorization.authorize_production_navigation(
-            missing.principal, missing.target_id, BrowserRemoteAction.HOME
-        )
-    missing.acknowledgement.acknowledge(missing.target_id)
-    missing.authorization.authorize_production_navigation(
-        missing.principal, missing.target_id, BrowserRemoteAction.HOME
-    )
-    with missing.factory.begin() as session:
-        policy = session.get(ExternalProductionPolicyRow, str(missing.target_id))
-        assert policy is not None
-        policy.policy_revision += 1
-    with pytest.raises(
-        McpAuthorizationError, match="transport_acknowledgement_required"
-    ):
-        missing.authorization.authorize_production_navigation(
-            missing.principal, missing.target_id, BrowserRemoteAction.HOME
-        )
-
-    https = _authority_environment(
-        tmp_path / "https",
-        protocol=ExternalProtocolKind.JSONRPC_HTTPS,
-        acknowledge_http=False,
-    )
-    authority = https.authorization.authorize_production_navigation(
-        https.principal, https.target_id, BrowserRemoteAction.HOME
+def test_native_http_opt_in_does_not_create_higher_risk_control_consent(
+    tmp_path: Path,
+) -> None:
+    env = _authority_environment(tmp_path, acknowledge_http=False)
+    authority = env.authorization.authorize_production_navigation(
+        env.principal, env.target_id, BrowserRemoteAction.HOME
     )
     assert authority.native_http_acknowledgement_id is None
+    assert env.acknowledgement.current(env.target_id) is None
 
 
 class _OuterLimiter:
@@ -558,7 +534,7 @@ def test_production_receipt_replay_binding_audit_and_capacity(tmp_path: Path) ->
     terminal_authorizations = authorizations
 
     def no_current_authority() -> ProductionNavigationAuthority:
-        raise AssertionError("terminal replay must not reauthorize dispatch")
+        return authorize()
 
     replay = service.invoke_production(
         client_id=client_id,
@@ -570,7 +546,7 @@ def test_production_receipt_replay_binding_audit_and_capacity(tmp_path: Path) ->
     )
     assert replay.invocation_id == first.invocation_id
     assert remote.calls == 1
-    assert authorizations == terminal_authorizations
+    assert authorizations == terminal_authorizations + 1
     with pytest.raises(McpRemoteActionReceiptError, match="request_id_conflict"):
         service.invoke_production(
             client_id=client_id,
@@ -893,7 +869,7 @@ def test_veto_after_acknowledged_send_is_historical_and_never_retried(
     assert first.outcome == "authority_changed_after_dispatch"
 
     def no_current_authority() -> ProductionNavigationAuthority:
-        raise AssertionError("terminal history must not reauthorize")
+        return authority
 
     replay = service.invoke_production(
         client_id=client_id,

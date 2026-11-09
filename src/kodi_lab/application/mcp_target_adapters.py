@@ -39,6 +39,7 @@ from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_inspection_state,
 )
+from kodi_lab.application.production_navigation import PRODUCTION_NAVIGATION_ACTIONS
 from kodi_lab.application.production_policy import bind_external_production_transition
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.application.screenshots import (
@@ -513,7 +514,11 @@ class KodiTargetAdapterService:
         snapshot = (
             self._production_snapshot(
                 target_id,
-                required_capabilities=frozenset({"target_inspect", "semantic_remote"}),
+                required_capabilities=(
+                    frozenset({"target_inspect"})
+                    if action in PRODUCTION_NAVIGATION_ACTIONS
+                    else frozenset({"target_inspect", "semantic_remote"})
+                ),
                 load_secret=True,
             )
             if target_type is TargetType.EXTERNAL_PRODUCTION
@@ -863,6 +868,8 @@ class KodiTargetAdapterService:
                 "needs_reverification",
                 "permission_denied",
                 "production_authority_changed",
+                "remote_navigation_disabled",
+                "navigation_connection_changed",
                 "production_mutations_blocked",
                 "production_target_mutations_suspended",
                 "target_not_found_or_not_authorized",

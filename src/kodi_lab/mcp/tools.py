@@ -1800,6 +1800,9 @@ class McpTargetToolService:
             if action_class is ProductionActionClass.PROHIBITED:
                 raise McpAuthorizationError("production_action_prohibited")
             if action_class is ProductionActionClass.TRANSIENT_CONTROL:
+                self._authorization.authorize_production_transient_access(
+                    principal, target_id
+                )
                 if self._production_transient_approvals is None:
                     raise McpAuthorizationError("capability_unavailable")
                 try:

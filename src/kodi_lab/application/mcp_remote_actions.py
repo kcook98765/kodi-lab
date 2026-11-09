@@ -188,15 +188,16 @@ class McpRemoteActionReceiptService:
         action: BrowserRemoteAction,
         authorize_new: Callable[[], ProductionNavigationAuthority],
     ) -> McpRemoteActionResult:
-        """Replay terminal history first; authorize and bind only genuinely new work."""
+        """Recheck current opt-in and authority for both replay and new dispatch."""
 
+        authority = authorize_new()
         existing = self._existing(client_id, request_id)
         cutoff = _to_text(self._clock() - self._retention)
         if existing is not None and (
             existing.state != "completed" or existing.created_at >= cutoff
         ):
+            self._require_current_production_binding(existing, authority)
             return self._replay(existing, target_id=target_id, action=action)
-        authority = authorize_new()
         claim = self._claim(
             client_id=client_id,
             credential_id=credential_id,
@@ -206,6 +207,7 @@ class McpRemoteActionReceiptService:
             production_authority=authority,
         )
         if not claim.created:
+            self._require_current_production_binding(claim.row, authority)
             return self._replay(claim.row, target_id=target_id, action=action)
         try:
             self._production_rate_limiter.require_allowed(client_id, target_id)
@@ -216,7 +218,12 @@ class McpRemoteActionReceiptService:
             raise McpRemoteActionReceiptError(code) from error
 
         def reauthorize() -> None:
-            current = authorize_new()
+            try:
+                current = authorize_new()
+            except PermissionError as error:
+                raise McpRemoteActionReceiptError(
+                    getattr(error, "code", "permission_denied")
+                ) from error
             if current != authority:
                 raise McpRemoteActionReceiptError("production_authority_changed")
 
@@ -401,8 +408,10 @@ class McpRemoteActionReceiptService:
                                 production_authority.mutation_control_epoch
                             ),
                             inspect_scope_id=str(production_authority.inspect_scope_id),
-                            navigate_scope_id=str(
-                                production_authority.navigate_scope_id
+                            navigate_scope_id=(
+                                None
+                                if production_authority.navigate_scope_id is None
+                                else str(production_authority.navigate_scope_id)
                             ),
                             transient_scope_id=None,
                             approval_id=None,
@@ -444,8 +453,10 @@ class McpRemoteActionReceiptService:
                                 production_authority.mutation_control_epoch
                             ),
                             inspect_scope_id=str(production_authority.inspect_scope_id),
-                            navigate_scope_id=str(
-                                production_authority.navigate_scope_id
+                            navigate_scope_id=(
+                                None
+                                if production_authority.navigate_scope_id is None
+                                else str(production_authority.navigate_scope_id)
                             ),
                             state="pending",
                             outcome="pending",
@@ -517,8 +528,9 @@ class McpRemoteActionReceiptService:
                     == McpProductionRemoteReceiptBindingRow.mutation_control_epoch,
                     McpProductionNavigationAuditRow.inspect_scope_id
                     == McpProductionRemoteReceiptBindingRow.inspect_scope_id,
-                    McpProductionNavigationAuditRow.navigate_scope_id
-                    == McpProductionRemoteReceiptBindingRow.navigate_scope_id,
+                    McpProductionNavigationAuditRow.navigate_scope_id.is_(
+                        McpProductionRemoteReceiptBindingRow.navigate_scope_id
+                    ),
                     McpProductionNavigationAuditRow.state == "completed",
                     McpProductionNavigationAuditRow.outcome
                     == McpRemoteActionReceiptRow.final_result,
@@ -595,6 +607,33 @@ class McpRemoteActionReceiptService:
                 .exists(),
             )
         )
+
+    def _require_current_production_binding(
+        self, row: McpRemoteActionReceiptRow, authority: ProductionNavigationAuthority
+    ) -> None:
+        with self._sessions() as session:
+            binding = session.get(McpProductionRemoteReceiptBindingRow, row.id)
+            if binding is None or binding.operation_class != "navigation":
+                raise McpRemoteActionReceiptError("production_authority_changed")
+            expected = {
+                "native_identity_generation": authority.native_identity_generation,
+                "bridge_trust_revision": authority.bridge_trust_revision,
+                "target_policy_revision": authority.target_policy_revision,
+                "mutation_control_epoch": authority.mutation_control_epoch,
+                "inspect_scope_id": str(authority.inspect_scope_id),
+                "navigate_scope_id": None
+                if authority.navigate_scope_id is None
+                else str(authority.navigate_scope_id),
+                "client_preset_id": str(authority.client_preset_id),
+                "target_preset_id": str(authority.target_preset_id),
+                "generic_grant_id": str(authority.generic_grant_id),
+                "generic_grant_created_at": authority.generic_grant_created_at,
+                "native_http_acknowledgement_id": None
+                if authority.native_http_acknowledgement_id is None
+                else str(authority.native_http_acknowledgement_id),
+            }
+            if any(getattr(binding, key) != value for key, value in expected.items()):
+                raise McpRemoteActionReceiptError("production_authority_changed")
 
     def _replay(
         self,

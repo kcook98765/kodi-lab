@@ -370,8 +370,11 @@ from kodi_lab.application.production_capability_amendments import (
 )
 from kodi_lab.application.production_inspection import ProductionInspectionError
 from kodi_lab.application.production_navigation import (
+    NavigationPreferenceRead,
+    NavigationPreferenceUpdate,
     ProductionNativeControlAcknowledgementRead,
     ProductionNativeControlAcknowledgementService,
+    ProductionNavigationPreferenceService,
 )
 from kodi_lab.application.production_screenshots import ProductionScreenshotService
 from kodi_lab.application.production_transient_approvals import (
@@ -1449,6 +1452,7 @@ class WebApplicationContext:
     development_capability_amendments: DevelopmentCapabilityAmendmentService
     external_bridges: ExternalBridgeService
     screenshot_preferences: ScreenshotPreferenceService
+    navigation_preferences: ProductionNavigationPreferenceService
     managed_observation_bridges: ManagedObservationBridgeService
     managed_bridge_trust: ManagedBridgeTrustService
     production_native_control_acknowledgements: (
@@ -1728,6 +1732,7 @@ def create_app(
         lock_root=settings.data_root / "locks" / "external-reconnect",
     )
     screenshot_preferences = ScreenshotPreferenceService(session_factory)
+    navigation_preferences = ProductionNavigationPreferenceService(session_factory)
     development_capability_amendments = DevelopmentCapabilityAmendmentService(
         session_factory,
         endpoint_policy=external_endpoint_policy,
@@ -2312,6 +2317,7 @@ def create_app(
         production_capability_amendments=production_capability_amendments,
         development_capability_amendments=development_capability_amendments,
         screenshot_preferences=screenshot_preferences,
+        navigation_preferences=navigation_preferences,
         external_bridges=external_bridges,
         managed_observation_bridges=managed_observation_bridges,
         managed_bridge_trust=managed_bridge_trust,
@@ -3384,8 +3390,12 @@ def create_app(
         status_code = (
             422 if error.code == "transport_acknowledgement_not_required" else 409
         )
+        if error.code == "target_not_found":
+            status_code = 404
         return _json_error(
-            status_code, error.code, "Production control acknowledgement rejected."
+            status_code,
+            error.code,
+            "Production navigation or control request rejected.",
         )
 
     @app.exception_handler(ProductionApprovalError)
@@ -6253,6 +6263,31 @@ def create_app(
             enabled=payload.enabled,
             expected_revision=payload.expected_revision,
             administrator_reference="web_admin",
+        )
+
+    @app.get(
+        "/api/production-targets/{target_id}/navigation-preference",
+        response_model=NavigationPreferenceRead,
+    )
+    def read_navigation_preference(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> NavigationPreferenceRead:
+        return context.navigation_preferences.read(target_id)
+
+    @app.put(
+        "/api/production-targets/{target_id}/navigation-preference",
+        response_model=NavigationPreferenceRead,
+    )
+    def update_navigation_preference(
+        target_id: UUID,
+        payload: NavigationPreferenceUpdate,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> NavigationPreferenceRead:
+        return context.navigation_preferences.update(
+            target_id,
+            enabled=payload.enabled,
+            expected_revision=payload.expected_revision,
         )
 
     @app.get("/api/external-targets", response_model=list[ExternalTargetRead])

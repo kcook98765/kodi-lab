@@ -31,7 +31,8 @@ from kodi_lab.application.production_navigation import (
     ProductionActionClass,
     ProductionNavigationAuthority,
     classify_production_action,
-    current_native_control_acknowledgement,
+    require_navigation_preference,
+    require_production_remote_unblocked,
 )
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.application.runtime_status import (
@@ -70,7 +71,6 @@ from kodi_lab.screenshot_diagnostics import (
     emit_screenshot_stage,
 )
 from kodi_lab.storage.models import (
-    ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
@@ -218,7 +218,19 @@ class McpAuthorizationService:
 
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
-        return tuple(item.name for item in self._registry.discoverable(permissions))
+        names = {item.name for item in self._registry.discoverable(permissions)}
+        if (
+            principal.preset_id
+            in {
+                PRODUCTION_INSPECTION_PRESET_ID,
+                PRODUCTION_VISUAL_PRESET_ID,
+            }
+            and "target.inspect" in permissions
+        ):
+            # Action-aware production admission never grants target.control or
+            # changes authorization on managed/development targets.
+            names.add("remote_action")
+        return tuple(sorted(names))
 
     def authorize_unscoped(
         self, principal: McpPrincipal, tool_name: str
@@ -458,128 +470,90 @@ class McpAuthorizationService:
         target_id: UUID,
         action: BrowserRemoteAction,
     ) -> ProductionNavigationAuthority:
-        """Authorize one new production dispatch through the action-aware policy."""
-
+        """Ordinary inspection plus an exact-peer opt-in for seven actions only."""
         if classify_production_action(action) is not ProductionActionClass.NAVIGATION:
             raise McpAuthorizationError("production_action_prohibited")
-        definition = self._definition("remote_action")
-        if (
-            not definition.production_eligible
-            or definition.effect.value != "mutating"
-            or TargetClass.EXTERNAL_PRODUCTION not in definition.allowed_target_classes
-            or definition.permissions != frozenset({"target.control"})
-            or definition.required_capabilities != frozenset({"semantic_remote"})
-        ):
-            raise McpAuthorizationError("permission_denied")
+        self.authorize_target(principal, "target_status", target_id)
         with self._session_factory() as session:
             client = session.get(McpClientRow, str(principal.client_id))
-            grant = session.get(
-                McpClientTargetGrantRow,
-                {"client_id": str(principal.client_id), "target_id": str(target_id)},
-            )
             target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+            grant = session.get(
+                McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+            )
             if (
                 client is None
-                or not client.enabled
-                or client.id != str(principal.client_id)
-                or grant is None
                 or target is None
-                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
                 or assignment is None
+                or grant is None
+                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
             ):
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
-            remote_preset = session.get(
-                McpPresetRow, str(PRODUCTION_REMOTE_KODI_PRESET_ID)
+            # Repeat the complete inspection intersection in this snapshot.
+            self._evaluate_production_inspection(
+                session,
+                principal=principal,
+                definition=self._definition("target_status"),
+                client=client,
+                target=target,
+                assignment=assignment,
             )
-            expected_permissions = frozenset(
-                {"target.inspect", "target.visual", "target.control"}
-            )
-            if (
-                principal.preset_id != PRODUCTION_REMOTE_KODI_PRESET_ID
-                or client.preset_id != str(PRODUCTION_REMOTE_KODI_PRESET_ID)
-                or assignment.preset_id != str(PRODUCTION_REMOTE_KODI_PRESET_ID)
-                or remote_preset is None
-                or not remote_preset.builtin
-                or not remote_preset.assignable
-                or remote_preset.display_name != "Production Remote Kodi"
-                or self._permissions(session, remote_preset.id) != expected_permissions
-                or not definition.permissions.issubset(expected_permissions)
-            ):
-                raise McpAuthorizationError("permission_denied")
-            self._require_current_credential(session, principal, client)
             try:
-                native = evaluate_production_inspection_state(
-                    session,
-                    target_id,
-                    required_capabilities=frozenset(
-                        {"target_inspect", "semantic_remote"}
-                    ),
-                )
+                require_navigation_preference(session, target_id)
                 bridge = evaluate_production_bridge_anchor_state(session, target_id)
             except ProductionInspectionError as error:
                 raise McpAuthorizationError(error.code) from error
-            inspect = session.scalar(
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            mutation = session.get(ProductionMutationControlRow, 1)
+            if policy is None or mutation is None:
+                raise McpAuthorizationError("production_policy_not_confirmed")
+            inspect_scope = session.scalar(
                 select(McpProductionTargetScopeRow).where(
                     McpProductionTargetScopeRow.client_id == client.id,
                     McpProductionTargetScopeRow.target_id == target.id,
                     McpProductionTargetScopeRow.identity_generation
-                    == native.identity_generation,
+                    == policy.identity_generation,
                     McpProductionTargetScopeRow.scope == "inspect",
                     McpProductionTargetScopeRow.state == "active",
                 )
             )
-            navigate = session.scalar(
-                select(McpProductionTargetScopeRow).where(
-                    McpProductionTargetScopeRow.client_id == client.id,
-                    McpProductionTargetScopeRow.target_id == target.id,
-                    McpProductionTargetScopeRow.identity_generation
-                    == native.identity_generation,
-                    McpProductionTargetScopeRow.bridge_trust_revision
-                    == bridge.bridge_trust_revision,
-                    McpProductionTargetScopeRow.scope == "navigate",
-                    McpProductionTargetScopeRow.state == "active",
-                )
-            )
-            if inspect is None or navigate is None:
-                raise McpAuthorizationError("target_not_found_or_not_authorized")
-            policy = session.get(ExternalProductionPolicyRow, target.id)
-            mutation = session.get(ProductionMutationControlRow, 1)
-            if policy is None or mutation is None:
-                raise McpAuthorizationError("production_policy_not_confirmed")
-            if mutation.production_mutations_blocked:
-                raise McpAuthorizationError("production_mutations_blocked")
-            if policy.mutations_suspended:
-                raise McpAuthorizationError("production_target_mutations_suspended")
-            try:
-                acknowledgement = current_native_control_acknowledgement(
-                    session, target_id
-                )
-            except ProductionInspectionError as error:
-                raise McpAuthorizationError(error.code) from error
-            external = session.get(ExternalKodiTargetRow, target.id)
-            if external is None:
-                raise McpAuthorizationError("needs_reverification")
-            if (
-                external.protocol_kind.value == "jsonrpc_http"
-                and acknowledgement is None
-            ):
-                raise McpAuthorizationError("transport_acknowledgement_required")
+            assert inspect_scope is not None
+            # The preference check includes both production mutation vetoes.
             return ProductionNavigationAuthority(
-                native_identity_generation=native.identity_generation,
+                native_identity_generation=policy.identity_generation,
                 bridge_trust_revision=bridge.bridge_trust_revision,
                 target_policy_revision=policy.policy_revision,
                 mutation_control_epoch=mutation.policy_epoch,
-                inspect_scope_id=UUID(inspect.id),
-                navigate_scope_id=UUID(navigate.id),
-                client_preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID,
+                inspect_scope_id=UUID(inspect_scope.id),
+                navigate_scope_id=None,
+                client_preset_id=UUID(client.preset_id),
                 target_preset_id=UUID(assignment.preset_id),
                 generic_grant_created_at=grant.created_at,
                 generic_grant_id=UUID(grant.grant_id),
-                native_http_acknowledgement_id=(
-                    None if acknowledgement is None else UUID(acknowledgement.id)
-                ),
             )
+
+    def authorize_production_transient_access(
+        self, principal: McpPrincipal, target_id: UUID
+    ) -> None:
+        """Inspection discovery cannot expose higher-risk requests or replays."""
+        self.authorize_target(principal, "target_status", target_id)
+        with self._session_factory() as session:
+            client = session.get(McpClientRow, str(principal.client_id))
+            assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+            if (
+                principal.preset_id != PRODUCTION_REMOTE_KODI_PRESET_ID
+                or client is None
+                or client.preset_id != str(PRODUCTION_REMOTE_KODI_PRESET_ID)
+                or assignment is None
+                or assignment.preset_id != str(PRODUCTION_REMOTE_KODI_PRESET_ID)
+            ):
+                raise McpAuthorizationError("permission_denied")
+            self._require_current_credential(session, principal, client)
+
+            try:
+                require_production_remote_unblocked(session, target_id)
+            except ProductionInspectionError as error:
+                raise McpAuthorizationError(error.code) from error
 
     def recheck_native_zip_installation(
         self,

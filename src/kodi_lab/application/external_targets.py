@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.production_inspection import production_observation_digest
@@ -127,6 +127,7 @@ class ProductionPolicyRead(BaseModel):
     identity_generation: int = Field(ge=1)
     policy_revision: int = Field(ge=1)
     mutations_suspended: bool
+    remote_navigation_enabled: bool = False
     designation_confirmed_by: str | None
     designation_confirmed_at: datetime | None
     designation_invalidated_at: datetime | None
@@ -738,9 +739,31 @@ class ExternalTargetAdministrationService:
         if not administrator or len(administrator) > 64:
             raise ExternalTargetError("production_policy_missing")
         with self._session_factory.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
             row = session.get(ProductionMutationControlRow, 1)
             if row is None:
                 raise ExternalTargetError("production_policy_missing")
+            if blocked:
+                # Emergency action, including a repeated Block: revoke routine
+                # navigation independently of the higher-risk mutation latch.
+                for policy in session.scalars(
+                    select(ExternalProductionPolicyRow).where(
+                        ExternalProductionPolicyRow.remote_navigation_enabled.is_(True)
+                    )
+                ):
+                    policy.remote_navigation_enabled = False
+                    policy.navigation_binding_digest = None
+                    advance_production_policy(policy, now=now)
+                    session.add(
+                        McpSecurityEventRow(
+                            id=str(uuid4()),
+                            event_kind="remote_navigation_emergency_disabled",
+                            actor="web_admin",
+                            target_id=policy.target_id,
+                            identity_generation=policy.identity_generation,
+                            occurred_at=_to_text(now),
+                        )
+                    )
             if row.production_mutations_blocked != blocked:
                 row.production_mutations_blocked = blocked
                 row.policy_epoch += 1
@@ -1309,6 +1332,7 @@ class ExternalTargetAdministrationService:
             identity_generation=policy.identity_generation,
             policy_revision=policy.policy_revision,
             mutations_suspended=policy.mutations_suspended,
+            remote_navigation_enabled=policy.remote_navigation_enabled,
             designation_confirmed_by=policy.designation_confirmed_by,
             designation_confirmed_at=_from_text(policy.designation_confirmed_at),
             designation_invalidated_at=_from_text(policy.designation_invalidated_at),

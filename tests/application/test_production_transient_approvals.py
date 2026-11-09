@@ -93,7 +93,7 @@ def _service(
     _Preflight,
     ProductionTransientApprovalService,
 ]:
-    env = _authority_environment(tmp_path)
+    env = _authority_environment(tmp_path, navigation_enabled=False)
     transient = env.administration.grant_production_transient_control_scope(
         env.client_id,
         env.target_id,
@@ -771,7 +771,7 @@ def test_atomic_claim_failure_points_roll_back_coherently(
 def test_post_commit_crash_leaves_protected_receipt_and_never_redispatches(
     tmp_path: Path,
 ) -> None:
-    env = _authority_environment(tmp_path)
+    env = _authority_environment(tmp_path, navigation_enabled=False)
     env.administration.grant_production_transient_control_scope(
         env.client_id,
         env.target_id,
@@ -928,7 +928,7 @@ def test_retention_deletes_only_coherent_terminal_bundles_atomically(
 def test_retention_protects_unobserved_pending_and_consumed_pending_receipt(
     tmp_path: Path,
 ) -> None:
-    env = _authority_environment(tmp_path)
+    env = _authority_environment(tmp_path, navigation_enabled=False)
     env.administration.grant_production_transient_control_scope(
         env.client_id,
         env.target_id,

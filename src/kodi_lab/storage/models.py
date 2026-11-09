@@ -2117,6 +2117,10 @@ class ExternalProductionPolicyRow(Base):
         "version_id_generator": False,
     }
     mutations_suspended: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    remote_navigation_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    navigation_binding_digest: Mapped[str | None] = mapped_column(String(64))
     designation_confirmed_by: Mapped[str | None] = mapped_column(String(64))
     designation_confirmed_at: Mapped[str | None] = mapped_column(String(27))
     designation_invalidated_at: Mapped[str | None] = mapped_column(String(27))
@@ -7793,7 +7797,8 @@ class McpProductionRemoteReceiptBindingRow(Base):
             "length(inspect_scope_id)=36 "
             "AND length(client_preset_id)=36 AND length(target_preset_id)=36 "
             "AND length(generic_grant_id)=36 "
-            "AND ((operation_class='navigation' AND length(navigate_scope_id)=36 "
+            "AND ((operation_class='navigation' AND "
+            "(navigate_scope_id IS NULL OR length(navigate_scope_id)=36) "
             "AND transient_scope_id IS NULL AND approval_id IS NULL) OR "
             "(operation_class='transient_control' AND navigate_scope_id IS NULL "
             "AND length(transient_scope_id)=36 AND length(approval_id)=36))",
@@ -8118,7 +8123,8 @@ class McpProductionNavigationAuditRow(Base):
         CheckConstraint(
             "native_identity_generation>=1 AND bridge_trust_revision>=1 "
             "AND target_policy_revision>=1 AND mutation_control_epoch>=1 "
-            "AND length(inspect_scope_id)=36 AND length(navigate_scope_id)=36",
+            "AND length(inspect_scope_id)=36 AND "
+            "(navigate_scope_id IS NULL OR length(navigate_scope_id)=36)",
             name="mcp_production_navigation_audit_authority_valid",
         ),
         CheckConstraint(
@@ -8162,7 +8168,7 @@ class McpProductionNavigationAuditRow(Base):
     target_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     mutation_control_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
     inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    navigate_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    navigate_scope_id: Mapped[str | None] = mapped_column(String(36))
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     outcome: Mapped[str] = mapped_column(String(64), nullable=False)
     dispatch_classification: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -8229,6 +8235,8 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "OLD.confirmed_observation_id OR NEW.confirmed_observation_digest IS NOT "
     "OLD.confirmed_observation_digest OR NEW.identity_generation<>"
     "OLD.identity_generation OR NEW.mutations_suspended<>OLD.mutations_suspended OR "
+    "NEW.remote_navigation_enabled<>OLD.remote_navigation_enabled OR "
+    "NEW.navigation_binding_digest IS NOT OLD.navigation_binding_digest OR "
     "NEW.updated_at<>OLD.updated_at) AND NEW.policy_revision<>OLD.policy_revision+1 "
     "BEGIN SELECT RAISE(ABORT, 'production_policy_revision_required'); END",
     "CREATE TRIGGER trg_external_production_policy_guard_insert AFTER INSERT ON "

@@ -129,6 +129,7 @@
       <section aria-labelledby="agent-verify-heading">
         <h2 id="agent-verify-heading">5. Verify read-only access</h2>
         <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both external production inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots follow Allow screenshots on the individual Kodi.</p>
+        <p>For External Production Kodi, Allow remote navigation on the individual Kodi permits only Up, Down, Left, Right, Back, Home and Info using this inspection access. No control preset or navigate scope is needed. The legacy Production Remote Kodi preset is retained for separately approved playback and volume controls.</p>
         <p class="secondary">If connection fails, check the selected transport, supported MCP version and token expiry. For either LAN method, check endpoint and network access; HTTPS also requires certificate trust. For stdio, check the installed command and local port. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
       </details>
