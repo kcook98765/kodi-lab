@@ -1,0 +1,71 @@
+{
+  "broker": {
+    "Image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Config": {"Entrypoint": ["kodi-lab-broker"], "Labels": {}},
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/srv/addon-sources",
+        "Destination": "/mnt/kodi-lab-development",
+        "Mode": "",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "volume",
+        "Name": "socket-volume",
+        "Source": "/var/lib/docker/volumes/socket-volume/_data",
+        "Destination": "/run/kodi-lab",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      },
+      {
+        "Type": "bind",
+        "Source": "/proc/1/net/route",
+        "Destination": "/tmp/kodi-lab-host-ipv4-route",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "volume",
+        "Name": "state-volume",
+        "Source": "/var/lib/docker/volumes/state-volume/_data",
+        "Destination": "/var/lib/kodi-lab",
+        "Driver": "local",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": ""
+      },
+      {
+        "Type": "bind",
+        "Source": "/var/run/docker.sock",
+        "Destination": "/var/run/docker.sock",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      }
+    ],
+    "HostConfig": {
+      "Binds": [
+        "/var/run/docker.sock:/var/run/docker.sock:rw",
+        "/proc/1/net/route:/tmp/kodi-lab-host-ipv4-route:ro",
+        "socket-volume:/run/kodi-lab:rw",
+        "state-volume:/var/lib/kodi-lab:rw"
+      ],
+      "Mounts": [
+        {
+          "Type": "bind",
+          "Source": "/srv/addon-sources",
+          "Target": "/mnt/kodi-lab-development",
+          "ReadOnly": true,
+          "BindOptions": {}
+        }
+      ],
+      "VolumesFrom": null
+    }
+  },
+  "engine": {"OperatingSystem": "Ubuntu 24.04", "OSType": "linux", "ServerVersion": "29.9.1"}
+}

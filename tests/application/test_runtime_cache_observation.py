@@ -21,10 +21,64 @@ from tests.application.test_create_kodi_installation import setup
 from tests.application.test_managed_clean_reset import env as env
 from tests.application.test_managed_clean_reset import reset
 from tests.application.test_runtime_installations import create_row
+from tests.broker.test_readonly_installation_mounts import configure_broker
 from tests.broker.test_reviewed_runtime_installation_operation import FakeContainers
 from tests.broker.test_reviewed_runtime_installation_operation import backend as backend
 from tests.managed_versions_support import Environment
 from tests.runtime.test_recipe_installation import _ready
+
+
+@pytest.mark.parametrize("mode", ["ro", ""])
+def test_nexus_reset_cache_observation_accepts_verified_readonly_development_mount(
+    env: Environment,
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    target = env.prepare("nexus")
+    env.invoke(version="nexus")
+    env.wait(target)
+    assert env.invoke("stop", version="nexus").stop_confirmed
+    original = env.broker.records[0]
+    cached = env.installer._latest("nexus")
+    assert cached is not None and cached.runtime_revision_id is not None
+    worker, containers = backend
+    own = configure_broker(worker)
+    own["Mounts"][0]["Mode"] = mode
+    worker._session_factory = env.factory
+    worker._client().api.inspect_image = lambda image: {
+        "Id": image,
+        "Os": "linux",
+        "Architecture": "amd64",
+        "Config": {"Labels": {"io.kodi-lab.recipe-digest": cached.recipe_digest}},
+    }
+
+    def active() -> SimpleNamespace:
+        current = worker.active()
+        return SimpleNamespace(
+            operation_id=str(current[0]) if current else None,
+            generation=current[1] if current else None,
+            lock_held=worker.lock_held(),
+        )
+
+    monkeypatch.setattr(env.broker, "active_reviewed_runtime_installation", active)
+    monkeypatch.setattr(
+        env.broker,
+        "reviewed_runtime_image_present",
+        lambda identity: SimpleNamespace(present=worker.image_present(UUID(identity))),
+    )
+    observed = env.installer.observe_create("nexus", UUID(cached.id))
+    result = reset(env, version="nexus")
+    assert observed.status == "ready" and not observed.busy
+    assert str(observed.runtime_revision_id) == cached.runtime_revision_id
+    assert observed.image_id == original.image_id
+    assert result.phase == "complete"
+    assert result.retirement == result.replacement == "confirmed"
+    assert env.broker.records[0].container_id != original.container_id
+    assert env.broker.records[0].image_id == original.image_id
+    assert env.broker.records[0].runtime_state == "stopped"
+    assert env.broker.removals == 1 and env.broker.launches == []
+    assert containers.created is None and containers.items == []
 
 
 def test_ready_cache_survives_a_broker_image_upgrade(
