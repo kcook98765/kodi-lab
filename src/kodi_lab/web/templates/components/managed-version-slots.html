@@ -2,7 +2,7 @@
 {% set stop_guidance = 'Finish playback in Kodi first. Kodi Lab checks playback and active use before stopping, and may refuse the request. Your settings and add-ons are kept.' %}
 {% set reset_guidance = 'If Kodi is running, finish playback first. Reset checks for playback and active use when you confirm, and may be refused.' %}
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
-  <h2 id="managed-kodi-heading">{{ environment_label('managed') }}</h2>
+  <h2 id="managed-kodi-heading">{{ environment_label('managed', 'Kodi versions') }}</h2>
   {{ environment_ownership('managed') }}
   <p>Start a version below to use its saved settings and add-ons. Stop keeps them. Choosing a different retained version keeps its saved profile.</p>
   <p>Only one managed Kodi can run at a time. If a version needs installation, use its Create Managed Kodi link first.</p>

@@ -1,8 +1,8 @@
-{% macro environment_label(target_type) -%}
+{% macro environment_label(target_type, display_name=none) -%}
 {% set identity = environment_identity(target_type) %}
 <span class="kodi-environment-label" data-environment-type="{{ target_type }}">
   <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="{{ identity.icon_path }}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  <span>{{ identity.display_name }}</span>
+  <span>{{ display_name or identity.display_name }}</span>
 </span>
 {%- endmacro %}
 
