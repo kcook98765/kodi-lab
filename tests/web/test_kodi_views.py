@@ -156,13 +156,15 @@ def test_detail_safe_auth_and_classification(
     assert 'data-status="connected">Connected' in page
     assert "21.3" in page and "Verified relationship" in page
     assert "08 Oct 2026, 12:00 UTC" in page
-    assert "Inspection access required" in page and "Navigation Off" in page
+    assert "Inspection access required" in page
+    assert "<dt>Remote control</dt>" not in page
+    assert f'data-navigation-preference="{household}"' in page
     assert 'class="kodi-diagnostics"' in page
     assert "<summary>Advanced options</summary>" in page
     assert (
         "Target identifier" not in page.split('<details class="kodi-diagnostics">')[0]
     )
-    assert "<button" not in page.split("<main ")[1]  # No mutation controls.
+    assert "<button" not in page.split("<main ")[1]  # No Kodi runtime actions.
     assert "<form" not in page.split("<main ")[1]
     assert "http-equiv" not in page
 
@@ -366,7 +368,8 @@ def test_remote_configuration_is_not_authorization(
             advance_production_policy(policy, now=datetime.now(UTC))
     login(client)
     page = detail(client, household)
-    assert ("Navigation Off") in page
+    assert "<dt>Remote control</dt>" not in page
+    assert f'data-navigation-preference="{household}"' in page
     assert "These settings do not grant an agent access" in page
     assert "<button" not in page.split("<main ")[1]
 

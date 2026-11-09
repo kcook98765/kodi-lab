@@ -276,9 +276,11 @@ scope, acknowledgement, approval or other authority.
 
 Adding screenshot changes only the configured maximum and advances/binds policy
 revision once. Native verified evidence, identity generation, designation,
-enablement and current native inspection remain unchanged. Pairing, reviewed
-bridge verification, visual scope and transport acknowledgement are still
-independent requirements; the amendment alone cannot produce pixels.
+enablement and current native inspection remain unchanged. Capture still requires
+pairing, reviewed Bridge verification, ordinary exact-target inspection access,
+Allow screenshots set to On (default Off) and the applicable transport
+acknowledgement. No visual grant or scope is required; the amendment alone cannot
+produce pixels.
 
 Removing screenshot creates or advances a monotonic bridge tombstone, clears
 Lab pairing references, revokes bridge-derived scopes and cancels live transient
