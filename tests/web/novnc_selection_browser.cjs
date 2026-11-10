@@ -8,9 +8,10 @@ function boot(){
  const events={},requests=[],clients=[],timers=new Map();let serial=0,reloads=0;
  const add=(name,fn)=>(events[name]||=[]).push(fn);
  const document={hidden:false,querySelector:key=>key==='[data-novnc-viewer]'?main:key.startsWith('meta')?{content:'csrf'}:null,addEventListener:add};
- const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}disconnect(){}},WebSocket:class {addEventListener() {}},
+ const context={document,window:{location:{reload:()=>reloads++},addEventListener:add},location:{href:'https://lab.test/',protocol:'https:'},URL,AbortController,console,crypto:require('crypto').webcrypto,performance:require('perf_hooks').performance,RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}blur(){} disconnect(){this.closed=true;}},WebSocket:class {addEventListener() {}},
  setTimeout(fn,delay){timers.set(++serial,{fn,delay});return serial;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject})),};
+ context.AbortSignal = AbortSignal;
  vm.runInNewContext(source,context);
  const signal=(name,event={})=>(events[name]||[]).forEach(fn=>fn(event));
  const ready=(request,extra={})=>request.resolve({ok:true,json:async()=>({current:{generation:1,target_id:'fixture',runtime_revision_id:'revision',container_id:'container',workspace_id:'workspace',source_id:'source',...extra},viewer_state:'ready'})});
@@ -34,6 +35,12 @@ function boot(){
  changed.signal('visibilitychange');changed.ready(changed.requests.shift());await flush();
  assert.equal(changed.nodes['#start'].disabled,true,'retired identity cannot silently return');
  changed.signal('pagehide');
+ const healthy=boot();healthy.ready(healthy.requests.shift());await flush();
+ const beginning=healthy.nodes['#start'].onclick();await flush();
+ healthy.requests.shift().resolve({ok:true,json:async()=>({ticket:'once',mode:'view-only'})});await beginning;healthy.clients[0].events.connect();
+ healthy.document.hidden=true;healthy.signal('visibilitychange');assert.notEqual(healthy.clients[0].closed,true,'expanded view-only survives hide');assert.equal(healthy.requests.length,0);
+ healthy.document.hidden=false;healthy.signal('visibilitychange');healthy.ready(healthy.requests.shift());await flush();
+ assert.notEqual(healthy.clients[0].closed,true,'fresh selection confirmation preserves video');assert.equal(healthy.clients.length,1);healthy.signal('pagehide');
  const stalled=boot();stalled.ready(stalled.requests.shift());await flush();
  const starting=stalled.nodes['#start'].onclick();await flush();
  stalled.requests.shift().resolve({ok:true,json:async()=>({ticket:'ticket',mode:'view-only'})});
@@ -48,7 +55,7 @@ function boot(){
  stalled.document.hidden=false;stalled.signal('visibilitychange');stalled.ready(stalled.requests.shift());await flush();
  const status=stalled.nodes['#status'].textContent;
  stopPending.reject(new Error('late cleanup failure'));await flush();
- assert.equal(stalled.nodes['#status'].textContent,status,'obsolete cleanup cannot overwrite post-return controls');
+ assert.match(stalled.nodes['#status'].textContent,/Input stays reserved/,'an unresolved Stop still reports its retained fence after tab return');
  assert.equal(stalled.nodes['#start'].disabled,false);stalled.signal('pagehide');
  console.log('expanded-viewer epochs, lifecycle and complete rendered binding guards passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

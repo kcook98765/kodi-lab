@@ -14,9 +14,9 @@ function boot(options = {}) {
   class RFB {
     constructor() { this.events = {}; this.closed = false; clients.push(this); }
     addEventListener(name, fn) { this.events[name] = fn; }
-    disconnect() { this.closed = true; }
+    blur(){} disconnect() { this.closed = true; }
   }
-  vm.runInNewContext(source, {
+  vm.runInNewContext(source, { AbortSignal,
     document, window:{addEventListener:listen, location:{reload:() => reloads++}},
     location:{href:'http://127.0.0.1/screen', protocol:'http:'}, URL,
     crypto:require('node:crypto').webcrypto, performance:{now:() => elapsed},
@@ -63,6 +63,9 @@ function boot(options = {}) {
   assert.equal(viewer.closed, false);
   page.document.hidden = true;
   page.signal('visibilitychange');
+  assert.equal(viewer.closed, false, 'hidden view-only stays connected');
+  assert.equal(page.requests.length, 0);
+  page.signal('pagehide');
   assert.equal(viewer.closed, true);
   const stop = page.requests.shift();
   assert.match(stop.url, /novnc-stop$/);

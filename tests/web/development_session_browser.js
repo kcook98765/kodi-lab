@@ -33,11 +33,12 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   let next=0,reloads=0;
   const root={dataset:rendered,querySelector(selector) {return nodes.get(selector)||null;}, querySelectorAll:()=>actions};
   const document={hidden:false,querySelector:selector=>selector.startsWith('meta')?{content:'csrf'}:selector==='[data-novnc-viewer]'?viewerRoot:selector==='[data-viewer-current-status]'?null:root,addEventListener:add, dispatchEvent:event=>{events.push(event);listeners[event.type]?.(event);}};
-  const context={document,URL,location:{href:'https://lab.test/',protocol:'https:'},RFB:class {constructor(){clients.push(this);}addEventListener(){}disconnect(){}},WebSocket:class {},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{getRandomValues:array=>require('node:crypto').webcrypto.getRandomValues(array)},performance:require('node:perf_hooks').performance,AbortController,Set,Error,console,
+  const context={document,URL,AbortSignal,location:{href:'https://lab.test/',protocol:'https:'},RFBFixture:class {constructor(){this.events={};clients.push(this);}addEventListener(name,fn){this.events[name]=fn;}blur(){}disconnect(){this.closed=true;}},WebSocket:class {addEventListener(){}},window:{location:{reload:()=>reloads++},addEventListener:add},CustomEvent:class {constructor(type,options) {this.type=type;this.detail=options.detail;}},crypto:{getRandomValues:array=>require('node:crypto').webcrypto.getRandomValues(array)},performance:require('node:perf_hooks').performance,AbortController,Set,Error,console,
     setTimeout(fn,delay) {timers.set(++next,{fn,delay});return next;}, clearTimeout:id=>timers.delete(id),
     fetch:async(url,options)=>{
       requests.push({url,options});
       if (options.method) {
+        if (url.includes('/novnc-')) return {ok:true,json:async()=>({ticket:'once',mode:'view-only',stopped:true})};
         if (scenario.failure) throw new Error('lost response');
         if (scenario.error) return {ok:false,json:async()=>({error:{code:scenario.error}})};
         return {ok:true,json:async()=>({})};
@@ -47,7 +48,7 @@ function boot(phase = null, rendered = {}, configuration = {}) {
     },
   };
   vm.runInNewContext(code,context);
-  if(configuration.viewer) {const viewerCode=fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[2]),'novnc-phase1.js'),'utf8').replace(/^import RFB[^\n]+\n/,'');vm.runInNewContext(viewerCode,context);}
+  if(configuration.viewer) {const viewerCode=fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[2]),'novnc-phase1.js'),'utf8').replace("import('./vendor/novnc/core/rfb.js')",'Promise.resolve({default:RFBFixture})');vm.runInNewContext(viewerCode,context);}
   const get=name=>nodes.get(`[data-${name}]`);
   return {scenario,requests,form,actions,document,listeners,timers,events,root,get,pending,viewerNodes,clients,reloads:()=>reloads};
 }
@@ -143,5 +144,16 @@ function boot(phase = null, rendered = {}, configuration = {}) {
   assert.equal(joined.clients.length,0);
   assert.equal(joined.requests.filter(request=>request.url.endsWith('/novnc-start')).length,0);
   joined.listeners.pagehide();assert.equal(joined.timers.size,0);
+  const active=boot('bound',{}, {viewer:true,defer:true});
+  const viewing=result('bound');viewing.viewer_state='ready';
+  active.pending.shift().resolve({ok:true,json:async()=>viewing});await flush();
+  await active.viewerNodes['#start'].onclick();active.clients[0].events.connect();
+  active.document.hidden=true;active.listeners.visibilitychange();
+  assert.notEqual(active.clients[0].closed,true,'inline status invalidation must preserve viewing');
+  assert.equal(active.events.at(-1).detail.observationPending,true);
+  active.document.hidden=false;active.listeners.visibilitychange();
+  active.pending.shift().resolve({ok:true,json:async()=>viewing});await flush();
+  assert.notEqual(active.clients[0].closed,true,'same selection keeps the exact inline client');
+  assert.equal(active.clients.length,1);active.listeners.pagehide();assert.equal(active.clients[0].closed,true);
   process.stdout.write('Current Managed Kodi request, full binding, joined viewer lifecycle and uncertainty guards passed\n');
 })().catch(error=>{console.error(error);process.exitCode=1;});

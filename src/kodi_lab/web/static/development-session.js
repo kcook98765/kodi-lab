@@ -31,10 +31,10 @@
   let view, busy = false, uncertain = false, closed = false, changed = false, timer;
   let identity, observationEpoch = 0, activeRead, reading = false;
   const key = current => current ? [current.generation, current.target_id, current.workspace_id, current.source_id, current.runtime_revision_id, current.container_id].join(':') : '';
-  function screen(state = 'unavailable') {
+  function screen(state = 'unavailable', observationPending = false) {
     const panel = root.querySelector('[data-novnc-viewer]');
     if (panel) {panel.dataset.available = state === 'ready' && !uncertain && !changed ? 'true' : 'false';panel.hidden = ['unsupported', 'disabled'].includes(state);}
-    document.dispatchEvent(new CustomEvent('kodi-current-status', {detail: {observationConfirmed: !!view, current: view?.current || null, state: uncertain || changed ? 'unavailable' : state}}));
+    document.dispatchEvent(new CustomEvent('kodi-current-status', {detail: {observationPending, observationConfirmed: !!view, current: view?.current || null, state: uncertain || changed ? 'unavailable' : state}}));
   }
   function controls() {
     const current = view?.current, actions = view?.summary?.actions || [];
@@ -162,7 +162,7 @@
   function invalidateObservation() {
     observationEpoch++;clearTimeout(timer);activeRead?.abort();activeRead = null;
     if (reading) {reading = false;busy = false;}
-    view = undefined;hideWatch();screen();
+    view = undefined;hideWatch();screen('unavailable', true);
     setText('current-state', 'Checking status');setText('current-native', 'Not checked');controls();
   }
   document.addEventListener('visibilitychange', () => {invalidateObservation();if (!document.hidden) refresh();});
