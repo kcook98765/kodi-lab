@@ -240,25 +240,40 @@ def test_disabled_idle_policy_and_bounded_keep_awake(env: Environment) -> None:
     assert env.resources.sweep_idle() == 1
 
 
-def test_other_client_activity_and_hold_protect_release(env: Environment) -> None:
+@pytest.mark.parametrize("idle_minutes", [None, 60])
+def test_historical_activity_does_not_own_manual_stop(
+    env: Environment, idle_minutes: int | None
+) -> None:
     owner, other = f"mcp:{uuid4()}", f"mcp:{uuid4()}"
+    env.resources.configure(
+        ResourcePolicyInput(max_running=1, idle_minutes=idle_minutes)
+    )
     with env.sessions.begin() as session:
         record_activity(session, INSTANCE_ID, actor=other, now=env.clock())
-    with pytest.raises(ManagedResourceProtected, match="other_client_active"):
-        env.resources.stop_if_eligible(INSTANCE_ID, reason="released", actor=owner)
-    env.clock.value += timedelta(minutes=61)
-    with env.sessions.begin() as session:
-        use = session.get(ManagedInstanceUseRow, (str(INSTANCE_ID), other))
-        assert use is not None
-        use.hold_until = timestamp(env.clock() + timedelta(minutes=1))
-    with pytest.raises(ManagedResourceProtected, match="keep_awake"):
-        env.resources.stop_if_eligible(INSTANCE_ID, reason="released", actor=owner)
-    env.clock.value += timedelta(minutes=1)
     assert (
         env.resources.stop_if_eligible(INSTANCE_ID, reason="released", actor=owner)
         == "stopped"
     )
     assert env.resources.status(INSTANCE_ID)["last_stop_reason"] == "released"
+
+
+def test_explicit_other_client_hold_protects_running_use_until_expiry(
+    env: Environment,
+) -> None:
+    other = f"mcp:{uuid4()}"
+    with env.sessions.begin() as session:
+        record_activity(session, INSTANCE_ID, actor=other, now=env.clock())
+        session.flush()
+        use = session.get(ManagedInstanceUseRow, (str(INSTANCE_ID), other))
+        assert use is not None
+        use.hold_until = timestamp(env.clock() + timedelta(minutes=1))
+    with pytest.raises(ManagedResourceProtected, match="keep_awake"):
+        env.resources.stop_if_eligible(INSTANCE_ID, reason="released", actor="web")
+    env.clock.value += timedelta(minutes=1)
+    assert (
+        env.resources.stop_if_eligible(INSTANCE_ID, reason="released", actor="web")
+        == "stopped"
+    )
 
 
 def test_unconfirmed_stop_keeps_fence_and_does_not_retry_on_next_tick(

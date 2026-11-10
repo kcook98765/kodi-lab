@@ -258,3 +258,31 @@ def test_version_admission_refusals_keep_their_reason_and_do_not_replay(
     replay = actor.ensure(request_id)
     assert replay.replayed and replay.code == code
     assert env.broker.starts == 1 and not env.broker.running
+
+
+def test_omitted_hold_defaults_zero_but_replays_saved_positive_intent(
+    env: resources.Environment, tmp_path: Path
+) -> None:
+    actor = Actor(env, tmp_path, name="Default fixture")
+    fresh = actor.agent.ensure_ready(
+        client_id=actor.id,
+        request_id=uuid4(),
+        target_id=INSTANCE_ID,
+        authorize=actor.authorize,
+    )
+    assert fresh.hold_until is None
+    request = uuid4()
+    held = actor.ensure(request, minutes=15)
+    replay = actor.agent.ensure_ready(
+        client_id=actor.id,
+        request_id=request,
+        target_id=INSTANCE_ID,
+        authorize=actor.authorize,
+    )
+    assert replay.replayed and replay.operation_id == held.operation_id
+    assert replay.hold_until == held.hold_until
+    assert replay.hold_until is not None
+    with pytest.raises(ManagedAgentLifecycleError, match="request_conflict"):
+        actor.ensure(request, minutes=0)
+    # Zero-duration new use must not clear a deliberate running hold.
+    assert actor.ensure(uuid4(), minutes=0).hold_until == held.hold_until

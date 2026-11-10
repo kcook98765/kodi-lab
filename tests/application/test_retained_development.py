@@ -592,7 +592,7 @@ def test_uncertain_start_survives_restart_and_only_exact_stop_frees_reservation(
         assert session.get(ManagedStartReservationRow, str(tid)) is None
 
 
-def test_pending_use_hold_and_unselected_restart_stage_are_protected(
+def test_stopped_hold_does_not_trap_selection_and_unselected_mutation_stays_blocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     s = environment(tmp_path, monkeypatch)
@@ -607,8 +607,7 @@ def test_pending_use_hold_and_unselected_restart_stage_are_protected(
                 released_at=None,
             )
         )
-    with pytest.raises(DevelopmentSessionConflict, match="use_active"):
-        s.choose("nexus")
+    s.choose("nexus")
     from kodi_lab.domain import ManagedInstanceMutationKind
     from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
 
@@ -617,7 +616,7 @@ def test_pending_use_hold_and_unselected_restart_stage_are_protected(
         pytest.raises(DevelopmentSessionConflict, match="selection_required"),
     ):
         ManagedInstanceMutationLeaseRepository(session).reserve(
-            s.ids["nexus"],
+            s.ids["omega"],
             kind=ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
             operation_id=uuid4(),
         )

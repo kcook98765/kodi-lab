@@ -15,7 +15,7 @@ workspace, Bridge pairing or an agent.
 
 Only one managed Kodi can run. To change versions, explicitly Stop the running
 version, then Start the next one. Kodi Lab never evicts another user's version.
-Other clients' active use/holds, viewers, input, playback, mutations, uncertain
+Explicit running-use holds, viewers, input, playback, mutations, uncertain
 operations and reconciliation can block lifecycle actions. Close your viewer or
 wait for the owner to finish; use **Review recovery** when necessary.
 
@@ -88,3 +88,9 @@ This source change is not deployment or native qualification. Native Linux,
 Windows/WSL2, actual mobile/keyboard browser use, graphical first-viewer rendering,
 cleanup and genuine Bridge/workspace deployment still need acceptance. Automatic
 version switching remains separate.
+
+Start and Stop do not wait for historical agent activity. A stopped retained
+profile can start immediately after a successful Stop. Start creates no implicit
+hold. Explicit positive keep-awake holds protect running use; Reset retains its
+stricter destructive safeguards. Action eligibility is evaluated separately, so
+Reset protection does not disable ordinary Start or request recovery by itself.

@@ -32,7 +32,11 @@ from kodi_lab.application.runtime_status import (
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import ManagedInstanceLifecycleOperationState
-from kodi_lab.storage.managed_activity import record_activity, timestamp
+from kodi_lab.storage.managed_activity import (
+    end_running_holds,
+    record_activity,
+    timestamp,
+)
 from kodi_lab.storage.models import (
     ManagedAgentLifecycleRequestRow,
     ManagedInstanceLifecycleOperationRow,
@@ -124,9 +128,11 @@ class ManagedAgentLifecycleService:
         request_id: UUID,
         target_id: UUID,
         authorize: AuthorizeLifecycle,
-        hold_minutes: int = 15,
+        hold_minutes: int | None = None,
     ) -> ManagedAgentLifecycleResult:
-        if type(hold_minutes) is not int or not 0 <= hold_minutes <= 240:
+        if hold_minutes is not None and (
+            type(hold_minutes) is not int or not 0 <= hold_minutes <= 240
+        ):
             raise ManagedAgentLifecycleError("hold_duration_invalid")
         return self._invoke(
             client_id,
@@ -161,7 +167,7 @@ class ManagedAgentLifecycleService:
         target_id: UUID,
         *,
         action: Literal["ensure_ready", "release"],
-        hold_minutes: int,
+        hold_minutes: int | None,
         authorize: AuthorizeLifecycle,
     ) -> ManagedAgentLifecycleResult:
         with self._sessions() as session:
@@ -239,7 +245,7 @@ class ManagedAgentLifecycleService:
         request_id: UUID,
         target_id: UUID,
         action: str,
-        hold_minutes: int,
+        hold_minutes: int | None,
         authorize: AuthorizeLifecycle,
     ) -> tuple[ManagedAgentLifecycleRequestRow, bool]:
         now = self._clock()
@@ -256,7 +262,10 @@ class ManagedAgentLifecycleService:
                 if (
                     existing.original_instance_id != str(target_id)
                     or existing.action != action
-                    or existing.hold_minutes != hold_minutes
+                    or (
+                        hold_minutes is not None
+                        and existing.hold_minutes != hold_minutes
+                    )
                 ):
                     raise ManagedAgentLifecycleError("request_conflict")
                 session.expunge(existing)
@@ -299,7 +308,7 @@ class ManagedAgentLifecycleService:
                 original_instance_id=str(target_id),
                 managed_instance_id=str(target_id),
                 action=action,
-                hold_minutes=hold_minutes,
+                hold_minutes=0 if hold_minutes is None else hold_minutes,
                 state="pending",
                 created_at=timestamp(now),
                 updated_at=timestamp(now),
@@ -497,6 +506,8 @@ class ManagedAgentLifecycleService:
             current.expected_state_revision = handle.runtime_state_revision + 1
             current.updated_at = timestamp(self._clock())
             current.result_json = json.dumps({"code": "start_requested"})
+            # The stopped observation and its epoch passed precondition above.
+            end_running_holds(session, instance_id)
             self._hold(session, current)
 
         def before_dispatch() -> None:

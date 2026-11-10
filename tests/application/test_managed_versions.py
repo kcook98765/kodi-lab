@@ -42,7 +42,7 @@ def test_empty_start_registers_cached_pin_once_and_reuses_running_profile(
     assert replay.status.native_ready and replay.status.state == "running"
     assert replay.status.bridge_readiness == "blocked"
     assert replay.status.agent_readiness == "not_assessed"
-    assert replay.hold_until == first.hold_until
+    assert replay.hold_until == first.hold_until is None
     again = env.invoke()
     assert again.code == "already_running" and env.broker.starts == 1
     assert env.broker.provisions == 1 and len(env.broker.records) == 1
@@ -246,6 +246,18 @@ def test_other_client_hold_blocks_stop_and_release_is_not_stop_proof(
     env.admin.grant_target(second.client_id, target)
     env.principal = second
     env.invoke()
+    # Version Start no longer reserves running use. Make this hold deliberate.
+    from datetime import timedelta
+
+    from kodi_lab.storage.managed_activity import timestamp
+    from kodi_lab.storage.models import ManagedInstanceUseRow
+
+    with env.factory.begin() as session:
+        use = session.get(
+            ManagedInstanceUseRow, (str(target), f"mcp:{second.client_id}")
+        )
+        assert use is not None
+        use.hold_until = timestamp(env.service._clock() + timedelta(minutes=15))
     env.principal = first
     request = uuid4()
     blocked = env.invoke("stop", request_id=request)
@@ -366,19 +378,36 @@ def test_parent_receipts_protect_child_history_from_pruning(env: Environment) ->
 def test_status_polling_and_request_replay_do_not_extend_holds(
     env: Environment,
 ) -> None:
+    from datetime import timedelta
+
+    from kodi_lab.storage.managed_activity import timestamp
     from kodi_lab.storage.models import ManagedInstanceUseRow
 
     target = env.prepare()
     request = uuid4()
-    env.invoke(request_id=request)
+    started = env.invoke(request_id=request)
     env.wait(target)
+    # Model a receipt saved by pre-upgrade Start; keep its original hold evidence.
+    legacy_hold = env.service._clock() + timedelta(minutes=15)
+    with env.factory.begin() as session:
+        receipt = session.get(ManagedVersionOperationRow, str(started.operation_id))
+        use = session.get(
+            ManagedInstanceUseRow, (str(target), f"mcp:{env.principal.client_id}")
+        )
+        assert receipt is not None and use is not None
+        receipt.hold_until = use.hold_until = timestamp(legacy_hold)
     with env.factory() as session:
         before = session.execute(select(ManagedInstanceUseRow.__table__)).all()
     for _ in range(3):
         env.service.status(env.principal.client_id, env.authorize)
-        env.invoke(request_id=request)
+        assert env.invoke(request_id=request).hold_until == legacy_hold
     with env.factory() as session:
         assert session.execute(select(ManagedInstanceUseRow.__table__)).all() == before
+    assert env.invoke("stop").stop_confirmed
+    # Current-use protection ends, while the old immutable receipt survives.
+    replay = env.invoke(request_id=request)
+    assert replay.replayed and replay.hold_until == legacy_hold
+    assert replay.status.state == "stopped"
 
 
 def test_accepted_intent_resumes_after_lost_response_before_any_child(

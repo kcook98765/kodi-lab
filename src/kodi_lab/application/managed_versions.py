@@ -6,7 +6,7 @@ trust is performed. Accepted child identities are never dispatched twice.
 
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 from uuid import UUID, uuid4, uuid5
@@ -37,7 +37,11 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.domain import InstanceType, ManagedInstanceLifecycleOperation
 from kodi_lab.runtime.recipes import load_installation_recipe
-from kodi_lab.storage.managed_activity import record_activity, timestamp
+from kodi_lab.storage.managed_activity import (
+    end_running_holds,
+    record_activity,
+    timestamp,
+)
 from kodi_lab.storage.managed_clean_reset import (
     active_clean_reset,
     require_no_clean_reset,
@@ -667,21 +671,15 @@ class ManagedVersionLifecycleService:
         ):
             raise ManagedVersionError("active_viewer_or_input")
 
-    def _hold(self, session: Session, row: ManagedVersionOperationRow) -> None:
-        if row.hold_until is not None:
-            return
-        now = self._clock()
+    def _record_start(self, session: Session, row: ManagedVersionOperationRow) -> None:
+        # Activity is diagnostic/idle-stop input, never an implicit reservation.
+        # Keep historical receipt hold_until values intact on replay/recovery.
         record_activity(
-            session, UUID(row.target_id), actor=lifecycle_actor(row.client_id), now=now
+            session,
+            UUID(row.target_id),
+            actor=lifecycle_actor(row.client_id),
+            now=self._clock(),
         )
-        session.flush()
-        use = session.get(
-            ManagedInstanceUseRow, (row.target_id, lifecycle_actor(row.client_id))
-        )
-        assert use is not None
-        until = timestamp(now + timedelta(minutes=15))
-        use.hold_until = max(use.hold_until or until, until)
-        row.hold_until = use.hold_until
 
     def _terminal(
         self,
@@ -775,7 +773,7 @@ class ManagedVersionLifecycleService:
                     target_id=row.target_id,
                     revision_id=str(row.runtime_revision_id),
                 )
-                self._hold(session, saved)
+                self._record_start(session, saved)
                 saved.phase, saved.code = "complete", "already_running"
             return
 
@@ -790,7 +788,9 @@ class ManagedVersionLifecycleService:
                 str(handle.operation_id),
             )
             saved.expected_state_revision = handle.runtime_state_revision + 1
-            self._hold(session, saved)
+            # _pending fences the stopped observation and exact runtime epoch.
+            end_running_holds(session, UUID(row.target_id))
+            self._record_start(session, saved)
 
         self._lifecycle.start_managed(
             UUID(row.target_id),

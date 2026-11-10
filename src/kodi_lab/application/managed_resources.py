@@ -41,7 +41,9 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedInstanceUseRow,
+    ManagedRemoteGuardRow,
     ManagedStartReservationRow,
+    NovncSessionRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
@@ -256,6 +258,11 @@ class ManagedResourceService:
             raise ManagedResourceProtected("operation_requires_reconciliation")
         if session.get(ManagedStartReservationRow, str(instance_id)) is not None:
             raise ManagedResourceProtected("start_requires_reconciliation")
+        if (
+            session.get(NovncSessionRow, str(instance_id)) is not None
+            or session.get(ManagedRemoteGuardRow, str(instance_id)) is not None
+        ):
+            raise ManagedResourceProtected("active_viewer_or_input")
         now = self._clock()
         policy = read_resource_policy(session)
         state = session.get(ManagedIdleStateRow, str(instance_id))
@@ -267,7 +274,7 @@ class ManagedResourceService:
             if use.hold_until is not None and use.hold_until > timestamp(now):
                 raise ManagedResourceProtected("keep_awake")
             if (
-                reason == "released"
+                reason == "reset"
                 and use.actor_key != actor
                 and (use.released_at is None or use.last_activity_at > use.released_at)
                 and datetime.fromisoformat(use.last_activity_at.replace("Z", "+00:00"))
