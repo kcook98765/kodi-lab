@@ -20,8 +20,8 @@ using MCP-compatible coding agents.
   **only one managed Kodi instance runs at a time**.
   Broker admission prevents a second writable profile for the same version;
   conflicting older profiles require administrator review without automatic deletion.
-- Develop and test one add-on workspace in **Current Kodi**, using disposable
-  profiles or explicitly enabled retained profiles for each version.
+- Develop and test one add-on workspace in **Current Managed Kodi**, using
+  disposable profiles or explicitly enabled retained profiles for each version.
 - Inspect Kodi UI state and capture screenshots. View supported managed Kodi
   through [noVNC](docs/STANDARD-NOVNC.md) (about 2 FPS, view-only by default,
   with optional human control; no audio).
@@ -41,15 +41,23 @@ and [security](SECURITY.md) for the implementation boundaries.
 
 ## Managed and external Kodi
 
-**Managed Kodi** runs in isolated Docker containers on the Kodi Lab server.
-Choose a reviewed version when you need it; the first setup downloads and
-validates Kodi. For add-on development, **Current Kodi** keeps one workspace
-and selected profile. Explicitly enable **Retained Kodi versions** to preserve
-per-version profiles when switching; see the
+After signing in, **Overview** (`/kodi`) links to three choices:
+
+| Choice | Use it to |
+| --- | --- |
+| **Managed Kodi** (`/managed-kodi`) | Run Kodi hosted by Kodi Lab for testing, with a separate profile per version. |
+| **External Production Kodi** (`/production-targets`) | Connect an existing household Kodi on your own device. |
+| **External Development Kodi** (`/external-targets`) | Connect Kodi running on another development device for add-on testing. |
+
+Managed setup downloads and validates a reviewed runtime when needed. Starting
+and viewing Managed Kodi needs no agent, workspace or Bridge pairing. For add-on
+development, **Development Tools → Current Managed Kodi** (`/development-session`)
+adds a selected workspace and development profile; see the
 [walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
 
-**External Kodi** runs on your own device. **Add Kodi** connects it through
-Kodi JSON-RPC and pairs the optional Narrow Bridge for additional capabilities.
+The external pages offer **Connect External Production Kodi** or **Connect External
+Development Kodi** through the existing connection and pairing workflow. Kodi Lab
+does not host or own those installations and never grants automatic production access.
 Screenshots use ordinary inspection authorization; each external Kodi also
 requires Allow screenshots set to On (default Off). Control and development
 have separate permission requirements. Kodi Lab provides no general-purpose shell or OS access to that
@@ -74,17 +82,18 @@ are optional.
 
 Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has an owner-accepted
 installation and native Omega result using the maintained
-[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). Broader Windows
-qualification and the [password-prompt](https://github.com/kcook98765/kodi-lab/issues/222)
-and [Firefox setup](https://github.com/kcook98765/kodi-lab/issues/226)
-acceptance checks remain separate.
-macOS and ARM64 hosts are not qualified. An existing Kodi target can be on another
-computer; these requirements apply to the Kodi Lab server.
+[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). The
+[password-prompt](https://github.com/kcook98765/kodi-lab/issues/222) and
+[Firefox setup](https://github.com/kcook98765/kodi-lab/issues/226) checks are also
+accepted and closed. The current Windows managed development workflow remains
+under [separate qualification in #275](https://github.com/kcook98765/kodi-lab/issues/275).
+macOS and ARM64/Raspberry Pi hosts are not qualified. An existing Kodi target can
+be on another computer; these requirements apply to the Kodi Lab server.
 
 ## Quick Start — Install Kodi Lab
 
 These steps install Kodi Lab for the first time. Kodi is acquired separately
-when you choose **Create Kodi** after signing in.
+when you use **Create Managed Kodi** after signing in.
 
 Choose how to access the Web UI **before installing**:
 
@@ -175,40 +184,40 @@ The Kodi add-on repository has its own address and network configuration.
 
 ## First-Time Setup
 
-1. Sign in and open **Kodi**. Choose Matrix, Nexus, Omega or Piers (preview).
-2. If files are missing, choose **Install Kodi files…** and finish guided setup.
-   Return to Kodi versions, then select **Start Kodi**. An existing stopped
-   profile resumes; an empty slot uses the approved cached image.
-3. Wait for **Native Kodi: Ready**, then choose **Open Screen → Start Viewing**.
-   Viewing starts view-only and requires neither an agent nor a workspace.
-4. **Stop Kodi** keeps settings and add-ons. **Reset Kodi** requires confirmation,
-   discards that version's profile and prepares a clean stopped replacement.
+To use Kodi hosted by Kodi Lab:
 
-Only one managed Kodi runs at a time: explicitly Stop one version before starting
-another. Independent source, workspace and Git data survive Reset. Follow
-**Set up for add-on testing** to prepare Bridge and deployment after replacement.
-See the [managed Kodi Web walkthrough](docs/MANAGED-KODI-WEB.md).
-Advanced retains runtime approval, diagnostics, recovery and Current Kodi setup.
+1. Sign in. From **Overview**, open **Managed Kodi** and choose Matrix, Nexus,
+   Omega or Piers (preview).
+2. If installation is needed, choose **Create Managed Kodi for this version…**,
+   then **Install and prepare**. Setup leaves Kodi stopped by default. Return
+   using **Return to Managed Kodi versions**.
+3. Select **Start Kodi**. An existing stopped profile resumes; an empty slot
+   uses the approved cached image. Wait for **Running** and **View Screen** to
+   become available, then choose **View Screen → Start Viewing**.
+   Viewing starts view-only; **Take Control** is a separate explicit action.
+4. Select **Stop Kodi** to preserve that version's settings and installed add-ons.
 
-Save anything important before resetting or removing a disposable profile; see
-[managed state recovery](docs/MANAGED-STATE-RECOVERY.md). Installing a newer
-reviewed runtime recipe does not automatically migrate existing profiles.
-**Stop retains the same profile; Reset deliberately discards its writable Kodi
-data.** Independent source/workspace/Git state has its own retention controls.
-The version-oriented **Status → Start → Use → Reset or Stop** workflow is being
-implemented in stages under [issue #238](docs/ISSUE-238-MANAGED-SLOTS.md).
-Explicitly authorized agents can now use `managed_status`, `managed_start` and
-`managed_stop` with version names. Start prepares an empty approved cached slot
-or resumes its retained profile; Stop safely retains it. See the
-[version lifecycle setup and replay contract](docs/MANAGED-VERSION-LIFECYCLE.md).
-Agents explicitly granted both `managed.versions` and `managed.reset` can also
-request [clean Reset](docs/MANAGED-CLEAN-RESET.md), stopped by default, while
-preserving independent development work. The four-version Web page uses the same
-coordinators with separate administrator authority. Automatic switching remains a
-follow-up; existing MCP presets gain no authority automatically.
+This manual **Install and prepare → Start Kodi → View Screen → Stop Kodi** workflow
+is available now. Only one managed Kodi runs at a time: deliberately Stop one
+version before starting another. Automatic version switching is not implemented.
+Native Kodi readiness does not establish Bridge readiness, agent inspection
+authorization or successful add-on execution.
 
-To connect an existing Kodi installation instead, use **Add Kodi** and its
-pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
+**Reset Kodi**, under the version's **Advanced options**, requires confirmation
+and intentionally discards its writable Kodi profile, settings and installed
+add-ons, preparing a clean stopped replacement. Independent sources, workspaces
+and Git data have separate retention and survive this Reset. Save anything
+important first; see [managed state recovery](docs/MANAGED-STATE-RECOVERY.md).
+After replacement, use **Set up for add-on testing** to prepare Bridge and
+deployment again. Installing a newer reviewed runtime recipe does not
+automatically migrate existing profiles. See the
+[managed Kodi Web walkthrough](docs/MANAGED-KODI-WEB.md) for recovery and advanced
+administration, and the [agent lifecycle](docs/MANAGED-VERSION-LIFECYCLE.md) and
+[clean Reset](docs/MANAGED-CLEAN-RESET.md) contracts for separately authorized agents.
+
+To connect Kodi on another device, choose **External Production Kodi** or
+**External Development Kodi** from Overview and follow its connection workflow.
+See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
 [reconnection](docs/KODI-RECONNECT.md), and
 [repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md).
 
@@ -216,8 +225,8 @@ pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and
 
 **Choose add-on project → Choose Kodi version → Develop and test.**
 
-Open **Development → Current Managed Kodi**. Select an eligible local project and
-its development agent, then choose Matrix, Nexus, Omega or Piers using the retained
+Open **Development Tools → Current Managed Kodi**. Select an eligible local project
+and its development agent, then choose Matrix, Nexus, Omega or Piers using the retained
 profile controls. Kodi Lab automatically registers or reuses the internal source,
 approves only that project for the selected agent, and prepares or reuses its
 private workspace. Selecting it again keeps workspace edits and existing profiles.
@@ -243,18 +252,18 @@ general Kodi control. Navigation remains a separate follow-up.
 
 ## Connect Your AI Agent
 
-Open **Agents** in Web and use a separate client for each agent. Choose the
-read-only setup for your kind of Kodi:
+Open **Agents & Permissions** (`/mcp-clients`) and use a separate client for each
+agent. Choose the read-only setup for your kind of Kodi:
 
-- **Home Kodi added with Add Kodi:** choose **Production Inspection**, grant
-  that Kodi, then **Grant current inspect scope**. This preset is Home-only.
-- **Kodi created by Kodi Lab:** switch to **Development** view. Under
-  **Advanced administration**, create a custom preset using **Read-only
-  Inspection** as the permission ceiling and select only **Inspect Kodi health,
+- **External Production Kodi:** choose **Production Inspection**, grant
+  that Kodi, then **Grant current inspect scope**. This preset is production-only.
+- **Managed Kodi:** under **Advanced administration**, create a custom preset using
+  **Read-only Inspection** as the permission ceiling and select only **Inspect Kodi health,
   add-ons and UI state** (`target.inspect`). Choose that preset for the client
   and your Kodi's policy, then grant only that Kodi. A new Kodi's unassigned
   policy denies access. The built-in **Read-only Inspection** preset also
-  includes screenshot permission; the custom preset keeps inspection-only access.
+  includes screenshot permission; the custom `target.inspect` preset also permits
+  supported screenshots. External Kodi still requires **Allow screenshots** set to On.
 
 Issue a token and save it in the agent's private environment. A token does not
 replace the Kodi policy or target grant. Keep an existing suitable client and
@@ -281,7 +290,7 @@ For **OpenCode on the same computer**, add this to
 Set the token without putting it in a command argument, then launch OpenCode:
 
 ```sh
-read -r -s -p "Token from Agents: " KODI_LAB_MCP_TOKEN
+read -r -s -p "Token from Agents & Permissions: " KODI_LAB_MCP_TOKEN
 export KODI_LAB_MCP_TOKEN
 opencode
 ```
@@ -312,7 +321,7 @@ Standard noVNC viewing is qualified only for
 older profiles. Kodi Lab remains a prerelease development/testing project.
 Known prerelease concerns include the
 [Nexus first-viewer disconnect](docs/STANDARD-NOVNC.md#known-first-connection-limitation)
-and the Windows acceptance items above. Earlier
+and the Windows managed development qualification above. Earlier
 [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical records.
 
 ## Documentation
@@ -321,7 +330,7 @@ and the Windows acceptance items above. Earlier
   [Linux manual installation and capacity](docs/LINUX-SOURCE-INSTALL.md),
   [Windows/WSL2 setup](docs/WINDOWS-WSL2-INSTALL.md), and
   [Web access and optional HTTPS](docs/WEB-NETWORKING.md).
-- **Kodi and add-on development:** [Current Kodi walkthrough](docs/DEVELOPMENT-SESSION.md),
+- **Kodi and add-on development:** [Current Managed Kodi walkthrough](docs/DEVELOPMENT-SESSION.md),
   [external Kodi and repository setup](docs/LINUX-V1-INSTALL.md),
   [managed development workflow](docs/MANAGED-AGENT-LOOP.md), and
   [UI inspection](docs/UI-OBSERVATION.md).

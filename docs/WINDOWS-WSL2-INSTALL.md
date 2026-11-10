@@ -1,10 +1,12 @@
 # Windows host installation through WSL2 and Docker Desktop
 
-Kodi Lab works on Windows 11 through Ubuntu 24.04 under WSL2 and Docker Desktop's
-Linux engine, including managed Kodi and MCP access. The installer below uses
-that configuration. Native Ubuntu 24.04 amd64 remains the qualified baseline;
-new installer revisions and individual fixes need their own acceptance checks. This
-guide covers Windows-hosted Linux containers, not native Windows server execution.
+Kodi Lab has owner-accepted Windows 11 installation results through Ubuntu 24.04
+under WSL2 and Docker Desktop's Linux engine. The installer below uses that
+configuration. Native Ubuntu 24.04 amd64 remains the qualified baseline; the
+current managed development workflow is tracked separately in
+[#275](https://github.com/kcook98765/kodi-lab/issues/275). New revisions and
+untested workflows need their own acceptance checks. This guide covers
+Windows-hosted Linux containers, not native Windows server execution.
 
 ## Observed working configuration
 
@@ -33,9 +35,15 @@ were accepted by the owner. That result used the retired prerelease schema,
 not the current initial-release baseline. Managed Stop/Start, authorized/denied
 MCP, backup/restore and a separate clean account/host were not tested in that run.
 [Issue #8 is closed by owner acceptance](https://github.com/kcook98765/kodi-lab/issues/8#issuecomment-6647085960);
+subsequent native acceptance on **2026-11-05**, at
+`3f969cf6911475b8be729a0109817b8ef8070578` with `0001_initial_release`, closed
 [password-prompt acceptance #222](https://github.com/kcook98765/kodi-lab/issues/222)
-and [Firefox Create continuation #226](https://github.com/kcook98765/kodi-lab/issues/226)
-remain open. Linux fixtures do not establish those native results.
+and [Firefox Create continuation #226](https://github.com/kcook98765/kodi-lab/issues/226).
+Those results cover hidden-input retry in the same install run, Windows Firefox
+login, and real Omega acquisition/readiness with foreground and tab-return
+continuation. They do not qualify the newer managed development workflow in
+#275 or broader backup/restore and clean-account scenarios. Linux fixtures do
+not establish native Windows results.
 
 ## Prepare Windows and Ubuntu
 
@@ -400,23 +408,33 @@ See [repository address diagnosis and recovery](REPOSITORY-ADDRESS-RECOVERY.md):
 moving a Windows listener does not rewrite the repository's embedded URLs, and
 ordinary restart/candidate transition does not migrate an advertised origin.
 For outbound external Kodi access, use its reachable LAN address and normal
-**Add Kodi** identity/Bridge checks. A Windows browser reaching Web does not prove
+**External Production Kodi** or **External Development Kodi** connection and
+identity/Bridge checks. A Windows browser reaching Web does not prove
 that a Linux container can reach that Kodi device. Report reachability failures
 with sanitized versions/endpoints; do not relax trust checks or grants.
 
 ## First managed Kodi, agent and everyday use
 
-For everyday add-on work, use [Kodi → Current Kodi](DEVELOPMENT-SESSION.md)
-after installing an approved runtime. It keeps one selected development
-environment and persistent workspace; Advanced retains the individual lifecycle
-controls described below. [Standard viewing](STANDARD-NOVNC.md) requires the exact
-installed, validated runtime and explicit **Start Viewing**, without an experimental
-flag or instance allowlist. Windows/WSL2 fresh-host qualification remains pending.
+From **Overview** (`/kodi`), open **Managed Kodi** (`/managed-kodi`) for Kodi hosted
+by the Lab. Follow [first-run setup](HOST-INSTALLER.md#first-run-and-authorized-inspection):
+choose Omega's **Create Managed Kodi for this version…**, select **Install and
+prepare**, return to the version page and select **Start Kodi**. Setup leaves
+Kodi stopped by default. When **Running** and **View Screen** are available,
+choose **View Screen → Start Viewing**. Viewing starts view-only and needs no
+agent, workspace or Bridge pairing. **Stop Kodi** retains that version's profile;
+**Reset Kodi** under **Advanced options** deliberately discards its settings and
+installed add-ons. See [retention and recovery](MANAGED-KODI-WEB.md#stop-and-reset).
 
-Follow [first-run setup](HOST-INSTALLER.md#first-run-and-authorized-inspection):
-install one Omega 21.3 runtime, create/provision/start an instance, check its
-screen, then grant a Read-only Inspection agent that target and verify
-`target_list` and `target_status`. A Windows agent can use
+For add-on work, [Development Tools → Current Managed Kodi](DEVELOPMENT-SESSION.md)
+adds a selected development environment and persistent workspace. Qualification
+of that current Windows/WSL2 workflow remains open in #275. To connect Kodi on
+another device, use **External Production Kodi** or **External Development Kodi**
+from Overview. The Lab host platform and external device platform are separate.
+
+Agent access is optional and separately configured in **Agents & Permissions**
+(`/mcp-clients`). Follow the
+[read-only agent setup](../README.md#connect-your-ai-agent), grant only the exact
+target, then verify `target_list` and `target_status`. A Windows agent can use
 `http://127.0.0.1:18100/mcp` with its bearer credential, independently of repository
 forwarding. Clients on another computer require the existing
 [explicit LAN MCP configuration](NATIVE-LAN-MCP.md).

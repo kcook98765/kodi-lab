@@ -128,11 +128,14 @@ administrator operation.
 
 ## Create your first managed Kodi
 
-Open **Kodi → Create Kodi**, leave **Omega · Recommended** selected, review the
-checks and click **Create Kodi** once. Keep the page open while **Preparing
-Kodi** advances to **Ready**, then choose **Open screen → Start Viewing**.
-Kodi Lab handles downloading, preparation and Start. Viewing needs no agent,
-Bridge pairing or development workspace. If you return to a paused setup,
+From **Overview** (`/kodi`), open **Managed Kodi** (`/managed-kodi`). On Omega's
+card, select **Create Managed Kodi for this version…**, review the checks and
+select **Install and prepare** once. Setup downloads and prepares Kodi, leaving
+it stopped by default. Select **Return to Managed Kodi versions**, then **Start
+Kodi**. When **Running** and **View Screen** are available, choose **View Screen →
+Start Viewing**. Viewing starts view-only and needs no agent, Bridge pairing or
+development workspace. See the [managed walkthrough](MANAGED-KODI-WEB.md) for
+Stop, Reset and recovery. If you return to a paused setup,
 choose **Check status**, then **Resume setup** for that same operation.
 
 ### Advanced runtime administration
@@ -148,7 +151,8 @@ docker compose -f compose.release.yaml stop web
 docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   up -d --wait --no-build web broker
 ```
-Switch Web to **Development** and open **Managed Kodi runtimes**. Stable Matrix
+Open **Managed Kodi → Advanced managed administration → Runtime approval and
+installation**. Stable Matrix
 19.4, Nexus 20.5 and Omega 21.3 remain available. Kodi **22 Piers RC1** is
 **Preview / Prerelease**, Development-only, Linux amd64, and is not the default
 Home/stable recommendation.
@@ -162,10 +166,10 @@ automatically; browser refresh, navigation or closure does not cancel the
 installation. Return to the runtime page later. A failure displays a bounded
 reason and offers retry only when the operation state permits it.
 
-Once Ready, use **Create managed instance**, then the ordinary provision/start
-controls. Additional instances reuse the installed runtime image rather than
-downloading Kodi again. Check healthy status, **View screen** and UI inspection;
-navigate to another window and verify that its screenshot changes. For RC1,
+Once Ready, return to **Managed Kodi** and select **Start Kodi** for that version.
+Starting an empty slot uses the approved cached runtime; a stopped profile is
+reused. Only one managed Kodi runs at a time. Check native readiness and use
+**View Screen → Start Viewing**; viewing and inspection have separate requirements. For RC1,
 **Install reviewed Bridge** installs the exact reviewed development build
 for that Kodi version (currently Bridge 1.1.32 for Piers).
 Native health/screenshots remain available independently of rich Bridge trust.
@@ -183,7 +187,8 @@ recovery](MANAGED-STATE-RECOVERY.md) for the precise preservation boundaries.
 ## Configure an MCP client
 
 Follow the [read-only agent setup](../README.md#connect-your-ai-agent) in Web
-**Agents**. Home-only Production Inspection does not authorize managed Kodi.
+**Agents & Permissions** (`/mcp-clients`). Production Inspection applies only to
+External Production Kodi and does not authorize Managed Kodi.
 For inspection-only managed access, assign the same custom `target.inspect`
 preset to the client and Kodi policy, then grant that exact Kodi. Protect the
 once-shown credential in the client's private environment/configuration, never
@@ -203,7 +208,7 @@ command `kodi-lab-mcp-stdio` from that environment with:
 
 ```text
 KODI_LAB_MCP_URL=http://127.0.0.1:18100/mcp
-KODI_LAB_MCP_TOKEN=<the credential shown once in Agents>
+KODI_LAB_MCP_TOKEN=<the credential shown once in Agents & Permissions>
 ```
 
 The explicit URL matches the bundle port; the proxy's host-process default is

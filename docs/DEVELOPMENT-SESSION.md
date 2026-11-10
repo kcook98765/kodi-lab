@@ -1,24 +1,26 @@
-# Current Kodi: one add-on, one development environment
+# Current Managed Kodi: one add-on, one development environment
 
-Use the [four-version **Kodi** page](MANAGED-KODI-WEB.md) for ordinary Start,
+Use the [four-version **Managed Kodi** page](MANAGED-KODI-WEB.md) for ordinary Start,
 viewing, retained Stop and confirmed clean Reset. These operations need no
-workspace. **Current Kodi** (`/development-session`) adds one persistent add-on
-workspace and an explicitly selected development profile. Existing retained
-version selection must be enabled before using it; it preserves one profile per
-version. Older single-session configuration remains in Advanced and must not be
+workspace. **Development Tools → Current Managed Kodi** (`/development-session`)
+adds one persistent add-on workspace and an explicitly selected development
+profile. Existing retained version selection must be enabled before using it;
+it preserves one profile per version. Older single-session configuration remains
+in Advanced and must not be
 used to create a second profile for an occupied version.
 
 After clean Reset, explicitly select/bind the replacement through supported
-Current Kodi setup, prepare Bridge and deploy fresh workspace files. Independent
+Current Managed Kodi setup, prepare Bridge and deploy fresh workspace files. Independent
 source, workspaces and Git survive; old container-bound trust and deployment
 baselines do not. Automatic development reattachment remains a follow-up.
 Available actions still depend on installed application/broker/schema and runtime
 eligibility. Source tests do not deploy updates or establish native qualification.
 
 The page always follows the durable selected development session. A stopped
-selection remains Current Kodi. Opening an older registration does not select it;
-its Advanced page identifies it as noncurrent. Development and Advanced link here in both
-administrator views. Household and external Kodi retain their separate management.
+selection remains Current Managed Kodi. Opening an older registration does not select it;
+its Advanced page identifies it as noncurrent. **Development Tools** links here;
+**External Production Kodi** and **External Development Kodi** retain their
+separate management pages.
 
 The live screen uses [standard noVNC viewing](STANDARD-NOVNC.md) for exact
 installed, validated Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1
@@ -69,7 +71,8 @@ does not establish native Kodi, authenticated MCP or physical-device acceptance.
    versions**, select a ready workspace and reviewed version, review the selection
    and choose **Select and keep profiles**. For the existing disposable policy,
    select a ready workspace and eligible
-   approved cached Kodi version, then **Choose Kodi**. If another
+   approved cached Kodi version, then **Select managed profile** under
+   **Advanced workspace selection**. If another
    managed profile or unresolved operation blocks reservation, review it through
    existing setup/history. The session does not adopt or remove it. Use **Advanced → Reviewed runtime installations** separately when an eligible cached runtime is unavailable.
 2. **Prepare the stopped profile if absent.** Use **Prepare Kodi** only when
@@ -175,10 +178,11 @@ qualifications.
 
 ## Minimal Web workflow
 
-Open **Kodi → Current Kodi**. Select one ready workspace and an
-eligible approved cached canonical runtime, then reserve the empty environment.
+Open **Development Tools → Current Managed Kodi**. Under **Advanced workspace
+selection**, select one ready workspace and an eligible approved cached canonical
+runtime, then **Select managed profile** to reserve the empty environment.
 **Prepare Kodi** creates only the selected clean stopped profile. **Start Kodi** and
-**Stop** reuse its exact container without resetting source iterations. Links lead
+**Stop Kodi** reuse its exact container without resetting source iterations. Links lead
 to the selected Kodi's existing source/Bridge/native setup and workspace actions.
 Preparation alone is not an assertion of deployment or capability readiness.
 
