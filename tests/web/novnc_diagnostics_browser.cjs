@@ -59,7 +59,7 @@ const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve()
     await flush();
     assert.equal(clients[1].disconnects, 0, 'already disconnected RFB must not be disconnected again');
     assert.equal(clients[1].warnings, 0, 'cleanup must not produce a secondary disconnected-state warning');
-    assert.equal(nodes['#status'].textContent, 'Viewing disconnected unexpectedly. Start Viewing to reconnect.');
+    assert.equal(nodes['#status'].textContent, 'Could not start viewing this Kodi. Check its status, then try again.');
     assert.equal(requests.filter(r => r.url.endsWith('-stop')).length, 2);
     assert.equal(clients.length, 2, 'diagnostics never reconnect');
     assert.equal(main.viewerDiagnostics.filter(r => r.event === 'rfb_connected').length, 1);

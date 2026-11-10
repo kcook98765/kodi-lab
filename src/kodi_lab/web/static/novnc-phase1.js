@@ -22,10 +22,20 @@ let rfb = null;
 let mode = 'view-only';
 let switching = false;
 let rfbConnected = false;
+let viewingEstablished = false;
 let cleanupEpoch = 0;
 let releaseRequired = false;
 let activeAction = null;
 let controlTimer = null;
+const startFailed = 'Could not start viewing this Kodi. Check its status, then try again.';
+const connectionLost = 'Connection to the Kodi screen was lost. This viewing session ended; Start Viewing requests a new session.';
+const controlUnproven = 'Control change unavailable. Viewing closed. Input stays reserved until the server verifies release.';
+const reviewStatus = 'Viewing ended. Review this Kodi’s status and recovery options before starting a new session.';
+function connectionEnded() {
+    if (releaseRequired || activeAction) return controlUnproven;
+    if (selectionPending || !permitted) return reviewStatus;
+    return viewingEstablished ? connectionLost : startFailed;
+}
 function disarm() {
     if (controlTimer !== null) clearInterval(controlTimer);
     controlTimer = null;
@@ -93,12 +103,16 @@ async function post(action, body) {
     });
     if (!response.ok) {
         const error = new Error('Viewer unavailable');
-        if (response.status === 409 && (await response.json()).detail === 'agent_operation_active') error.code = 'agent_operation_active';
+        error.status = response.status;
+        if (response.status === 409) {
+            try { if ((await response.json()).detail === 'agent_operation_active') error.code = 'agent_operation_active'; }
+            catch (_) { /* A malformed refusal still leaves admission unproven. */ }
+        }
         throw error;
     }
     return response.json();
 }
-async function end(expected = attempt, disconnected = false) {
+async function end(expected = attempt, message = 'Viewing is off.', cleanupWarning = 'Stopping. Input stays reserved until the server verifies release.') {
     if (expected !== attempt) return;
     const endingEpoch = ++cleanupEpoch;
     const old = attempt;
@@ -110,17 +124,17 @@ async function end(expected = attempt, disconnected = false) {
     const previousRfb = rfb;
     rfb = null;
     rfbConnected = false;
+    viewingEstablished = false;
     mode = 'view-only';
     switching = false;
     if (previousRfb) previousRfb.disconnect();
     buttons();
-    status.textContent = identityRetired ? 'This environment changed. Open Current Managed Kodi before viewing again.' :
-        disconnected ? 'Viewing disconnected unexpectedly. Start Viewing to reconnect.' : 'Viewing is off.';
+    status.textContent = identityRetired ? 'This environment changed. Open Current Managed Kodi before viewing again.' : message;
     const placeholder = main.querySelector('[data-viewer-placeholder]');
     if (placeholder) placeholder.hidden = false;
     if (old) {
         try { await post('stop', {attempt: old}); }
-        catch (_) { if (endingEpoch === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Stopping. Input stays reserved until the server verifies release.'; }
+        catch (_) { if (endingEpoch === cleanupEpoch && attempt === null) status.textContent = cleanupWarning; }
     }
     return endingEpoch;
 }
@@ -155,7 +169,7 @@ function connect(current, result) {
         const pulse = () => {
             if (attempt !== current || rfb !== client) return;
             if (document.hidden || releaseRequired) { hidden(); return; }
-            try { ws.send('control-alive'); } catch (_) { void end(current, true); }
+            try { ws.send('control-alive'); } catch (_) { void end(current, connectionEnded()); }
         };
         pulse();
         if (attempt === current && mode === 'interactive' && !releaseRequired && !document.hidden) controlTimer = setInterval(pulse, 500);
@@ -164,6 +178,7 @@ function connect(current, result) {
         diagnostic('rfb_connected', current, {elapsed_ms: elapsed()});
         if (attempt !== current || rfb !== client) return;
         rfbConnected = true;
+        viewingEstablished = true;
         switching = false;
         if (mode === 'interactive' && (document.hidden || releaseRequired)) { hidden(); return; }
         status.textContent = mode === 'interactive' ? 'Interactive. You control Kodi. Conflicting agent input is refused.' : 'View Only';
@@ -177,7 +192,7 @@ function connect(current, result) {
         // common cleanup, retaining the original attempt's server Stop.
         rfb = null;
         rfbConnected = false;
-        end(current, true);
+        void end(current, connectionEnded());
     });
 }
 start.onclick = async () => {
@@ -199,12 +214,16 @@ start.onclick = async () => {
         const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {}), ...(main.dataset.viewBinding ? {expected_binding:main.dataset.viewBinding} : {})});
         if (result.mode !== 'view-only') throw new Error('Invalid initial mode');
         connect(current, result);
-    } catch (_) {
+    } catch (error) {
         if (attempt === current) {
-            const ended = await end(current);
-            if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = main.dataset.viewBinding
-                ? 'Screen unavailable or changed. Review this Kodi’s status, then reload this page before starting viewing.'
-                : 'Viewer unavailable. Open the instance for supported screenshot options.';
+            // Admission refusals do not identify a cause or prove the rendered
+            // authority is current. Keep recovery on the existing status page.
+            const message = error.status === 401
+                ? 'The viewing session ended. Review this Kodi’s status and sign in again before starting a new session.'
+                : [403, 409].includes(error.status)
+                    ? 'Could not start viewing this Kodi. Review its status and recovery options, then reload this page before starting a new session.'
+                    : startFailed;
+            await end(current, message, 'Could not confirm viewing cleanup. Input may remain reserved until the server verifies release. Review this Kodi’s status and recovery options.');
         }
     }
 };
@@ -214,7 +233,7 @@ async function change(action) {
     let current;
     try { current = viewAttempt(); }
     catch (_) {
-        if (action === 'release-control') { diagnostic('control_release_failed', old); void end(old); }
+        if (action === 'release-control') { diagnostic('control_release_failed', old); void end(old, controlUnproven); }
         else status.textContent = 'Reload this page before starting or changing viewing.';
         return;
     }
@@ -264,8 +283,7 @@ async function change(action) {
         diagnostic('control_release_failed', old);
         // Retire both IDs: failure may precede or follow server revocation.
         void post('stop', {attempt: old}).catch(() => {});
-        const ended = await end(current);
-        if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Control change unavailable. Viewing closed. Input stays reserved until the server verifies release.';
+        await end(current, controlUnproven);
     }
 }
 take.onclick = () => change('take-control');
@@ -319,6 +337,10 @@ window.addEventListener('blur', () => {
     });
 });
 window.addEventListener('pagehide', () => end());
+// Logout can revoke the socket before navigation delivers pagehide.
+document.addEventListener('submit', event => {
+    if (!event.defaultPrevented && event.target?.matches('form[action="/logout"]')) void end();
+});
 if (main.dataset.viewBinding) window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 buttons();
 
@@ -339,7 +361,7 @@ function currentStatus(detail) {
         return;
     }
     permitted = detail.state === 'ready' && !identityRetired;
-    if (!permitted && attempt) void end();
+    if (!permitted && attempt) void end(attempt, reviewStatus);
     buttons(rfbConnected);
 }
 document.addEventListener('kodi-current-status', event => currentStatus(event.detail));
@@ -370,7 +392,7 @@ if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
             if (closed || document.hidden || requestEpoch !== epoch) return;
             // Cleanup is best effort; server ownership stays fenced until
             // release is proved. A stalled POST must not suspend status reads.
-            permitted = false;void end();buttons();
+            permitted = false;if (attempt) void end(attempt, reviewStatus);buttons();
         } finally {
             clearTimeout(timeout);
             if (!closed && !document.hidden && requestEpoch === epoch) timer = setTimeout(checkSelection, 5000);
