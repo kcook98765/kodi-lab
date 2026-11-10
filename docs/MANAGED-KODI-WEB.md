@@ -1,17 +1,22 @@
 # Managed Kodi in the Web interface
 
-Open **Kodi** after signing in. The four entries are **Matrix**, **Nexus**,
+After signing in, open **Overview** (`/kodi`), then **Managed Kodi**
+(`/managed-kodi`). The four entries are **Matrix**, **Nexus**,
 **Omega** and **Piers (preview)**. Start and screen viewing do not require a
 workspace, Bridge pairing or an agent.
 
-1. Choose a version. If its files are missing, select **Install Kodi files…**
-   and finish the existing guided installation. Return to Kodi versions.
+1. Choose a version. If installation is needed, select **Create Managed Kodi for
+   this version…**, then **Install and prepare**. Setup leaves Kodi stopped by
+   default; select **Return to Managed Kodi versions** when it finishes.
 2. Select **Start Kodi**. A prepared profile resumes with its settings and add-ons;
-   an empty slot is prepared from its approved cached image. Wait for **Native
-   Kodi: Ready**. A saved request or “Starting” is not proof Kodi is ready.
-3. Select **Open Screen**, then **Start Viewing** in the standard viewer.
-   Viewing starts view-only; taking control remains an explicit action.
-4. Select **Stop Kodi** to keep the same profile, or **Reset Kodi** to replace it.
+   an empty slot is prepared from its approved cached image. Wait for **Running**
+   and **View Screen** to become available. A saved request or **Starting** is
+   not proof Kodi is ready. **Advanced options → Kodi connection check** shows
+   native readiness separately.
+3. Select **View Screen**, then **Start Viewing** in the standard viewer.
+   Viewing starts view-only; **Take Control** remains an explicit action.
+4. Select **Stop Kodi** to keep the same profile. Use **Advanced options → Reset
+   Kodi** only when you intend to discard it, as described below.
 
 Only one managed Kodi can run. To change versions, explicitly Stop the running
 version, then Start the next one. Kodi Lab never evicts another user's version.
@@ -33,10 +38,11 @@ are preserved under their existing retention rules.
 Old Bridge pairing/trust, installed-add-on assumptions, deployment baselines,
 readiness, viewing tickets and cached observations cannot prove anything about
 the replacement. Follow **Set up for add-on testing**: choose the existing
-workspace, explicitly bind the replacement through Current Kodi's supported
+workspace, explicitly bind the replacement through Current Managed Kodi's supported
 selection, complete development preparation and deploy fresh workspace files.
-Native Ready does not imply Bridge or agent development readiness. Automatic
-reattachment of an old development session is a separate follow-up.
+Native readiness does not establish Bridge readiness, inspection authorization
+or successful add-on execution. Automatic reattachment of an old development
+session is a separate follow-up.
 
 ## Saved requests and recovery
 
@@ -61,11 +67,12 @@ See [clean Reset](MANAGED-CLEAN-RESET.md) and
 
 ## Advanced administration and authority
 
-Each card's **Advanced** section retains exact identity/readiness and links to
-profile/Bridge diagnostics and operation history. The page's Advanced managed
-administration retains registrations, recovery, runtime installation/approval,
-Current Kodi and security settings. Existing Current Kodi and instance-detail
-lifecycle controls remain available inside Advanced for development/recovery.
+Each card's **Advanced options** section retains exact identity/readiness and links to
+profile/Bridge diagnostics and operation history. The page's **Advanced managed
+administration** retains registrations, recovery, runtime installation/approval
+and resource settings. **Development Tools → Current Managed Kodi** selects a
+workspace and development profile. Its lifecycle controls and the Advanced
+instance-detail controls remain available for development/recovery.
 Guided installation prepares stopped Kodi by default and returns to the version
 page; its optional start-after-setup setting is Advanced.
 
@@ -84,10 +91,15 @@ receipts remain inspectable. Downgrade refuses to erase saved human confirmation
 The ledger has a fail-closed limit of 4,096 requests, requiring administrator
 review if full; no age-based deletion or UUID reuse is provided.
 
-This source change is not deployment or native qualification. Native Linux,
-Windows/WSL2, actual mobile/keyboard browser use, graphical first-viewer rendering,
-cleanup and genuine Bridge/workspace deployment still need acceptance. Automatic
-version switching remains separate.
+Linux native acceptance is recorded for the retained Omega development loop in
+[#238](https://github.com/kcook98765/kodi-lab/issues/238), bounded Omega/Nexus
+manual switching in [#273](https://github.com/kcook98765/kodi-lab/issues/273), and
+populated Nexus Reset in [#274](https://github.com/kcook98765/kodi-lab/issues/274).
+Those closed issues retain their exact versions and limitations; they do not
+qualify every runtime, browser or platform. The current Windows/WSL2 managed
+development workflow remains tracked in
+[#275](https://github.com/kcook98765/kodi-lab/issues/275). Automatic version
+switching is not implemented.
 
 Start and Stop do not wait for historical agent activity. A stopped retained
 profile can start immediately after a successful Stop. Start creates no implicit

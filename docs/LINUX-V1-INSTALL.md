@@ -6,11 +6,15 @@ worker. The candidate is local and unpublished. Preserve the Git commit and a
 trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
 hashes inside the bundle establish integrity against that trusted copy.
 
-For installation starting with a GitHub clone, first follow
-`docs/LINUX-SOURCE-INSTALL.md` in that source checkout to stage this bundle.
+For installation starting with a GitHub clone, first follow the
+[source installation guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/LINUX-SOURCE-INSTALL.md)
+in that source checkout to stage this bundle.
 
 ## Platform and contents
 
+Ubuntu 24.04 amd64 is the qualified host baseline; macOS and ARM64/Raspberry Pi
+are not qualified. Windows installation uses the separate
+[WSL2 guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/WINDOWS-WSL2-INSTALL.md).
 Use native Linux amd64 Docker Engine with Compose V2 (2.24.4 or newer), Docker
 administrator access, Python 3.12 and `sha256sum`. The application supports Python 3.12
 (`>=3.12,<3.13`); its container images provide their own interpreter. Check that `10.250.0.0/24` conflicts with
@@ -137,11 +141,21 @@ socket. Its remote-target functions need no managed Kodi image. The runtime
 matrix lists stable Matrix, Nexus and Omega plus Development-only Piers RC1
 Preview; none is acquired by installing Kodi Lab.
 
+After signing in, **Overview** (`/kodi`) links to **Managed Kodi** (`/managed-kodi`)
+for Kodi hosted by the Lab, **External Production Kodi** (`/production-targets`)
+for a household device, and **External Development Kodi** (`/external-targets`)
+for another development device. For hosted Kodi, follow the
+[managed first-use walkthrough](https://github.com/kcook98765/kodi-lab/blob/main/docs/MANAGED-KODI-WEB.md)
+after enabling the managed network and broker as described below. Installation
+prepares stopped Kodi by default; Start and viewing need no agent or workspace.
+
 ## Install and pair a remote Kodi bridge
 
 The normal remote setup uses the stable Kodi Lab repository. Sign in to the
-loopback-only Web page **Kodi Repository** for its configured LAN URL, bootstrap
-ZIP hash, stable package hashes and concise setup instructions. On the Kodi box,
+Web page **Kodi Repository** (`/kodi-repository`) for its configured LAN URL,
+bootstrap ZIP hash, stable package hashes and concise setup instructions. Find
+it under **Advanced → Repositories & Historical Records → Kodi Lab repository
+configuration and status**. On the Kodi box,
 add `BASE/install/` in File Manager, choose **Add-ons → Install from zip file**,
 install `repository.kodi-lab-1.0.0.zip`, then use **Install from repository →
 Kodi Lab → Kodi Lab Narrow Bridge**. The repository source can be added without
@@ -153,12 +167,17 @@ The exact `bridge/service.kodi_lab_bridge-1.1.31.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
 before transferring it. The stable feed serves these identical reviewed bytes.
 
-For ordinary Home or Development onboarding, open **Add Kodi** in Web and
-follow its Bridge installation, Kodi HTTP authentication and pairing steps.
+For ordinary onboarding, open **External Production Kodi → Connect External
+Production Kodi** or **External Development Kodi → Connect External Development
+Kodi** in Web and follow its Bridge installation, Kodi HTTP authentication and
+pairing steps.
 Compatible official Bridge builds are recognized automatically. The advanced
 registration and production-provenance steps below are for operators who need
 explicit administration. Native read-only JSON-RPC inspection does not require
 Bridge pairing.
+External screenshots are disabled by default; enabling **Allow screenshots** and
+granting exact-target inspection access remain explicit. Connecting or pairing
+does not grant an agent production access or remote control.
 
 ## Optional development repository
 
@@ -173,7 +192,7 @@ normal **Install from zip file** flow; installing the stable repository does
 not install the development repository. Its descriptor points only at
 `BASE/development/`. No Kodi Lab administrator credential belongs in this URL.
 
-An authenticated operator opens **Kodi Repository** in the loopback Web UI,
+An authenticated operator opens **Kodi Repository** (`/kodi-repository`) in Web,
 selects a bounded Python video-plugin ZIP and its claimed Matrix/Nexus/Omega
 compatibility, then reviews the exact ID, version, import UUID, SHA-256 and
 tree digest. The final approval repeats the exact identity/hash. A new update
@@ -214,17 +233,18 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    If the bridge says it is paired to an obsolete Kodi Lab target, choose
    **Reset pairing** there, confirm locally, then open **Pair Kodi Lab** again
    to generate a new code. This keeps the Kodi profile and bridge identity.
-3. For a development target, open Kodi Lab Web **Pair Kodi**. Enter the Kodi
+3. For advanced development pairing, open Kodi Lab Web **Pair External Development
+   Kodi** (`/pair-kodi`). Enter the Kodi
    box's private address, the code, and ports if different from the defaults.
    The Web flow registers and verifies the native target, stages the new
    independent bridge credential, and displays the authenticated bridge
    identity. If the response is uncertain, use **Resume pairing**; do not
    submit the code a second time. Check the observed UUID, add-on version
-   `1.1.31`, protocol `1`, Kodi version, and capabilities under **Connected
-   Kodi targets**. Advanced external target administration supports explicit
+   `1.1.31`, protocol `1`, Kodi version, and capabilities under **External
+   Development Kodi**. Advanced external target administration supports explicit
    target approval and capability limits before development deployment.
-4. For a production target, use **Production targets** instead. Register and
-   verify its native identity, designate it as production, and register the
+4. For advanced production registration, use **External Production Kodi** instead.
+   Register and verify its native identity, designate it as production, and register the
    exact reviewed bridge build using the ZIP hash, semantic fingerprint and
    source reference in `bridge/BRIDGE.json`. Record required private HTTP risk
    acknowledgements, then enter the code in that target's production pairing
@@ -294,8 +314,8 @@ resolves a registered, bounded relative locator; requests never carry a host
 root or absolute source path. Broker requires the fixed read-only mount and
 fails closed when it is absent, writable, or misconfigured. The shared Linux
 source reader rejects symlink and nested-mount crossings beneath the root.
-In **Development → Current Managed Kodi**, select a project beneath this root and
-its approved development client. Kodi Lab automatically registers or reuses its
+In **Development Tools → Current Managed Kodi**, select a project beneath this
+root and its approved development client. Kodi Lab automatically registers or reuses its
 internal source identity, grants that exact client/source pair and prepares or
 reuses the client's workspace. It supports addon.xml in the selected directory or
 one immediate add-on subdirectory; select the installable subdirectory explicitly
@@ -303,7 +323,8 @@ for multiple-add-on repositories. Discovery is bounded and root-relative. Web
 cannot create mounts; MCP accepts no host project paths. Manual **Development
 Sources** registration remains an Advanced option. Copy/sync, capture, deployment
 and execution retain their existing validation and recovery contracts. See
-[local project onboarding](LOCAL-PROJECT-ONBOARDING.md). Uploaded ZIPs remain separate.
+[local project onboarding](https://github.com/kcook98765/kodi-lab/blob/main/docs/LOCAL-PROJECT-ONBOARDING.md).
+Uploaded ZIPs remain separate.
 
 The bind is read/write because reviewed promotion can patch a registered
 original after a Web review and explicit confirmation. Registration and ordinary
@@ -319,7 +340,8 @@ material within the selected host root, even where Web's UID lacks access.
 Place only intended development material there. Repository and managed Kodi
 containers do not receive this mount. Kodi Lab does not automatically relabel
 host files for SELinux or AppArmor. This feature is qualified for Linux amd64
-V1; Windows Docker/Desktop source sharing remains separately unqualified.
+V1; current Windows Docker/Desktop source sharing and managed development remain
+[separately tracked in #275](https://github.com/kcook98765/kodi-lab/issues/275).
 
 For a managed Lab with local development, include the overlay after the network
 overlay: `docker compose -f compose.release.yaml -f compose.lab.yaml -f
@@ -341,8 +363,11 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   up -d --wait --no-build web broker
 ```
 
-Pass `--port PORT` to `configure` for another loopback port. Direct LAN/WAN Web
-binding requires a separate Host, cookie, and TLS review.
+Pass `--port PORT` to `configure` for another loopback port. For optional
+private-LAN HTTP or supported HTTPS proxy access, follow
+[Web networking](https://github.com/kcook98765/kodi-lab/blob/main/docs/WEB-NETWORKING.md).
+LAN HTTP sends credentials and screen/control traffic unencrypted; never expose
+it publicly.
 
 ## Acquire only the generation needed
 
@@ -427,8 +452,8 @@ Repeat explicitly for Nexus or Omega if their restored images are missing.
 
 ## Paired development target and narrow MCP administration
 
-Sign in to the Web administrator page in Development view. Open **External
-development targets**, select the paired target, and expand **Amend development capability maximum**. Review the target,
+Sign in to Web and open **External Development Kodi**, select the paired target,
+and expand **Amend development capability maximum**. Review the target,
 bridge UUID/version/protocol/fingerprint and current set. Select the exact new
 set and confirm. Kodi Lab performs fresh native and authenticated bridge checks
 before committing the new maximum and immutable receipt. For a repository-mode
@@ -439,8 +464,8 @@ longer needed. Reduction does not revoke or rotate the bridge credential;
 revoke pairing separately if trust itself should end. A bridge identity change
 or unsupported capability blocks the amendment and requires review.
 
-Open **MCP clients** and create a custom preset under the **Add-on Development**
-ceiling with exactly `workspace.inspect`, `workspace.deploy`, and
+Open **Agents & Permissions** (`/mcp-clients`) and create a custom preset under the
+**Add-on Development** ceiling with exactly `workspace.inspect`, `workspace.deploy`, and
 `development.execute`. The inspect permission is shared with validation and
 read/status of a bound workspace. Create a client with that preset, issue a
 short-lived bearer token, and deliver it through the protected

@@ -6,10 +6,12 @@ initialization commands as the manual installation. It does not install Docker,
 change firewall rules, download Kodi automatically, create agent credentials or
 enable Windows sign-in startup.
 
-Native Ubuntu 24.04 amd64 remains the qualified baseline. Windows uses the working
-[WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md). Native Windows
-server execution, macOS, ARM64, WSL1, rootless and remote Docker engines are outside
-this installer path.
+Native Ubuntu 24.04 amd64 remains the qualified baseline. Windows has prior
+owner-accepted installation results through the
+[WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md); the current managed development
+workflow has [separate qualification in #275](https://github.com/kcook98765/kodi-lab/issues/275).
+Native Windows server execution, macOS, ARM64, WSL1, rootless and remote Docker
+engines are outside this installer path.
 
 ## Prerequisites
 
@@ -121,28 +123,38 @@ chosen password. Fresh installation records `local-http`; no certificate or
 proxy is needed. Standard noVNC works over HTTP/WebSocket. Cookies retain
 HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
 
-1. Open **Kodi → Create Kodi** and leave **Omega · Recommended** selected.
-2. Review the checks and click **Create Kodi** once. Keep the page open while
-   Kodi Lab downloads, prepares and starts Kodi; this can take several minutes.
-3. At **Ready**, select **Open screen → Start Viewing**. Viewing is view-only
-   and needs no agent, Bridge pairing or development workspace.
+1. From **Overview** (`/kodi`), open **Managed Kodi** (`/managed-kodi`). For a first
+   setup, choose **Create Managed Kodi for this version…** on Omega's card.
+2. Review the checks and select **Install and prepare** once. Downloads and
+   preparation can take several minutes. Setup leaves Kodi stopped by default;
+   select **Return to Managed Kodi versions**, then **Start Kodi**.
+3. Wait for **Running** and **View Screen** to become available, then select
+   **View Screen → Start Viewing**. Viewing starts view-only and needs no agent,
+   Bridge pairing or development workspace. **Take Control** is explicit.
+
+If that version is already prepared, use **Start Kodi** directly. **Stop Kodi**
+keeps its profile; **Reset Kodi** deliberately discards it. See the
+[managed walkthrough](MANAGED-KODI-WEB.md) for retention and recovery details.
 
 Refresh or return to the page to find the same saved setup. If it is paused,
 use **Check status**, then **Resume setup**; do not start a second installation.
 
 Connecting an agent is optional. Follow the
 [README read-only agent setup](../README.md#connect-your-ai-agent) to choose the
-correct Home or managed-Kodi policy, grant that specific Kodi and protect the
-once-shown token. Production Inspection is Home-only; managed Kodi also needs
-an explicitly assigned compatible policy. Verify `target_list`, `target_status`
-and `addon_list` through the existing localhost HTTP MCP endpoint.
+correct external-production or managed-Kodi policy, grant that specific Kodi and
+protect the once-shown token. Production Inspection is External Production Kodi
+only; Managed Kodi also needs an explicitly assigned compatible policy. Verify
+`target_list`, `target_status` and `addon_list` through the existing localhost HTTP MCP endpoint.
 Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
 requires its own explicit configuration.
 Unauthorized targets must remain absent or denied. Record the client version,
 source commit, runtime version and sanitized result; do not share tokens.
 
-An existing external Kodi, including native Windows Kodi, uses **Add Kodi** and
-its normal Bridge pairing process. That is separate from the Lab host platform.
+To connect an existing Kodi instead, choose **External Production Kodi** for a
+household device or **External Development Kodi** for another development device
+from Overview, then use its **Connect** action and normal pairing process. This
+includes native Windows Kodi and is separate from the Lab host platform. See
+[external setup](LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
 
 ### Optional Web networking
 
@@ -188,7 +200,8 @@ override the helper's explicit project/configuration. The helper permits the
 service commands `config`, `exec`, `logs`, `ps`, `run`, `stop` and `up`; global
 project/file/profile overrides are refused.
 
-Use **Home/Development** Web pages for ordinary target lifecycle and the existing
+Use **Managed Kodi**, **External Production Kodi** or **External Development Kodi**
+for the relevant environment, and the existing
 [Kodi log tool](KODI-LOGS.md) for supported target diagnostics. Application logs
 and Kodi logs may contain private information; sanitize excerpts before sharing.
 
