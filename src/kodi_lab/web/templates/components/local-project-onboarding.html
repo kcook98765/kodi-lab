@@ -1,0 +1,50 @@
+{% macro agent_choice(clients, selected) %}
+  {% if clients|length == 1 %}
+  <input type="hidden" name="client_id" value="{{ clients[0].id }}">
+  <p>Development agent: {{ clients[0].display_name }}</p>
+  {% else %}
+  <label>Development agent <select name="client_id" required><option value="">Choose the client for this project</option>{% for client in clients %}<option value="{{ client.id }}"{% if selected and selected.client_id == client.id %} selected{% endif %}>{{ client.display_name }}</option>{% endfor %}</select></label>
+  {% endif %}
+{% endmacro %}
+<section aria-labelledby="local-project-heading">
+  <h2 id="local-project-heading">Select an add-on</h2>
+  {% if project_error %}<p role="alert" class="error">{{ project_error }}</p>{% endif %}
+  {% if (project_onboarding or current) and not project_error %}<details><summary>Choose another add-on</summary>{% endif %}
+  {% if not development_root_configured %}
+  <p><a href="/development-session/project-setup">Set up a local development root</a></p>
+  {% else %}
+  {% if development_clients %}
+  {% if local_projects %}
+  <form method="post" action="/development-session/projects">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="local-project-selection">Add-on project</label><select id="local-project-selection" name="project" required><option value="">Choose a project</option>{% for project in local_projects %}<option value="{{ project }}">{{ project }}</option>{% endfor %}</select>
+    {{ agent_choice(development_clients, project_onboarding) }}
+    <p>Approve this project for the selected agent. Existing project work is kept.</p>
+    <button type="submit">Choose add-on project</button>
+  </form>
+  {% endif %}
+  <details{% if not local_projects %} open{% endif %}><summary>Add local project</summary>
+    <form method="post" action="/development-session/projects">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Local project directory <input name="project" required maxlength="1024" aria-describedby="local-project-path-help"></label>
+      <p id="local-project-path-help">Enter a directory relative to the approved development root. It can contain addon.xml directly or one immediate add-on subdirectory.</p>
+      {{ agent_choice(development_clients, project_onboarding) }}
+      <button type="submit">Add local project</button>
+    </form>
+  </details>
+  {% else %}<p><a href="/mcp-clients">Choose or create a development agent</a> with workspace inspection/editing access, then return here.</p>{% endif %}
+  {% endif %}
+  {% if (project_onboarding or current) and not project_error %}</details>{% endif %}
+  {% if project_onboarding %}
+  <section data-project-onboarding data-state="{{ project_onboarding.state }}" data-status-url="/api/development-projects/{{ project_onboarding.workspace_id }}?client_id={{ project_onboarding.client_id }}" aria-labelledby="project-status-heading">
+    <h3 id="project-status-heading">{{ project_onboarding.name }} · {{ project_onboarding.addon_id }}</h3>
+    <p data-project-status role="status" aria-live="polite">{{ project_onboarding.message }}</p>
+    {% if project_onboarding.state == 'ready' %}
+    <h3>Choose Kodi</h3>
+    <p><a class="button-link" href="{{ project_onboarding.next_url }}">Choose Kodi version</a></p>
+    {% elif project_onboarding.state == 'needs_review' %}<p><a href="{{ project_onboarding.next_url }}">Review workspace preparation</a></p>
+    {% else %}<p><a href="/development-session?workspace_id={{ project_onboarding.workspace_id }}&amp;client_id={{ project_onboarding.client_id }}">Refresh project status</a></p>{% endif %}
+    <p class="secondary">Project setup does not establish native readiness, Bridge trust or a successful deployment.</p>
+  </section>
+  {% endif %}
+</section>

@@ -294,6 +294,11 @@ from kodi_lab.application.live_display import (
     LiveDisplayError,
     ManagedLiveDisplayService,
 )
+from kodi_lab.application.local_projects import (
+    LocalProjectOnboardingService,
+    LocalProjectReadiness,
+    LocalProjectSelection,
+)
 from kodi_lab.application.managed_agent_lifecycle import (
     ManagedAgentLifecycleService,
 )
@@ -584,6 +589,7 @@ from kodi_lab.development import (
     write_upload_chunk,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
+from kodi_lab.development.projects import LocalProjectError
 from kodi_lab.domain import (
     MAX_DEVELOPMENT_SOURCE_LOCATOR,
     MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
@@ -1433,6 +1439,7 @@ class WebApplicationContext:
     workspace_launch: WorkspaceLaunchService
     addon_settings: AddonSettingsService
     mcp_workspace_development: McpWorkspaceDevelopmentService
+    local_projects: LocalProjectOnboardingService
     historical_workspace_execution_containment: (
         HistoricalWorkspaceExecutionContainmentService
     )
@@ -1645,6 +1652,12 @@ def create_app(
     )
     mcp_workspace_creation = McpWorkspaceCreationService(
         session_factory, agent_workspaces, agent_workspace_executor.submit
+    )
+    local_projects = LocalProjectOnboardingService(
+        session_factory,
+        development_root=settings.development_root,
+        workspaces=agent_workspaces,
+        creation=mcp_workspace_creation,
     )
     mcp_administration = McpAdministrationService(
         session_factory,
@@ -2299,6 +2312,7 @@ def create_app(
         workspace_launch=workspace_launch,
         addon_settings=addon_settings,
         mcp_workspace_development=mcp_workspace_development,
+        local_projects=local_projects,
         historical_workspace_execution_containment=(
             HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
         ),
@@ -4658,12 +4672,36 @@ def create_app(
             "Review session status and Kodi history before another action.",
         )
 
-    @app.get("/development-session", response_class=HTMLResponse)
-    async def development_session_page(request: Request) -> Response:
+    @app.exception_handler(LocalProjectError)
+    async def local_project_error(
+        _request: Request, error: LocalProjectError
+    ) -> JSONResponse:
+        return JSONResponse(
+            {"code": error.code, "message": error.safe_message},
+            status_code=409,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def render_development_session(
+        request: Request,
+        authenticated: AuthenticatedWebSession,
+        *,
+        workspace_id: UUID | None = None,
+        client_id: UUID | None = None,
+        project_error: str | None = None,
+        status_code: int = 200,
+    ) -> Response:
+        projects = []
         try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
+            projects = local_projects.projects()
+        except LocalProjectError as error:
+            project_error = project_error or error.safe_message
+        project = None
+        if workspace_id is not None and client_id is not None:
+            try:
+                project = local_projects.status(client_id, workspace_id)
+            except LocalProjectError as error:
+                project_error = error.safe_message
         return templates.TemplateResponse(
             request,
             "development-session.html",
@@ -4673,7 +4711,86 @@ def create_app(
                 "workspaces": context.agent_workspaces.list_workspaces(),
                 "csrf_token": authenticated.csrf_token,
                 "retained_profiles": retained_policy_view()["enabled"],
+                "local_projects": projects,
+                "development_clients": local_projects.clients(),
+                "project_onboarding": project,
+                "project_error": project_error,
+                "development_root_configured": settings.development_root is not None,
             },
+            status_code=status_code,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/development-session", response_class=HTMLResponse)
+    def development_session_page(
+        request: Request,
+        workspace_id: UUID | None = None,
+        client_id: UUID | None = None,
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return render_development_session(
+            request, authenticated, workspace_id=workspace_id, client_id=client_id
+        )
+
+    @app.get("/development-session/project-setup", response_class=HTMLResponse)
+    def local_project_setup_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "local-project-setup.html",
+            {"csrf_token": authenticated.csrf_token},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/api/development-projects/onboard", response_model=LocalProjectReadiness)
+    def onboard_local_project(
+        body: LocalProjectSelection,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> LocalProjectReadiness:
+        return local_projects.onboard(body)
+
+    @app.get(
+        "/api/development-projects/{workspace_id}", response_model=LocalProjectReadiness
+    )
+    def local_project_status(
+        workspace_id: UUID,
+        client_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> LocalProjectReadiness:
+        return local_projects.status(client_id, workspace_id)
+
+    @app.post("/development-session/projects")
+    async def local_project_form(request: Request) -> Response:
+        from pydantic import ValidationError
+
+        _require_same_origin(request)
+        authenticated = current_session(request)
+        values: dict[str, object] = dict(await request.form())
+        csrf = values.pop("csrf_token", None)
+        if not isinstance(csrf, str) or not context.auth.csrf_matches(
+            authenticated, csrf
+        ):
+            raise HTTPException(403, "Forbidden")
+        try:
+            selection = LocalProjectSelection.model_validate(values)
+            project = await asyncio.to_thread(local_projects.onboard, selection)
+        except (LocalProjectError, ValidationError) as error:
+            message = (
+                error.safe_message
+                if isinstance(error, LocalProjectError)
+                else "Choose a project and a development client before continuing."
+            )
+            return render_development_session(
+                request, authenticated, project_error=message, status_code=422
+            )
+        return RedirectResponse(
+            f"/development-session?workspace_id={project.workspace_id}&client_id={project.client_id}",
+            status_code=303,
         )
 
     @app.get("/development-session/preparation", response_class=HTMLResponse)
@@ -4905,6 +5022,7 @@ def create_app(
                 "unsupported_current": current is not None
                 and str(current.target_id) not in cohort,
                 "preview": preview,
+                "selected_workspace_id": workspace_id,
                 "workspaces": context.agent_workspaces.list_workspaces(),
                 "request_id": str(uuid4()),
                 "csrf_token": authenticated.csrf_token,
@@ -4926,21 +5044,41 @@ def create_app(
             authenticated, csrf
         ):
             raise HTTPException(403, "Forbidden")
+        return_workspace_id = None
         try:
             # HTML form inputs are strings; JSON policy/selection stays strict.
             values["expected_generation"] = int(str(values.get("expected_generation")))
             if action == "policy":
+                return_workspace = values.pop("return_workspace_id", None)
+                if return_workspace is not None:
+                    return_workspace_id = UUID(str(return_workspace))
                 if values.get("enabled") not in {"true", "false"}:
                     raise ValueError("invalid retained policy")
                 values["enabled"] = values["enabled"] == "true"
                 body = RetainedPolicyRequest.model_validate(values)
+                if return_workspace_id is not None:
+                    if not body.enabled:
+                        raise ValueError("invalid retained navigation")
+                    workspace = context.agent_workspaces.get(return_workspace_id)
+                    if (
+                        workspace.state.value != "ready"
+                        or workspace.bytes_state.value != "present"
+                    ):
+                        raise DevelopmentSessionConflict(
+                            "development_session_selection_unavailable"
+                        )
                 await asyncio.to_thread(session_service.configure_retained, body)
             else:
                 selection = RetainedSelectionRequest.model_validate(values)
                 await asyncio.to_thread(session_service.select_retained, selection)
         except (ValueError, ValidationError):
             raise HTTPException(422, "invalid_retained_request") from None
-        return RedirectResponse("/development-session", status_code=303)
+        destination = (
+            f"/development-session/retained?workspace_id={return_workspace_id}"
+            if return_workspace_id is not None
+            else "/development-session"
+        )
+        return RedirectResponse(destination, status_code=303)
 
     @app.post(
         "/api/development-session/reserve", response_model=DevelopmentSessionStatus

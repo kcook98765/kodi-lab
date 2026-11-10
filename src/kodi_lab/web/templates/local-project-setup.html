@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Set up local add-on projects · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Set up local add-on projects</h1>
+<p>An administrator chooses one directory containing the local projects Kodi Lab may read. No directory is selected automatically.</p>
+<ol>
+<li>Choose an existing directory on the Kodi Lab host. It and its parent directories must be real directories, with read and traverse access for Kodi Lab.</li>
+<li>For a bundle installation, follow <a href="https://github.com/kcook98765/kodi-lab/blob/main/docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development">local development source setup</a> to configure the directory and enable the existing development Compose overlay for both Web and broker. For a source installation, set <code>KODI_LAB_DEVELOPMENT_ROOT</code> for both services.</li>
+<li>In <a href="/mcp-clients">Agents</a>, create or choose an enabled development client with workspace inspection/editing permissions. Each project selection approves only that client and project.</li>
+<li>Return to <a href="/development-session">Current Managed Kodi</a>, select your add-on project, then choose Kodi.</li>
+</ol>
+<p>A project can contain addon.xml directly, or one immediate installable add-on subdirectory. For a repository with multiple add-ons, select the installable subdirectory explicitly. Symlinks and paths outside the approved root are rejected.</p>
+{% endblock %}

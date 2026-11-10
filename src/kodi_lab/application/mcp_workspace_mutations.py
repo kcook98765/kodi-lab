@@ -100,6 +100,11 @@ class _ReplayDetected(Exception):
     pass
 
 
+class _ExistingProjectWorkspace(Exception):
+    def __init__(self, workspace_id: UUID) -> None:
+        self.workspace_id = workspace_id
+
+
 class McpWorkspaceCreationService:
     """Atomically bind one MCP client to exactly one queued Phase 9 workspace."""
 
@@ -125,7 +130,12 @@ class McpWorkspaceCreationService:
         self._max_global = max_global
 
     def create(
-        self, *, client_id: UUID, request_id: UUID, source_id: UUID
+        self,
+        *,
+        client_id: UUID,
+        request_id: UUID,
+        source_id: UUID,
+        reuse_project: bool = False,
     ) -> WorkspaceCreateResult:
         fingerprint = _fingerprint(source_id)
 
@@ -135,6 +145,21 @@ class McpWorkspaceCreationService:
             operation: AgentWorkspaceCreationOperation,
         ) -> None:
             now = self._clock()
+            if reuse_project:
+                self._require_current_authority(session, client_id, source_id)
+                owned = session.scalars(
+                    select(McpAgentWorkspaceBindingRow.workspace_id)
+                    .where(
+                        McpAgentWorkspaceBindingRow.client_id == str(client_id),
+                        McpAgentWorkspaceBindingRow.development_source_id
+                        == str(source_id),
+                    )
+                    .limit(2)
+                ).all()
+                if len(owned) > 1:
+                    raise McpWorkspaceMutationError("project_workspaces_ambiguous")
+                if owned:
+                    raise _ExistingProjectWorkspace(UUID(owned[0]))
             self._prune_expired_requests(session, now)
             existing = self._find(session, client_id, request_id)
             if existing is not None:
@@ -175,6 +200,10 @@ class McpWorkspaceCreationService:
             queued = self._workspaces.queue_creation(
                 source_id, transaction_hook=bind, immediate=True
             )
+        except _ExistingProjectWorkspace as existing_workspace:
+            return self._project_result(
+                client_id, existing_workspace.workspace_id, request_id
+            )
         except _ReplayDetected:
             return self._replay(client_id, request_id, source_id, fingerprint)
         except McpWorkspaceMutationError:
@@ -200,6 +229,47 @@ class McpWorkspaceCreationService:
         if row is None:
             raise McpWorkspaceMutationError("workspace_creation_ambiguous")
         return self._result(row)
+
+    def _project_result(
+        self, client_id: UUID, workspace_id: UUID, request_id: UUID
+    ) -> WorkspaceCreateResult:
+        """Reuse existing bytes and fences without allocating a replacement."""
+        with self._sessions() as session:
+            workspace = AgentWorkspaceRepository(session).get(workspace_id)
+            operation = AgentWorkspaceCreationOperationRepository(
+                session
+            ).get_for_workspace(workspace_id)
+            binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
+            original = session.scalar(
+                select(McpDevelopmentRequestRow).where(
+                    McpDevelopmentRequestRow.client_id == str(client_id),
+                    McpDevelopmentRequestRow.workspace_id == str(workspace_id),
+                    McpDevelopmentRequestRow.operation_kind
+                    == WORKSPACE_CREATE_OPERATION_KIND,
+                )
+            )
+            if (
+                workspace is None
+                or operation is None
+                or binding is None
+                or binding.client_id != str(client_id)
+                or binding.development_source_id != str(workspace.development_source_id)
+                or operation.workspace_id != workspace.id
+                or operation.development_source_id != workspace.development_source_id
+            ):
+                raise McpWorkspaceMutationError("workspace_creation_ambiguous")
+            return WorkspaceCreateResult(
+                request_id=request_id
+                if original is None
+                else UUID(original.request_id),
+                workspace_id=workspace.id,
+                source_id=workspace.development_source_id,
+                creation_operation_id=operation.id,
+                creation_operation_state=operation.state.value,
+                lifecycle_state=workspace.state.value,
+                binding_classification=binding.binding_origin,
+                created_at=workspace.created_at,
+            )
 
     def _replay(
         self,

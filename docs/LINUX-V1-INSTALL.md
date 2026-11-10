@@ -260,6 +260,12 @@ projects. For example, `/srv/kodi-lab/addon-sources` is only an example. Create
 and populate it before starting the development overlay. The directory must be
 an existing normalized absolute path, not `/` or a symlink at any component.
 
+For an existing installation, keep already configured projects at their current
+relative locations. Add an approved working copy of another project beneath the
+same directory when possible. Pointing the saved root at an unrelated directory
+can break existing project identities and workspace history; plan that move
+separately. Symlinks and nested bind mounts are not supported shortcuts.
+
 After `configure` has created `.env`, run this from the unpacked bundle:
 
 ```sh
@@ -268,7 +274,7 @@ python3 linux-v1-bundle development-source . \
 python3 linux-v1-bundle verify .
 docker compose -f compose.release.yaml -f compose.development.yaml config --quiet
 docker compose -f compose.release.yaml -f compose.development.yaml \
-  up -d --wait --no-build web
+  up -d --wait --no-build web broker
 ```
 
 The command and subsequent bundle verification validate the host directory
@@ -288,11 +294,16 @@ resolves a registered, bounded relative locator; requests never carry a host
 root or absolute source path. Broker requires the fixed read-only mount and
 fails closed when it is absent, writable, or misconfigured. The shared Linux
 source reader rejects symlink and nested-mount crossings beneath the root.
-Web accepts only root-relative project locators through its existing registration
-form; it does not browse host paths or create mounts. Register each project
-beneath the chosen root on **Development Sources**. Registration, copy/sync,
-workspace creation, deployment, execution, and MCP development tools continue
-through the existing registered-source services. Uploaded ZIPs remain separate.
+In **Development → Current Managed Kodi**, select a project beneath this root and
+its approved development client. Kodi Lab automatically registers or reuses its
+internal source identity, grants that exact client/source pair and prepares or
+reuses the client's workspace. It supports addon.xml in the selected directory or
+one immediate add-on subdirectory; select the installable subdirectory explicitly
+for multiple-add-on repositories. Discovery is bounded and root-relative. Web
+cannot create mounts; MCP accepts no host project paths. Manual **Development
+Sources** registration remains an Advanced option. Copy/sync, capture, deployment
+and execution retain their existing validation and recovery contracts. See
+[local project onboarding](LOCAL-PROJECT-ONBOARDING.md). Uploaded ZIPs remain separate.
 
 The bind is read/write because reviewed promotion can patch a registered
 original after a Web review and explicit confirmation. Registration and ordinary

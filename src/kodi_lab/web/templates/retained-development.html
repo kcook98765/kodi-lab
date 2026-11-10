@@ -17,6 +17,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="expected_generation" value="{{ policy.latest_generation }}">
     <input type="hidden" name="enabled" value="true">
+    {% if selected_workspace_id %}<input type="hidden" name="return_workspace_id" value="{{ selected_workspace_id }}">{% endif %}
     <label>Retain this Omega environment <select name="omega_target_id" required>
     {% for choice in omega_choices %}<option value="{{ choice.target_id }}"{% if current and choice.target_id == current.target_id %} selected{% endif %}>{{ choice.name }}</option>{% endfor %}
     </select></label>
@@ -44,8 +45,8 @@
   </table>
   <h2>Review your switch</h2>
   <form method="get" action="/development-session/retained">
-    <label>Add-on workspace <select name="workspace_id" required>
-    {% for workspace in workspaces %}{% if workspace.state.value == 'ready' and workspace.bytes_state.value == 'present' %}<option value="{{ workspace.id }}"{% if (preview and workspace.id == preview.workspace_id) or (not preview and current and workspace.id == current.workspace_id) %} selected{% endif %}>{{ workspace.source_logical_name }} — {{ workspace.source_addon_id }}</option>{% endif %}{% endfor %}
+    <label>Add-on project <select name="workspace_id" required>
+    {% for workspace in workspaces %}{% if workspace.state.value == 'ready' and workspace.bytes_state.value == 'present' %}<option value="{{ workspace.id }}"{% if (preview and workspace.id == preview.workspace_id) or (not preview and selected_workspace_id and workspace.id == selected_workspace_id) or (not preview and not selected_workspace_id and current and workspace.id == current.workspace_id) %} selected{% endif %}>{{ workspace.source_logical_name }} — {{ workspace.source_addon_id }}</option>{% endif %}{% endfor %}
     </select></label>
     <label>Kodi version <select name="target_id" required>
     {% for choice in choices %}<option value="{{ choice.target_id }}"{% if (preview and choice.target_id == preview.target_id) or (not preview and current and choice.target_id == current.target_id) %} selected{% endif %}>{{ version_names.get(choice.kodi_version, choice.kodi_version) }}{{ ' · Current selection' if current and choice.target_id == current.target_id else '' }}</option>{% endfor %}
@@ -54,7 +55,7 @@
   </form>
   {% if preview %}
   <h3>Confirm selection</h3>
-  {% for workspace in workspaces %}{% if workspace.id == preview.workspace_id %}<p>Workspace: {{ workspace.source_logical_name }} · {{ workspace.source_addon_id }} · {{ workspace.id }}</p>{% endif %}{% endfor %}
+  {% for workspace in workspaces %}{% if workspace.id == preview.workspace_id %}<p>Project: {{ workspace.source_observed_name }} · {{ workspace.source_addon_id }}</p>{% endif %}{% endfor %}
   <p>{% for choice in choices %}{% if choice.target_id == preview.target_id %}{{ version_names.get(choice.kodi_version, choice.kodi_version) }} · {{ choice.name }}{% endif %}{% endfor %}</p>
   <p>{% if preview.provisioned %}Keep this existing profile. Kodi must be stopped before confirming.{% else %}Select this version for separate profile preparation.{% endif %} The previous profile stays retained. Source setup, native readiness, Bridge trust and agent permissions remain separate checks.</p>
   <form method="post" action="/development-session/retained/select">
