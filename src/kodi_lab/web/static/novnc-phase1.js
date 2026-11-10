@@ -138,6 +138,18 @@ function connect(current, result) {
     client.qualityLevel = 6;
     // Keep image quality while avoiding extra native compression work.
     client.compressionLevel = 0;
+    // The server's foreground lease starts at WebSocket acceptance. Renew it
+    // during the RFB handshake too; a slow handshake must not consume the lease.
+    ws.addEventListener('open', () => {
+        if (attempt !== current || rfb !== client || mode !== 'interactive') return;
+        const pulse = () => {
+            if (attempt !== current || rfb !== client) return;
+            if (document.hidden || releaseRequired) { hidden(); return; }
+            try { ws.send('control-alive'); } catch (_) { void end(current, true); }
+        };
+        pulse();
+        if (attempt === current && mode === 'interactive' && !releaseRequired && !document.hidden) controlTimer = setInterval(pulse, 500);
+    });
     client.addEventListener('connect', () => {
         diagnostic('rfb_connected', current, {elapsed_ms: elapsed()});
         if (attempt !== current || rfb !== client) return;
@@ -145,15 +157,6 @@ function connect(current, result) {
         switching = false;
         if (mode === 'interactive' && (document.hidden || releaseRequired)) { hidden(); return; }
         status.textContent = mode === 'interactive' ? 'Interactive. You control Kodi. Conflicting agent input is refused.' : 'View Only';
-        if (mode === 'interactive') {
-            const pulse = () => {
-                if (attempt !== current || rfb !== client || switching) return;
-                if (document.hidden || releaseRequired) { hidden(); return; }
-                try { ws.send('control-alive'); } catch (_) { void end(current, true); }
-            };
-            pulse();
-            if (attempt === current && mode === 'interactive' && !switching) controlTimer = setInterval(pulse, 500);
-        }
         buttons(true);
         if (mode === 'interactive') client.focus({preventScroll: true});
     });

@@ -37,6 +37,8 @@ ownership remains reserved until the existing broker proves cleanup.
 Browser visibility events/timers can be delayed or suspended. Add a three-second
 interactive foreground lease, renewed through a fixed text message on the
 existing authenticated WebSocket every 500 ms only while visible and interactive.
+Renewal begins at WebSocket open, including the RFB handshake, so connection
+setup does not consume the initial three-second lease.
 This is an input-liveness signal, not status polling or a persistence/reconnect
 loop. The server refuses renewal after expiry and stops forwarding input and
 renewing native ownership. Existing independent Web/broker/helper leases then
@@ -149,3 +151,7 @@ pause beyond three seconds may still terminate viewing safely. Native Firefox
 acceptance and comparative resource measurements remain open. No production
 service, container, managed target, source registration, workspace or Channels DVR
 Hub installation was changed by this source-only work.
+
+Final review corrected heartbeat startup during slow RFB handshakes. The targeted
+20-test focused lane, Chromium fixtures, Ruff, strict mypy and JavaScript syntax
+checks passed again; the original 113-test integration result remains recorded.

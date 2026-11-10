@@ -19,8 +19,9 @@ function boot() {
         sendKey(...key) {this.keys.push(key);}
     }
     class Socket {
-        constructor() {this.messages = []; sockets.push(this);}
-        addEventListener() {}
+        constructor() {this.messages = []; this.events = {}; sockets.push(this);}
+        addEventListener(name, fn) {(this.events[name] ||= []).push(fn);}
+        emit(name) {(this.events[name] || []).forEach(fn => fn());}
         send(data) {this.messages.push(data);}
     }
     vm.runInNewContext(source, {document, window:{addEventListener:listen}, AbortSignal, URL,
@@ -43,8 +44,8 @@ function boot() {
         assert.ok(request, 'missing ' + action); request.used = true; return request;
     }
     async function answer(action, mode) {next(action).resolve({ok:true, json:async () => ({ticket:'one-use', mode})}); await flush();}
-    async function start() {const work = nodes['#start'].onclick(); await flush(); await answer('start', 'view-only'); await work; clients.at(-1).emit('connect');}
-    async function interactive() {await start(); const work = nodes['#take-control'].onclick(); await answer('take-control', 'interactive'); await work; clients.at(-1).emit('connect');}
+    async function start() {const work = nodes['#start'].onclick(); await flush(); await answer('start', 'view-only'); await work; sockets.at(-1).emit('open'); clients.at(-1).emit('connect');}
+    async function interactive() {await start(); const work = nodes['#take-control'].onclick(); await answer('take-control', 'interactive'); await work; sockets.at(-1).emit('open'); clients.at(-1).emit('connect');}
     return {main, nodes, requests, clients, sockets, timers, signal, visibility, next, answer, start, interactive};
 }
 (async () => {
@@ -71,8 +72,18 @@ function boot() {
     controlled.emit('connect'); controlled.emit('disconnect');
     assert.equal(resumed.closed, false, 'old client callbacks cannot affect successor');
     const again = page.nodes['#take-control'].onclick(); await page.answer('take-control', 'interactive'); await again;
-    page.clients.at(-1).emit('connect'); assert.equal(page.clients.at(-1).viewOnly, false, 'explicit Take Control works again');
+    page.sockets.at(-1).emit('open'); page.clients.at(-1).emit('connect'); assert.equal(page.clients.at(-1).viewOnly, false, 'explicit Take Control works again');
     await page.nodes['#stop'].onclick(); assert.equal(page.timers.size, 0);
+
+    const slow = boot(); await slow.start();
+    const slowTake = slow.nodes['#take-control'].onclick(); await slow.answer('take-control', 'interactive'); await slowTake;
+    const connectingControl = slow.clients.at(-1); slow.sockets.at(-1).emit('open');
+    assert.equal(slow.sockets.at(-1).messages.length, 1, 'foreground lease starts before RFB connect');
+    for (let i = 0; i < 8; i++) [...slow.timers.values()].forEach(fn => fn());
+    assert.equal(slow.sockets.at(-1).messages.length, 9, 'slow RFB handshake continues renewing');
+    slow.visibility(true); assert.equal(slow.timers.size, 0); assert.equal(connectingControl.viewOnly, true);
+    connectingControl.emit('connect'); await slow.answer('release-control', 'view-only');
+    await slow.nodes['#stop'].onclick();
 
     const pendingTake = boot(); await pendingTake.start();
     const taking = pendingTake.nodes['#take-control'].onclick(); pendingTake.visibility(true); pendingTake.visibility(false);

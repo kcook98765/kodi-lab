@@ -45,7 +45,7 @@ const html = `<!doctype html><html><head><meta name="kodi-lab-csrf" content="fix
                     sendKey(key) {this.keys.push(key);}
                 };
                 window.WebSocket = class extends EventTarget {
-                    constructor() {super(); this.messages = []; window.sockets.push(this);}
+                    constructor() {super(); this.messages = []; window.sockets.push(this); setTimeout(() => this.dispatchEvent(new Event('open')), 0);}
                     send(data) {this.messages.push(data);}
                 };
             });
