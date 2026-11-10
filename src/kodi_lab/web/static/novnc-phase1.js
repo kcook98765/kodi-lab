@@ -37,12 +37,16 @@ function disarm() {
 const viewerDiagnostics = [];
 Object.defineProperty(main, 'viewerDiagnostics', {get: () => viewerDiagnostics.map(record => ({...record}))});
 function diagnostic(event, current, fields = {}) {
-    if (!['cleanup_requested', 'ws_open', 'ws_close', 'ws_error', 'rfb_connected', 'rfb_disconnected', 'control_release_requested', 'control_release_confirmed', 'control_release_failed'].includes(event)) return;
+    if (!['cleanup_requested', 'ws_open', 'ws_close', 'ws_error', 'rfb_connected', 'rfb_disconnected', 'control_release_requested', 'control_release_confirmed', 'control_release_failed', 'visibility_hidden', 'visibility_visible', 'window_blur'].includes(event)) return;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(current)) return;
     const record = {event, attempt: current, at_ms: Date.now()};
     if (Number.isSafeInteger(fields.elapsed_ms)) record.elapsed_ms = Math.max(0, Math.min(600000, fields.elapsed_ms));
     if ([1000, 1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 4403].includes(fields.code)) record.code = fields.code;
     if (typeof fields.clean === 'boolean') record.clean = fields.clean;
+    if (['view-only', 'interactive'].includes(fields.mode)) record.mode = fields.mode;
+    for (const field of ['switching', 'release_required', 'connected']) {
+        if (typeof fields[field] === 'boolean') record[field] = fields[field];
+    }
     viewerDiagnostics.push(record);
     if (viewerDiagnostics.length > 64) viewerDiagnostics.shift();
 }
@@ -64,16 +68,22 @@ function viewAttempt() {
 
 
 function buttons(connected = false) {
+    // mode is the last confirmed admission, not permission to present input
+    // controls while a handoff (or its hidden-tab release intent) is pending.
+    const releasing = attempt !== null && (releaseRequired || activeAction === 'release-control');
+    const interactive = connected && mode === 'interactive' && !switching && !releasing;
+    const viewing = connected && mode === 'view-only' && !switching && !releasing;
     start.disabled = document.hidden || selectionPending || !permitted || identityRetired || attempt !== null;
     start.hidden = attempt !== null;
     stop.hidden = attempt === null;
-    take.hidden = !connected || mode !== 'view-only';
-    release.hidden = keyboard.hidden = back.hidden = !connected || mode !== 'interactive';
+    take.hidden = !viewing;
+    release.hidden = keyboard.hidden = back.hidden = !interactive;
     stop.disabled = attempt === null;
-    take.disabled = document.hidden || selectionPending || releaseRequired || switching || !connected || mode !== 'view-only';
-    release.disabled = document.hidden || switching || !connected || mode !== 'interactive';
-    keyboard.disabled = back.disabled = document.hidden || releaseRequired || switching || !connected || mode !== 'interactive';
-    if (mode !== 'interactive' || !connected) { typing.hidden = true; text.value = ''; }
+    take.disabled = document.hidden || selectionPending || !viewing;
+    release.disabled = document.hidden || !interactive;
+    keyboard.disabled = back.disabled = document.hidden || !interactive;
+    if (!interactive) { typing.hidden = true; text.value = ''; }
+    if (releasing) status.textContent = 'Releasing Control…';
 }
 async function post(action, body) {
     const response = await fetch(`/api/instances/${instance}/novnc-${action}`, {
@@ -214,7 +224,7 @@ async function change(action) {
     if (action === 'release-control') diagnostic('control_release_requested', old);
     disarm();
     buttons();
-    status.textContent = 'Verifying input handoff';
+    status.textContent = action === 'release-control' ? 'Releasing Control…' : 'Verifying input handoff';
     const previousRfb = rfb;
     // The old connection stays alive until the server cancels it. Disconnecting
     // first would revoke the very attachment being used to request the handoff.
@@ -230,6 +240,7 @@ async function change(action) {
         if (action === 'release-control') {
             diagnostic('control_release_confirmed', old);
             releaseRequired = false;
+            status.textContent = 'Control released. Connecting View Only…';
         } else if (releaseRequired || document.hidden) {
             // Hide during Take Control is latched across a rapid show. Never
             // attach the interactive ticket; release its pending reservation.
@@ -237,6 +248,7 @@ async function change(action) {
             await change('release-control');
             return;
         }
+        buttons();
         connect(current, result);
     } catch (error) {
         if (action === 'take-control' && error.code === 'agent_operation_active' && attempt === current && rfb === previousRfb && rfbConnected && mode === 'view-only') {
@@ -253,7 +265,7 @@ async function change(action) {
         // Retire both IDs: failure may precede or follow server revocation.
         void post('stop', {attempt: old}).catch(() => {});
         const ended = await end(current);
-        if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Control change unavailable. Start viewing to recover after verified release.';
+        if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Control change unavailable. Viewing closed. Input stays reserved until the server verifies release.';
     }
 }
 take.onclick = () => change('take-control');
@@ -292,7 +304,20 @@ function hidden() {
     if (releaseRequired && !switching) void change('release-control');
     buttons(rfbConnected);
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) hidden(); else buttons(rfbConnected); });
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hidden(); else buttons(rfbConnected);
+    if (attempt) diagnostic(document.hidden ? 'visibility_hidden' : 'visibility_visible', attempt, {
+        mode, switching, release_required: releaseRequired, connected: rfbConnected
+    });
+});
+// Focus can leave a browser tab before visibility changes. Relinquish through
+// the same verified operation, including when document.hidden is still false.
+window.addEventListener('blur', () => {
+    hidden();
+    if (attempt) diagnostic('window_blur', attempt, {
+        mode, switching, release_required: releaseRequired, connected: rfbConnected
+    });
+});
 window.addEventListener('pagehide', () => end());
 if (main.dataset.viewBinding) window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 buttons();
