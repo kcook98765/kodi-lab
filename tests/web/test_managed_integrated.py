@@ -428,7 +428,9 @@ def test_supported_admin_handoff_releases_only_web_hold_then_agent_can_stop(
 ) -> None:
     from kodi_lab.storage.models import ManagedInstanceUseRow
 
-    token, target, actor = authority(client, database, permissions=PERMISSIONS)
+    token, target, actor = authority(
+        client, database, permissions=PERMISSIONS | {"managed.lifecycle"}
+    )
     csrf = login(client)
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
@@ -440,7 +442,15 @@ def test_supported_admin_handoff_releases_only_web_hold_then_agent_can_stop(
         wait(client)
         assert broker.starts == 2 and broker.stops == 1
     else:
-        assert invoke(client, token, "start")["receipt_state"] == "complete"
+        context = cast(FastAPI, client.app).state.kodi_lab
+        context.managed_resources.keep_awake(target, minutes=15)
+        held = call(
+            client,
+            token,
+            "managed_ensure_ready",
+            dict(target_id=str(target), request_id=str(uuid4()), hold_minutes=15),
+        )
+        assert held["structuredContent"]["hold_until"]
         with database() as session:
             use = session.get(ManagedInstanceUseRow, (str(target), "mcp:" + str(actor)))
             assert use is not None and use.hold_until

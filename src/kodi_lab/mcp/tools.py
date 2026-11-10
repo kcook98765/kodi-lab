@@ -752,7 +752,7 @@ class ManagedEnsureReadyInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: UUID = Field(strict=False)
     target_id: UUID = Field(strict=False)
-    hold_minutes: int = Field(default=15, ge=0, le=240)
+    hold_minutes: int = Field(default=0, ge=0, le=240)
 
 
 class ManagedReleaseInput(BaseModel):
@@ -981,7 +981,11 @@ class McpTargetToolService:
                 client_id=principal.client_id,
                 request_id=operation.request_id,
                 target_id=operation.target_id,
-                hold_minutes=operation.hold_minutes,
+                # Omission replays the saved duration of an older request;
+                # only a fresh omitted request takes the new zero default.
+                hold_minutes=operation.hold_minutes
+                if "hold_minutes" in operation.model_fields_set
+                else None,
                 authorize=lambda session: self._authorization.recheck_managed_lifecycle(
                     session,
                     principal,

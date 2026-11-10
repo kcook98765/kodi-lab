@@ -40,6 +40,7 @@ from kodi_lab.storage.models import (
 )
 
 Action = Literal["start", "stop", "reset"]
+_ACTIONS: tuple[Action, ...] = ("start", "stop", "reset")
 
 
 class WebSlotRequest(BaseModel):
@@ -347,13 +348,20 @@ class ManagedSlotsWeb:
             technical=evidence,
         )
 
-    def _protection(self, session: Session, target: UUID) -> str | None:
+    def _protection(self, session: Session, target: UUID, action: Action) -> str | None:
         try:
             instance = session.get(ManagedInstanceRow, str(target))
             if instance is None:
                 return None
-            fake = ManagedVersionOperationRow(target_id=str(target), action="stop")
+            fake = ManagedVersionOperationRow(
+                target_id=str(target),
+                runtime_revision_id=instance.runtime_revision_id,
+                action="start" if action == "start" else "stop",
+            )
             self.v._idle(session, fake)
+            if action == "start":
+                self.v._protect_users(session, fake)
+                return None
             now = self.v._clock()
             minutes = read_resource_policy(session).idle_minutes or 60
             for use in session.scalars(
@@ -366,10 +374,17 @@ class ManagedSlotsWeb:
                 if use.hold_until and use.hold_until > timestamp(now):
                     return friendly("keep_awake")
                 if (
-                    use.released_at is None or use.last_activity_at > use.released_at
-                ) and datetime.fromisoformat(
-                    use.last_activity_at.replace("Z", "+00:00")
-                ) + timedelta(minutes=minutes) > now:
+                    action == "reset"
+                    and (
+                        use.released_at is None
+                        or use.last_activity_at > use.released_at
+                    )
+                    and datetime.fromisoformat(
+                        use.last_activity_at.replace("Z", "+00:00")
+                    )
+                    + timedelta(minutes=minutes)
+                    > now
+                ):
                     return friendly("other_client_active")
         except Exception as error:
             return friendly(self.v._code(error))
@@ -413,10 +428,14 @@ class ManagedSlotsWeb:
                 instance = session.get(ManagedInstanceRow, str(target))
                 try:
                     snapshot = self.fingerprint(session, version)
-                    protection = self._protection(session, target)
+                    protections = {
+                        action: self._protection(session, target, action)
+                        for action in _ACTIONS
+                    }
                 except Exception:
-                    snapshot, protection = (
-                        None,
+                    snapshot = None
+                    protections = dict.fromkeys(
+                        _ACTIONS,
                         "The profile identity needs review in Advanced.",
                     )
                 latest = session.scalar(
@@ -448,9 +467,10 @@ class ManagedSlotsWeb:
             cache_ok = cached.status == "ready" and not cached.busy
             other = next((name for name in running if name.lower() != version), None)
             ready = value.native_ready and value.state == "running"
-            reason = protection or (
-                friendly(value.code) if value.state == "blocked" else None
-            )
+            state_reason = friendly(value.code) if value.state == "blocked" else None
+            # Routine Stop/Reset protection does not make a stopped profile
+            # need recovery or prevent ordinary Start.
+            reason = state_reason or protections["start"]
             start_reason = (
                 ("Kodi is already running." if ready else None)
                 or (
@@ -458,7 +478,8 @@ class ManagedSlotsWeb:
                     if value.state == "starting"
                     else None
                 )
-                or reason
+                or state_reason
+                or protections["start"]
                 or (
                     f"Review {other}'s recovery before starting another version."
                     if other
@@ -476,11 +497,18 @@ class ManagedSlotsWeb:
                     else friendly("approved_cached_runtime_required")
                 )
             )
-            stop_reason = reason or (
-                None if ready else "Wait for Kodi to be ready before stopping safely."
+            stop_reason = (
+                state_reason
+                or protections["stop"]
+                or (
+                    None
+                    if ready
+                    else "Wait for Kodi to be ready before stopping safely."
+                )
             )
             reset_reason = (
-                reason
+                state_reason
+                or protections["reset"]
                 or (None if cache_ok else friendly("approved_cached_runtime_required"))
                 or (
                     "Wait for Kodi to be ready before resetting."

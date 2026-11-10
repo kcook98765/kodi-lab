@@ -282,12 +282,9 @@ class DevelopmentSessionService:
 
     def _retained_idle(self, session: Session) -> None:
         """Selection never recovers operations, clears holds, or reaps workers."""
-        from datetime import timedelta
-
         from kodi_lab.application.reconciliation import (
             ManagedInstanceReconciliationService,
         )
-        from kodi_lab.storage.managed_activity import read_resource_policy
         from kodi_lab.storage.models import (
             ManagedAgentLifecycleRequestRow,
             ManagedInstanceRow,
@@ -335,17 +332,13 @@ class DevelopmentSessionService:
                 "development_session_replacement_review_open"
             )
         now = datetime.now(UTC)
-        minutes = read_resource_policy(session).idle_minutes or 60
+        records = self._inventory().containers
         for use in session.scalars(select(ManagedInstanceUseRow)):
-            if use.hold_until and use.hold_until > timestamp(now):
-                raise DevelopmentSessionConflict("retained_use_active")
-            if (
-                use.actor_key.startswith("mcp:")
-                and (use.released_at is None or use.last_activity_at > use.released_at)
-                and datetime.fromisoformat(use.last_activity_at.replace("Z", "+00:00"))
-                + timedelta(minutes=minutes)
-                > now
-            ):
+            matching = [
+                r for r in records if r.managed_instance_id == use.managed_instance_id
+            ]
+            stopped = len(matching) == 1 and matching[0].runtime_state == "stopped"
+            if not stopped and use.hold_until and use.hold_until > timestamp(now):
                 raise DevelopmentSessionConflict("retained_use_active")
         reconciliation = ManagedInstanceReconciliationService(self._sessions)
         for instance in session.scalars(select(ManagedInstanceRow)):

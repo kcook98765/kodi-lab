@@ -241,6 +241,15 @@ def test_active_client_viewer_or_input_disables_and_blocks_stop_and_reset(
         assert reply.status_code == 409 or reply.json()["phase"] == "blocked", (
             reply.text
         )
+    # Automatic stopping uses the same viewer/input/explicit-hold safeguards.
+    from kodi_lab.application.managed_resources import ResourcePolicyInput
+
+    resources = context.managed_resources
+    resources.configure(ResourcePolicyInput(max_running=1, idle_minutes=1))
+    resources.enroll(target, enabled=True)
+    later = resources._clock() + timedelta(minutes=2)
+    resources._clock = lambda: later
+    assert resources.sweep_idle() == 0
     assert broker.removals == broker.stops == 0
 
 

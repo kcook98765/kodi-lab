@@ -105,6 +105,7 @@ def test_explicit_lifecycle_permission_applies_to_both_client_and_target(
     _strict_tool_result(first, schema)
     original = first["structuredContent"]
     assert original["receipt_state"] in {"not_ready", "ready"}
+    assert original["hold_until"] is None
     replay = _call(client, token, "managed_ensure_ready", request_id)[
         "structuredContent"
     ]
@@ -139,7 +140,7 @@ def test_release_preserves_other_clients_current_use(
     _, second, _ = _agent(client)
     _call(client, first, "managed_ensure_ready", uuid4())
     _finish_readiness(client)
-    _call(client, second, "managed_ensure_ready", uuid4())
+    _call(client, second, "managed_ensure_ready", uuid4(), hold_minutes=15)
     retained = _call(client, first, "managed_release", uuid4())["structuredContent"]
     assert retained["receipt_state"] == "retained" and retained["code"] == "keep_awake"
     assert not any(name == "stop" for name, _ in broker.calls)
@@ -162,3 +163,19 @@ def test_ensure_does_not_provision_and_schema_rejects_raw_lifecycle_authority(
         result = _call(client, token, "managed_ensure_ready", uuid4(), **extra)
         assert result["isError"] is True
     assert not any(name == "start" for name, _ in broker.calls)
+
+
+def test_omitted_wire_hold_replays_original_positive_duration(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    _provision(client)
+    _, token, _ = _agent(client)
+    request = uuid4()
+    original = _call(client, token, "managed_ensure_ready", request, hold_minutes=15)[
+        "structuredContent"
+    ]
+    replay = _call(client, token, "managed_ensure_ready", request)["structuredContent"]
+    assert original["hold_until"] is not None
+    assert replay["replayed"] and replay["operation_id"] == original["operation_id"]
+    assert replay["hold_until"] == original["hold_until"]
+    assert sum(name == "start" for name, _ in broker.calls) == 1

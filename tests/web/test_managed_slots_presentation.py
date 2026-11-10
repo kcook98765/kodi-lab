@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -19,6 +20,8 @@ from kodi_lab.application.browser_remote_coordination import (
     acquire_browser_remote,
     release_browser_remote,
 )
+from kodi_lab.storage.managed_activity import timestamp
+from kodi_lab.storage.models import ManagedInstanceUseRow
 from tests.application.test_managed_start import NativeReady
 from tests.managed_versions_support import Broker
 from tests.web.test_managed_slots import act, setup, slot, wait
@@ -87,6 +90,28 @@ def test_export_managed_card_review_states(
     assert act(client, csrf, "stop").json()["phase"] == "complete"
     assert slot(client)["state"] == "stopped"
     capture("retained-stopped")
+    context = cast(FastAPI, client.app).state.kodi_lab
+    actor = f"mcp:{uuid4()}"
+    target = broker.records[0].managed_instance_id
+    with database.begin() as session:
+        session.add(
+            ManagedInstanceUseRow(
+                managed_instance_id=target,
+                actor_key=actor,
+                last_activity_at=timestamp(context.managed_versions._clock()),
+                hold_until=timestamp(
+                    context.managed_versions._clock() + timedelta(minutes=15)
+                ),
+            )
+        )
+    historical = slot(client)
+    assert historical["start"] and not historical["reset"]
+    assert not historical["needs_review"]
+    capture("retained-stopped-history")
+    with database.begin() as session:
+        use = session.get(ManagedInstanceUseRow, (target, actor))
+        assert use is not None
+        session.delete(use)
     assert act(client, csrf, "reset").json()["phase"] == "complete"
     assert slot(client)["reset_note"]
     capture("reset-completed")

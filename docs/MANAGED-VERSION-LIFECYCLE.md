@@ -47,7 +47,7 @@ container, revision, profile mode, image or Reset parameter.
 | --- | --- |
 | Status | Returns the four supported version labels and each authorized slot's empty, stopped, starting, running or blocked state. Unauthorized entries contain no target, runtime, operation or client identity. It does not start Kodi or renew a hold. |
 | Start | Resolves the exact canonical target and current grant. Reuses a valid running profile without another lifecycle start; resumes a stopped profile; otherwise registers/provisions the approved cached exact image through existing services. It never adopts another target's old profile. |
-| Stop | Releases only the caller's use/hold, then stops through the existing guarded lifecycle authority if safe. An already stopped or empty slot needs no dispatch. It does not remove a container/profile or clear another client's use. |
+| Stop | Releases only the caller's use/hold, then stops through the existing guarded lifecycle authority if safe. An already stopped or empty slot needs no dispatch. It does not remove a container/profile. A confirmed Stop ends holds for that run while retaining activity history. |
 
 Start/Stop return a durable parent `operation_id`, original `request_id`,
 `receipt_state`, bounded `code`, typed child operation identities, current status,
@@ -70,9 +70,11 @@ Persist a fresh UUID **before** each new Start or Stop. On a lost response,
 repeat the identical action/version with the **same UUID**. The principal-bound
 receipt fixes its target, original pin/image and child identities. Reuse for a
 different action/version is rejected. A completed old Start reports current
-status after Stop and never starts Kodi again. Polling/replay never extends the
-fixed 15-minute Start hold. Separately authorized existing lifecycle tools can
-manage longer holds when needed; they retain their original semantics.
+status after Stop and never starts Kodi again. Start creates no keep-awake hold;
+polling/replay preserves original receipts.
+Separately authorized ensure-ready calls can request an explicit positive
+`hold_minutes` duration (default zero). An unexpired hold protects running use;
+a confirmed stopped profile can start immediately.
 
 New requests are limited to one per client/version/action per five seconds;
 original request replay is exempt. There are at most 1,024 parent receipts per
@@ -102,7 +104,7 @@ Common recovery paths:
 - **No approved cached runtime:** ask the administrator to prepare/approve it.
 - **Another version running:** safely Stop that version with its own exact grant,
   then Start the requested version with a new request UUID. No automatic eviction.
-- **Human viewer/input, another client's use, hold, playback or mutation:** wait
+- **Human viewer/input, an explicit running-use hold, playback or mutation:** wait
   for the owner to finish/release it. This Stop cannot force cleanup or revoke use.
 - **Old/noncanonical or duplicate same-version profile:** administrator review;
   there is no silent migration, adoption or deletion.

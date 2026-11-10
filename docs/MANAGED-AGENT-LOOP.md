@@ -33,7 +33,8 @@ version-oriented MCP loop is now available after explicit administrator opt-in:
 4. Persist another UUID and call
    `managed_stop({version: "omega", request_id: "<UUID>"})`. Confirm
    `stop_confirmed`; a retained profile keeps settings and installed add-ons.
-   Another user's viewer, input, hold, active use or mutation blocks Stop.
+   Another user's viewer, input, explicit hold or active mutation blocks Stop.
+   Historical completed work does not reserve Kodi; Start creates no hold.
 
 Use `matrix`, `nexus`, `omega` or `piers`. Both the custom client preset and exact
 canonical target policy need the new `managed.versions` permission plus the

@@ -52,7 +52,7 @@ resource safety authority; Stop retains the exact profile. Their new
 `managed.lifecycle`. [Clean Reset](MANAGED-CLEAN-RESET.md) additionally requires
 explicit `managed.reset` authority; automatic switching remains a follow-up.
 
-The following target-oriented tools keep their existing contracts.
+The following target-oriented tools keep their permission and replay contracts.
 
 `managed_ensure_ready` and `managed_release` require the explicit
 `managed.lifecycle` permission in both the client preset and target policy,
@@ -66,7 +66,8 @@ provisions a container.
 An agent should:
 
 1. Call `managed_ensure_ready` with the administrator's existing target UUID,
-   a fresh request UUID and `hold_minutes` (default 15; range 0–240).
+   a fresh request UUID and `hold_minutes` (default 0; range 0–240). A positive value explicitly
+   requests a keep-awake reservation for running use.
 2. Continue only when `ready` is true. The result reports current readiness,
    capacity, its own hold, receipt state and ordinary lifecycle operation UUID.
    A starting instance may require another call with the **same** UUID to poll.
@@ -76,12 +77,15 @@ An agent should:
 
 Ensure-ready starts only an existing stopped, provisioned instance. It does not
 restart an already running instance or invalidate its runtime observation epoch.
-Release clears only the caller's hold/use. Recent unreleased activity by another
-client, any hold, playback, active work or uncertainty retains Kodi. Release
+Release clears only the caller's hold/use. An explicit unexpired hold, playback,
+active work or uncertainty retains running Kodi. Historical activity from
+completed work does not own Kodi or block ordinary Start/Stop. Release
 returns that bounded reason rather than claiming it stopped. Web and other MCP
 clients retain independent use records. Idle stop remains independent of release.
 
-A request UUID identifies one exact target/action/hold intent. Replays report the
+A request UUID identifies one exact target/action/hold intent. If the duration is
+omitted on replay, the saved duration is reused, including pre-upgrade requests.
+A newly supplied conflicting duration is rejected. Replays report the
 original operation and current state without dispatching a second start/stop or
 extending a hold. After idle stop, replaying an earlier ensure-ready request
 reports the changed runtime and leaves it stopped: use a new UUID to resume.
@@ -95,3 +99,22 @@ reservation creation.
 These controls retain containers, profiles and workspace bytes. Workspace
 creation quotas and retention/cleanup exceptions remain separate; stopping Kodi
 does not increase workspace quota. See [Phase 12 development](PHASE12-MCP-DEVELOPMENT.md).
+
+## Activity and explicit protection
+
+Ordinary Web/agent Start creates no keep-awake reservation. Manual Start/Stop
+can follow completed deployment, launch or inspection immediately, even when
+idle stop is disabled. Activity timestamps remain diagnostic and idle-stop
+inputs. The configured idle duration controls only automatic stopping.
+
+A successful Stop ends holds for that running use. A new Start claimed for a
+confirmed stopped profile also retires surviving holds from the previous run,
+before recording any newly requested explicit hold. It retains the profile,
+settings, add-ons, workspace, activity history and original operation receipts.
+Pending/uncertain operations are never cleared by this rule. On upgrade, an
+existing unexpired hold on running Kodi remains protected until released or
+expired; old software did not distinguish implicit from explicit hold origins.
+
+Reset remains destructive and keeps its confirmation, stronger recent-use/hold
+protection and separate authorization. See the
+[change assessment](MANAGED-LIFECYCLE-SIMPLIFICATION.md).

@@ -1366,7 +1366,7 @@ def build_mcp_http_transport(
                 "repins, switches versions or grants workspace/Bridge authority. "
                 "Retain request_id; replay only resumes undispatched preparation or "
                 "observes the original child. A completed request never restarts "
-                "after Stop. Creates one bounded 15-minute client hold."
+                "after Stop. Start creates no keep-awake hold."
             ),
             input_schema=ManagedVersionInput.model_json_schema(),
             output_schema=ManagedVersionResult.model_json_schema(),
@@ -1396,7 +1396,8 @@ def build_mcp_http_transport(
                 "Starts the same stopped instance and reports bounded readiness; "
                 "does not create instances or acquire runtimes. Requires opt-in "
                 "managed.lifecycle in both client and target policies. New requests "
-                "create or extend this client's bounded hold. Replays only observe "
+                "create or extend a hold only with positive hold_minutes (default 0). "
+                "Replays only observe "
                 "the original operation and never restart or extend its hold. "
                 "Use a fresh request_id for a new session after idle stop."
             ),

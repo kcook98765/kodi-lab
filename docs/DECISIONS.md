@@ -7956,3 +7956,27 @@ and verified-installation evidence bound to the existing remote-action receipt a
 coordinated dispatch; that work is deferred. No broad target.control, navigation,
 Reset, settings, promotion or external/production authority follows this opt-in.
 See [trusted local development](TRUSTED-LOCAL-DEVELOPMENT.md).
+
+
+## D-0489: Managed activity is history, and keep-awake is explicit
+
+Ordinary managed Start/Stop and retained selection do not infer client ownership
+from `last_activity_at + idle_minutes`. Activity remains available for reporting
+and optional idle stopping; disabling idle stop supplies no fallback ownership
+timeout. Existing mutation leases, active/pending/ambiguous operation receipts,
+reservations, reconciliation, runtime identity, global running capacity, human
+viewing/input and playback checks retain their authority.
+
+Version Start records activity without creating a hold. Target ensure-ready
+defaults to zero hold minutes; a positive duration deliberately protects running
+use. Successful Stop, or claiming a new Start for a positively stopped profile,
+ends previous-run holds before any newly requested explicit hold. Original
+receipt identities/hold fields remain unchanged, including replay of requests
+created before upgrade. Existing running holds retain protection because their
+old records do not distinguish implicit and explicit origins. No schema or data
+migration is required.
+
+The Web evaluates Start, Stop and Reset eligibility separately. Reset keeps its
+existing stronger recent-use checks, explicit confirmation and authorization.
+The idle-stop default stays sixty minutes; default-OFF is a separate product
+recommendation pending evidence. See the managed lifecycle change assessment.

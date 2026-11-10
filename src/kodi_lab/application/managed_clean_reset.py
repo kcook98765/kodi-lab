@@ -155,7 +155,7 @@ class ManagedCleanResetService:
         self._v._resources._guard(
             session,
             UUID(row.target_id),
-            reason="released",
+            reason="reset",
             actor=lifecycle_actor(row.client_id),
             own_operation_id=UUID(getattr(row, f"{row.step}_id")) if dispatch else None,
         )

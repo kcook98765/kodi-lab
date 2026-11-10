@@ -208,12 +208,12 @@ def test_selected_development_request_cannot_borrow_ordinary_lease(
 
 
 @pytest.mark.parametrize(
-    "blocker", ["lease", "reservation", "agent_intent", "use_hold", "reconciliation"]
+    "blocker", ["lease", "reservation", "agent_intent", "reconciliation"]
 )
 def test_existing_resource_and_recovery_holds_are_never_cleared(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocker: str
 ) -> None:
-    from datetime import UTC, datetime, timedelta
+    from datetime import UTC, datetime
 
     from kodi_lab.domain import (
         ManagedInstanceLifecycleKind,
@@ -224,7 +224,6 @@ def test_existing_resource_and_recovery_holds_are_never_cleared(
     from kodi_lab.storage.models import (
         ManagedAgentLifecycleRequestRow,
         ManagedInstanceLifecycleOperationRow,
-        ManagedInstanceUseRow,
         ManagedStartReservationRow,
     )
 
@@ -264,17 +263,6 @@ def test_existing_resource_and_recovery_holds_are_never_cleared(
                             updated_at=now,
                         )
                     )
-                elif blocker == "use_hold":
-                    session.add(
-                        ManagedInstanceUseRow(
-                            managed_instance_id=other,
-                            actor_key="web",
-                            last_activity_at=now,
-                            hold_until=timestamp(
-                                datetime.now(UTC) + timedelta(minutes=5)
-                            ),
-                        )
-                    )
                 else:
                     session.add(
                         ManagedInstanceLifecycleOperationRow(
@@ -297,7 +285,6 @@ def test_existing_resource_and_recovery_holds_are_never_cleared(
             ManagedInstanceMutationLeaseRow,
             ManagedStartReservationRow,
             ManagedAgentLifecycleRequestRow,
-            ManagedInstanceUseRow,
             ManagedInstanceLifecycleOperationRow,
         )
         with s.env.sessions() as session:
@@ -314,5 +301,45 @@ def test_existing_resource_and_recovery_holds_are_never_cleared(
             } == before
             assert session.scalars(select(ManagedStartAuthorizationRow)).all() == []
         assert e.broker.starts == 0
+    finally:
+        e.readiness.close()
+
+
+@pytest.mark.parametrize("hold", [False, True])
+def test_another_stopped_profiles_history_or_hold_does_not_reserve_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, hold: bool
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from kodi_lab.storage.managed_activity import timestamp
+    from kodi_lab.storage.models import ManagedInstanceUseRow, ManagedResourcePolicyRow
+
+    e = setup(tmp_path, monkeypatch)
+    s = e.s
+    try:
+        s.choose("nexus")
+        with s.env.sessions.begin() as session:
+            policy = session.get(ManagedResourcePolicyRow, 1)
+            assert policy is not None
+            policy.idle_minutes = None
+            session.add(
+                ManagedInstanceUseRow(
+                    managed_instance_id=str(s.ids["nexus"]),
+                    actor_key=f"mcp:{uuid4()}",
+                    last_activity_at=timestamp(datetime.now(UTC)),
+                    hold_until=timestamp(datetime.now(UTC) + timedelta(minutes=15))
+                    if hold
+                    else None,
+                )
+            )
+        query = select(ManagedInstanceUseRow.__table__).where(
+            ManagedInstanceUseRow.managed_instance_id == str(s.ids["nexus"])
+        )
+        with s.env.sessions() as session:
+            before = session.execute(query).all()
+        e.lifecycle.start_managed(s.ids["omega"])
+        assert e.broker.starts == 1 and e.broker.stops == 0
+        with s.env.sessions() as session:
+            assert session.execute(query).all() == before
     finally:
         e.readiness.close()

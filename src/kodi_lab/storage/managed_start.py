@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select, true
@@ -15,7 +15,7 @@ from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     active_session,
 )
-from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
+from kodi_lab.storage.managed_activity import read_resource_policy
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSessionReplacementReviewRow,
@@ -24,7 +24,6 @@ from kodi_lab.storage.models import (
     ManagedAgentLifecycleRequestRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
-    ManagedInstanceUseRow,
     ManagedRemoteGuardRow,
     NovncSessionRow,
 )
@@ -173,19 +172,6 @@ def require_managed_start(
             is not None
         ):
             deny("development_session_replacement_review_open")
-        now = now or datetime.now(UTC)
-        minutes = read_resource_policy(session).idle_minutes or 60
-        for use in session.scalars(select(ManagedInstanceUseRow)):
-            if use.managed_instance_id == target_id or multi:
-                continue
-            if (use.hold_until and use.hold_until > timestamp(now)) or (
-                use.actor_key.startswith("mcp:")
-                and (use.released_at is None or use.last_activity_at > use.released_at)
-                and datetime.fromisoformat(use.last_activity_at.replace("Z", "+00:00"))
-                + timedelta(minutes=minutes)
-                > now
-            ):
-                deny("retained_use_active")
         reconciliation = ManagedInstanceReconciliationService(
             sessionmaker(bind=session.get_bind())
         )

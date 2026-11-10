@@ -79,6 +79,21 @@ def enroll_new_instance(session: Session, instance_id: UUID, *, now: datetime) -
     )
 
 
+def end_running_holds(session: Session, instance_id: UUID) -> None:
+    """End holds for a proven stopped run; preserve activity and saved receipts.
+
+    Call only under lifecycle authority after a confirmed Stop, or when claiming
+    Start for an exact stopped profile. A pending/uncertain Stop is insufficient.
+    A new explicitly requested hold is recorded after this transition.
+    """
+    for use in session.scalars(
+        select(ManagedInstanceUseRow).where(
+            ManagedInstanceUseRow.managed_instance_id == str(instance_id)
+        )
+    ):
+        use.hold_until = None
+
+
 def record_activity(
     session: Session,
     instance_id: UUID,
@@ -130,6 +145,15 @@ def record_operation_activity(
     ):
         return
     if kind is ManagedInstanceMutationKind.LIFECYCLE:
+        lifecycle = session.get(ManagedInstanceLifecycleOperationRow, str(operation_id))
+        if (
+            lifecycle is not None
+            and lifecycle.kind is ManagedInstanceLifecycleKind.STOP
+            and lifecycle.state.value == "succeeded"
+            and lifecycle.resulting_state == "stopped"
+        ):
+            end_running_holds(session, instance_id)
+            return
         idle = session.get(ManagedIdleStateRow, str(instance_id))
         if idle is not None and idle.last_stop_operation_id == str(operation_id):
             return
