@@ -26,7 +26,7 @@
   <section aria-labelledby="{{ 'access-heading' if detail else 'access-' ~ target.target_id }}">
     <h{{ 3 if detail else 4 }} id="{{ 'access-heading' if detail else 'access-' ~ target.target_id }}">Inspection and access</h{{ 3 if detail else 4 }}>
     <dl><dt>Access mode</dt><dd>{{ kodi.access_label }}</dd>{% if not detail %}<dt>Remote control</dt><dd>{{ kodi.remote_label }}</dd>{% endif %}</dl>
-    <p>Inspect through an authorized agent. Health, add-on and screen-information checks depend on this Kodi's verified support and the agent's permissions. These settings do not grant an agent access; a connected status does not grant access either.</p>
+    <p><strong>Ready to inspect:</strong> health, add-on and screen-information checks need a working connection and verified support for each check. An agent also needs explicit inspection authorization; Connected does not grant access.</p>
     <p><a href="/mcp-clients">Review inspection and screenshot permissions</a>. Opening these pages does not run inspection or capture an image.</p>
   </section>
   <section aria-labelledby="{{ 'screenshots-heading' if detail else 'screenshots-' ~ target.target_id }}">

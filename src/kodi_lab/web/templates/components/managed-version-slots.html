@@ -7,6 +7,8 @@
   <p>Start a version below to use its saved settings and add-ons. Stop keeps them. Choosing a different retained version keeps its saved profile.</p>
   <p>Only one managed Kodi can run at a time. If a version needs installation, use its Create Managed Kodi link first.</p>
   <p>Developing an add-on? <a href="/development-session">Current Managed Kodi</a> selects a version and workspace for testing. Everyday Start, Stop and View Screen do not need a workspace.</p>
+  <p class="secondary"><strong>Ready to view:</strong> use View Screen when available below. The viewer checks its screen connection when opened; Kodi running alone does not confirm that connection.</p>
+  <p><strong>Ready to inspect:</strong> inspection needs a working Kodi connection and support for the requested checks. Bridge features and screenshots have separate requirements. An agent also needs <a href="/mcp-clients">explicit inspection permissions</a>.</p>
   <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
   <div class="slot-request" data-slot-request hidden>
     <p role="status" aria-live="polite" data-slot-request-message></p>

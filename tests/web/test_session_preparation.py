@@ -1,18 +1,37 @@
 """The selected-session checklist is private Web observation, never a setup job."""
 
+import os
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.development_sessions import DevelopmentSessionService
-from kodi_lab.storage.models import DevelopmentSourceRow
+from kodi_lab.application.session_preparation import SessionPreparationService
+from kodi_lab.storage.models import (
+    DevelopmentSourceRow,
+    McpWorkspaceExecutionOperationRow,
+)
+from tests.application import test_mcp_workspace_development as workspace_fixtures
+from tests.application.test_session_workspace_admission import bind
 from tests.web.conftest import INSTANCE_ID, ORIGIN, login
 from tests.web.test_development_session import source_and_workspace
+
+
+def export(client: TestClient, name: str, path: str) -> None:
+    if destination := os.getenv("KODI_GUIDANCE_EVIDENCE"):
+        root = Path(destination)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"{name}.html").write_text(client.get(path).text)
+        if path == "/development-session":
+            (root / f"{name}-status.json").write_text(
+                client.get("/api/development-session").text
+            )
 
 
 def reserve(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -47,6 +66,8 @@ def test_preparation_requires_web_auth_and_empty_session_does_not_prepare(
     assert page.status_code == 200
     assert "No Current Managed Kodi development selection is saved." in page.text
     assert page.headers["cache-control"] == "no-store"
+    export(client, "preparation-empty", "/development-session/preparation")
+    export(client, "project-empty", "/development-session")
     assert (
         'href="/development-session/preparation"'
         in client.get("/development-session").text
@@ -59,6 +80,9 @@ def test_private_checklist_is_read_only_unknown_and_escapes_selected_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current = reserve(client, monkeypatch)
+    project = client.get("/development-session")
+    assert "it does not mean the add-on is deployed, enabled or has run" in project.text
+    export(client, "project-selected", "/development-session")
     context = cast(FastAPI, client.app).state.kodi_lab
     with database.begin() as session:
         source = session.get(DevelopmentSourceRow, current["source_id"])
@@ -121,6 +145,45 @@ def test_private_checklist_is_read_only_unknown_and_escapes_selected_metadata(
     assert "Agent permissions have not been assessed" in page.text
     assert f"/agent-workspaces/{current['workspace_id']}" in page.text
     assert f"/instances/{current['target_id']}/capability-prerequisites" in page.text
+    assert "A selected workspace alone does not establish readiness" in page.text
+    assert "Deployed means files were copied to Kodi" in page.text
+    assert "Enabled means Kodi allows the add-on to run" in page.text
+    assert "evidence that the add-on ran in Kodi" in page.text
+    assert "a successful deployment alone does not verify execution" in page.text
+    export(client, "preparation-selected", "/development-session/preparation")
+
+
+@pytest.mark.parametrize("deployed", [False, True])
+def test_deployment_never_claims_enabled_or_executed_in_guidance(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    deployed: bool,
+) -> None:
+    # Produce real stored preparation facts using an isolated fake runtime.
+    env = workspace_fixtures._environment(tmp_path)
+    if deployed:
+        workspace_fixtures._deploy_workspace(env)
+    bind(env)
+    assessment = SessionPreparationService(env.sessions).inspect()
+    assert assessment is not None
+    assert assessment.addon_enabled == "unknown"
+    assert assessment.agent_authority == "not_assessed"
+    with env.sessions() as session:
+        assert session.scalar(select(McpWorkspaceExecutionOperationRow)) is None
+    assert env.smoke.count == 0
+    monkeypatch.setattr(
+        SessionPreparationService, "inspect", lambda *_args, **_kwargs: assessment
+    )
+    login(client)
+    page = client.get("/development-session/preparation")
+    assert page.status_code == 200
+    assert "a successful deployment alone does not verify execution" in page.text
+    assert "Agent permissions have not been assessed" in page.text
+    assert "enabled add-on have not been checked" in page.text
+    export(
+        client, f"preparation-deployed-{deployed}", "/development-session/preparation"
+    )
 
 
 def test_stale_checklist_generation_refuses_without_mutating_session(

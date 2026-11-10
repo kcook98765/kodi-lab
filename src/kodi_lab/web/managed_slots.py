@@ -544,7 +544,7 @@ class ManagedSlotsWeb:
                     else "Needs review",
                     message=reason
                     or (
-                        "Kodi is running and ready to use."
+                        "Kodi is running."
                         if ready
                         else "Kodi is starting. Wait for the current request to finish."
                         if value.state == "starting"
@@ -573,7 +573,9 @@ class ManagedSlotsWeb:
                     screen_url=f"/instances/{target}/novnc-phase1"
                     if screen_ok
                     else None,
-                    screen_reason="Start Kodi and wait for Ready to open its screen."
+                    screen_reason=(
+                        "Start Kodi and wait for View Screen to become available."
+                    )
                     if not ready
                     else "Screen support needs review in Advanced.",
                     install_url=f"/create-kodi?generation={version}",
