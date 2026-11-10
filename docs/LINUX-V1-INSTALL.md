@@ -6,6 +6,12 @@ worker. The candidate is local and unpublished. Preserve the Git commit and a
 trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
 hashes inside the bundle establish integrity against that trusted copy.
 
+Links to GitHub `main` below show the latest documentation and may describe a
+newer installation. For version-matched guidance, open the same documentation
+path at the `source_commit` recorded in this bundle's `BUNDLE.json` instead of
+`main`. Keep the included recovery documents with their original bundle; reading
+newer online instructions does not update an installed bundle or its configuration.
+
 For installation starting with a GitHub clone, first follow the
 [source installation guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/LINUX-SOURCE-INSTALL.md)
 in that source checkout to stage this bundle.
