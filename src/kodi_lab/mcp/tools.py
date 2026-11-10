@@ -28,6 +28,11 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceRead,
     AgentWorkspaceService,
 )
+from kodi_lab.application.development_navigation import (
+    DevelopmentNavigateResult,
+    DevelopmentNavigationError,
+    DevelopmentNavigationService,
+)
 from kodi_lab.application.development_sessions import (
     DevelopmentSessionService,
     RetainedSelectionPreview,
@@ -639,6 +644,12 @@ class WorkspaceTargetOperationInput(BaseModel):
     target_id: UUID
 
 
+class DevelopmentNavigateInput(WorkspaceTargetOperationInput):
+    action: Literal["up", "down", "left", "right", "back"]
+    expected_generation: int = Field(ge=0, strict=True)
+    observe_ui: StrictBool = False
+
+
 class WorkspaceLaunchInput(WorkspaceTargetOperationInput):
     extension_ordinal: int = Field(ge=0, le=63, strict=True)
     expected_generation: int = Field(ge=0, strict=True)
@@ -784,6 +795,7 @@ class McpTargetToolService:
         managed_lifecycle: ManagedAgentLifecycleService | None = None,
         managed_versions: ManagedVersionLifecycleService | None = None,
         workspace_launch: WorkspaceLaunchService | None = None,
+        development_navigation: DevelopmentNavigationService | None = None,
         addon_settings: AddonSettingsService | None = None,
         retained_sessions: DevelopmentSessionService | None = None,
     ) -> None:
@@ -811,6 +823,7 @@ class McpTargetToolService:
             ManagedCleanResetService(managed_versions) if managed_versions else None
         )
         self._workspace_launch = workspace_launch
+        self._development_navigation = development_navigation
         self._addon_settings = addon_settings
         self._retained_sessions = retained_sessions
         self._workspace_imports = (
@@ -1470,6 +1483,97 @@ class McpTargetToolService:
             ExternalBridgeError,
         ) as error:
             raise McpAuthorizationError(error.code) from None
+
+    def development_navigate(
+        self, principal: McpPrincipal, operation: DevelopmentNavigateInput
+    ) -> DevelopmentNavigateResult:
+        if self._development_navigation is None:
+            raise McpAuthorizationError("capability_unavailable")
+
+        def authorize(session: Session) -> None:
+            self._authorization.recheck_workspace_launch(
+                session,
+                principal,
+                operation.workspace_id,
+                operation.target_id,
+                tool_name="development_navigate",
+            )
+
+        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+
+        try:
+            with self._session_factory() as session:
+                authorize(session)
+            prepared = (
+                self._remote_observations.prepare(
+                    principal.client_id, operation.target_id, operation.request_id
+                )
+                if operation.observe_ui
+                else None
+            )
+            result = self._development_navigation.navigate(
+                client_id=principal.client_id,
+                credential_id=principal.credential_id,
+                request_id=operation.request_id,
+                workspace_id=operation.workspace_id,
+                expected_generation=operation.expected_generation,
+                target_id=operation.target_id,
+                action=BrowserRemoteAction(operation.action),
+                authorize=authorize,
+                inspect=lambda: self.inspect_ui_state(
+                    principal, target_id=operation.target_id
+                ),
+            )
+            with self._session_factory() as session:
+                authorize(session)
+        except (
+            DevelopmentNavigationError,
+            McpRemoteActionReceiptError,
+            WorkspaceLaunchError,
+            McpWorkspaceDevelopmentError,
+            ExternalBridgeError,
+            AgentWorkspaceStorageError,
+            DevelopmentSessionConflict,
+        ) as error:
+            raise McpAuthorizationError(error.code) from error
+        if prepared is not None:
+
+            def authorize_observation() -> None:
+                from kodi_lab.storage.development_sessions import active_session
+
+                with self._session_factory() as session:
+                    authorize(session)
+                    selected = active_session(session)
+                    if (
+                        selected is None
+                        or selected.generation != result.session_generation
+                    ):
+                        raise McpAuthorizationError(
+                            "development_navigation_context_changed"
+                        )
+                self._authorization.authorize_target(
+                    principal, "inspect_ui_state", operation.target_id
+                )
+
+            new_action, before = prepared
+            observation = self._remote_observations.complete(
+                result.action_receipt,
+                new_action=new_action,
+                before=before,
+                inspect=lambda: self.inspect_ui_state(
+                    principal, target_id=operation.target_id
+                ),
+                authorize_inspect=authorize_observation,
+            )
+            result = result.model_copy(
+                update={
+                    "action_receipt": result.action_receipt.model_copy(
+                        update={"post_action_observation": observation}
+                    )
+                }
+            )
+        self._require_bounded(result)
+        return result
 
     def workspace_launch(
         self, principal: McpPrincipal, operation: WorkspaceLaunchInput

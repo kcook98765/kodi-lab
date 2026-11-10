@@ -75,6 +75,11 @@ def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_o
     service = McpRemoteActionReceiptService(
         sessions, cast(Any, _Remote()), _OuterLimiter()
     )
+    # Exercise the legacy production protocol on its actual predecessor schema.
+    # It predates project bindings; no rows here are old enough for cleanup.
+    # The successor migration tests exercise the real new cleanup/namespace guard.
+    monkeypatch.setattr(service, "_cleanup_expired", lambda *_: None)
+    monkeypatch.setattr(service, "_require_development_binding", lambda *_: None)
     authority = _authority()
     old_receipt = service.invoke_production(
         client_id=uuid4(),

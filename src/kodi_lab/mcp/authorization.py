@@ -360,7 +360,7 @@ class McpAuthorizationService:
         ):
             raise McpAuthorizationError("permission_denied")
 
-        if tool_name == "development_launch":
+        if tool_name in {"development_launch", "development_navigate"}:
             from kodi_lab.storage.development_sessions import (
                 DevelopmentSessionConflict,
                 active_session,

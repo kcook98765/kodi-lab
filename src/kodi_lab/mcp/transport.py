@@ -50,6 +50,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
+from kodi_lab.application.development_navigation import DevelopmentNavigateResult
 from kodi_lab.application.development_sessions import (
     RetainedSelectionPreview,
     RetainedSelectionRequest,
@@ -124,6 +125,7 @@ from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
     AddonListResult,
+    DevelopmentNavigateInput,
     DevelopmentSourceListResult,
     ManagedEnsureReadyInput,
     ManagedReleaseInput,
@@ -215,6 +217,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_execute",
         "workspace_launch",
         "development_launch",
+        "development_navigate",
         "addon_settings_set",
         "addon_settings_result",
         "workspace_execution_recover",
@@ -1195,6 +1198,25 @@ def build_mcp_http_transport(
             annotations=execution_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "development_navigate": Tool(
+            name="development_navigate",
+            title="Navigate the selected managed development menu",
+            description=(
+                "Explicit development.navigate, workspace.inspect and target.inspect "
+                "on client and target policy, exact grants and bound owned project. "
+                "Up/Down/Left/Right/Back only in verified native list menus. "
+                "Requires current deployed bytes, enabled add-on and Bridge trust. "
+                "No Select, text, settings, custom windows, general control "
+                "or external targets. "
+                "Reuse request_id for retained results; "
+                "uncertain input is never retried. "
+                "observe_ui retains independently authorized post-action evidence."
+            ),
+            input_schema=DevelopmentNavigateInput.model_json_schema(),
+            output_schema=DevelopmentNavigateResult.model_json_schema(),
+            annotations=execution_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "development_launch": Tool(
             name="development_launch",
             title="Launch the selected managed development add-on",
@@ -1508,6 +1530,7 @@ def build_mcp_http_transport(
                 | WorkspaceTreeResult
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
+                | DevelopmentNavigateResult
                 | WorkspaceLaunchResult
                 | AddonSettingsSetResult
                 | WorkspaceExecutionResult
@@ -1835,6 +1858,15 @@ def build_mcp_http_transport(
                     result.target_id,
                     result.generation,
                 )
+            elif params.name == "development_navigate":
+                parsed_navigation = DevelopmentNavigateInput.model_validate(arguments)
+                workspace_id = parsed_navigation.workspace_id
+                target_id = parsed_navigation.target_id
+                request_id = parsed_navigation.request_id
+                result = await asyncio.to_thread(
+                    tools.development_navigate, principal, parsed_navigation
+                )
+                source_id, generation = result.source_id, result.generation
             elif params.name in {"workspace_launch", "development_launch"}:
                 parsed_launch = WorkspaceLaunchInput.model_validate(arguments)
                 workspace_id, target_id = (
@@ -2406,6 +2438,7 @@ def _tool_capability(tool_name: str) -> str:
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
         "development_launch": "workspace_execution",
+        "development_navigate": "workspace_execution",
         "screenshot_capture": "screenshot",
     }.get(tool_name, "not_applicable")
 

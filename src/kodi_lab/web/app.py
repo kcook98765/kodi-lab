@@ -168,6 +168,7 @@ from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
 )
+from kodi_lab.application.development_navigation import DevelopmentNavigationService
 from kodi_lab.application.development_session_workflow import (
     DevelopmentSessionWorkflow,
     SessionGenerationRequest,
@@ -332,6 +333,7 @@ from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
     EXPLICIT_ADDON_SETTINGS_PERMISSIONS,
     EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS,
+    EXPLICIT_DEVELOPMENT_NAVIGATION_PERMISSIONS,
     EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS,
     EXPLICIT_MANAGED_RESET_PERMISSIONS,
     EXPLICIT_MANAGED_VERSION_PERMISSIONS,
@@ -2208,6 +2210,12 @@ def create_app(
             managed_versions=managed_versions,
             retained_sessions=session_service,
             workspace_launch=workspace_launch,
+            development_navigation=DevelopmentNavigationService(
+                session_factory,
+                workspace_launch,
+                remote_receipts,
+                data_root=settings.data_root,
+            ),
             addon_settings=addon_settings,
         ),
         additional_allowed_hosts=tuple(
@@ -3935,6 +3943,7 @@ def create_app(
                     | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
                     | EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS
+                    | EXPLICIT_DEVELOPMENT_NAVIGATION_PERMISSIONS
                 ),
                 "capture_permission_template_ids": {
                     ADDON_DEVELOPMENT_PRESET_ID,

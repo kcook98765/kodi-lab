@@ -1,12 +1,14 @@
 /* Real Agents HTML/controller fixtures; every request is intercepted. */
 'use strict';
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
-const modules = process.env.KODI_LAB_BROWSER_TOOLS, evidence = process.env.KODI_LAB_LAUNCH_UI_EVIDENCE;
+const permission = process.env.KODI_LAB_TEST_PERMISSION || 'development.launch';
+assert(['development.launch','development.navigate'].includes(permission));
+const modules = process.env.KODI_LAB_BROWSER_TOOLS, evidence = process.env.KODI_LAB_NAVIGATION_UI_EVIDENCE || process.env.KODI_LAB_LAUNCH_UI_EVIDENCE;
 assert(modules && evidence, 'Set browser tools and exported launch permission fixture');
 const {chromium} = require(path.join(modules, 'playwright'));
 const AxeBuilder = require(path.join(modules, '@axe-core/playwright')).default;
 const assets = path.resolve(__dirname, '../../src/kodi_lab/web/static'), origin = 'https://launch-fixture.invalid';
-const report = {layouts:[],errors:[],mutations:[]};
+const report = {permission,layouts:[],errors:[],mutations:[]};
 (async () => {
   const browser = await chromium.launch({headless:true});
   try {
@@ -27,7 +29,7 @@ const report = {layouts:[],errors:[],mutations:[]};
       const form = page.locator('[data-create-preset]');
       // The advanced section starts collapsed. Open ancestor details only.
       await form.evaluate(node=>{for(let p=node.parentElement;p;p=p.parentElement) if(p.tagName==='DETAILS') p.open=true;});
-      const choice = form.locator('input[value="development.launch"]');
+      const choice = form.locator(`input[value="${permission}"]`);
       assert.equal(await choice.isChecked(),false);
       assert.equal(await choice.isDisabled(),true);
       const ceiling = form.locator('select[name="template_preset_id"]');
@@ -37,11 +39,13 @@ const report = {layouts:[],errors:[],mutations:[]};
       await choice.focus(); await page.keyboard.press('Space');
       assert.equal(await choice.isChecked(),true);
       assert.equal(await form.locator('input[value="target.control"]').isChecked(),false);
+      const other = permission === 'development.launch' ? 'development.navigate' : 'development.launch';
+      assert.equal(await form.locator(`input[value="${other}"]`).isChecked(),false,'Independent explicit choices');
       assert.equal(await form.locator('input[value="managed.reset"]').isChecked(),false);
       const axe = await new AxeBuilder({page}).include('[data-create-preset]').analyze();
       assert.deepEqual(axe.violations.map(v=>v.id),[]);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-      await page.screenshot({path:path.join(evidence,`launch-permission-${width}.png`),fullPage:true});
+      await page.screenshot({path:path.join(evidence,`${permission}-permission-${width}.png`),fullPage:true});
       await ceiling.selectOption({label:'Read-only Inspection'});
       assert.equal(await choice.isDisabled(),true);
       assert.equal(await choice.isChecked(),false,'Changing ceiling removes the opt-in');

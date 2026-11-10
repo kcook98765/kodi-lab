@@ -9057,3 +9057,75 @@ event.listen(
     "after_create",
     DDL(_WEB_INTENT_IMMUTABLE).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
 )
+
+
+class McpDevelopmentNavigationBindingRow(Base):
+    """Historical exact project and execution context; never promoted or pruned."""
+
+    __tablename__ = "mcp_development_navigation_bindings"
+    __table_args__ = (
+        Index(
+            "ix_development_navigation_context",
+            "container_id",
+            "runtime_revision_id",
+            "runtime_state_revision",
+        ),
+        CheckConstraint(
+            "length(workspace_id)=36 AND "
+            "length(source_id)=36 AND "
+            "length(deployment_id)=36 AND "
+            "length(runtime_revision_id)=36",
+            name="development_navigation_identity",
+        ),
+        CheckConstraint(
+            "session_generation>=1 AND "
+            "workspace_generation>=0 AND "
+            "runtime_state_revision>=0 AND "
+            "bridge_generation>=1",
+            name="development_navigation_generation",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128 AND "
+            "length(tree_digest) IN (64,71) AND "
+            "length(destination_digest) IN (64,71) AND "
+            "length(container_id)=64",
+            name="development_navigation_content",
+        ),
+        CheckConstraint(
+            "window_id IN (10000,10001,10002,10025,10040,10502) AND control_id>=0",
+            name="development_navigation_menu",
+        ),
+    )
+    receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_remote_action_receipts.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    session_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    tree_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    bridge_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    window_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    control_id: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+from kodi_lab.storage.development_navigation_sql import (  # noqa: E402
+    TRIGGERS as _NAVIGATION_TRIGGERS,
+)
+
+for _navigation_trigger in _NAVIGATION_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_navigation_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )

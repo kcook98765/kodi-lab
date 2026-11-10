@@ -500,12 +500,12 @@ class KodiTargetAdapterService:
     ) -> BrowserRemoteResult:
         target_type = self._target_type(target_id)
         if target_type is TargetType.MANAGED:
-            self._before_dispatch(before_dispatch)
             return self._managed_remote.invoke(
                 target_id,
                 action,
                 actor=actor,
                 invocation_id=invocation_id,
+                before_dispatch=lambda: self._before_dispatch(before_dispatch),
             )
         if invocation_id is None:
             raise BrowserRemoteError(
@@ -862,6 +862,7 @@ class KodiTargetAdapterService:
         except Exception as error:
             code = getattr(error, "code", "target_not_found_or_not_authorized")
             if code not in {
+                "development_navigation_context_changed",
                 "authentication_failed",
                 "capability_unavailable",
                 "identity_mismatch",

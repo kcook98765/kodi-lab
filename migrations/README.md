@@ -77,3 +77,13 @@ digest, extends the material revision guard, and allows new navigation receipts
 and audits to omit retired navigate-scope references. Historical rows, indexes,
 triggers and unrelated authority are preserved. Downgrade refuses active opt-ins
 or new receipt history that the predecessor cannot represent. See D-0486.
+
+`0008_development_navigation` follows `0007_production_navigation`. It adds only
+immutable project/execution bindings to existing remote-action receipts, with no
+changes to grants, presets, profiles, sources or runtime pins. Pending, ambiguous
+and completed project-bound receipts are retained under the existing receipt
+capacity limits; automated generic cleanup excludes them. Ordinary remote-action
+retention is unchanged. Downgrade refuses once any navigation binding exists,
+rather than erasing request identity and replay protection. Review capacity
+explicitly if a client approaches the existing 10,000-receipt quota; this slice
+adds no evidence deletion or uncertainty recovery authority.

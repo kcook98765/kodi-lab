@@ -238,8 +238,9 @@ include replay and recovery behavior. Manual source registration and advanced
 client grants remain available for unusual cases under **More options and Advanced**.
 
 For an explicitly approved local agent, [trusted local development setup](docs/TRUSTED-LOCAL-DEVELOPMENT.md)
-provides managed Start/Stop, editing, deployment and Program entry launch without
-general Kodi control. Navigation remains a separate follow-up.
+provides managed Start/Stop, editing, deployment, Program entry launch and bounded
+native menu navigation without general Kodi control. Select, settings and arbitrary
+commands remain separately restricted.
 
 ## Connect Your AI Agent
 

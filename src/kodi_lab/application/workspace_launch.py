@@ -244,27 +244,88 @@ class WorkspaceLaunchService:
             session.expunge(latest)
             return latest
 
-    def _verify(
-        self, row: McpWorkspaceLaunchRow
-    ) -> tuple[ObserveManagedKodiRuntimeResult, RuntimeExecutionProfile]:
-        deployment = self._context(
-            UUID(row.workspace_id), row.generation, UUID(row.target_id)
-        )
-        if deployment.id != row.deployment_id:
-            raise WorkspaceLaunchError("launch_deployment_changed")
-        observed, profile, container = self._development._runtime_context(
-            UUID(row.target_id)
-        )
+    def verify_installation(
+        self, workspace_id: UUID, generation: int, target_id: UUID
+    ) -> tuple[
+        McpWorkspaceDeploymentOperationRow,
+        ObserveManagedKodiRuntimeResult,
+        RuntimeExecutionProfile,
+        int,
+    ]:
+        """Shared generation/installed-bytes/native proof, without dispatch."""
+        deployment = self._context(workspace_id, generation, target_id)
+        observed, profile, container = self._development._runtime_context(target_id)
         with self._sessions() as session:
             token = ManagedRuntimeProjectionRepository(session).observation_token(
-                UUID(row.target_id)
+                target_id
             )
         if (
             token is None
-            or str(token.runtime_revision_id) != row.runtime_revision_id
-            or token.runtime_state_revision != row.runtime_state_revision
-            or container != row.container_id
-            or deployment.original_container_id != container
+            or str(token.runtime_revision_id) != deployment.runtime_revision_id
+            or container != deployment.original_container_id
+        ):
+            raise WorkspaceLaunchError("launch_runtime_changed")
+        inventory = self._development._inventory_factory(
+            observed, profile
+        ).get_inventory()
+        recognized = next(
+            (item for item in inventory.items if item.addon_id == deployment.addon_id),
+            None,
+        )
+        if (
+            recognized is None
+            or recognized.version != deployment.addon_version
+            or not recognized.enabled
+        ):
+            raise WorkspaceLaunchError("launch_not_deployed")
+        verified = self._development._broker.verify_mcp_workspace_destination(
+            deployment_operation_id=deployment.id,
+            managed_instance_id=str(target_id),
+            expected_container_id=deployment.original_container_id,
+        )
+        if (
+            not verified.matched
+            or verified.addon_id != deployment.addon_id
+            or verified.addon_version != deployment.addon_version
+            or verified.container_id != deployment.original_container_id
+            or verified.runtime_revision_id != deployment.runtime_revision_id
+        ):
+            raise WorkspaceLaunchError("launch_deployment_changed")
+        assert token is not None
+        return deployment, observed, profile, token.runtime_state_revision
+
+    def navigation_installation(
+        self, workspace_id: UUID, generation: int, target_id: UUID
+    ) -> tuple[McpWorkspaceDeploymentOperationRow, int, ManagedLaunchRuntimeBinding]:
+        """Additionally require current reviewed resident Bridge trust."""
+        deployment, observed, profile, state_revision = self.verify_installation(
+            workspace_id, generation, target_id
+        )
+        binding = self._bridge.binding(observed, profile.kodi_release.canonical)
+        if (
+            binding.target_id != str(target_id)
+            or binding.runtime_revision_id != deployment.runtime_revision_id
+            or binding.container_id != deployment.original_container_id
+        ):
+            raise WorkspaceLaunchError("launch_runtime_changed")
+        return deployment, state_revision, binding
+
+    def _verify(
+        self, row: McpWorkspaceLaunchRow
+    ) -> tuple[ObserveManagedKodiRuntimeResult, RuntimeExecutionProfile]:
+        deployment, observed, profile, state_revision = self.verify_installation(
+            UUID(row.workspace_id), row.generation, UUID(row.target_id)
+        )
+        if (
+            deployment.id != row.deployment_id
+            or deployment.addon_id != row.addon_id
+            or deployment.addon_version != row.addon_version
+        ):
+            raise WorkspaceLaunchError("launch_deployment_changed")
+        if (
+            deployment.runtime_revision_id != row.runtime_revision_id
+            or state_revision != row.runtime_state_revision
+            or observed.container_id != row.container_id
         ):
             raise WorkspaceLaunchError("launch_runtime_changed")
         descriptor = self._development._workspace_descriptor(UUID(row.workspace_id))
@@ -274,31 +335,6 @@ class WorkspaceLaunchService:
         selected = entries[row.ordinal]
         if not selected.eligible:
             raise WorkspaceLaunchError("launch_" + (selected.reason or "unsupported"))
-        inventory = self._development._inventory_factory(
-            observed, profile
-        ).get_inventory()
-        recognized = next(
-            (item for item in inventory.items if item.addon_id == row.addon_id), None
-        )
-        if (
-            recognized is None
-            or recognized.version != row.addon_version
-            or not recognized.enabled
-        ):
-            raise WorkspaceLaunchError("launch_not_deployed")
-        verified = self._development._broker.verify_mcp_workspace_destination(
-            deployment_operation_id=row.deployment_id,
-            managed_instance_id=row.target_id,
-            expected_container_id=row.container_id,
-        )
-        if (
-            not verified.matched
-            or verified.addon_id != row.addon_id
-            or verified.addon_version != row.addon_version
-            or verified.container_id != row.container_id
-            or verified.runtime_revision_id != row.runtime_revision_id
-        ):
-            raise WorkspaceLaunchError("launch_deployment_changed")
         self._intent(
             row
         )  # Validate the closed derived request before its dispatch marker.

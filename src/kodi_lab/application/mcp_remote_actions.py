@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,8 +25,10 @@ from kodi_lab.application.production_navigation import (
     ProductionNavigationRateLimiter,
 )
 from kodi_lab.application.remote_observation_models import RemotePostActionObservation
+from kodi_lab.development.navigation import DevelopmentNavigationBinding
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.storage.models import (
+    McpDevelopmentNavigationBindingRow,
     McpProductionNavigationAuditRow,
     McpProductionRemoteReceiptBindingRow,
     McpRemoteActionReceiptRow,
@@ -131,6 +133,8 @@ class McpRemoteActionReceiptService:
         request_id: UUID,
         action: BrowserRemoteAction,
         before_dispatch: Callable[[], None] | None = None,
+        development_binding: DevelopmentNavigationBinding | None = None,
+        authorize_claim: Callable[[Session], None] | None = None,
     ) -> McpRemoteActionResult:
         claim = self._claim(
             client_id=client_id,
@@ -138,6 +142,8 @@ class McpRemoteActionReceiptService:
             target_id=target_id,
             request_id=request_id,
             action=action,
+            development_binding=development_binding,
+            authorize_claim=authorize_claim,
         )
         if not claim.created:
             return self._replay(claim.row, target_id=target_id, action=action)
@@ -290,7 +296,10 @@ class McpRemoteActionReceiptService:
         *,
         target_id: UUID,
         action: BrowserRemoteAction,
+        development_binding: DevelopmentNavigationBinding | None = None,
     ) -> McpRemoteActionResult:
+        with self._sessions() as session:
+            self._require_development_binding(session, row, development_binding)
         return self._replay(row, target_id=target_id, action=action)
 
     def dispatch_claimed_production(
@@ -345,12 +354,17 @@ class McpRemoteActionReceiptService:
         request_id: UUID,
         action: BrowserRemoteAction,
         production_authority: ProductionNavigationAuthority | None = None,
+        development_binding: DevelopmentNavigationBinding | None = None,
+        authorize_claim: Callable[[Session], None] | None = None,
     ) -> _Claim:
         now = self._clock()
         cutoff = _to_text(now - self._retention)
         invocation_id = uuid4()
         try:
             with self._sessions.begin() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                if authorize_claim is not None:
+                    authorize_claim(session)
                 self._cleanup_expired(session, cutoff)
                 existing = session.scalar(
                     select(McpRemoteActionReceiptRow).where(
@@ -359,8 +373,37 @@ class McpRemoteActionReceiptService:
                     )
                 )
                 if existing is not None:
+                    self._require_development_binding(
+                        session, existing, development_binding
+                    )
                     session.expunge(existing)
                     return _Claim(existing, False)
+                if (
+                    development_binding is not None
+                    and session.scalar(
+                        select(McpRemoteActionReceiptRow.id)
+                        .join(
+                            McpDevelopmentNavigationBindingRow,
+                            McpDevelopmentNavigationBindingRow.receipt_id
+                            == McpRemoteActionReceiptRow.id,
+                        )
+                        .where(
+                            McpRemoteActionReceiptRow.target_id == str(target_id),
+                            McpRemoteActionReceiptRow.state != "completed",
+                            McpDevelopmentNavigationBindingRow.container_id
+                            == development_binding.container_id,
+                            McpDevelopmentNavigationBindingRow.runtime_revision_id
+                            == development_binding.runtime_revision_id,
+                            McpDevelopmentNavigationBindingRow.runtime_state_revision
+                            == development_binding.runtime_state_revision,
+                        )
+                        .limit(1)
+                    )
+                    is not None
+                ):
+                    raise McpRemoteActionReceiptError(
+                        "development_navigation_requires_review"
+                    )
                 client_count = session.scalar(
                     select(func.count())
                     .select_from(McpRemoteActionReceiptRow)
@@ -390,6 +433,15 @@ class McpRemoteActionReceiptService:
                 )
                 session.add(row)
                 session.flush()
+                if development_binding is not None:
+                    if production_authority is not None:
+                        raise McpRemoteActionReceiptError("request_id_conflict")
+                    session.add(
+                        McpDevelopmentNavigationBindingRow(
+                            receipt_id=row.id, **asdict(development_binding)
+                        )
+                    )
+                    session.flush()
                 if production_authority is not None:
                     session.add(
                         McpProductionRemoteReceiptBindingRow(
@@ -480,8 +532,27 @@ class McpRemoteActionReceiptService:
                     raise McpRemoteActionReceiptError(
                         "remote_action_ambiguous"
                     ) from None
+                self._require_development_binding(
+                    session, existing, development_binding
+                )
                 session.expunge(existing)
                 return _Claim(existing, False)
+
+    @staticmethod
+    def _require_development_binding(
+        session: Session,
+        row: McpRemoteActionReceiptRow,
+        expected: DevelopmentNavigationBinding | None,
+    ) -> None:
+        actual = session.get(McpDevelopmentNavigationBindingRow, row.id)
+        if expected is None:
+            if actual is not None:
+                raise McpRemoteActionReceiptError("request_id_conflict")
+        elif actual is None or any(
+            getattr(actual, field.name) != getattr(expected, field.name)
+            for field in fields(expected)
+        ):
+            raise McpRemoteActionReceiptError("request_id_conflict")
 
     @staticmethod
     def _cleanup_expired(session: Session, cutoff: str) -> None:
@@ -593,6 +664,12 @@ class McpRemoteActionReceiptService:
             delete(McpRemoteActionReceiptRow).where(
                 McpRemoteActionReceiptRow.created_at < cutoff,
                 McpRemoteActionReceiptRow.state == "completed",
+                ~select(McpDevelopmentNavigationBindingRow.receipt_id)
+                .where(
+                    McpDevelopmentNavigationBindingRow.receipt_id
+                    == McpRemoteActionReceiptRow.id
+                )
+                .exists(),
                 ~select(McpProductionRemoteReceiptBindingRow.receipt_id)
                 .where(
                     McpProductionRemoteReceiptBindingRow.receipt_id

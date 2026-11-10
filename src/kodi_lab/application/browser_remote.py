@@ -189,13 +189,19 @@ class BrowserRemoteService:
         *,
         actor: RemoteActorContext | None = None,
         invocation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
         actor = actor or RemoteActorContext.web_local_admin()
         invocation_id = invocation_id or uuid4()
         requested_at = self._clock()
         try:
             return self._invoke(
-                instance_id, action, invocation_id, requested_at, actor=actor
+                instance_id,
+                action,
+                invocation_id,
+                requested_at,
+                actor=actor,
+                before_dispatch=before_dispatch,
             )
         except (BrowserRemoteError, ManagedInstanceNotFoundError) as error:
             completed_at = self._clock()
@@ -228,6 +234,7 @@ class BrowserRemoteService:
         requested_at: datetime,
         *,
         actor: RemoteActorContext,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
         runtime = self._status.get(instance_id)
         if not self._runtime_supported(runtime.runtime_revision_id):
@@ -308,6 +315,14 @@ class BrowserRemoteService:
                 raise BrowserRemoteError(
                     "remote_action_conflict", "Managed activity could not be retained."
                 ) from error
+            # Authority and project proof are checked while input/mutation
+            # coordination is held, immediately before the durable dispatch mark.
+            if before_dispatch is not None:
+                before_dispatch()
+            if self._eligible_container(instance_id) != container_id:
+                raise BrowserRemoteError(
+                    "remote_action_conflict", "Managed runtime identity changed."
+                )
             mark_remote_dispatch(lease, container_id)
             attempted = True
             unresolved = True

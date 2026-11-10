@@ -137,6 +137,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "workspace.capture",
                 "development.execute",
                 "development.launch",
+                "development.navigate",
                 "development.request_promotion",
                 "managed.lifecycle",
                 "managed.versions",
@@ -572,6 +573,26 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
             adapter="agent_workspace.execute_fixed_workflow",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="development_navigate",
+            schema_revision=1,
+            permissions=frozenset(
+                {"development.navigate", "workspace.inspect", "target.inspect"}
+            ),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset(
+                {"workspace_execution", "semantic_remote", "target_inspect"}
+            ),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.REMOTE_CONTROL,
+            adapter="agent_workspace.navigate_selected_menu",
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE_TARGET,
