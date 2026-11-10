@@ -43,9 +43,14 @@ Choose and prepare a fresh Kodi in Current Kodi, start it, then click Start
 Viewing. noVNC loads only on that request. The initial session is view-only;
 agent navigation remains independent. Take Control explicitly acquires human
 ownership and excludes conflicting agent/Web input. Release Control proves native
-input neutralization and restores agent input. Stop Viewing, disconnect, hidden
-tab, logout or identity change ends viewing. The absolute session maximum is ten
-minutes across handoffs; start a new session explicitly after expiry.
+input neutralization and restores agent input. Hiding the tab automatically
+releases control through that same verified handoff and continues view-only.
+A mode handoff briefly replaces the video connection; an already view-only
+connection remains open across tab changes. Returning never takes control.
+Unproven release closes viewing and keeps input reserved until cleanup is proven.
+Stop Viewing, disconnect, page exit, logout or identity change ends viewing. The absolute session maximum is ten
+minutes across handoffs; start a new session explicitly after expiry. See
+[tab handoff design and Firefox acceptance](NOVNC-TAB-HANDOFF.md).
 
 Viewing follows the explicitly selected [Web access mode](WEB-NETWORKING.md):
 fresh local HTTP uses WS; optional HTTPS requires HTTPS/WSS and Secure cookies.

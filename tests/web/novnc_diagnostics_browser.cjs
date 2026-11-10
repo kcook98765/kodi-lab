@@ -13,10 +13,10 @@ class Socket {
 class RFB {
     constructor(target, socket) { assert.ok(socket instanceof Socket); this.events = {}; this.disconnects = 0; this.warnings = 0; this.state = 'connecting'; clients.push(this); }
     addEventListener(name, fn) { this.events[name] = fn; }
-    disconnect() { this.disconnects++; if (this.state === 'disconnected') this.warnings++; else this.state = 'disconnecting'; }
+    blur(){} disconnect() { this.disconnects++; if (this.state === 'disconnected') this.warnings++; else this.state = 'disconnecting'; }
     emit(name, event = {}) { this.state = name === 'connect' ? 'connected' : 'disconnected'; this.events[name](event); }
 }
-vm.runInNewContext(source, {
+vm.runInNewContext(source, { AbortSignal,
     document:{hidden:false, querySelector:key => key === '[data-novnc-viewer]' ? main : {content:'csrf-secret'}, addEventListener() {}},
     window:{addEventListener() {}}, location:{href:'https://lab.test/screen', protocol:'https:'}, URL,
     WebSocket:Socket, RFBFixture:RFB, crypto:require('node:crypto').webcrypto, performance:{now:() => elapsed},

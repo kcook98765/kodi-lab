@@ -30,6 +30,7 @@ const context = {
         return new Promise((resolve, reject) => pending.push({resolve, reject, body: JSON.parse(options.body)}));
     }
 };
+context.AbortSignal = AbortSignal;
 vm.runInNewContext(source, context);
 const flush = async () => { for(let i=0;i<5;i++) await Promise.resolve(); };
 const grant = async () => { await flush(); pending.shift().resolve({ok: true, json: async () => ({ticket: 'ticket', mode: 'view-only'})}); };

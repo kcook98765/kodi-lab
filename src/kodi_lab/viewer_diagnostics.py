@@ -45,6 +45,7 @@ REASONS = frozenset(
         "capacity",
         "admission_rejected",
         "web_lease_expired",
+        "control_lease_expired",
         "revoked",
         "disconnect",
         "exec_eof",

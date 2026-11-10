@@ -7980,3 +7980,25 @@ The Web evaluates Start, Stop and Reset eligibility separately. Reset keeps its
 existing stronger recent-use checks, explicit confirmation and authorization.
 The idle-stop default stays sixty minutes; default-OFF is a separate product
 recommendation pending evidence. See the managed lifecycle change assessment.
+
+
+## D-0490: Hidden human viewers release control through the verified handoff
+
+A hidden managed noVNC tab retains view-only viewing within the original
+600-second absolute session. Interactive mode is disarmed locally immediately,
+and the existing Release Control operation proves worker death and neutral
+keys/buttons before admitting one view-only successor. Native modes stay fixed;
+mode transitions briefly replace the video connection. No automatic input
+reacquisition or connection retry is allowed. Release intent survives asynchronous
+Take Control and rapid hide/show. An unproven release ends viewing while durable
+input ownership stays fenced pending the existing native proof.
+
+A foreground interactive browser supplies a fixed liveness message on its
+existing authenticated WebSocket every 500 ms. A three-second server deadline
+cannot be revived after expiry and restricts both RFB forwarding and renewal of
+native ownership. It does not admit viewing or replace authority, authentication,
+identity, absolute-expiry or worker-capacity checks. View-only has no browser
+heartbeat. Existing broker/helper watchdogs still protect Web/process loss.
+Temporary visibility-related status invalidation blocks new admissions/control
+without terminating an admitted viewer; real failed observations still stop it.
+See [design assessment and acceptance](NOVNC-TAB-HANDOFF.md).

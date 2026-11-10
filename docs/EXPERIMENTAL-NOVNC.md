@@ -76,8 +76,12 @@ and pointer input on the server. Take Control terminates that worker, verifies
 native termination, reserves exclusive durable input ownership, and establishes
 an interactive worker. Release Control verifies revocation and worker death
 before establishing a new view-only connection. A handoff preserves the initial
-ten-minute deadline; it cannot extend the session. Stop, hidden documents,
-connection loss, logout, authority loss and runtime changes revoke the session.
+ten-minute deadline; it cannot extend the session. Hidden documents release
+interactive control through the same verified handoff and retain view-only
+viewing. Returning never restores control. A missing foreground control lease
+or an unproven release ends viewing safely. Stop, page exit, connection loss,
+logout, authority loss and runtime changes revoke the session. See
+[tab handoff design and Firefox acceptance](NOVNC-TAB-HANDOFF.md).
 
 Existing Web/MCP remote input and managed mutations contend with human control
 through reciprocal SQLite ownership guards. Read-only screenshot, inspection and

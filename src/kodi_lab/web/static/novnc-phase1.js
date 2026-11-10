@@ -16,17 +16,28 @@ const typing = element('.typing');
 const status = element('#status');
 let permitted = main.dataset.admissionRequired !== 'true' || main.dataset.available === 'true';
 let identityRetired = false;
+let selectionPending = false;
 let attempt = null;
 let rfb = null;
 let mode = 'view-only';
 let switching = false;
 let rfbConnected = false;
 let cleanupEpoch = 0;
+let releaseRequired = false;
+let activeAction = null;
+let controlTimer = null;
+function disarm() {
+    if (controlTimer !== null) clearInterval(controlTimer);
+    controlTimer = null;
+    if (rfb) { rfb.viewOnly = true; rfb.focusOnClick = false; rfb.blur(); }
+    typing.hidden = true;
+    text.value = '';
+}
 // Read-only support snapshots; no telemetry requests or pixel reads.
 const viewerDiagnostics = [];
 Object.defineProperty(main, 'viewerDiagnostics', {get: () => viewerDiagnostics.map(record => ({...record}))});
 function diagnostic(event, current, fields = {}) {
-    if (!['cleanup_requested', 'ws_open', 'ws_close', 'ws_error', 'rfb_connected', 'rfb_disconnected'].includes(event)) return;
+    if (!['cleanup_requested', 'ws_open', 'ws_close', 'ws_error', 'rfb_connected', 'rfb_disconnected', 'control_release_requested', 'control_release_confirmed', 'control_release_failed'].includes(event)) return;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(current)) return;
     const record = {event, attempt: current, at_ms: Date.now()};
     if (Number.isSafeInteger(fields.elapsed_ms)) record.elapsed_ms = Math.max(0, Math.min(600000, fields.elapsed_ms));
@@ -53,21 +64,22 @@ function viewAttempt() {
 
 
 function buttons(connected = false) {
-    start.disabled = !permitted || identityRetired || attempt !== null;
+    start.disabled = document.hidden || selectionPending || !permitted || identityRetired || attempt !== null;
     start.hidden = attempt !== null;
     stop.hidden = attempt === null;
     take.hidden = !connected || mode !== 'view-only';
     release.hidden = keyboard.hidden = back.hidden = !connected || mode !== 'interactive';
     stop.disabled = attempt === null;
-    take.disabled = switching || !connected || mode !== 'view-only';
-    release.disabled = switching || !connected || mode !== 'interactive';
-    keyboard.disabled = back.disabled = switching || !connected || mode !== 'interactive';
+    take.disabled = document.hidden || selectionPending || releaseRequired || switching || !connected || mode !== 'view-only';
+    release.disabled = document.hidden || switching || !connected || mode !== 'interactive';
+    keyboard.disabled = back.disabled = document.hidden || releaseRequired || switching || !connected || mode !== 'interactive';
     if (mode !== 'interactive' || !connected) { typing.hidden = true; text.value = ''; }
 }
 async function post(action, body) {
     const response = await fetch(`/api/instances/${instance}/novnc-${action}`, {
         method: 'POST', headers: {'Content-Type': 'application/json', 'X-Kodi-Lab-CSRF': csrf},
-        body: JSON.stringify(body), cache: 'no-store', credentials: 'same-origin'
+        body: JSON.stringify(body), cache: 'no-store', credentials: 'same-origin',
+        keepalive: true, signal: AbortSignal.timeout(10000)
     });
     if (!response.ok) {
         const error = new Error('Viewer unavailable');
@@ -82,6 +94,9 @@ async function end(expected = attempt, disconnected = false) {
     const old = attempt;
     if (old) diagnostic('cleanup_requested', old);
     attempt = null;
+    disarm();
+    releaseRequired = false;
+    activeAction = null;
     const previousRfb = rfb;
     rfb = null;
     rfbConnected = false;
@@ -100,7 +115,8 @@ async function end(expected = attempt, disconnected = false) {
     return endingEpoch;
 }
 function connect(current, result) {
-    if (attempt !== current || document.hidden || identityRetired || !permitted) {end(current);return;}
+    if (attempt !== current || identityRetired || !permitted) {end(current);return;}
+    if (!['view-only', 'interactive'].includes(result.mode) || !result.ticket) throw new Error('Invalid viewer admission');
     mode = result.mode;
     const url = new URL(`/api/instances/${instance}/novnc`, location.href);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -122,12 +138,25 @@ function connect(current, result) {
     client.qualityLevel = 6;
     // Keep image quality while avoiding extra native compression work.
     client.compressionLevel = 0;
+    // The server's foreground lease starts at WebSocket acceptance. Renew it
+    // during the RFB handshake too; a slow handshake must not consume the lease.
+    ws.addEventListener('open', () => {
+        if (attempt !== current || rfb !== client || mode !== 'interactive') return;
+        const pulse = () => {
+            if (attempt !== current || rfb !== client) return;
+            if (document.hidden || releaseRequired) { hidden(); return; }
+            try { ws.send('control-alive'); } catch (_) { void end(current, true); }
+        };
+        pulse();
+        if (attempt === current && mode === 'interactive' && !releaseRequired && !document.hidden) controlTimer = setInterval(pulse, 500);
+    });
     client.addEventListener('connect', () => {
         diagnostic('rfb_connected', current, {elapsed_ms: elapsed()});
-        if (attempt !== current) return;
+        if (attempt !== current || rfb !== client) return;
         rfbConnected = true;
         switching = false;
-        status.textContent = mode === 'interactive' ? 'You control Kodi. Conflicting agent input is refused.' : 'Viewing only';
+        if (mode === 'interactive' && (document.hidden || releaseRequired)) { hidden(); return; }
+        status.textContent = mode === 'interactive' ? 'Interactive. You control Kodi. Conflicting agent input is refused.' : 'View Only';
         buttons(true);
         if (mode === 'interactive') client.focus({preventScroll: true});
     });
@@ -151,13 +180,14 @@ start.onclick = async () => {
     status.textContent = 'Connecting';
     try {
         if (!RFB) RFB = (await import('./vendor/novnc/core/rfb.js')).default;
-        if (attempt !== current || document.hidden || identityRetired || !permitted) { await end(current); return; }
+        if (attempt !== current || identityRetired || !permitted) { await end(current); return; }
         const expected = main.dataset.viewGeneration && main.dataset.viewRuntime ? {
             generation:Number(main.dataset.viewGeneration),
             runtime_revision_id:main.dataset.viewRuntime,container_id:main.dataset.viewContainer,
             workspace_id:main.dataset.viewWorkspace,source_id:main.dataset.viewSource,
         } : null;
         const result = await post('start', {attempt:current, rate:2, ...(expected ? {expected_selection:expected} : {}), ...(main.dataset.viewBinding ? {expected_binding:main.dataset.viewBinding} : {})});
+        if (result.mode !== 'view-only') throw new Error('Invalid initial mode');
         connect(current, result);
     } catch (_) {
         if (attempt === current) {
@@ -169,43 +199,71 @@ start.onclick = async () => {
     }
 };
 async function change(action) {
-    if (switching || !attempt) return;
+    if (switching || !attempt || (action === 'take-control' && (document.hidden || selectionPending || !rfbConnected || releaseRequired))) return;
     const old = attempt;
     let current;
     try { current = viewAttempt(); }
-    catch (_) { status.textContent = 'Reload this page before starting or changing viewing.'; return; }
+    catch (_) {
+        if (action === 'release-control') { diagnostic('control_release_failed', old); void end(old); }
+        else status.textContent = 'Reload this page before starting or changing viewing.';
+        return;
+    }
     attempt = current;
     switching = true;
+    activeAction = action;
+    if (action === 'release-control') diagnostic('control_release_requested', old);
+    disarm();
     buttons();
     status.textContent = 'Verifying input handoff';
     const previousRfb = rfb;
-    if (previousRfb) { previousRfb.viewOnly = true; previousRfb.blur(); }
     // The old connection stays alive until the server cancels it. Disconnecting
     // first would revoke the very attachment being used to request the handoff.
     try {
         const result = await post(action, {attempt: old, next_attempt: current});
+        if (attempt !== current) return;
+        if (result.mode !== (action === 'take-control' ? 'interactive' : 'view-only') || !result.ticket) throw new Error('Unproven mode change');
         if (previousRfb) previousRfb.disconnect();
+        rfb = null;
+        rfbConnected = false;
+        mode = result.mode;
+        activeAction = null;
+        if (action === 'release-control') {
+            diagnostic('control_release_confirmed', old);
+            releaseRequired = false;
+        } else if (releaseRequired || document.hidden) {
+            // Hide during Take Control is latched across a rapid show. Never
+            // attach the interactive ticket; release its pending reservation.
+            switching = false;
+            await change('release-control');
+            return;
+        }
         connect(current, result);
     } catch (error) {
         if (action === 'take-control' && error.code === 'agent_operation_active' && attempt === current && rfb === previousRfb && rfbConnected && mode === 'view-only') {
             attempt = old;
             switching = false;
+            activeAction = null;
+            releaseRequired = false;
             status.textContent = 'Agent operation active. Still viewing only; Take Control was refused.';
             buttons(true);
             return;
         }
-        if (previousRfb) previousRfb.disconnect();
+        if (attempt !== current) return;
+        diagnostic('control_release_failed', old);
+        // Retire both IDs: failure may precede or follow server revocation.
+        void post('stop', {attempt: old}).catch(() => {});
         const ended = await end(current);
         if (ended === cleanupEpoch && attempt === null && !identityRetired) status.textContent = 'Control change unavailable. Start viewing to recover after verified release.';
     }
 }
 take.onclick = () => change('take-control');
-release.onclick = () => change('release-control');
+release.onclick = () => { releaseRequired = true; return change('release-control'); };
 stop.onclick = () => end();
-keyboard.onclick = () => { typing.hidden = !typing.hidden; if (!typing.hidden) text.focus(); else rfb?.focus(); };
-back.onclick = () => { if (mode === 'interactive') rfb?.sendKey(0xff08, 'Backspace'); };
+keyboard.onclick = () => { if (!inputAllowed()) return; typing.hidden = !typing.hidden; if (!typing.hidden) text.focus(); else rfb?.focus(); };
+back.onclick = () => { if (inputAllowed()) rfb?.sendKey(0xff08, 'Backspace'); };
+function inputAllowed() { return !document.hidden && !releaseRequired && mode === 'interactive' && !switching && rfbConnected && rfb; }
 function sendText(event) {
-    if (event.isComposing || mode !== 'interactive' || switching || !rfb) return;
+    if (event.isComposing || !inputAllowed()) return;
     for (const char of text.value) {
         const code = char.codePointAt(0);
         rfb.sendKey(code <= 255 ? code : 0x1000000 + code);
@@ -217,7 +275,7 @@ text.addEventListener('compositionend', sendText);
 text.addEventListener('paste', event => event.preventDefault());
 text.addEventListener('drop', event => event.preventDefault());
 text.addEventListener('keydown', event => {
-    if (mode !== 'interactive' || switching || !rfb) return;
+    if (!inputAllowed()) return;
     if (event.key === 'Enter' || event.key === 'Backspace') {
         event.preventDefault();
         rfb.sendKey(event.key === 'Enter' ? 0xff0d : 0xff08, event.key);
@@ -228,12 +286,22 @@ element('#expand').onclick = async () => {
     if (!document.fullscreenElement && main.requestFullscreen) await main.requestFullscreen().catch(() => {});
     else if (document.fullscreenElement) await document.exitFullscreen();
 };
-document.addEventListener('visibilitychange', () => { if (document.hidden) end(); });
+function hidden() {
+    disarm();
+    if (mode === 'interactive' || activeAction === 'take-control') releaseRequired = true;
+    if (releaseRequired && !switching) void change('release-control');
+    buttons(rfbConnected);
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) hidden(); else buttons(rfbConnected); });
 window.addEventListener('pagehide', () => end());
 if (main.dataset.viewBinding) window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 buttons();
 
 function currentStatus(detail) {
+    // The status reader pauses across hide/show; this is not an authority
+    // observation. The server continues checking the original binding.
+    if (detail.observationPending === true) { selectionPending = true; buttons(rfbConnected); return; }
+    selectionPending = false;
     const selected = detail.current;
     const expectedGeneration = main.dataset.viewGeneration;
     if (detail.observationConfirmed !== false && expectedGeneration && (!selected || String(selected.generation) !== expectedGeneration || selected.target_id !== instance || ['runtime', 'container', 'workspace', 'source'].some(field => {const expected = main.dataset['view' + field[0].toUpperCase() + field.slice(1)];const actual = selected[{runtime:'runtime_revision_id',container:'container_id',workspace:'workspace_id',source:'source_id'}[field]];return expected !== undefined && expected !== String(actual || '');}))) {
@@ -254,9 +322,11 @@ document.addEventListener('kodi-current-status', event => currentStatus(event.de
 // An inline panel receives these facts from Current Managed Kodi's status controller.
 if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
     let closed = false, epoch = 0, timer, controller;
-    function invalidate() {
+    function invalidate(ending = true) {
         epoch++;clearTimeout(timer);controller?.abort();controller = null;
-        permitted = false;void end();buttons();
+        selectionPending = true;
+        buttons(rfbConnected);
+        if (ending) { permitted = false;void end();buttons(); }
     }
     async function checkSelection() {
         if (closed || document.hidden) return;
@@ -283,6 +353,6 @@ if (main.dataset.viewGeneration && main.dataset.admissionRequired !== 'true') {
     }
     window.addEventListener('pagehide', () => {closed = true;invalidate();});
     window.addEventListener('pageshow', event => {if (event.persisted) window.location.reload();});
-    document.addEventListener('visibilitychange', () => {invalidate();if (!document.hidden) checkSelection();});
+    document.addEventListener('visibilitychange', () => {invalidate(false);if (!document.hidden) checkSelection();});
     permitted = false;buttons();checkSelection();
 }

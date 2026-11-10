@@ -195,6 +195,23 @@ class Attachment:
     deadline: str | None = None
 
 
+class ForegroundControlLease:
+    """Browser liveness can restrict input, never grant or revive ownership."""
+
+    def __init__(self, mode: str) -> None:
+        self.interactive = mode == "interactive"
+        self.deadline = time.monotonic() + 3
+
+    def valid(self) -> bool:
+        return not self.interactive or time.monotonic() < self.deadline
+
+    def renew(self) -> bool:
+        if not self.interactive or not self.valid():
+            return False
+        self.deadline = time.monotonic() + 3
+        return True
+
+
 class PrototypeViewer:
     def __init__(
         self,
@@ -548,6 +565,7 @@ async def relay(
             raise ValueError("view cancelled")
         phase = "ws_accept"
         await websocket.accept(subprotocol="novnc")
+        control = ForegroundControlLease(item.mode)
         accepted = True
         diagnostic(
             "web_accepted",
@@ -568,22 +586,35 @@ async def relay(
                     ws_code = message.get("code")
                     return "browser_disconnect"
                 payload = message.get("bytes")
+                if not control.valid():
+                    return "control_lease_expired"
+                if (
+                    message["type"] == "websocket.receive"
+                    and message.get("text") == "control-alive"
+                    and control.renew()
+                ):
+                    # Fixed control-plane liveness is never sent to RFB or
+                    # interpreted as a broker/helper renewal envelope.
+                    payload = b""
                 if message["type"] != "websocket.receive" or not isinstance(
                     payload, bytes
                 ):
                     return "invalid_browser_message"
-                if not 0 < len(payload) <= 65536:
+                if len(payload) > 65536 or (
+                    not payload and message.get("text") != "control-alive"
+                ):
                     return "input_limit"
                 if not current():
                     return "session_ended"
                 now = time.monotonic()
                 if now - window >= 1:
                     window, total = now, 0
-                total += len(payload)
+                total += max(len(payload), 13)
                 if total > 131072:
                     return "input_limit"
-                writer.write(struct.pack("!BI", 1, len(payload)) + payload)
-                await asyncio.wait_for(writer.drain(), 2)
+                if payload:
+                    writer.write(struct.pack("!BI", 1, len(payload)) + payload)
+                    await asyncio.wait_for(writer.drain(), 2)
 
         async def outgoing() -> str:
             assert reader is not None
@@ -604,6 +635,9 @@ async def relay(
                     return False
                 if viewer.binding(item.session.instance_id, item.mode) != item.binding:
                     denial = "binding_changed"
+                    return False
+                if not control.valid():
+                    denial = "control_lease_expired"
                     return False
                 if viewer.ownership is not None and not viewer.ownership.renew(
                     item.session.instance_id, item.attempt, item.owner
