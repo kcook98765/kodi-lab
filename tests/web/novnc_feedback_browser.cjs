@@ -5,6 +5,7 @@ const source = fs.readFileSync(process.argv[2], 'utf8')
 const initial = 'Could not start viewing this Kodi. Check its status, then try again.';
 const lost = 'Connection to the Kodi screen was lost. This viewing session ended; Start Viewing requests a new session.';
 const reserved = 'Stopping. Input stays reserved until the server verifies release.';
+const unconfirmed = 'Could not confirm viewing cleanup. Input may remain reserved until the server verifies release. Review this Kodi’s status and recovery options.';
 const flush = async () => {for (let i = 0; i < 15; i++) await Promise.resolve();};
 function boot() {
     const nodes = Object.fromEntries(['#start', '#stop', '#status', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand', '[data-viewer-placeholder]']
@@ -54,10 +55,13 @@ function boot() {
         assert.equal(page.nodes['#start'].disabled, false, 'recovery remains explicit and server authorized');
         assert.equal(page.requests.length, 2, 'no polling, retry or control acquisition');
     }
-    const failedStart = boot(), starting = failedStart.nodes['#start'].onclick(); await flush();
-    await failedStart.answer('start', 409);
-    failedStart.next('stop').reject(new Error('private cleanup failure')); await starting;
-    assert.equal(failedStart.nodes['#status'].textContent, reserved, 'Start failure must not overwrite unproven cleanup');
+    for (const status of [401, 403, 409, 503]) {
+        const failedStart = boot(), starting = failedStart.nodes['#start'].onclick(); await flush();
+        await failedStart.answer('start', status);
+        failedStart.next('stop').reject(new Error('private cleanup failure')); await starting;
+        assert.equal(failedStart.nodes['#status'].textContent, unconfirmed, 'failed Start cleanup cannot assert an input reservation exists');
+        assert.equal(failedStart.clients.length, 0);
+    }
 
     const malformed = boot(), badStart = malformed.nodes['#start'].onclick(); await flush();
     malformed.next('start').resolve({ok:false, status:409, json:async () => {throw Error('private malformed refusal');}});

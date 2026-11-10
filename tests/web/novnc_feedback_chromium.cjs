@@ -78,7 +78,7 @@ const lost = 'Connection to the Kodi screen was lost. This viewing session ended
             await message('View Only');
             await page.locator('#stop').click(); await message('Viewing is off.');
             denyStart = true; denyStop = true; await start.click();
-            await message('Stopping. Input stays reserved until the server verifies release.'); await accessible();
+            await message('Could not confirm viewing cleanup. Input may remain reserved until the server verifies release. Review this Kodi’s status and recovery options.'); await accessible();
             assert.ok(!await status.textContent().then(text => text.includes('private')));
             denyStart = false; denyStop = false; await start.click();
             await page.waitForFunction(() => clients.length === 4); await connected();

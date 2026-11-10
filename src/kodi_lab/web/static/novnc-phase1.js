@@ -112,7 +112,7 @@ async function post(action, body) {
     }
     return response.json();
 }
-async function end(expected = attempt, message = 'Viewing is off.') {
+async function end(expected = attempt, message = 'Viewing is off.', cleanupWarning = 'Stopping. Input stays reserved until the server verifies release.') {
     if (expected !== attempt) return;
     const endingEpoch = ++cleanupEpoch;
     const old = attempt;
@@ -134,7 +134,7 @@ async function end(expected = attempt, message = 'Viewing is off.') {
     if (placeholder) placeholder.hidden = false;
     if (old) {
         try { await post('stop', {attempt: old}); }
-        catch (_) { if (endingEpoch === cleanupEpoch && attempt === null) status.textContent = 'Stopping. Input stays reserved until the server verifies release.'; }
+        catch (_) { if (endingEpoch === cleanupEpoch && attempt === null) status.textContent = cleanupWarning; }
     }
     return endingEpoch;
 }
@@ -223,7 +223,7 @@ start.onclick = async () => {
                 : [403, 409].includes(error.status)
                     ? 'Could not start viewing this Kodi. Review its status and recovery options, then reload this page before starting a new session.'
                     : startFailed;
-            await end(current, message);
+            await end(current, message, 'Could not confirm viewing cleanup. Input may remain reserved until the server verifies release. Review this Kodi’s status and recovery options.');
         }
     }
 };
