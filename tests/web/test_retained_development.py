@@ -61,6 +61,7 @@ def test_long_retained_choices_preserve_labels_selection_and_confirmation(
             state=SimpleNamespace(value="ready"),
             bytes_state=SimpleNamespace(value="present"),
             source_logical_name=label,
+            source_observed_name=label,
             source_addon_id=addon,
         )
     ]
@@ -434,6 +435,21 @@ def test_html_confirmation_identifies_previewed_workspace_and_target(
     assert lease is not None
     s.env.workspaces.run(lease)
     login(client)
+    # Onboarding links here with only the chosen workspace. Keep that project
+    # selected before the user chooses a Kodi version or requests a preview.
+    initial = client.get(
+        "/development-session/retained",
+        params={"workspace_id": str(queued.workspace_id)},
+    )
+    assert initial.status_code == 200
+    assert re.search(
+        r'<option value="' + str(queued.workspace_id) + r'"[^>]* selected',
+        initial.text,
+    )
+    assert not re.search(
+        r'<option value="' + str(s.env.workspace_id) + r'"[^>]* selected',
+        initial.text,
+    )
     page = client.get(
         "/development-session/retained",
         params={
@@ -448,10 +464,8 @@ def test_html_confirmation_identifies_previewed_workspace_and_target(
     assert re.search(
         r'<option value="' + str(s.ids["nexus"]) + r'"[^>]* selected', page.text
     )
-    assert (
-        "Workspace: Slice 4 source · plugin.video.slice4 · " + str(queued.workspace_id)
-        in page.text
-    )
+    assert "Project: Slice 4 · plugin.video.slice4" in page.text
+    assert f"plugin.video.slice4 · {queued.workspace_id}</p>" not in page.text
     assert not re.search(
         r'<option value="' + str(s.env.workspace_id) + r'"[^>]* selected', page.text
     )

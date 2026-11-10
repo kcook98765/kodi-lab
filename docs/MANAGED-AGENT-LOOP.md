@@ -1,5 +1,12 @@
 # Managed add-on development: agent quick start
 
+For a new local add-on, start in **Development → Current Managed Kodi**: select
+the project and its development agent, then choose Kodi. [Automatic local project
+onboarding](LOCAL-PROJECT-ONBOARDING.md) supplies the internal source registration,
+exact source grant and client-owned workspace. Use manual registration/binding
+only for Advanced cases. The operations below retain their existing permissions,
+validation, native prerequisites and recovery checks.
+
 The intended version-slot workflow is **Status → Start(version) → develop/test →
 Reset(version) or Stop(version)**. **Stop keeps the exact Kodi profile; Reset
 discards its writable settings/add-ons and prepares a clean replacement.** Source,

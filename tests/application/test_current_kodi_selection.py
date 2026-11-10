@@ -128,7 +128,7 @@ def test_selected_r4_renders_inline_viewer_without_adopting_canonical_omega(
     assert page.count('type="module"') == 1
     assert page.count("data-novnc-viewer") == 1
     assert 'data-viewer-clock-ms="1800000000000"' in page
-    assert "<h1 data-current-name>Omega 21.3</h1>" in page
+    assert "<h2 data-current-name>Omega 21.3</h2>" in page
 
 
 def runtime_image() -> str:

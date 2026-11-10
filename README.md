@@ -212,6 +212,31 @@ pairing workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and
 [reconnection](docs/KODI-RECONNECT.md), and
 [repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md).
 
+## Develop an add-on
+
+**Choose add-on project → Choose Kodi version → Develop and test.**
+
+Open **Development → Current Managed Kodi**. Select an eligible local project and
+its development agent, then choose Matrix, Nexus, Omega or Piers using the retained
+profile controls. Kodi Lab automatically registers or reuses the internal source,
+approves only that project for the selected agent, and prepares or reuses its
+private workspace. Selecting it again keeps workspace edits and existing profiles.
+
+An administrator first configures the [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development)
+and an enabled development client. The project may contain addon.xml directly or
+one immediate installable add-on subdirectory. No host directory is guessed.
+
+Use **Start Kodi**, open its screen, then **Edit, validate and deploy/test**.
+**Check add-on testing setup** shows any remaining guarded source baseline,
+installation or Bridge prerequisites. Project preparation alone does not prove
+native readiness or successful deployment. **Stop Kodi** keeps the profile.
+
+Automatic approval covers only the selected client/project; target control,
+destructive Reset, source promotion and production access keep their separate
+permissions. [Workflow details and supported layouts](docs/LOCAL-PROJECT-ONBOARDING.md)
+include replay and recovery behavior. Manual source registration and advanced
+client grants remain available for unusual cases under **More options and Advanced**.
+
 ## Connect Your AI Agent
 
 Open **Agents** in Web and use a separate client for each agent. Choose the

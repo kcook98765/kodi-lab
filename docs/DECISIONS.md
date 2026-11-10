@@ -7919,3 +7919,21 @@ OFF then ON cannot revive an old request. Existing rates, operation gates,
 deadlines, fixed action mapping, at-most-once receipts and retained uncertainty
 remain. Migration 0007 adds only policy fields and nullable retired navigation
 scope references in receipt/audit shapes, preserving history and triggers.
+
+
+## D-0487: Local project selection composes internal source and workspace setup
+
+An authenticated Web administrator may approve one local project for one enabled
+workspace-capable development client. Selection is confined to the existing
+configured development root, uses bounded no-follow manifest discovery and
+reuses immutable source identity. An exact source grant is recorded with the
+existing administrator audit event. Workspace allocation reuses the original
+client/source binding under its existing SQLite writer transaction, preserving
+request/operation identity, edits, digests, quotas and reconciliation fences.
+Discovery and status reads grant no authority. No MCP host-path endpoint,
+target grant, preset expansion, schema migration, replacement or cleanup is added.
+
+Current Kodi owns this workflow and retains its version/profile selection and
+native preparation controls. Manual source and grant administration remain
+Advanced. Project readiness is separate from native readiness, Bridge trust,
+installation and deployment. See [scope and implementation assessment](LOCAL-PROJECT-ONBOARDING.md).
