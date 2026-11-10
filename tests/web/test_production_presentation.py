@@ -136,6 +136,10 @@ def test_export_production_review_states(
         assert "Connection trust or setup needs review" in listing_html
         assert parser.trust_alert_advanced == [False]
     for path, html in pages.items():
+        assert "Ready to inspect:" in html
+        assert "Connected does not grant access" in html
+        assert "Ready to view:" not in html
+        assert "Ready for add-on testing:" not in html
         assert "authenticated inspection access to this exact Kodi" in html
         assert "trusted Bridge connection" in html
         if case == "unavailable":

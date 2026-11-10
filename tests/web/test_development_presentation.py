@@ -195,6 +195,11 @@ def test_development_review_states(client: TestClient, development_case: str) ->
         assert "No External Development Kodi connected yet" in response.text
     else:
         assert structure.targets == [str(EXTERNAL_TARGET_ID)]
+        assert "Ready to inspect:" in response.text
+        assert "explicit inspection permissions" in response.text
+        assert "Ready for add-on testing:" in response.text
+        assert "Deployed files do not prove" in response.text
+        assert "Ready to view:" not in response.text
         assert structure.primary_in_details == [False]
         assert "Deployment readiness is not assessed here" in response.text
         assert "Verified support does not grant an agent access" in response.text
@@ -284,6 +289,9 @@ def test_development_review_states(client: TestClient, development_case: str) ->
     if destination := os.getenv("KODI_DEVELOPMENT_UI_EVIDENCE"):
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)
+        preference = client.get(
+            f"/api/targets/{EXTERNAL_TARGET_ID}/screenshot-preference"
+        )
         (root / f"case-{development_case}.json").write_text(
             json.dumps(
                 {
@@ -291,6 +299,10 @@ def test_development_review_states(client: TestClient, development_case: str) ->
                     "target": str(EXTERNAL_TARGET_ID),
                     "url": route,
                     "html": response.text,
+                    "screenshot_preference": {
+                        "status": preference.status_code,
+                        "body": preference.json(),
+                    },
                 }
             )
         )

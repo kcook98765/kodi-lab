@@ -34,6 +34,7 @@ class ConnectionSummary:
 
 @dataclass(frozen=True)
 class OverviewSummary:
+    managed_setup_started: bool
     prepared: int
     supported: int
     running: tuple[str, ...]
@@ -57,6 +58,7 @@ def overview_summary(
     ids = [str(slot.canonical_target_id) for slot in slots]
     with sessions() as session:
         prepared = 0
+        managed_setup_started = False
         attention: set[str] = set()
         for slot in slots:
             installation = session.scalar(
@@ -66,6 +68,7 @@ def overview_summary(
                 .limit(1)
             )
             if installation is not None:
+                managed_setup_started = True
                 prepared += installation.state == "ready"
                 if installation.state == "failed":
                     attention.add(str(slot.canonical_target_id))
@@ -165,6 +168,7 @@ def overview_summary(
             or 0
         )
     return OverviewSummary(
+        managed_setup_started=managed_setup_started or bool(managed),
         prepared=prepared,
         supported=len(slots),
         running=tuple(

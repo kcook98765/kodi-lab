@@ -17,11 +17,13 @@ from kodi_lab.domain import (
     ExternalObservationState,
     ExternalVerificationState,
     HealthStatus,
+    RuntimeRecipeInstallationState,
 )
 from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 from kodi_lab.storage.models import (
     ExternalBridgePairingRow,
     ExternalKodiTargetRow,
+    RuntimeRecipeInstallationRow,
     TargetRow,
 )
 from kodi_lab.web.overview import OverviewSummary
@@ -60,6 +62,16 @@ def test_empty_overview_and_managed_pages_have_distinct_ownership(
     assert "Versions needing attention: <strong>0</strong>" in main
     assert main.count("Registered devices: <strong>0</strong>") == 2
     assert "Registered clients: <strong>0</strong>" in main
+    assert "isolated Kodi installation for testing" in main
+    assert "usually on a household device" in main
+    assert "another device for add-on development and testing" in main
+    for label, destination in (
+        ("Managed Kodi", "/managed-kodi"),
+        ("External Production Kodi", "/production-targets"),
+        ("External Development Kodi", "/external-targets"),
+    ):
+        assert main.count(f'href="{destination}">Set up {label}</a>') == 1
+        assert f">Open {label}</a>" not in main.split("<noscript>", 1)[0]
     for forbidden in (
         "<form",
         "<button",
@@ -91,6 +103,8 @@ def test_recorded_managed_counts_follow_existing_start_stop_without_probes(
 ) -> None:
     csrf = setup(client, database)
     assert summary(client).prepared == 1
+    assert ">Open Managed Kodi</a>" in client.get("/kodi").text
+    assert ">Set up Managed Kodi</a>" not in client.get("/kodi").text
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
     assert summary(client).running == ("Omega",)
@@ -175,6 +189,9 @@ def test_external_counts_stay_separate_and_recorded(
     assert 'href="/production-targets"' in overview
     assert 'href="/external-targets"' in overview
     assert 'data-slot="omega"' not in overview
+    for label in ("External Production Kodi", "External Development Kodi"):
+        assert f">Open {label}</a>" in overview
+        assert f">Set up {label}</a>" not in overview
 
 
 def test_agent_counts_and_production_attention(
@@ -259,3 +276,32 @@ def test_four_prepared_versions_and_failed_installation_recovery(
     seed_installation(database, "matrix", ready=True)
     assert summary(client).prepared == 4
     assert summary(client).managed_attention == 0
+
+
+@pytest.mark.parametrize("state", ["pending", "failed"])
+def test_incomplete_managed_installation_keeps_recorded_summary(
+    client: TestClient,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    from tests.web.test_runtime_installations import seed_installation
+
+    monkeypatch.setattr(
+        "tests.web.test_runtime_installations.load_reviewed_recipe",
+        load_installation_recipe,
+    )
+    operation = seed_installation(database, "omega")
+    with database.begin() as session:
+        installation = session.get(RuntimeRecipeInstallationRow, str(operation))
+        assert installation is not None
+        installation.state = RuntimeRecipeInstallationState(state)
+        if state == "pending":
+            installation.completed_at = installation.failure_code = None
+    login(client)
+    assert summary(client).managed_setup_started
+    page = client.get("/kodi").text
+    assert ">Open Managed Kodi</a>" in page
+    assert ">Set up Managed Kodi</a>" not in page
+    assert "Versions prepared: <strong>0 of 4</strong>" in page
+    export(client, "managed-" + state)

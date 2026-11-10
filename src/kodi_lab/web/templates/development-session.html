@@ -23,6 +23,7 @@
     </div>
   </div>
   <p data-session-status role="status" aria-live="polite">Checking the selected environment…</p>
+  <p class="secondary">Native Kodi readiness confirms Kodi's connection only. Viewing, inspection and add-on testing have separate requirements; agent access requires explicit authorization.</p>
   <p data-current-recovery hidden><a data-current-recovery-link>Review the exact operation and recovery options</a></p>
   <h2>Develop and test</h2>
   <div class="actions current-lifecycle" aria-label="Kodi lifecycle">
@@ -43,7 +44,7 @@
   <section data-current-development{% if not current %} hidden{% endif %} aria-labelledby="current-development-heading">
     <h2 id="current-development-heading">Current project</h2>
     <p><strong data-current-workspace>{{ current_kodi.summary.workspace_name if current else '' }}</strong> <span data-current-addon>{{ current_kodi.summary.addon_id if current else '' }}</span> · <a data-session-workspace{% if current %} href="/agent-workspaces/{{ current.workspace_id }}"{% else %} hidden{% endif %}>Edit, validate and deploy/test</a></p>
-    <p><a href="/development-session/preparation">Check add-on testing setup</a></p>
+    <p>A selected workspace identifies your project; it does not mean the add-on is deployed, enabled or has run. <a href="/development-session/preparation">Check add-on testing setup</a>.</p>
   </section>
   <section data-current-choice{% if current %} hidden{% endif %} aria-labelledby="session-heading">
     <details><summary>Advanced workspace selection</summary>

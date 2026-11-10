@@ -44,6 +44,15 @@ def test_export_managed_card_review_states(
         response = client.get("/managed-kodi")
         assert response.status_code == 200
         status = client.get("/api/managed-kodi/slots").json()
+        assert "Ready to view:" in response.text
+        assert "Ready to inspect:" in response.text
+        assert "explicit inspection permissions" in response.text
+        for item in status["slots"]:
+            card = response.text.split(f'data-slot="{item["version"]}"', 1)[1]
+            screen = card.split("data-slot-screen", 1)[1].split(">", 1)[0]
+            assert (" hidden" not in screen) == bool(item["screen_url"])
+            if item["screen_url"]:
+                assert f'href="{item["screen_url"]}"' in screen
         receipts = {}
         for item in status["slots"]:
             if item["pending_request"]:
@@ -79,6 +88,10 @@ def test_export_managed_card_review_states(
     wait(client)
     assert slot(client)["screen_url"]
     capture("running")
+    cast(FastAPI, client.app).state.managed_slots.screen_supported = lambda _: False
+    assert slot(client)["native"] == "Ready" and not slot(client)["screen_url"]
+    capture("running-without-viewer")
+    cast(FastAPI, client.app).state.managed_slots.screen_supported = lambda _: True
     handle = acquire_browser_remote(
         database, UUID(broker.records[0].managed_instance_id)
     )
@@ -138,7 +151,7 @@ def test_plain_guidance_keeps_ordinary_setup_and_development_separate(
     assert "prepares and starts" in cached["message"]
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
-    assert slot(client)["message"] == "Kodi is running and ready to use."
+    assert slot(client)["message"] == "Kodi is running."
     assert act(client, csrf, "stop").json()["phase"] == "complete"
     retained = slot(client)
     assert retained["state"] == "stopped"

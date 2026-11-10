@@ -17,11 +17,14 @@
 <div class="kodi-grid">
   <section class="kodi-card" aria-labelledby="managed-summary-heading">
     <h2 id="managed-summary-heading">{{ environment_label('managed') }}</h2>
+    {% if not overview.managed_setup_started %}
+    <p>Kodi Lab hosts an isolated Kodi installation for testing. Choose a version in Managed Kodi to begin setup.</p>
+    {% endif %}
     <p>Versions prepared: <strong>{{ overview.prepared }} of {{ overview.supported }}</strong>.</p>
     <p class="secondary">Prepared means installation was recorded as ready.</p>
     <p>Last recorded running: <strong>{{ overview.running|join(', ') if overview.running else 'None' }}</strong>.</p>
     <p>Versions needing attention: <strong>{{ overview.managed_attention }}</strong>.</p>
-    <a href="/managed-kodi">Open Managed Kodi</a>
+    <a href="/managed-kodi">{{ 'Open Managed Kodi' if overview.managed_setup_started else 'Set up Managed Kodi' }}</a>
   </section>
   {% for kind, summary, destination in [('external_production', overview.production, '/production-targets'), ('external_development', overview.development, '/external-targets')] %}
   <section class="kodi-card" aria-labelledby="{{ kind }}-summary-heading">
@@ -29,8 +32,15 @@
     <p>Registered devices: <strong>{{ summary.total }}</strong>.</p>
     {% if summary.total %}
     <p>Last recorded checks: {{ summary.connected }} {{ 'connected' if kind == 'external_production' else 'reachable' }}, {{ summary.disconnected }} disconnected, {{ summary.attention }} needing attention, {{ summary.unknown }} unknown.</p>
-    {% else %}<p>No devices registered yet.</p>{% endif %}
-    <a href="{{ destination }}">Open {{ environment_identity(kind).display_name }}</a>
+    {% else %}
+    <p>No devices registered yet.</p>
+    {% if kind == 'external_production' %}
+    <p>Connect an existing Kodi installation, usually on a household device. Inspection, screenshots, remote control and agent access each require explicit setup and authorization.</p>
+    {% else %}
+    <p>Connect Kodi running on another device for add-on development and testing.</p>
+    {% endif %}
+    {% endif %}
+    <a href="{{ destination }}">{{ 'Open' if summary.total else 'Set up' }} {{ environment_identity(kind).display_name }}</a>
   </section>
   {% endfor %}
   <section class="kodi-card" aria-labelledby="agents-summary-heading">
