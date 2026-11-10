@@ -5044,21 +5044,41 @@ def create_app(
             authenticated, csrf
         ):
             raise HTTPException(403, "Forbidden")
+        return_workspace_id = None
         try:
             # HTML form inputs are strings; JSON policy/selection stays strict.
             values["expected_generation"] = int(str(values.get("expected_generation")))
             if action == "policy":
+                return_workspace = values.pop("return_workspace_id", None)
+                if return_workspace is not None:
+                    return_workspace_id = UUID(str(return_workspace))
                 if values.get("enabled") not in {"true", "false"}:
                     raise ValueError("invalid retained policy")
                 values["enabled"] = values["enabled"] == "true"
                 body = RetainedPolicyRequest.model_validate(values)
+                if return_workspace_id is not None:
+                    if not body.enabled:
+                        raise ValueError("invalid retained navigation")
+                    workspace = context.agent_workspaces.get(return_workspace_id)
+                    if (
+                        workspace.state.value != "ready"
+                        or workspace.bytes_state.value != "present"
+                    ):
+                        raise DevelopmentSessionConflict(
+                            "development_session_selection_unavailable"
+                        )
                 await asyncio.to_thread(session_service.configure_retained, body)
             else:
                 selection = RetainedSelectionRequest.model_validate(values)
                 await asyncio.to_thread(session_service.select_retained, selection)
         except (ValueError, ValidationError):
             raise HTTPException(422, "invalid_retained_request") from None
-        return RedirectResponse("/development-session", status_code=303)
+        destination = (
+            f"/development-session/retained?workspace_id={return_workspace_id}"
+            if return_workspace_id is not None
+            else "/development-session"
+        )
+        return RedirectResponse(destination, status_code=303)
 
     @app.post(
         "/api/development-session/reserve", response_model=DevelopmentSessionStatus

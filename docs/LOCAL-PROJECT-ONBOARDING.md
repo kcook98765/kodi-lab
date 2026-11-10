@@ -61,7 +61,9 @@ open **Development → Current Managed Kodi**:
 3. **Choose Kodi version.** The existing retained-version review selects the
    project and Matrix, Nexus, Omega or Piers, keeping other profiles. Existing
    installations with retained selection disabled keep their policy; its existing
-   one-time enablement remains available.
+   one-time enablement remains available and keeps the prepared project selected
+   for the following version choice. Preparing a project does not change an
+   already selected Current Kodi session.
 4. **Develop and test.** Start Kodi, open its screen, and use **Edit, validate and
    deploy/test**. **Check add-on testing setup** opens the existing prerequisite
    checklist when source baseline, attachment, Bridge or installation setup is
@@ -117,7 +119,7 @@ modifies none of those operation permissions.
 
 ## Focused validation
 
-FOCUSED PASS on the onboarding branch (no full regression suite):
+Initial FOCUSED PASS at `70e6b86` (no full regression suite):
 
 | Test file | Passed |
 | --- | ---: |
@@ -162,3 +164,24 @@ private evidence directory while running the Web test file. Then set
 `KODI_LAB_BROWSER_TOOLS` to an existing node_modules directory with Playwright and
 `@axe-core/playwright`, keep the same evidence setting, and run
 `node tests/web/local_project_onboarding_browser.cjs`.
+
+
+## Final integration review
+
+Integration review: PASS after correcting prepared-project navigation through the
+existing retained-version enablement form. The form now preserves the intended
+project for the following version choice, without selecting it or replacing the
+active session. A project that has entered reconciliation is refused before the
+policy change. JSON/MCP permission and policy contracts are unchanged.
+
+The regression reproduces project onboarding while a different workspace is
+already selected, submits the actual rendered enablement form, checks the returned
+project choice, and verifies the active session and all four modeled profiles are
+unchanged. Its reconciliation variant verifies refusal and unchanged policy.
+The defect was reproduced on the initial commit before the correction.
+
+Correction validation: **FOCUSED PASS**, 28 retained-development route cases and
+5 local-project route cases (33 total), plus Ruff formatting/lint, strict mypy and
+diff checks. The initial source/workspace and browser results above are retained;
+they were not rerun as a full regression campaign. No production configuration,
+Hub files, live profiles, target permissions or issue #285 implementation changed.

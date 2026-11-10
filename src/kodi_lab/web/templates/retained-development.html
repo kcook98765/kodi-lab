@@ -17,6 +17,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="expected_generation" value="{{ policy.latest_generation }}">
     <input type="hidden" name="enabled" value="true">
+    {% if selected_workspace_id %}<input type="hidden" name="return_workspace_id" value="{{ selected_workspace_id }}">{% endif %}
     <label>Retain this Omega environment <select name="omega_target_id" required>
     {% for choice in omega_choices %}<option value="{{ choice.target_id }}"{% if current and choice.target_id == current.target_id %} selected{% endif %}>{{ choice.name }}</option>{% endfor %}
     </select></label>

@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -469,6 +469,124 @@ def test_html_confirmation_identifies_previewed_workspace_and_target(
     assert not re.search(
         r'<option value="' + str(s.env.workspace_id) + r'"[^>]* selected', page.text
     )
+
+
+@pytest.mark.parametrize("project_state", ["ready", "reconciliation_required"])
+def test_prepared_project_survives_retained_enablement_without_replacing_current(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_state: str,
+) -> None:
+    from kodi_lab.domain import AgentWorkspaceState
+    from kodi_lab.storage.models import (
+        AgentWorkspaceRow,
+        DevelopmentSessionPolicyRow,
+    )
+    from tests.web.test_local_projects import setup_project
+
+    s = seed(database, broker, tmp_path, monkeypatch)
+    s.choose("omega")
+    # Model an existing installation that has not enabled retained selection yet.
+    with database.begin() as db:
+        policy = db.get(DevelopmentSessionPolicyRow, 1)
+        assert policy is not None
+        policy.retain_profiles = False
+        policy.retained_omega_target_id = None
+    current_before = s.service.status()
+    profiles_before = {t: p.read_bytes() for t, p in s.profiles.items()}
+    context, developer = setup_project(client)
+    submitted: list[UUID] = []
+    monkeypatch.setattr(
+        context.local_projects._creation, "_submit_creation", submitted.append
+    )
+    csrf = login(client)
+    onboarded = client.post(
+        "/api/development-projects/onboard",
+        json={"project": "hub", "client_id": developer},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert onboarded.status_code == 200, onboarded.text
+    prepared = onboarded.json()
+    workspace_id = prepared["workspace_id"]
+    assert submitted == [UUID(prepared["creation_operation_id"])]
+    lease = context.agent_workspaces.acquire(submitted[0])
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    ready = client.get(
+        f"/api/development-projects/{workspace_id}?client_id={developer}"
+    )
+    assert ready.status_code == 200 and ready.json()["state"] == "ready"
+    assert s.service.status() == current_before
+    initial = client.get(
+        ready.json()["next_url"],
+    )
+    assert initial.status_code == 200
+    # Submit the rendered enablement form, including its navigation context.
+    from html.parser import HTMLParser
+
+    class EnablementForm(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.in_form = False
+            self.values: dict[str, str] = {}
+
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            attributes = dict(attrs)
+            if tag == "form":
+                self.in_form = (
+                    attributes.get("action") == "/development-session/retained/policy"
+                )
+            if self.in_form and tag == "input" and attributes.get("name"):
+                self.values[str(attributes["name"])] = attributes.get("value") or ""
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "form":
+                self.in_form = False
+
+    form = EnablementForm()
+    form.feed(initial.text)
+    assert form.values["csrf_token"] == csrf
+    form.values["omega_target_id"] = str(s.ids["omega"])
+    if project_state != "ready":
+        with database.begin() as db:
+            workspace = db.get(AgentWorkspaceRow, workspace_id)
+            assert workspace is not None
+            workspace.state = AgentWorkspaceState(project_state)
+    enabled = client.post(
+        "/development-session/retained/policy",
+        data=form.values,
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    if project_state != "ready":
+        assert enabled.status_code == 409, enabled.text
+        assert not client.get("/api/development-session/policy").json()["enabled"]
+        assert s.service.status() == current_before
+        assert {t: p.read_bytes() for t, p in s.profiles.items()} == profiles_before
+        assert not broker.calls
+        return
+    assert enabled.status_code == 303, enabled.text
+    assert enabled.headers["location"] == (
+        f"/development-session/retained?workspace_id={workspace_id}"
+    )
+    returned = client.get(enabled.headers["location"])
+    assert returned.status_code == 200
+    assert re.search(
+        r'<option value="' + str(workspace_id) + r'"[^>]* selected',
+        returned.text,
+    )
+    assert not re.search(
+        r'<option value="' + str(s.env.workspace_id) + r'"[^>]* selected',
+        returned.text,
+    )
+    assert s.service.status() == current_before
+    assert {t: p.read_bytes() for t, p in s.profiles.items()} == profiles_before
+    assert not broker.calls
 
 
 @pytest.mark.parametrize("name", ["managed_selection_preview", "managed_select"])

@@ -260,6 +260,12 @@ projects. For example, `/srv/kodi-lab/addon-sources` is only an example. Create
 and populate it before starting the development overlay. The directory must be
 an existing normalized absolute path, not `/` or a symlink at any component.
 
+For an existing installation, keep already configured projects at their current
+relative locations. Add an approved working copy of another project beneath the
+same directory when possible. Pointing the saved root at an unrelated directory
+can break existing project identities and workspace history; plan that move
+separately. Symlinks and nested bind mounts are not supported shortcuts.
+
 After `configure` has created `.env`, run this from the unpacked bundle:
 
 ```sh
