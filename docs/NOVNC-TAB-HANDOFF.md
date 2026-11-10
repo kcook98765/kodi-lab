@@ -155,3 +155,59 @@ Hub installation was changed by this source-only work.
 Final review corrected heartbeat startup during slow RFB handshakes. The targeted
 20-test focused lane, Chromium fixtures, Ruff, strict mypy and JavaScript syntax
 checks passed again; the original 113-test integration result remains recorded.
+
+## Firefox follow-up: release UI state
+
+Owner acceptance of production `4da7228` is **PARTIAL**: view-only tab switching
+and interactive navigation worked, but Release Control remained visible for
+minutes after returning, with keyboard input no longer controlling Kodi.
+
+Two client paths are now covered explicitly:
+
+- `mode` records the last admitted server mode. The old `buttons()` used it to
+  show Release Control throughout an asynchronous release, despite local input
+  already being disarmed. Pending handoff flags affected disabled state only.
+  A delayed-response regression reproduces this presentation defect.
+- noVNC's pinned keyboard code releases held keys on window blur, while the Lab
+  previously requested release only on document visibility change. A blur-only
+  sequence leaves the old UI/ownership interactive and loses canvas keyboard
+  focus. This is reproducible without a release request. It is consistent with
+  the observed symptom, but the owner's exact Firefox event sequence was not
+  captured. Window focus loss now invokes the same verified release operation.
+  Clicking another element within the page does not constitute window blur.
+
+The latest post-deployment server trace has Start Viewing at 22:01:33 UTC,
+Take Control at 22:02:06 and Stop at 22:06:11, all HTTP 200. There is no completed
+Release Control request in that interval. The interactive stream ended on a
+watchdog timeout; the broker recorded native termination proven. No failed
+Release Control HTTP response or completed view-only successor was found for
+that interval. Server logs alone cannot establish whether the owner browser
+observed visibility change or attempted a request that did not complete.
+Loss of keyboard response is not proof of server-side ownership release.
+
+The UI now hides both control buttons and auxiliary input during handoff and
+shows **Releasing Control…** while release is required or pending. A verified
+view-only ticket changes the status to **Control released. Connecting View
+Only…**. Only the connected view-only successor offers **Take Control**. Failed,
+malformed, ambiguous or timed-out handoffs close viewing and retain the explicit
+input-reservation warning; they cannot display View Only or a successful handoff.
+Focus return never reacquires control. Stop Viewing remains available during a
+pending handoff. The ten-second request timeout and native ownership proofs are
+unchanged.
+
+A focus-loss release can also occur when moving to the browser address bar,
+DevTools or another application while the page remains visible. This is a
+conservative input handoff; healthy view-only video is retained. See Mozilla's
+[window blur documentation](https://developer.mozilla.org/en-US/docs/Web/API/Window/blur_event).
+The browser's existing 64-record diagnostic buffer now includes fixed
+visibility/window-blur events and allowlisted mode/pending/connection flags.
+It sends no telemetry, credentials, ticket, input or pixel content.
+
+Focused validation covers blur before visibility, pending Take then blur,
+rapid hide/show, repeated handoffs, delayed HTTP and RFB completion, timeout,
+HTTP 409, malformed success, late success/error after Stop/new viewing, and
+status/button visibility on desktop/mobile Chromium fixtures. The timeout is
+triggered through a controlled AbortSignal in the deterministic harness; browser
+visibility events are synthetic. Actual Firefox acceptance of this follow-up
+requires a future authorized deployment and owner retest. No deployment or
+managed Kodi operation was performed for this correction.

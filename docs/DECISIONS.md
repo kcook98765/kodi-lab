@@ -8002,3 +8002,11 @@ heartbeat. Existing broker/helper watchdogs still protect Web/process loss.
 Temporary visibility-related status invalidation blocks new admissions/control
 without terminating an admitted viewer; real failed observations still stop it.
 See [design assessment and acceptance](NOVNC-TAB-HANDOFF.md).
+
+The Firefox follow-up also relinquishes control on window blur, including when
+visibility has not changed. Browser chrome or another application can therefore
+release control while video stays visible. Pending release hides interactive
+controls and displays Releasing Control; confirmed release and video connection
+are separate UI states. Window focus return cannot acquire control. Fixed
+visibility/blur/pending flags remain in the existing bounded local diagnostic
+buffer. See the Firefox follow-up in the tab handoff assessment.

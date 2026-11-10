@@ -2,8 +2,8 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
 const source = fs.readFileSync(process.argv[2], 'utf8').replace("import('./vendor/novnc/core/rfb.js')", 'Promise.resolve({default:RFBFixture})');
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
-function boot() {
-    const events = {}, requests = [], clients = [], sockets = [], timers = new Map();
+function boot({controlledTimeout = false} = {}) {
+    const events = {}, requests = [], clients = [], sockets = [], timers = new Map(), timeouts = [];
     let serial = 0;
     const nodes = Object.fromEntries(['#start', '#stop', '#status', '#viewer', '#take-control', '#release-control', '#keyboard', '#back', '#text-input', '.typing', '#expand'].map(key => [key, {events:{}, addEventListener(name, fn) {this.events[name] = fn;}}]));
     const main = {dataset:{instance:'fixture', viewerClockMs:String(Date.now())}, querySelector:key => nodes[key] || null};
@@ -24,7 +24,7 @@ function boot() {
         emit(name) {(this.events[name] || []).forEach(fn => fn());}
         send(data) {this.messages.push(data);}
     }
-    vm.runInNewContext(source, {document, window:{addEventListener:listen}, AbortSignal, URL,
+    vm.runInNewContext(source, {document, window:{addEventListener:listen}, AbortSignal:controlledTimeout ? {timeout(ms) {assert.equal(ms, 10000); const controller = new AbortController(); timeouts.push(controller); return controller.signal;}} : AbortSignal, URL,
         location:{href:'https://lab.test/', protocol:'https:'}, WebSocket:Socket, RFBFixture:RFB,
         crypto:require('node:crypto').webcrypto, performance:require('node:perf_hooks').performance,
         setInterval(fn, delay) {assert.equal(delay, 500); timers.set(++serial, fn); return serial;},
@@ -34,7 +34,7 @@ function boot() {
             assert.equal(options.keepalive, true);
             assert.ok(options.signal instanceof AbortSignal);
             if (url.endsWith('-stop')) {requests.push({url, body}); return Promise.resolve({ok:true, json:async () => ({stopped:true})});}
-            return new Promise((resolve, reject) => requests.push({url, body, resolve, reject}));
+            return new Promise((resolve, reject) => {requests.push({url, body, resolve, reject}); options.signal.addEventListener('abort', () => reject(options.signal.reason), {once:true});});
         },
     });
     const signal = (name, detail) => (events[name] || []).forEach(fn => fn(detail));
@@ -46,7 +46,7 @@ function boot() {
     async function answer(action, mode) {next(action).resolve({ok:true, json:async () => ({ticket:'one-use', mode})}); await flush();}
     async function start() {const work = nodes['#start'].onclick(); await flush(); await answer('start', 'view-only'); await work; sockets.at(-1).emit('open'); clients.at(-1).emit('connect');}
     async function interactive() {await start(); const work = nodes['#take-control'].onclick(); await answer('take-control', 'interactive'); await work; sockets.at(-1).emit('open'); clients.at(-1).emit('connect');}
-    return {main, nodes, requests, clients, sockets, timers, signal, visibility, next, answer, start, interactive};
+    return {main, nodes, requests, clients, sockets, timers, timeouts, signal, visibility, next, answer, start, interactive};
 }
 (async () => {
     const view = boot(); await view.start(); const original = view.clients[0];
@@ -65,9 +65,18 @@ function boot() {
     page.nodes['#text-input'].events.input({}); page.nodes['#text-input'].events.keydown({key:'Enter'});
     assert.equal(controlled.keys.length, 0, 'all auxiliary input is refused while hidden');
     page.visibility(false); page.visibility(true); page.visibility(false);
+    assert.equal(page.nodes['#release-control'].hidden, true, 'pending release must not present Interactive controls');
+    assert.equal(page.nodes['#take-control'].hidden, true, 'unconfirmed release must not present Take Control');
+    assert.equal(page.nodes['#status'].textContent, 'Releasing Control…');
     assert.equal(page.requests.filter(r => r.url.endsWith('-release-control')).length, 1, 'rapid hide/show never duplicates handoff');
-    await page.answer('release-control', 'view-only'); const resumed = page.clients.at(-1); resumed.emit('connect');
-    assert.equal(resumed.viewOnly, true); assert.equal(page.nodes['#take-control'].disabled, false); assert.equal(page.timers.size, 0);
+    await page.answer('release-control', 'view-only'); const resumed = page.clients.at(-1);
+    assert.equal(page.nodes['#release-control'].hidden, true);
+    assert.equal(page.nodes['#take-control'].hidden, true, 'new RFB handshake must complete before Take Control is offered');
+    assert.equal(page.nodes['#status'].textContent, 'Control released. Connecting View Only…');
+    page.visibility(true); page.visibility(false);
+    assert.equal(page.nodes['#release-control'].hidden, true, 'show before video reconnect must not resurrect Release Control');
+    resumed.emit('connect');
+    assert.equal(resumed.viewOnly, true); assert.equal(page.nodes['#take-control'].disabled, false); assert.equal(page.nodes['#take-control'].hidden, false); assert.equal(page.nodes['#status'].textContent, 'View Only'); assert.equal(page.timers.size, 0);
     assert.ok(page.main.viewerDiagnostics.some(r => r.event === 'control_release_confirmed'));
     controlled.emit('connect'); controlled.emit('disconnect');
     assert.equal(resumed.closed, false, 'old client callbacks cannot affect successor');
@@ -87,8 +96,12 @@ function boot() {
 
     const pendingTake = boot(); await pendingTake.start();
     const taking = pendingTake.nodes['#take-control'].onclick(); pendingTake.visibility(true); pendingTake.visibility(false);
+    assert.equal(pendingTake.nodes['#status'].textContent, 'Releasing Control…', 'latched hide intent is shown during pending Take');
     await pendingTake.answer('take-control', 'interactive');
     assert.equal(pendingTake.clients.length, 1, 'late interactive ticket must never attach');
+    assert.equal(pendingTake.nodes['#status'].textContent, 'Releasing Control…');
+    assert.equal(pendingTake.nodes['#take-control'].hidden, true);
+    assert.equal(pendingTake.nodes['#release-control'].hidden, true);
     pendingTake.visibility(true); await pendingTake.answer('release-control', 'view-only'); await taking;
     pendingTake.clients.at(-1).emit('connect'); assert.equal(pendingTake.clients.at(-1).viewOnly, true);
     assert.equal(pendingTake.nodes['#take-control'].disabled, true, 'hidden tab cannot take control');
@@ -100,12 +113,20 @@ function boot() {
     assert.equal(releasing.requests.filter(r => r.url.endsWith('-release-control')).length, 1);
     assert.equal(releasing.clients.at(-1).viewOnly, true);
 
-    for (const failure of ['reject', 'wrong-mode', 'missing-ticket']) {
-        const failed = boot(); await failed.interactive(); failed.visibility(true);
+    for (const failure of ['reject', 'wrong-mode', 'missing-ticket', 'http-409', 'timeout']) {
+        const failed = boot({controlledTimeout:true}); await failed.interactive(); failed.visibility(true); failed.visibility(false);
         const release = failed.next('release-control');
         if (failure === 'reject') release.reject(new Error('ambiguous release'));
+        else if (failure === 'timeout') failed.timeouts.at(-1).abort(new DOMException('Timeout', 'TimeoutError'));
+        else if (failure === 'http-409') release.resolve({ok:false,status:409,json:async()=>({detail:'input_release_unproven'})});
         else release.resolve({ok:true, json:async () => failure === 'wrong-mode' ? {ticket:'bad', mode:'interactive'} : {mode:'view-only'}});
         await flush(); assert.equal(failed.clients.at(-1).closed, true);
+        assert.equal(failed.nodes['#release-control'].hidden, true);
+        assert.equal(failed.nodes['#take-control'].hidden, true);
+        assert.match(failed.nodes['#status'].textContent, /Input stays reserved/);
+        assert.notEqual(failed.nodes['#status'].textContent, 'View Only');
+        release.resolve({ok:true,json:async()=>({ticket:'late',mode:'view-only'})}); await flush();
+        assert.equal(failed.clients.length, 2, 'late timeout response must not reconnect or show success');
         assert.equal(failed.requests.filter(r => r.url.endsWith('-stop')).length, 2, 'both pre/post handoff attempts cancelled');
         assert.ok(failed.main.viewerDiagnostics.some(r => r.event === 'control_release_failed'));
         failed.visibility(false); assert.equal(failed.nodes['#start'].disabled, false); assert.equal(failed.clients.length, 2, 'failure never reconnects');
@@ -114,6 +135,46 @@ function boot() {
     await stale.nodes['#stop'].onclick(); stale.visibility(false); await stale.start(); const newer = stale.clients.at(-1);
     late.resolve({ok:true, json:async () => ({ticket:'stale', mode:'view-only'})}); await flush();
     assert.equal(stale.clients.at(-1), newer); assert.equal(newer.closed, false, 'late success cannot replace newer viewing');
+
+    const blurOnly = boot(); await blurOnly.interactive(); const blurredClient = blurOnly.clients.at(-1);
+    blurOnly.signal('blur');
+    assert.equal(blurredClient.viewOnly, true, 'window blur without hidden must disarm input');
+    assert.equal(blurOnly.nodes['#status'].textContent, 'Releasing Control…');
+    assert.equal(blurOnly.nodes['#release-control'].hidden, true);
+    assert.equal(blurOnly.nodes['#take-control'].hidden, true);
+    blurOnly.signal('focus'); blurOnly.signal('blur'); blurOnly.visibility(true); blurOnly.visibility(false);
+    assert.equal(blurOnly.requests.filter(r => r.url.endsWith('-release-control')).length, 1, 'blur and visibility serialize one release');
+    await blurOnly.answer('release-control', 'view-only'); blurOnly.clients.at(-1).emit('connect');
+    blurOnly.signal('focus');
+    assert.equal(blurOnly.nodes['#status'].textContent, 'View Only');
+    assert.equal(blurOnly.nodes['#take-control'].hidden, false);
+    assert.equal(blurOnly.clients.at(-1).viewOnly, true, 'focus must never restore control');
+    assert.ok(blurOnly.main.viewerDiagnostics.some(r => r.event === 'window_blur' && r.release_required));
+    const blurTaking = boot(); await blurTaking.start();
+    const inFlight = blurTaking.nodes['#take-control'].onclick(); blurTaking.signal('blur'); blurTaking.signal('focus');
+    await blurTaking.answer('take-control', 'interactive');
+    assert.equal(blurTaking.clients.length, 1, 'blur intent during Take must not attach interactive ticket');
+    assert.equal(blurTaking.nodes['#status'].textContent, 'Releasing Control…');
+    await blurTaking.answer('release-control', 'view-only'); await inFlight;
+    blurTaking.clients.at(-1).emit('connect');
+    assert.equal(blurTaking.nodes['#take-control'].hidden, false);
+
+    const lateError = boot({controlledTimeout:true}); await lateError.interactive(); lateError.visibility(true);
+    const obsolete = lateError.next('release-control'); const oldTimeout = lateError.timeouts.at(-1);
+    await lateError.nodes['#stop'].onclick(); lateError.visibility(false); await lateError.start();
+    const currentStatus = lateError.nodes['#status'].textContent;
+    oldTimeout.abort(new DOMException('Timeout', 'TimeoutError')); await flush();
+    obsolete.reject(new Error('obsolete release')); await flush();
+    assert.equal(lateError.nodes['#status'].textContent, currentStatus);
+    assert.equal(lateError.nodes['#take-control'].hidden, false);
+    assert.equal(lateError.clients.at(-1).closed, false);
+
+    const diag = page.main.viewerDiagnostics.filter(r => r.event.startsWith('visibility_'));
+    assert.ok(diag.some(r => r.switching && r.release_required && r.mode === 'interactive'));
+    for (const r of diag) {
+        assert.ok(Object.keys(r).every(k => ['event','attempt','at_ms','mode','switching','release_required','connected'].includes(k)));
+    }
+    assert.ok(page.main.viewerDiagnostics.length <= 64);
 
     const connecting = boot(); const starting = connecting.nodes['#start'].onclick(); await flush(); connecting.visibility(true);
     await connecting.answer('start', 'view-only'); await starting; connecting.clients[0].emit('connect');

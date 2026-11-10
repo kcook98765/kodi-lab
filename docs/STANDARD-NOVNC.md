@@ -46,7 +46,10 @@ ownership and excludes conflicting agent/Web input. Release Control proves nativ
 input neutralization and restores agent input. Hiding the tab automatically
 releases control through that same verified handoff and continues view-only.
 A mode handoff briefly replaces the video connection; an already view-only
-connection remains open across tab changes. Returning never takes control.
+connection remains open across tab changes. Returning never takes control. Window focus loss also releases control, including
+focus moving to browser chrome or another application. While release is pending,
+the status shows Releasing Control and input controls are hidden; Take Control
+is offered only after verified release and connection of the view-only successor.
 Unproven release closes viewing and keeps input reserved until cleanup is proven.
 Stop Viewing, disconnect, page exit, logout or identity change ends viewing. The absolute session maximum is ten
 minutes across handoffs; start a new session explicitly after expiry. See
