@@ -1474,8 +1474,35 @@ class McpTargetToolService:
     def workspace_launch(
         self, principal: McpPrincipal, operation: WorkspaceLaunchInput
     ) -> WorkspaceLaunchResult:
+        return self._launch_workspace(
+            principal, operation, tool_name="workspace_launch"
+        )
+
+    def development_launch(
+        self, principal: McpPrincipal, operation: WorkspaceLaunchInput
+    ) -> WorkspaceLaunchResult:
+        return self._launch_workspace(
+            principal, operation, tool_name="development_launch"
+        )
+
+    def _launch_workspace(
+        self,
+        principal: McpPrincipal,
+        operation: WorkspaceLaunchInput,
+        *,
+        tool_name: Literal["workspace_launch", "development_launch"],
+    ) -> WorkspaceLaunchResult:
+        if tool_name == "development_launch":
+            with self._session_factory() as session:
+                self._authorization.recheck_workspace_launch(
+                    session,
+                    principal,
+                    operation.workspace_id,
+                    operation.target_id,
+                    tool_name=tool_name,
+                )
         self._authorization.authorize_workspace_target(
-            principal, "workspace_launch", operation.workspace_id, operation.target_id
+            principal, tool_name, operation.workspace_id, operation.target_id
         )
         if self._workspace_launch is None:
             raise McpAuthorizationError("capability_unavailable")
@@ -1488,7 +1515,11 @@ class McpTargetToolService:
                 target_id=operation.target_id,
                 extension_ordinal=operation.extension_ordinal,
                 authorize=lambda session: self._authorization.recheck_workspace_launch(
-                    session, principal, operation.workspace_id, operation.target_id
+                    session,
+                    principal,
+                    operation.workspace_id,
+                    operation.target_id,
+                    tool_name=tool_name,
                 ),
             )
         except (

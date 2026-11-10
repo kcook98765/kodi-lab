@@ -75,6 +75,7 @@ EXPLICIT_SOURCE_CAPTURE_PERMISSIONS = frozenset(
 )
 EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS = frozenset({"managed.lifecycle"})
 EXPLICIT_MANAGED_VERSION_PERMISSIONS = frozenset({"managed.versions"})
+EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS = frozenset({"development.launch"})
 EXPLICIT_MANAGED_RESET_PERMISSIONS = frozenset({"managed.reset"})
 EXPLICIT_NATIVE_ZIP_PERMISSIONS = frozenset({"addon.install"})
 EXPLICIT_ADDON_SETTINGS_PERMISSIONS = frozenset({"development.settings.write"})
@@ -412,6 +413,7 @@ class McpAdministrationService:
                     | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
+                    | EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS
                 )
                 if not template_permissions.issubset(known_permissions):
                     raise McpAdministrationError("mcp_preset_template_invalid")
@@ -423,6 +425,7 @@ class McpAdministrationService:
                     | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_NATIVE_ZIP_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
+                    | EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS
                     if template_preset_id
                     in {ADDON_DEVELOPMENT_PRESET_ID, FULL_LAB_CONTROL_PRESET_ID}
                     and permissions is not None

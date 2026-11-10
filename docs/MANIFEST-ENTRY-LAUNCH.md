@@ -1,6 +1,12 @@
 # Direct managed add-on launch
 
-`workspace_launch` opens one explicitly selected script or plugin entry point of
+For a trusted local development agent, use the opt-in `development_launch` tool
+with [the explicit local development preset](TRUSTED-LOCAL-DEVELOPMENT.md).
+It calls the same launch coordinator and requires the exact bound Current Kodi
+project, `development.launch` and `workspace.inspect` on client and target policy.
+It does not require `target.control` or grant navigation or recovery authority.
+
+The existing `workspace_launch` opens one explicitly selected script or plugin entry point of
 an already deployed add-on on a **managed disposable development** target. It
 requires the existing `target.control` and `development.execute` permissions in
 both the client preset and target policy, the exact target grant, and the
@@ -21,7 +27,8 @@ runtime, grant permissions, or run a caller's command/path/arguments.
 3. Deploy that exact generation with `workspace_deploy`. A new launch verifies
    the latest deployment for this workspace/target, the installed tree, enabled
    identity, runtime revision, container and current observation epoch.
-4. Call `workspace_launch` with `request_id`, `workspace_id`,
+4. Call `development_launch` for the explicitly approved selected project, or
+   the existing `workspace_launch` under its legacy permissions, with `request_id`, `workspace_id`,
    `expected_generation`, `target_id`, and the chosen `extension_ordinal`.
 5. Only an `accepted` receipt means the fixed dispatch was accepted. Inspect
    `inspect_ui_state` and `screenshot_capture` to confirm the intended window,

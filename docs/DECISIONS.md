@@ -7937,3 +7937,22 @@ Current Kodi owns this workflow and retains its version/profile selection and
 native preparation controls. Manual source and grant administration remain
 Advanced. Project readiness is separate from native readiness, Bridge trust,
 installation and deployment. See [scope and implementation assessment](LOCAL-PROJECT-ONBOARDING.md).
+
+
+## D-0488: Opt-in selected managed development launch reuses launch receipts
+
+`development.launch` is an explicit custom-preset opt-in under the development
+permission ceilings. It is absent from built-in presets and all implicit clones.
+The `development_launch` tool also requires workspace inspection and exact current
+client source, owner binding and managed target grants, with the same permissions
+on the target policy. Its source/workspace/runtime/target must match the bound
+Current Kodi selection. It invokes the existing workspace launch coordinator,
+validation, deployed-tree proof, native/Bridge binding, rates, use coordination,
+receipts, status-only replay and uncertainty fences. No schema or existing preset
+is changed. The legacy launch and ambiguous-smoke recovery permissions remain.
+
+This is the launch slice of #285. Narrow navigation requires workspace/generation
+and verified-installation evidence bound to the existing remote-action receipt and
+coordinated dispatch; that work is deferred. No broad target.control, navigation,
+Reset, settings, promotion or external/production authority follows this opt-in.
+See [trusted local development](TRUSTED-LOCAL-DEVELOPMENT.md).

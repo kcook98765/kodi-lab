@@ -214,6 +214,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_import",
         "workspace_execute",
         "workspace_launch",
+        "development_launch",
         "addon_settings_set",
         "addon_settings_result",
         "workspace_execution_recover",
@@ -1194,6 +1195,23 @@ def build_mcp_http_transport(
             annotations=execution_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "development_launch": Tool(
+            name="development_launch",
+            title="Launch the selected managed development add-on",
+            description=(
+                "Opt-in development.launch and workspace.inspect, with exact client "
+                "source/workspace/target grants and target policy. Launch one verified "
+                "deployed manifest entry only for the bound Current Kodi selection. "
+                "Uses existing launch receipts and rate limits; replay never launches "
+                "again. Acceptance is dispatch only. No target.control, arbitrary "
+                "commands, arguments, navigation, settings, Reset or external control. "
+                "Inspect UI and screenshots through separate inspection authority."
+            ),
+            input_schema=WorkspaceLaunchInput.model_json_schema(),
+            output_schema=WorkspaceLaunchResult.model_json_schema(),
+            annotations=execution_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_launch": Tool(
             name="workspace_launch",
             title="Launch a deployed manifest entry point",
@@ -1817,15 +1835,20 @@ def build_mcp_http_transport(
                     result.target_id,
                     result.generation,
                 )
-            elif params.name == "workspace_launch":
+            elif params.name in {"workspace_launch", "development_launch"}:
                 parsed_launch = WorkspaceLaunchInput.model_validate(arguments)
                 workspace_id, target_id = (
                     parsed_launch.workspace_id,
                     parsed_launch.target_id,
                 )
                 request_id = parsed_launch.request_id
+                launch_method = (
+                    tools.development_launch
+                    if params.name == "development_launch"
+                    else tools.workspace_launch
+                )
                 result = await asyncio.to_thread(
-                    tools.workspace_launch, principal, parsed_launch
+                    launch_method, principal, parsed_launch
                 )
             elif params.name == "workspace_execute":
                 parsed_execution = WorkspaceExecuteInput.model_validate(arguments)
@@ -2382,6 +2405,7 @@ def _tool_capability(tool_name: str) -> str:
         "log_read": "target_inspect",
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
+        "development_launch": "workspace_execution",
         "screenshot_capture": "screenshot",
     }.get(tool_name, "not_applicable")
 
