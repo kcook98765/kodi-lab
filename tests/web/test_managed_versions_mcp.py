@@ -88,13 +88,34 @@ def call(
     return cast(dict[str, Any], response.json()["result"])
 
 
+@pytest.mark.parametrize("trusted_development", [False, True])
 def test_wire_status_start_stop_use_version_without_raw_runtime_identity(
-    client: TestClient, database: sessionmaker[Session], broker: Broker
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    trusted_development: bool,
 ) -> None:
-    token, target, _ = authority(client, database)
+    from tests.application.test_development_launch import PERMISSIONS
+
+    token, target, _ = authority(
+        client,
+        database,
+        permissions=PERMISSIONS
+        if trusted_development
+        else frozenset({"managed.versions"}),
+    )
     inventory = _post(client, token, "tools/list").json()["result"]["tools"]
     tools = {tool["name"]: tool for tool in inventory}
-    assert set(tools) == {"managed_status", "managed_start", "managed_stop"}
+    assert {"managed_status", "managed_start", "managed_stop"} <= set(tools)
+    if trusted_development:
+        assert "development_launch" in tools
+        assert not {
+            "remote_action",
+            "managed_reset",
+            "workspace_execution_recover",
+        } & set(tools)
+    else:
+        assert set(tools) == {"managed_status", "managed_start", "managed_stop"}
     assert set(tools["managed_start"]["inputSchema"]["properties"]) == {
         "version",
         "request_id",

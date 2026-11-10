@@ -151,9 +151,10 @@
       <section>
         <h2>Create custom preset</h2>
         <p>For ordinary external production inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
+        <p><a href="https://github.com/kcook98765/kodi-lab/blob/main/docs/TRUSTED-LOCAL-DEVELOPMENT.md">Configure a trusted local development agent</a> with separate managed Start/Stop and selected-project launch permissions.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Permission ceiling <select name="template_preset_id" required><option value="" selected data-permissions="">Choose a permission ceiling…</option>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <label>Permission ceiling <select name="template_preset_id" required><option value="" selected data-permissions="">Choose a permission ceiling…</option>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle', 'managed.versions', 'managed.reset', 'addon.install', 'development.settings.write', 'development.launch')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
           {% set permission_labels = {
             'target.inspect': 'Inspect Kodi health, add-ons and UI state',
             'target.visual': 'Legacy visual permission (not required for screenshots)',
@@ -167,6 +168,7 @@
             'workspace.edit': 'Edit workspace files',
             'workspace.inspect': 'Read and validate workspaces',
             'workspace.deploy': 'Deploy workspace builds',
+            'development.launch': 'Launch a deployed manifest entry of the selected managed development project',
             'development.execute': 'Execute development builds',
             'development.settings.write': 'Write ordinary settings of the selected managed development add-on',
             'development.request_promotion': 'Request build promotion'
@@ -180,6 +182,7 @@
               ('Clean managed Reset', 'Separate destructive opt-in. Replaces only an exact granted canonical Kodi profile, preserving independent development work. Also requires managed.versions. No additional Web confirmation per agent request.', ['managed.reset']),
               ('Native repository installation', 'Explicit opt-in for exact granted disposable targets. Kodi UI consent and installation remain required.', ['addon.install']),
               ('Development sources and workspaces', 'Access to development files and validation. Source grants and workspace bindings still apply.', ['development_source.inspect', 'workspace.capture', 'workspace.edit', 'workspace.inspect']),
+              ('Selected managed development launch', 'Explicit opt-in for the exact current project and managed Kodi. Requires a verified deployed generation and manifest entry. Does not grant general control, navigation, settings, Reset, external access or recovery authority.', ['development.launch']),
               ('Deployment and execution', 'Can deploy or run development builds, or request promotion. These are not ordinary inspection permissions.', ['workspace.deploy', 'development.execute', 'development.settings.write', 'development.request_promotion']),
               ('Other permissions', 'Additional exact permissions available under the selected ceiling.', custom_preset_permissions | reject('in', permission_labels) | list)
             ] %}

@@ -116,8 +116,11 @@ enable/start the add-on, or give an agent new permissions. Follow the
    its generation and reused deployment identity. See
    [verified no-op eligibility and receipts](VERIFIED-NOOP-DEPLOYMENT.md).
    Select an eligible `launch_entries`
-   ordinal and use `workspace_launch` when the installed server and reviewed
-   Bridge support it. Launch acceptance establishes dispatch, not the intended
+   ordinal and use `development_launch` for an explicitly approved selected
+   managed project, or `workspace_launch` under its existing permissions, when
+   the installed server and reviewed Bridge support it. The
+   [trusted local preset](TRUSTED-LOCAL-DEVELOPMENT.md) grants launch separately
+   from general Kodi control; navigation remains deferred. Launch acceptance establishes dispatch, not the intended
    window, completed execution or functional acceptance: inspect the UI and
    test the feature. `workspace_execute` remains a bounded video-plugin smoke
    test, not a generic script or mixed-manifest launcher. See

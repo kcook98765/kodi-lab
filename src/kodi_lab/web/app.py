@@ -331,6 +331,7 @@ from kodi_lab.application.managed_versions import (
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
     EXPLICIT_ADDON_SETTINGS_PERMISSIONS,
+    EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS,
     EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS,
     EXPLICIT_MANAGED_RESET_PERMISSIONS,
     EXPLICIT_MANAGED_VERSION_PERMISSIONS,
@@ -3933,6 +3934,7 @@ def create_app(
                     | EXPLICIT_MANAGED_VERSION_PERMISSIONS
                     | EXPLICIT_MANAGED_RESET_PERMISSIONS
                     | EXPLICIT_ADDON_SETTINGS_PERMISSIONS
+                    | EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS
                 ),
                 "capture_permission_template_ids": {
                     ADDON_DEVELOPMENT_PRESET_ID,

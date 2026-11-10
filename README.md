@@ -237,6 +237,10 @@ permissions. [Workflow details and supported layouts](docs/LOCAL-PROJECT-ONBOARD
 include replay and recovery behavior. Manual source registration and advanced
 client grants remain available for unusual cases under **More options and Advanced**.
 
+For an explicitly approved local agent, [trusted local development setup](docs/TRUSTED-LOCAL-DEVELOPMENT.md)
+provides managed Start/Stop, editing, deployment and Program entry launch without
+general Kodi control. Navigation remains a separate follow-up.
+
 ## Connect Your AI Agent
 
 Open **Agents** in Web and use a separate client for each agent. Choose the

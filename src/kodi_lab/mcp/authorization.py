@@ -343,10 +343,11 @@ class McpAuthorizationService:
             raise McpAuthorizationError("workspace_not_found_or_not_authorized")
         target = session.get(TargetRow, str(target_id))
         assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+        instance = session.get(ManagedInstanceRow, str(target_id))
         if (
             target is None
             or target.target_type is not TargetType.MANAGED
-            or session.get(ManagedInstanceRow, str(target_id)) is None
+            or instance is None
             or assignment is None
             or session.get(
                 McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
@@ -358,6 +359,29 @@ class McpAuthorizationService:
             self._permissions(session, assignment.preset_id)
         ):
             raise McpAuthorizationError("permission_denied")
+
+        if tool_name == "development_launch":
+            from kodi_lab.storage.development_sessions import (
+                DevelopmentSessionConflict,
+                active_session,
+            )
+
+            try:
+                current = active_session(session)
+            except DevelopmentSessionConflict as error:
+                raise McpAuthorizationError(
+                    "development_session_requires_review"
+                ) from error
+            if (
+                current is None
+                or current.phase != "bound"
+                or current.target_id != str(target_id)
+                or current.workspace_id != str(workspace_id)
+                or current.source_id != binding.development_source_id
+                or current.runtime_revision_id != instance.runtime_revision_id
+                or current.container_id is None
+            ):
+                raise McpAuthorizationError("development_session_requires_review")
 
     def recheck_managed_lifecycle(
         self,
