@@ -11,7 +11,7 @@
     <button type="button" id="back" hidden disabled>Back</button>
   </div>
   <label class="typing" hidden>Type in Kodi <input id="text-input" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-  <p id="status" role="status">Viewing is off.</p>
-  <p class="secondary">Starts view-only. Take Control blocks conflicting agent input. No audio. Sessions end after 10 minutes.</p>
+  <p id="status" role="status" aria-atomic="true">Viewing is off.</p>
+  <p class="secondary">Starts view-only. Take Control blocks conflicting agent input. No audio. Sessions end after 10 minutes; Start Viewing requests a new session after viewing ends. <a href="/instances/{{ instance_id }}#instance-controls-heading">Kodi status and recovery</a>.</p>
 </section>
 {% endmacro %}
