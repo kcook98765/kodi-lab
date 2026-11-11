@@ -20,6 +20,8 @@
     try { await work(); } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
   };
   const showToken = (payload, card) => {
+    card.dataset.activeCredential = "true";
+    card.dispatchEvent(new Event("mcp-credential-issued", {bubbles: true}));
     const box = root.querySelector("[data-token-result]");
     box.querySelector("[data-token-client]").textContent = `For ${card.querySelector("summary strong").textContent}`;
     box.querySelector("[data-token]").textContent = payload.token;
@@ -71,8 +73,9 @@
       await request(`/api/mcp/clients/${id}/rename`, "POST", {display_name: new FormData(event.currentTarget).get("display_name")});
       location.reload();
     }));
-    card.querySelector("[data-client-preset]")?.addEventListener("change", (event) => run(async () => {
-      await request(`/api/mcp/clients/${id}/preset`, "POST", {preset_id: event.currentTarget.value});
+    card.querySelector("[data-assign-client-preset]")?.addEventListener("submit", (event) => run(async () => {
+      event.preventDefault();
+      await request(`/api/mcp/clients/${id}/preset`, "POST", {preset_id: card.querySelector("[data-client-preset]").value});
       location.reload();
     }));
     card.addEventListener("click", (event) => run(async () => {
@@ -97,6 +100,7 @@
   });
   root.querySelectorAll("[data-target-policy]").forEach((row) => row.querySelector("button")?.addEventListener("click", () => run(async () => {
     if (!row.querySelector("select").reportValidity()) return;
+    if (!confirm("Changing this shared Kodi policy affects every client granted this Kodi and may remove or broaden their access. If the policy may have changed since this page loaded, cancel and reload to review it first. Save the selected policy?")) return;
     await request(`/api/mcp/target-policies/${row.dataset.targetPolicy}`, "POST", {preset_id: row.querySelector("select").value});
     location.reload();
   })));
