@@ -6,6 +6,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.lifecycle_operations import RunningLifecycleOperation
+from kodi_lab.application.managed_resources import ManagedResourceService
 from kodi_lab.application.managed_runtime_admission import require_managed_runtime
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.application.runtime_lifecycle import ManagedRuntimeLifecycleService
@@ -39,9 +40,15 @@ class ManagedBridgePreparationService:
     """One child per explicit continuation; passive reads never dispatch work."""
 
     def __init__(
-        self, sessions: sessionmaker[Session], lifecycle: ManagedRuntimeLifecycleService
+        self,
+        sessions: sessionmaker[Session],
+        lifecycle: ManagedRuntimeLifecycleService,
+        resources: ManagedResourceService | None = None,
     ) -> None:
         self.sessions, self.lifecycle = sessions, lifecycle
+        self.resources = resources or ManagedResourceService(
+            sessions, lifecycle._broker, lifecycle
+        )
 
     def _idle(self, session: Session, target_id: str) -> None:
         if (
@@ -307,6 +314,35 @@ class ManagedBridgePreparationService:
             if row is None or row.version != op.version or row.checkpoint != "pending":
                 raise BridgePreparationError("managed_bridge_stale_preparation")
             self._binding(session, row)
+            self.resources._guard(
+                session, UUID(row.target_id), reason="released", actor="web"
+            )
+
+        def before_stop() -> None:
+            def guarded() -> None:
+                with self.sessions.begin() as session:
+                    session.execute(text("BEGIN IMMEDIATE"))
+                    row = session.get(Row, op.id)
+                    if (
+                        row is None
+                        or row.checkpoint != "dispatched"
+                        or self.child_id(row) != child_id
+                    ):
+                        raise BridgePreparationError("managed_bridge_claim_changed")
+                    self._binding(session, row, epoch=False)
+                    self.resources._guard(
+                        session,
+                        UUID(op.target_id),
+                        reason="released",
+                        actor="web",
+                        own_operation_id=child_id,
+                    )
+
+            guarded()
+            self.resources._playback_evidence(
+                UUID(op.target_id), expected_container_id=op.container_id
+            )
+            guarded()
 
         def claim(session: Session, handle: RunningLifecycleOperation) -> None:
             row = session.get(Row, op.id)
@@ -402,6 +438,7 @@ class ManagedBridgePreparationService:
                     precondition=pending,
                     on_claim=claim,
                     on_terminal=terminal,
+                    before_restart=before_stop,
                 )
             else:
                 self.lifecycle.stop(
@@ -411,6 +448,7 @@ class ManagedBridgePreparationService:
                     precondition=pending,
                     on_claim=claim,
                     on_terminal=terminal,
+                    before_dispatch=before_stop,
                 )
         except Exception:
             current = self.get(identity)

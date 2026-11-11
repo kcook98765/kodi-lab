@@ -436,6 +436,51 @@ class ManagedBridgeTrustService:
             ):
                 raise ManagedBridgeTrustError("managed_bridge_establishment_failed")
 
+    def maintenance_installed_current(
+        self, target_id: UUID, *, preparation_id: UUID
+    ) -> bool:
+        """Native absence/disablement needs repair even if old trust is active."""
+        from kodi_lab.kodi.readiness import (
+            JsonRpcInvalidResponseError,
+            JsonRpcMethodError,
+        )
+
+        with self._gate.enter(target_id):
+            observed, profile = self._admit(target_id, preparation_id=preparation_id)
+            try:
+                result = self._call(
+                    observed,
+                    profile,
+                    "Addons.GetAddonDetails",
+                    {
+                        "addonid": "service.kodi_lab_bridge",
+                        "properties": ["enabled", "version"],
+                    },
+                )
+            except JsonRpcMethodError as error:
+                # Kodi GetAddonDetails reports native absence as InvalidParams.
+                # Other errors and malformed responses retain active credentials.
+                if error.code != -32602:
+                    raise
+                return False
+            addon = result.get("addon") if isinstance(result, dict) else None
+            if (
+                not isinstance(addon, dict)
+                or addon.get("addonid") != "service.kodi_lab_bridge"
+                or type(addon.get("enabled")) is not bool
+                or not isinstance(addon.get("version"), str)
+            ):
+                raise JsonRpcInvalidResponseError("managed Bridge details are invalid")
+            return (
+                addon.get("addonid"),
+                addon.get("enabled"),
+                addon.get("version"),
+            ) == (
+                "service.kodi_lab_bridge",
+                True,
+                approved_bridge_build(profile.kodi_release.canonical)["addon_version"],
+            )
+
     def verify_maintenance(self, target_id: UUID, *, preparation_id: UUID) -> None:
         """Authenticate reviewed trust and verify native enablement separately."""
         with self._gate.enter(target_id):

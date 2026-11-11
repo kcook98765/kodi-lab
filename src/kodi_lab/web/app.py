@@ -2611,7 +2611,7 @@ def create_app(
     from kodi_lab.web.bridge_preparation import bridge_preparation_router
 
     bridge_preparation = ManagedBridgePreparationService(
-        session_factory, lifecycle_service
+        session_factory, lifecycle_service, resources
     )
     app.include_router(
         bridge_preparation_router(bridge_preparation, current_session, mutation_session)

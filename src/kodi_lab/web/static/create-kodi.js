@@ -11,7 +11,7 @@
   const byTarget = target => json(`${api}/by-target/${target}?missing=empty`);
   const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
   const generations = new Set(["matrix", "nexus", "omega", "piers"]);
-  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Preparing Bridge", "Stopping Kodi", "Ready", "Installed", "Needs attention"]);
+  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Preparing Bridge", "Stopping Kodi", "Prepared", "Ready", "Installed", "Needs attention"]);
   const actions = new Set(["continue", "wait", "check_again", "needs_attention", "complete"]);
   const csrf = document.querySelector('meta[name="kodi-lab-csrf"]').content;
   let snapshot = JSON.parse(document.querySelector("#create-kodi-config").textContent);

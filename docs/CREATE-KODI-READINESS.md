@@ -100,7 +100,7 @@ readiness separate. None of those endpoints, runner or wizard is implemented her
 
 For new Web requests, native Complete is a native evidence checkpoint. Web Create
 then continues a separate exact-target Bridge maintenance receipt and reports
-Ready only after reviewed installation, authentication and the requested final
+Prepared only after reviewed installation, authentication and the requested final
 stopped/running state are verified. This adapter remains observation-only;
 `ManagedBridgePreparationService` owns the subsequent lifecycle mutations.
 Historical native-only receipts are never reopened. See

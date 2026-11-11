@@ -483,6 +483,15 @@ def test_reset_note_survives_start_but_old_receipt_remains_historical(
     )
     reply = act(client, csrf, "reset", payload=original)
     assert reply.status_code == 200 and reply.json()["phase"] == "complete", reply.text
+    assert broker.starts == 0 and broker.removals == 1
+    assert slot(client)["state"] == "stopped"
+    from kodi_lab.storage.models import ManagedBridgePreparationRow
+
+    with database() as session:
+        assert list(session.scalars(select(ManagedBridgePreparationRow))) == []
+    page = client.get("/managed-kodi").text
+    assert "Narrow Bridge preparation is incomplete" in page
+    assert '#bridge-preparation">Prepare/Repair Bridge for this Kodi</a>' in page
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
     assert slot(client)["reset_note"] and slot(client)["state"] == "running"

@@ -25,6 +25,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.readiness import (
     JsonRpcInvalidResponseError,
+    JsonRpcMethodError,
     JsonRpcState,
     JsonRpcUnavailableError,
     KodiApplicationIdentity,
@@ -113,6 +114,49 @@ class FakeTransport:
         if isinstance(result, BaseException):
             raise result
         return result
+
+
+@pytest.mark.parametrize("code", [-32602, -32603])
+def test_fixed_request_preserves_valid_method_error_code(code: int) -> None:
+    transport = FakeTransport(
+        [
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "fixture",
+                    "error": {"code": code, "message": "private server detail"},
+                }
+            ).encode()
+        ]
+    )
+    adapter = KodiJsonRpcReadinessAdapter(observation(), profile(), transport=transport)
+    with pytest.raises(JsonRpcMethodError) as caught:
+        adapter._fixed_request("fixture", "Addons.GetAddonDetails", {})
+    assert caught.value.code == code
+    assert "private server detail" not in str(caught.value)
+
+
+@pytest.mark.parametrize("defect", ["wrong_id", "both", "bad_code", "bad_message"])
+def test_fixed_request_keeps_malformed_method_errors_uncertain(defect: str) -> None:
+    document: dict[str, object] = {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {"code": -32602, "message": "fixture"},
+    }
+    if defect == "wrong_id":
+        document["id"] = "other"
+    elif defect == "both":
+        document["result"] = {}
+    else:
+        document["error"] = {
+            "code": True if defect == "bad_code" else -32602,
+            "message": None if defect == "bad_message" else "fixture",
+        }
+    transport = FakeTransport([json.dumps(document).encode()])
+    adapter = KodiJsonRpcReadinessAdapter(observation(), profile(), transport=transport)
+    with pytest.raises(JsonRpcInvalidResponseError) as caught:
+        adapter._fixed_request("fixture", "Addons.GetAddonDetails", {})
+    assert not isinstance(caught.value, JsonRpcMethodError)
 
 
 def response(request_id: str, result: object) -> bytes:

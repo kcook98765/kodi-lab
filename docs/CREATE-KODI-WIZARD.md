@@ -21,7 +21,7 @@ storage stay advisory. The API repeats its own admission checks.
 
 The browser uses the existing acceptance and continuation APIs. There are no
 per-stage approval prompts. The visible phases are Preparing Kodi, Setting up
-Kodi, Starting Kodi, Checking Kodi, Preparing Bridge, Stopping Kodi, Ready and
+Kodi, Starting Kodi, Checking Kodi, Preparing Bridge, Stopping Kodi, Prepared and
 Needs attention, without percentages. Agent access remains a separate explicit
 authorization. Setup details distinguish installation, native evidence, Bridge
 installation, trust and recovery. Existing native-only requests retain their
@@ -107,7 +107,8 @@ Verified failed installation links to existing installation records. Uncertain
 provision/Start links to the exact instance history/recovery surface. There is no
 generic Retry, reset, replacement, repin or new-attempt mechanism.
 
-Ready records successful preparation for the original request. New requests
+Prepared records successful preparation for a new Bridge-required request. Historical
+native-only receipts retain Ready or Installed. New requests
 include native and reviewed Bridge evidence plus the requested final state;
 older native-only requests retain their original meaning. Current availability
 is separate.

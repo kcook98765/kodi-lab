@@ -39,7 +39,7 @@
     return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
   }
   const validUUID = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
-  async function request(url, body) {
+  async function request(url, body, expected = null) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), body ? 90000 : 15000);
     try {
@@ -48,6 +48,7 @@
       if (!response.ok) throw new Error('unconfirmed');
       const result = await response.json();
       if (result !== null && (!validUUID(result.operation_id) || !validUUID(result.request_id) || result.target_id !== target || !Number.isSafeInteger(result.version) || result.version < 0 || !['start', 'bridge', 'stop', 'complete'].includes(result.phase) || !['pending', 'dispatched', 'needs_attention', 'complete'].includes(result.checkpoint))) throw new Error('invalid receipt');
+      if (body && !result || expected && (!result || result.operation_id !== expected.operation_id || result.request_id !== expected.request_id || result.version < expected.version) || body?.request_id && result.request_id !== body.request_id) throw new Error('changed original receipt');
       return result;
     } finally { clearTimeout(timer); }
   }
@@ -63,7 +64,7 @@
       const raw = localStorage.getItem(key);
       saved = raw ? JSON.parse(raw) : null;
       if (saved && (!validUUID(saved.request_id) || saved.operation_id && !validUUID(saved.operation_id))) throw new Error('invalid saved identity');
-      const found = await request(saved?.operation_id ? `${base}/${saved.operation_id}` : base);
+      const found = await request(saved?.operation_id ? `${base}/${saved.operation_id}` : base, null, saved?.operation_id ? {...saved, version:0} : null);
       if (saved && found && found.request_id !== saved.request_id) {
         // A lost acceptance response is recovered using the SAME request only
         // after an explicit click, never by adopting another receipt.
@@ -77,7 +78,7 @@
     } finally { busy = false; controls(); }
   }
   button.addEventListener('click', async () => {
-    if (busy || uncertain) return;
+    if (busy || uncertain || button.disabled) return;
     busy = true; controls();
     try {
       if (!receipt || receipt.checkpoint === 'complete' || receipt.recovery_action === 'prepare_current') {
@@ -86,14 +87,14 @@
         receipt = await request(base, {request_id: requestId, keep_running: false});
         store({request_id: receipt.request_id, operation_id: receipt.operation_id});
       } else if (receipt.checkpoint === 'needs_attention') {
-        receipt = await request(`${base}/${receipt.operation_id}/resume`, {version: receipt.version});
+        receipt = await request(`${base}/${receipt.operation_id}/resume`, {version: receipt.version}, receipt);
       }
       if (receipt.checkpoint === 'dispatched') {
-        receipt = await request(`${base}/${receipt.operation_id}/continue`, {version: receipt.version});
+        receipt = await request(`${base}/${receipt.operation_id}/continue`, {version: receipt.version}, receipt);
       }
       for (let steps = 0; steps < 4 && receipt.checkpoint === 'pending'; steps += 1) {
         render();
-        receipt = await request(`${base}/${receipt.operation_id}/continue`, {version: receipt.version});
+        receipt = await request(`${base}/${receipt.operation_id}/continue`, {version: receipt.version}, receipt);
       }
       render();
     } catch (_) {

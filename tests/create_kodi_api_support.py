@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from uuid import UUID
@@ -98,6 +99,9 @@ class WebEnvironment:
                 broker=self.broker,
                 auth=WebAuthenticationService(sessions),
                 coordinator_factory=coordinator,
+                managed_playback_factory=lambda *_: SimpleNamespace(
+                    playback_active=lambda: False
+                ),
             )
         # Every outbound Bridge/native transport is isolated as well. Create
         # now exercises real trust admission after its native preparation.

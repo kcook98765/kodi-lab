@@ -85,6 +85,9 @@ native/trust evidence and must not advertise live Bridge availability.
 
 ## Acceptance boundary
 
+This section records the original draft campaign's boundary. The final review and
+application integration are separately authorized; native acceptance remains pending.
+
 Focused fixture tests must cover version selection, fresh installation, valid
 no-op, invalidated retained trust, stopped/default and optional running outcomes,
 selection preservation, concurrent admission, interrupted dispatch and replay,
@@ -109,7 +112,7 @@ The normal workflow has no additional checkbox or Bridge approval. Web Create
 always prepares native Kodi for new Bridge-required requests, then continues its
 separate maintenance receipt. The browser's exposed version includes both
 ledgers, so competing stale continuations cannot advance a later phase. A native
-Complete checkpoint alone does not produce overall Ready. Default success has
+Complete checkpoint alone does not produce overall Prepared. Default success has
 one provisioning, two native Starts, two graceful Stops and one reviewed staging;
 optional running completion omits the final Stop. Each native Start has distinct
 single-use authority. A current authenticated Bridge reuses its generation and
@@ -241,3 +244,55 @@ also remain; controller/markup assertions are not those acceptance claims.
 The delivery endpoint is the issue, this architecture/validation assessment and
 one draft PR. Merge, deployment, issue closure and release/native acceptance
 require later owner review.
+
+## Final review of PR #301
+
+The owner separately authorized final review and supported application integration,
+with no live Kodi operations. New setup success is labelled **Prepared**; historical
+native-only Create receipts retain their original Ready/Installed semantics.
+
+Maintenance now reuses `ManagedResourceService` guards before claiming a child,
+before staging, immediately before the internal Stop, and before final Stop. This
+protects keep-awake holds, viewer/input ownership, reservations and reconciliation.
+Each Stop additionally requires native no-playback evidence for the exact container;
+unknown playback fails closed. Late protection failures after staging retain the
+uncertainty barrier and child history. A rejected final Stop retains verified Bridge
+evidence but cannot complete setup. A definite pre-dispatch failure can resume the
+same parent after the protection is cleared; a lost Stop response needs typed
+reconciliation before another attempt.
+
+Active stored trust no longer prevents explicit repair of a missing, disabled or
+wrong-version native Bridge. A matching native installation and authenticated
+identity remain a no-op. Transport failures, malformed details and unrelated method
+errors preserve active credentials and do not stage replacement bytes. Only a
+well-formed, matching `GetAddonDetails` InvalidParams response indicates native
+absence ([Kodi implementation](https://github.com/xbmc/xbmc/blob/Omega/xbmc/interfaces/json-rpc/AddonsOperations.cpp)).
+The shared JSON-RPC adapter retains its existing invalid-response superclass while
+exposing a typed method error code without retaining server error text. Browser
+continuations reject changed request/operation identities or older receipt versions.
+
+### Clean Reset decision
+
+Clean Reset retains its explicit destructive consent, receipts, recovery and
+**stopped clean profile** result. It invalidates earlier Bridge trust; the new
+profile is **not Bridge-prepared**. Ordinary Start never repairs revoked or
+invalidated trust. The Reset notice links to this exact instance's existing
+**Prepare/Repair Bridge** panel, which owns the explicit maintenance request.
+
+Automatic preparation after Reset would add native Starts, a restart and capacity
+requirements to an existing destructive consent contract. It is deferred to
+[issue #302](https://github.com/kcook98765/kodi-lab/issues/302), which requires
+consent-aware composition with immutable Reset/maintenance receipts and recovery.
+This PR does not claim every replacement profile is Bridge-ready.
+
+### Final focused verification
+
+The final review reruns 260 selected cases: maintenance 29, native readiness 68,
+managed resources 14, existing trust 24, retained lifecycle 23, populated-predecessor
+migration/downgrade 2, Web Bridge 5, managed slots/Reset 34, integrated Web 17,
+Create continuation 37 and wizard 7. The earlier 181 directly affected cases whose
+implementation is unchanged retain their recorded passing evidence. These are
+focused selections, not a full regression or release qualification. Ruff format,
+lint and strict mypy cover all 31 changed Python files. Node syntax and both Create
+and Bridge browser-controller harnesses also pass. Native and installed acceptance
+are recorded independently in the authorized integration campaign report.

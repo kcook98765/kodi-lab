@@ -30,7 +30,7 @@ def test_fresh_web_create_defaults_to_bridge_prepared_and_stopped(web: Web) -> N
         if status["complete"]:
             break
         status = step(web, status)
-    assert status["complete"] and status["phase"] == "Ready"
+    assert status["complete"] and status["phase"] == "Prepared"
     assert status["instance"]["state"] == "stopped"
     assert env.broker.provisions == 1 and env.broker.starts == env.broker.stops == 2
     assert status["preparation"] == {

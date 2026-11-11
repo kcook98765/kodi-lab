@@ -387,6 +387,7 @@ class ManagedRuntimeLifecycleService:
         precondition: Callable[[Session], None],
         on_claim: Callable[[Session, RunningLifecycleOperation], None],
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None],
+        before_restart: Callable[[], None],
     ) -> ManagedRuntimeStatus:
         """Web maintenance under ordinary managed authority, with one restart proof.
 
@@ -448,17 +449,30 @@ class ManagedRuntimeLifecycleService:
                     raise ManagedBridgeTrustError("managed_bridge_native_not_ready")
 
             native_ready()
-            if self._bridge_trust.status(target)["state"] == "active":
-                self._bridge_trust.verify_maintenance(
-                    target, preparation_id=preparation_id
-                )
-                return
+            if self._bridge_trust.status(target)[
+                "state"
+            ] == "active" and self._bridge_trust.maintenance_installed_current(
+                target, preparation_id=preparation_id
+            ):
+                try:
+                    self._bridge_trust.verify_maintenance(
+                        target, preparation_id=preparation_id
+                    )
+                    return
+                except ManagedBridgeTrustError:
+                    # Definite identity drift invalidates trust; an explicitly
+                    # requested repair can replace it. Transient reachability
+                    # failures keep active credentials and remain uncertain.
+                    if self._bridge_trust.status(target)["state"] == "active":
+                        raise
             # Prepared intent alone cannot prove a previous staging/restart. A
             # fresh explicit repair stages the reviewed bytes under this owner.
+            before_restart()
             self._bridge_trust.stage_reviewed(target, preparation_id=preparation_id)
             generation = self._bridge_trust.status(target)["generation"]
             assert isinstance(generation, int)
             try:
+                before_restart()
                 self._stop(target, profile, expected_container_id=expected.container_id)
                 result = self._dispatch_start(
                     lambda: cast(

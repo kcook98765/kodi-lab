@@ -581,7 +581,11 @@ class CreateKodiAPI:
         if complete:
             state, phase, message = (
                 "complete",
-                "Ready" if op.start_after_setup or op.bridge_required else "Installed",
+                "Prepared"
+                if op.bridge_required
+                else "Ready"
+                if op.start_after_setup
+                else "Installed",
                 "Kodi setup completed. " + instance.message,
             )
         elif checkpoint is CreateCheckpoint.NEEDS_ATTENTION and not (

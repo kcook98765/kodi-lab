@@ -24,6 +24,7 @@ from kodi_lab.application.managed_bridge_trust import (
     ManagedBridgeTrustService,
     invalidate_managed_bridge_trust,
 )
+from kodi_lab.application.managed_resources import ManagedResourceService
 from kodi_lab.broker.docker_inventory import ContainerHealthState
 from kodi_lab.broker.managed_bridge_trust import (
     approved_bridge_build,
@@ -60,11 +61,25 @@ class Native:
     def __init__(self, env: Environment, version: str) -> None:
         self.env, self.version = env, version
         self.installed = self.enabled = False
+        self.details_fault = ""
 
     def post(self, *, body: bytes, **kwargs: Any) -> bytes:
         request = json.loads(body)
         if request["method"].startswith("Addons."):
             if request["method"] == "Addons.GetAddonDetails":
+                if self.details_fault == "malformed":
+                    return b"not JSON"
+                if self.details_fault or not self.installed:
+                    return json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "error": {
+                                "code": -32603 if self.details_fault else -32602,
+                                "message": "fixture method error",
+                            },
+                        }
+                    ).encode()
                 result: Any = (
                     {
                         "addon": {
@@ -147,7 +162,24 @@ class Setup:
         self.native = Native(self.env, build["addon_version"])
         self.trust.transport = self.native
         self.env.lifecycle._bridge_trust = self.trust
-        self.service = ManagedBridgePreparationService(factory, self.env.lifecycle)
+        self.playback: bool | None = False
+
+        def playback_active() -> bool:
+            if self.playback is None:
+                raise RuntimeError("fixture playback unknown")
+            return self.playback
+
+        resources = ManagedResourceService(
+            factory,
+            self.env.broker,
+            self.env.lifecycle,
+            playback_factory=lambda *_: SimpleNamespace(
+                playback_active=playback_active
+            ),
+        )
+        self.service = ManagedBridgePreparationService(
+            factory, self.env.lifecycle, resources
+        )
         self.env.runner.bridge = self.service
         self.stages = 0
         self.fault = ""
@@ -298,6 +330,99 @@ def test_existing_valid_bridge_checks_without_staging_or_restart(setup: Setup) -
         setup.env.broker.stops,
         setup.stages,
     )
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_active_trust_with_missing_or_disabled_native_bridge_can_be_repaired(
+    setup: Setup, missing: bool
+) -> None:
+    first = setup.finish()
+    setup.native.installed = not missing
+    setup.native.enabled = False
+    current = setup.service.accept(request_id=uuid4(), target_id=UUID(first.target_id))
+    for _ in range(3):
+        current = setup.service.continue_once(UUID(current.id), version=current.version)
+    assert current.checkpoint == "complete", repr(setup.error)
+    assert setup.stages == 2 and setup.native.installed and setup.native.enabled
+    assert current.container_id == first.container_id
+
+
+@pytest.mark.parametrize("fault", ["malformed", "method_error"])
+def test_uncertain_native_details_do_not_replace_active_credentials(
+    setup: Setup, fault: str
+) -> None:
+    setup.native_complete()
+    first = setup.finish()
+    with setup.env.sessions() as session:
+        old = session.get(ManagedBridgeTrustRow, first.target_id)
+        assert old
+        identity = old.generation, old.secret_reference
+    setup.native.details_fault = fault
+    row = setup.service.accept(request_id=uuid4(), target_id=setup.env.op.target_id)
+    for _ in range(3):
+        row = setup.service.continue_once(UUID(row.id), version=row.version)
+        if row.checkpoint == "needs_attention":
+            break
+    assert row.checkpoint == "needs_attention" and setup.stages == 1
+    with setup.env.sessions() as session:
+        current = session.get(ManagedBridgeTrustRow, first.target_id)
+        assert current and current.state == "active"
+        assert (current.generation, current.secret_reference) == identity
+
+
+@pytest.mark.parametrize("playback", [True, None])
+def test_restart_refuses_active_or_unknown_playback_before_staging(
+    setup: Setup, playback: bool | None
+) -> None:
+    setup.native_complete()
+    setup.playback = playback
+    row = setup.finish()
+    assert row.checkpoint == "needs_attention"
+    assert setup.stages == setup.env.broker.stops == 0
+    assert setup.env.broker.provisions == 1
+
+
+def test_keep_awake_protects_maintenance_before_any_child(setup: Setup) -> None:
+    setup.native_complete()
+    setup.service.resources.keep_awake(setup.env.op.target_id, minutes=5)
+    row = setup.finish()
+    assert row.checkpoint == "needs_attention" and setup.stages == 0
+    with setup.env.sessions() as session:
+        assert not list(session.scalars(select(ManagedBridgePreparationChildRow)))
+
+
+@pytest.mark.parametrize("lost_response", [False, True])
+def test_final_stop_failure_keeps_bridge_evidence_and_original_receipt(
+    setup: Setup, monkeypatch: pytest.MonkeyPatch, lost_response: bool
+) -> None:
+    from kodi_lab.broker.errors import ClientTransportError
+
+    setup.native_complete()
+    setup.env.step()
+    setup.env.step()
+    row = setup.service.for_create(setup.env.op.id)
+    assert row and row.phase == "stop" and row.checkpoint == "pending"
+    if lost_response:
+        stop = setup.env.broker.stop_managed_container
+
+        def lose(**kwargs: Any) -> Any:
+            stop(**kwargs)
+            raise ClientTransportError("fixture lost final Stop response")
+
+        monkeypatch.setattr(setup.env.broker, "stop_managed_container", lose)
+    else:
+        setup.playback = True
+    row = setup.service.continue_once(UUID(row.id), version=row.version)
+    assert row.checkpoint == "needs_attention" and row.phase == "stop"
+    assert setup.service.stored_trust(row) == "active" and setup.stages == 1
+    if lost_response:
+        with pytest.raises(BridgePreparationError):
+            setup.service.resume(UUID(row.id), version=row.version)
+    else:
+        setup.playback = False
+        row = setup.service.resume(UUID(row.id), version=row.version)
+        row = setup.service.continue_once(UUID(row.id), version=row.version)
+        assert row.checkpoint == "complete" and setup.stages == 1
 
 
 @pytest.mark.parametrize("fault", ["stage", "restart", "authenticate"])
@@ -497,7 +622,16 @@ def test_retained_nexus_repair_preserves_hub_selection_profiles_and_agent_author
     trust = ManagedBridgeTrustService(sessions, env.broker, store, client=client)
     trust.transport = native
     env.lifecycle._bridge_trust = trust
-    service = ManagedBridgePreparationService(sessions, env.lifecycle)
+    service = ManagedBridgePreparationService(
+        sessions,
+        env.lifecycle,
+        ManagedResourceService(
+            sessions,
+            env.broker,
+            env.lifecycle,
+            playback_factory=lambda *_: SimpleNamespace(playback_active=lambda: False),
+        ),
+    )
     count = 0
 
     def establish(**kwargs: Any) -> EstablishManagedBridgeTrustResult:
