@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import fcntl
 import hashlib
 import json
@@ -26,6 +28,10 @@ from kodi_lab.application.mcp_workspace_mutations import (
     MCP_PRESENT_WORKSPACES_PER_CLIENT,
     McpWorkspaceCreationService,
     WorkspaceCreateResult,
+)
+from kodi_lab.development.addon_zip import (
+    AddonZipValidationError,
+    read_editable_addon_zip,
 )
 from kodi_lab.development.sources import (
     DevelopmentSourceValidationError,
@@ -67,6 +73,17 @@ class ProjectCreateInput(BaseModel):
     kind: Literal["program", "video"] = "program"
 
 
+class ProjectImportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+    request_id: UUID
+    archive_base64: str = Field(
+        min_length=4, max_length=61440, pattern=r"^[A-Za-z0-9+/]+={0,2}$"
+    )
+    archive_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    intake_kind: Literal["reviewed_checkout", "source_zip"]
+    provenance_reference: str = Field(min_length=1, max_length=512)
+
+
 class AgentProjectResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -92,6 +109,7 @@ class AgentProjectSummary(BaseModel):
     display_name: str
     intake_state: str = Field(pattern="^(reserved|seeded)$")
     workspace_ids: tuple[UUID, ...]
+    intake_provenance: dict[str, str | int] | None = None
 
 
 class AgentProjectList(BaseModel):
@@ -162,8 +180,78 @@ def _private_directory(root: Path, *parts: str) -> Iterator[int]:
         os.close(descriptor)
 
 
+def _seed_directory(directory: int, contents: dict[str, bytes]) -> None:
+    files: dict[str, bytes] = {}
+    folders: dict[str, dict[str, bytes]] = {}
+    for path, content in contents.items():
+        parts = path.split("/")
+        if any(
+            part in {"", ".", ".."} or "\\" in part or "\0" in part for part in parts
+        ):
+            raise AgentProjectError("project_storage_unsafe")
+        if len(parts) == 1:
+            files[path] = content
+        else:
+            folders.setdefault(parts[0], {})["/".join(parts[1:])] = content
+    if files.keys() & folders.keys():
+        raise AgentProjectError("project_storage_unsafe")
+    if set(os.listdir(directory)) - (files.keys() | folders.keys()):
+        raise AgentProjectError("project_seed_requires_review")
+    for name, descendants in folders.items():
+        with suppress(FileExistsError):
+            os.mkdir(name, 0o700, dir_fd=directory)
+        child = os.open(name, _DIRECTORY, dir_fd=directory)
+        try:
+            info = os.fstat(child)
+            if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) not in {
+                0o700,
+                0o500,
+            }:
+                raise AgentProjectError("project_storage_unsafe")
+            _seed_directory(child, descendants)
+        finally:
+            os.close(child)
+    for name, content in files.items():
+        try:
+            fd = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=directory,
+            )
+        except FileExistsError:
+            fd = os.open(name, _READ, dir_fd=directory)
+            try:
+                metadata = os.fstat(fd)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                    or metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o400
+                    or metadata.st_size != len(content)
+                    or os.read(fd, len(content) + 1) != content
+                ):
+                    raise AgentProjectError("project_seed_requires_review")
+            finally:
+                os.close(fd)
+        else:
+            try:
+                remaining = memoryview(content)
+                while remaining:
+                    count = os.write(fd, remaining)
+                    if count <= 0:
+                        raise AgentProjectError("project_seed_requires_review")
+                    remaining = remaining[count:]
+                os.fchmod(fd, 0o400)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    os.fchmod(directory, 0o500)
+    os.fsync(directory)
+
+
 def _seed_source(data_root: Path, project_id: UUID, files: dict[str, bytes]) -> None:
-    # Every name below is fixed or a server-generated UUID. No caller host path.
+    # Roots are fixed/UUID identities; member paths were validated before intake.
     with _private_directory(data_root, "agent-projects") as locks:
         lock = os.open(
             str(project_id) + ".lock",
@@ -187,51 +275,7 @@ def _seed_source(data_root: Path, project_id: UUID, files: dict[str, bytes]) -> 
             with _private_directory(
                 data_root, "agent-projects", "sources", str(project_id)
             ) as directory:
-                if set(os.listdir(directory)) - files.keys():
-                    raise AgentProjectError("project_seed_requires_review")
-                for name, content in files.items():
-                    try:
-                        fd = os.open(
-                            name,
-                            os.O_WRONLY
-                            | os.O_CREAT
-                            | os.O_EXCL
-                            | os.O_NOFOLLOW
-                            | os.O_CLOEXEC,
-                            0o600,
-                            dir_fd=directory,
-                        )
-                    except FileExistsError:
-                        fd = os.open(name, _READ, dir_fd=directory)
-                        try:
-                            metadata = os.fstat(fd)
-                            if (
-                                not stat.S_ISREG(metadata.st_mode)
-                                or metadata.st_nlink != 1
-                                or metadata.st_uid != os.geteuid()
-                                or stat.S_IMODE(metadata.st_mode) != 0o400
-                                or metadata.st_size != len(content)
-                                or os.read(fd, len(content) + 1) != content
-                            ):
-                                raise AgentProjectError("project_seed_requires_review")
-                        finally:
-                            os.close(fd)
-                    else:
-                        try:
-                            remaining = memoryview(content)
-                            while remaining:
-                                count = os.write(fd, remaining)
-                                if count <= 0:
-                                    raise AgentProjectError(
-                                        "project_seed_requires_review"
-                                    )
-                                remaining = remaining[count:]
-                            os.fchmod(fd, 0o400)
-                            os.fsync(fd)
-                        finally:
-                            os.close(fd)
-                os.fchmod(directory, 0o500)
-                os.fsync(directory)
+                _seed_directory(directory, files)
         finally:
             os.close(lock)
 
@@ -292,6 +336,11 @@ class AgentProjectService:
                         addon_id=source.addon_id,
                         display_name=source.observed_name,
                         intake_state=row.state,
+                        intake_provenance=(
+                            None
+                            if row.intake_provenance_json is None
+                            else json.loads(row.intake_provenance_json)
+                        ),
                         workspace_ids=tuple(UUID(value) for value in bindings),
                     )
                 )
@@ -313,7 +362,74 @@ class AgentProjectService:
             files = project_seed(operation)
         except DevelopmentSourceValidationError as error:
             raise AgentProjectError("project_descriptor_invalid") from error
-        fingerprint = hashlib.sha256(operation.model_dump_json().encode()).hexdigest()
+        return self._create_seed(
+            client_id,
+            request_id=operation.request_id,
+            addon_id=operation.addon_id,
+            display_name=operation.display_name,
+            fingerprint=hashlib.sha256(
+                operation.model_dump_json().encode()
+            ).hexdigest(),
+            files=files,
+            provenance=None,
+            authorize=authorize,
+        )
+
+    def import_project(
+        self,
+        client_id: UUID,
+        operation: ProjectImportInput,
+        *,
+        authorize: Callable[[Session], None],
+    ) -> AgentProjectResult:
+        with self._sessions() as session:
+            authorize(session)
+        try:
+            payload = base64.b64decode(operation.archive_base64, validate=True)
+            if hashlib.sha256(payload).hexdigest() != operation.archive_sha256:
+                raise AgentProjectError("project_package_digest_mismatch")
+            package = read_editable_addon_zip(payload)
+        except binascii.Error as error:
+            raise AgentProjectError("project_package_encoding_invalid") from error
+        except AddonZipValidationError as error:
+            raise AgentProjectError(error.code) from error
+        metadata = operation.model_dump(exclude={"archive_base64"}, mode="json")
+        provenance = json.dumps(
+            {
+                "intake_kind": operation.intake_kind,
+                "reference": operation.provenance_reference,
+                "package_sha256": package.sha256,
+                "file_count": len(package.files),
+                "total_bytes": sum(len(value) for value in package.files.values()),
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return self._create_seed(
+            client_id,
+            request_id=operation.request_id,
+            addon_id=package.descriptor.addon_id,
+            display_name=package.descriptor.observed_name,
+            fingerprint=hashlib.sha256(
+                json.dumps(metadata, sort_keys=True).encode()
+            ).hexdigest(),
+            files=package.files,
+            provenance=provenance,
+            authorize=authorize,
+        )
+
+    def _create_seed(
+        self,
+        client_id: UUID,
+        *,
+        request_id: UUID,
+        addon_id: str,
+        display_name: str,
+        fingerprint: str,
+        files: dict[str, bytes],
+        provenance: str | None,
+        authorize: Callable[[Session], None],
+    ) -> AgentProjectResult:
         now = datetime.now(UTC)
         timestamp = now.isoformat(timespec="microseconds").replace("+00:00", "Z")
         try:
@@ -323,7 +439,7 @@ class AgentProjectService:
                 existing = session.scalar(
                     select(AgentProjectRow).where(
                         AgentProjectRow.client_id == str(client_id),
-                        AgentProjectRow.request_id == str(operation.request_id),
+                        AgentProjectRow.request_id == str(request_id),
                     )
                 )
                 if existing is not None:
@@ -352,7 +468,7 @@ class AgentProjectService:
                     ):
                         raise AgentProjectError("project_quota_exceeded")
                     sources = DevelopmentSourceRepository(session)
-                    if sources.get_by_addon_id(operation.addon_id) is not None:
+                    if sources.get_by_addon_id(addon_id) is not None:
                         raise AgentProjectError("project_addon_id_conflict")
                     project_id = uuid4()
                     needs_seed = True
@@ -362,9 +478,7 @@ class AgentProjectService:
                     sources.create(
                         DevelopmentSource(
                             id=project_id,
-                            logical_name=(
-                                operation.display_name[:80] + " " + str(project_id)
-                            ),
+                            logical_name=(display_name[:80] + " " + str(project_id)),
                             source_kind=DevelopmentSourceKind.LOCAL_DIRECTORY,
                             relative_locator=str(project_id),
                             addon_id=observed.addon_id,
@@ -379,9 +493,10 @@ class AgentProjectService:
                         AgentProjectRow(
                             source_id=str(project_id),
                             client_id=str(client_id),
-                            request_id=str(operation.request_id),
+                            request_id=str(request_id),
                             parameter_fingerprint=fingerprint,
                             state="reserved",
+                            intake_provenance_json=provenance,
                             created_at=timestamp,
                         )
                     )
@@ -425,5 +540,5 @@ class AgentProjectService:
             authorize=authorize,
         )
         return AgentProjectResult(
-            project_id=project_id, addon_id=operation.addon_id, workspace=workspace
+            project_id=project_id, addon_id=addon_id, workspace=workspace
         )

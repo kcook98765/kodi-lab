@@ -8095,3 +8095,16 @@ Later copies bind to the original container, independently of global selection.
 Existing lifecycle capacity, input, uncertainty and credential guards remain.
 Legacy registered sources and all external targets retain their existing rules.
 See [agent projects](AGENT-PROJECTS.md).
+
+## D-0497: Bounded editable source ZIP intake reuses private project publication
+
+Trusted owners may transfer a small reviewed checkout/source ZIP inline with a
+package SHA-256 and provenance reference. Reuse existing strict ZIP structure,
+path, stream and CRC validation, then publish validated Python source/resources
+through private immutable seeds and ordinary workspace capture. Never classify
+Program ZIPs as video native artifacts or widen native installers. Extra/native
+dependencies, services, repositories and unsupported file types remain explicit
+refusals on this route. Package provenance is immutable additive schema evidence;
+source review references are agent claims, with no server fetching or host paths.
+Larger transfers and agent native installation-for-test remain separate #305 work.
+See [project intake bounds](AGENT-PROJECTS.md).

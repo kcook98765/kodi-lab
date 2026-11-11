@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import binascii
 import hashlib
+import io
 import json
 import os
 import stat
 import struct
+import tempfile
 import unicodedata
 import zlib
 from contextlib import suppress
@@ -17,10 +19,12 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Literal
 from uuid import UUID
 
+from kodi_lab.development.launch import manifest_launch_entries
 from kodi_lab.development.repository_zip import repository_zip_urls
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
     DevelopmentSourceValidationError,
+    DevelopmentSourceValidationResult,
     copied_video_plugin_library,
     parse_captured_addon_xml,
 )
@@ -117,6 +121,125 @@ class ValidatedAddonZip:
     payload_manifest_digest: str
     entries: tuple[PayloadManifestEntry, ...]
     manifest_bytes: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class EditableAddonZip:
+    """Source bytes only; never a native-installable artifact classification."""
+
+    descriptor: DevelopmentSourceValidationResult
+    files: dict[str, bytes]
+    sha256: str
+
+
+def read_editable_addon_zip(payload: bytes) -> EditableAddonZip:
+    """Reuse strict ZIP structure/CRC validation for a small editable project.
+
+    No archive path is extracted. The existing native ZIP qualifier is unchanged.
+    This bounded inline route fits the MCP request limit and admits Python entry
+    points/resources, with no dependency installation or repository onboarding.
+    """
+    if len(payload) > 45 * 1024:
+        raise AddonZipValidationError(
+            "project_package_too_large", "Inline ZIP exceeds 45 KiB."
+        )
+    stream = io.BytesIO(payload)
+    members = _parse_members(stream, len(payload))
+    _validate_logical_tree(members)
+    if (
+        len(members) > 256
+        or sum(member.uncompressed_size for member in members) > 4 * 1024 * 1024
+        or any(member.uncompressed_size > 1024 * 1024 for member in members)
+    ):
+        raise AddonZipValidationError(
+            "project_package_bound", "Source package exceeds fixed bounds."
+        )
+    roots = {member.path.split("/", 1)[0] for member in members}
+    if len(roots) != 1:
+        raise AddonZipValidationError(
+            "addon_zip_layout", "Exactly one add-on directory is required."
+        )
+    root = next(iter(roots))
+    files: dict[str, bytes] = {}
+    text_suffixes = {
+        ".py",
+        ".xml",
+        ".json",
+        ".txt",
+        ".md",
+        ".po",
+        ".ini",
+        ".cfg",
+        ".csv",
+        ".html",
+        ".css",
+        ".js",
+        ".yaml",
+        ".yml",
+    }
+    image_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ttf", ".otf"}
+    for member in members:
+        if member.is_directory:
+            continue
+        relative = member.path[len(root) + 1 :]
+        if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
+            raise AddonZipValidationError(
+                "addon_zip_layout", "Add-on root must be a directory."
+            )
+        suffix = PurePosixPath(relative).suffix.casefold()
+        if suffix not in text_suffixes | image_suffixes and PurePosixPath(
+            relative
+        ).name.casefold() not in {"license", "copying", "notice"}:
+            raise AddonZipValidationError(
+                "project_file_type_unsupported", "Binary or unsupported source member."
+            )
+        with tempfile.TemporaryFile() as destination:
+            _copy_member(stream, member, destination.fileno())
+            destination.seek(0)
+            content = destination.read(member.uncompressed_size + 1)
+        if suffix not in image_suffixes:
+            try:
+                content.decode("utf-8")
+                if b"\0" in content:
+                    raise ValueError
+            except (UnicodeDecodeError, ValueError) as error:
+                raise AddonZipValidationError(
+                    "project_text_invalid", "Source text must be UTF-8 without NUL."
+                ) from error
+        files[relative] = content
+    try:
+        observed = parse_captured_addon_xml(root, files["addon.xml"])
+    except (KeyError, DevelopmentSourceValidationError) as error:
+        raise AddonZipValidationError(
+            "addon_zip_descriptor_invalid", "Source addon.xml is invalid."
+        ) from error
+    if observed.addon_id != root:
+        raise AddonZipValidationError(
+            "addon_zip_id_directory_mismatch", "Directory and add-on ID must match."
+        )
+    entries = manifest_launch_entries(observed)
+    executable = [
+        entry for entry in entries if entry.extension_point != "xbmc.addon.metadata"
+    ]
+    if (
+        len(executable) != 1
+        or not executable[0].eligible
+        or executable[0].library not in files
+        or any(extension.has_platform_library for extension in observed.extensions)
+    ):
+        raise AddonZipValidationError(
+            "project_addon_type_unsupported",
+            "One Python Program or plugin entry is required.",
+        )
+    if any(
+        dependency.dependency_id != "xbmc.python"
+        for dependency in observed.dependencies
+    ):
+        raise AddonZipValidationError(
+            "project_dependencies_unsupported",
+            "Inline source intake does not install dependencies.",
+        )
+    return EditableAddonZip(observed, files, hashlib.sha256(payload).hexdigest())
 
 
 def addon_zip_root(data_root: Path) -> Path:
