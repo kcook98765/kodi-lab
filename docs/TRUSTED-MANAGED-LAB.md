@@ -10,7 +10,10 @@ supported semantic remote actions (including Select), Start/Stop, autonomous
 Reset, add-on settings and existing owned-workspace development operations.
 Technical prerequisites, resource limits, exact runtime/container identity,
 operation leases and durable replay protections still apply. The role does not
-install missing Kodi versions or override active-use guards.
+install missing Kodi versions or override active-use guards. For a version that
+has not been installed, managed status and Start return `installation_required`
+and direct the agent to human installation through Managed Kodi. This also
+applies when an image is cached but the managed installation is absent.
 
 The role supplies no external Kodi permissions. External Production and External
 Development continue to require the client's original preset, each target's

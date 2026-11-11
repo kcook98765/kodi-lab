@@ -568,6 +568,15 @@ class McpAuthorizationService:
             ),
             None,
         )
+        if (
+            slot is not None
+            and self._managed_lab_role(session, principal, client)
+            and (
+                session.get(TargetRow, str(target_id)) is None
+                or session.get(ManagedInstanceRow, str(target_id)) is None
+            )
+        ):
+            raise McpAuthorizationError("installation_required")
         managed_role = self._managed_lab_target(session, principal, client, target_id)
         target = session.get(TargetRow, str(target_id))
         assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))

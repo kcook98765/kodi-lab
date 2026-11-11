@@ -202,27 +202,31 @@ class ManagedVersionLifecycleService:
             try:
                 with self._sessions() as session:
                     authorize(session, slot.canonical_target_id)
-            except PermissionError:
-                values.append(self._denied(slot))
+            except PermissionError as error:
+                values.append(self._denied(slot, error))
                 continue
             value = self._observe(slot, client_id)
             try:
                 with self._sessions() as session:
                     authorize(session, slot.canonical_target_id)
-            except PermissionError:
-                value = self._denied(slot)
+            except PermissionError as error:
+                value = self._denied(slot, error)
             values.append(value)
         return ManagedVersionsStatus(versions=tuple(values))
 
     @staticmethod
-    def _denied(slot: ManagedVersionSlot) -> ManagedVersionStatus:
+    def _denied(
+        slot: ManagedVersionSlot,
+        error: PermissionError | None = None,
+    ) -> ManagedVersionStatus:
+        installation = getattr(error, "code", None) == "installation_required"
         return ManagedVersionStatus(
             version=slot.generation,
             kodi_release=slot.kodi_version,
-            authorized=False,
-            state="blocked",
-            code="not_authorized",
-            next_action="grant_access",
+            authorized=installation,
+            state="empty" if installation else "blocked",
+            code="installation_required" if installation else "not_authorized",
+            next_action="ask_administrator" if installation else "grant_access",
         )
 
     def invoke(
