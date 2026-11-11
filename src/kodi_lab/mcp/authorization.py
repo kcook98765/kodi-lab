@@ -54,6 +54,10 @@ from kodi_lab.domain import (
     InstanceType,
     TargetType,
 )
+from kodi_lab.domain.managed_lab import (
+    TRUSTED_MANAGED_LAB_PERMISSIONS,
+    TRUSTED_MANAGED_LAB_ROLE_VERSION,
+)
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS, BrowserRemoteAction
@@ -83,6 +87,7 @@ from kodi_lab.storage.models import (
     McpProductionTargetScopeRow,
     McpTargetPresetAssignmentRow,
     ProductionMutationControlRow,
+    RuntimeRevisionRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
@@ -216,6 +221,43 @@ class McpAuthorizationService:
         self._production_rates = production_rates or ProductionReadRateLimiter()
         self._clock = clock
 
+    def _managed_lab_role(
+        self, session: Session, principal: McpPrincipal, client: McpClientRow
+    ) -> bool:
+        if client.managed_lab_role_version != TRUSTED_MANAGED_LAB_ROLE_VERSION:
+            return False
+        if not client.enabled:
+            raise McpAuthorizationError("permission_denied")
+        self._require_current_credential(session, principal, client)
+        return True
+
+    def _managed_lab_target(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        client: McpClientRow,
+        target_id: UUID,
+    ) -> bool:
+        if not self._managed_lab_role(session, principal, client):
+            return False
+        target = session.get(TargetRow, str(target_id))
+        instance = session.get(ManagedInstanceRow, str(target_id))
+        revision = (
+            None
+            if instance is None
+            else session.get(RuntimeRevisionRow, instance.runtime_revision_id)
+        )
+        if target is None or target.target_type is not TargetType.MANAGED:
+            return False
+        if (
+            instance is None
+            or instance.instance_type is not InstanceType.DISPOSABLE
+            or revision is None
+            or revision.approval_state != "approved"
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+        return True
+
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
         names = {item.name for item in self._registry.discoverable(permissions)}
@@ -239,6 +281,10 @@ class McpAuthorizationService:
         if definition.resolved_scope is not ToolScope.GLOBAL:
             raise McpAuthorizationError("permission_denied")
         permissions = self._client_permissions(principal.client_id)
+        with self._session_factory() as session:
+            client = session.get(McpClientRow, str(principal.client_id))
+            if client is not None:
+                self._managed_lab_role(session, principal, client)
         if not definition.permissions.issubset(permissions):
             raise McpAuthorizationError("permission_denied")
         if tool_name == "target_list" and principal.preset_id in {
@@ -285,6 +331,8 @@ class McpAuthorizationService:
             client = session.get(McpClientRow, str(principal.client_id))
             if client is None or not client.enabled:
                 raise McpAuthorizationError("permission_denied")
+            if self._managed_lab_target(session, principal, client, target_id):
+                return
             if not definition.permissions.issubset(
                 self._permissions(session, client.preset_id)
             ):
@@ -341,6 +389,7 @@ class McpAuthorizationService:
             is None
         ):
             raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+        managed_role = self._managed_lab_target(session, principal, client, target_id)
         target = session.get(TargetRow, str(target_id))
         assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
         instance = session.get(ManagedInstanceRow, str(target_id))
@@ -348,15 +397,21 @@ class McpAuthorizationService:
             target is None
             or target.target_type is not TargetType.MANAGED
             or instance is None
-            or assignment is None
-            or session.get(
-                McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+            or (not managed_role and assignment is None)
+            or (
+                not managed_role
+                and session.get(
+                    McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+                )
+                is None
             )
-            is None
         ):
             raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not definition.permissions.issubset(
-            self._permissions(session, assignment.preset_id)
+        if not managed_role and (
+            assignment is None
+            or not definition.permissions.issubset(
+                self._permissions(session, assignment.preset_id)
+            )
         ):
             raise McpAuthorizationError("permission_denied")
 
@@ -405,6 +460,7 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
         client = self._require_client_permission(session, principal, definition)
         self._require_current_credential(session, principal, client)
+        managed_role = self._managed_lab_target(session, principal, client, target_id)
         target = session.get(TargetRow, str(target_id))
         instance = session.get(ManagedInstanceRow, str(target_id))
         assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
@@ -415,12 +471,15 @@ class McpAuthorizationService:
             target is None
             or target.target_type is not TargetType.MANAGED
             or instance is None
-            or assignment is None
-            or grant is None
+            or (not managed_role and assignment is None)
+            or (not managed_role and grant is None)
         ):
             raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not definition.permissions.issubset(
-            self._permissions(session, assignment.preset_id)
+        if not managed_role and (
+            assignment is None
+            or not definition.permissions.issubset(
+                self._permissions(session, assignment.preset_id)
+            )
         ):
             raise McpAuthorizationError("permission_denied")
 
@@ -469,6 +528,7 @@ class McpAuthorizationService:
             ),
             None,
         )
+        managed_role = self._managed_lab_target(session, principal, client, target_id)
         target = session.get(TargetRow, str(target_id))
         assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
         grant = session.get(
@@ -479,12 +539,14 @@ class McpAuthorizationService:
             or target is None
             or target.target_type is not TargetType.MANAGED
             or target.kodi_version != slot.kodi_version
-            or assignment is None
-            or grant is None
+            or (not managed_role and (assignment is None or grant is None))
         ):
             raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not definition.permissions.issubset(
-            self._permissions(session, assignment.preset_id)
+        if not managed_role and (
+            assignment is None
+            or not definition.permissions.issubset(
+                self._permissions(session, assignment.preset_id)
+            )
         ):
             raise McpAuthorizationError("permission_denied")
 
@@ -680,9 +742,16 @@ class McpAuthorizationService:
             )
             target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-            if grant is None or target is None or assignment is None:
+            managed_role = self._managed_lab_target(
+                session, principal, client, target_id
+            )
+            if not managed_role and (
+                grant is None or target is None or assignment is None
+            ):
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
+            assert target is not None
             if target.target_type is TargetType.EXTERNAL_PRODUCTION:
+                assert assignment is not None
                 self._evaluate_production_inspection(
                     session,
                     principal=principal,
@@ -694,14 +763,19 @@ class McpAuthorizationService:
                 if definition.name == "screenshot_capture":
                     self._screenshot_preference_revision(target_id)
                 return definition
-            if client.preset_id in {
+            if not managed_role and client.preset_id in {
                 str(PRODUCTION_INSPECTION_PRESET_ID),
                 str(PRODUCTION_REMOTE_KODI_PRESET_ID),
                 str(PRODUCTION_VISUAL_PRESET_ID),
             }:
                 raise McpAuthorizationError("permission_denied")
             client_permissions = self._permissions(session, client.preset_id)
-            target_permissions = self._permissions(session, assignment.preset_id)
+            if managed_role:
+                client_permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
+            target_permissions = TRUSTED_MANAGED_LAB_PERMISSIONS
+            if not managed_role:
+                assert assignment is not None
+                target_permissions = self._permissions(session, assignment.preset_id)
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):
@@ -772,14 +846,21 @@ class McpAuthorizationService:
         principal: McpPrincipal,
         tool_name: str,
         source_id: UUID,
+        *,
+        read_session: Session | None = None,
     ) -> DevelopmentSource:
         """Resolve current client permission and one exact source grant."""
 
         definition = self._definition(tool_name)
         if definition.resolved_scope is not ToolScope.DEVELOPMENT_SOURCE:
             raise McpAuthorizationError("permission_denied")
-        with self._session_factory() as session:
-            self._require_client_permission(session, principal, definition)
+        with (
+            self._session_factory()
+            if read_session is None
+            else nullcontext(read_session)
+        ) as session:
+            client = self._require_client_permission(session, principal, definition)
+            self._require_current_credential(session, principal, client)
             grant = session.get(
                 McpClientDevelopmentSourceGrantRow,
                 {
@@ -847,14 +928,21 @@ class McpAuthorizationService:
         principal: McpPrincipal,
         tool_name: str,
         workspace_id: UUID,
+        *,
+        read_session: Session | None = None,
     ) -> AgentWorkspace:
         """Resolve the permission/grant/binding/source/state intersection once."""
 
         definition = self._definition(tool_name)
         if definition.resolved_scope is not ToolScope.WORKSPACE:
             raise McpAuthorizationError("permission_denied")
-        with self._session_factory() as session:
-            self._require_client_permission(session, principal, definition)
+        with (
+            self._session_factory()
+            if read_session is None
+            else nullcontext(read_session)
+        ) as session:
+            client = self._require_client_permission(session, principal, definition)
+            self._require_current_credential(session, principal, client)
             binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
             if binding is None or binding.client_id != str(principal.client_id):
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
@@ -934,10 +1022,20 @@ class McpAuthorizationService:
                 or str(workspace.development_source_id) != binding.development_source_id
             ):
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
-            if target_grant is None or target is None or assignment is None:
+            managed_role = self._managed_lab_target(
+                session, principal, client, target_id
+            )
+            if managed_role:
+                target_permissions = TRUSTED_MANAGED_LAB_PERMISSIONS
+            if not managed_role and (
+                target_grant is None or target is None or assignment is None
+            ):
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
+            assert target is not None
             self._enforce_workspace_production_veto(target, tool_name=tool_name)
             client_permissions = self._permissions(session, client.preset_id)
+            if managed_role:
+                client_permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):
@@ -1198,7 +1296,10 @@ class McpAuthorizationService:
         client = session.get(McpClientRow, str(principal.client_id))
         if client is None or not client.enabled:
             raise McpAuthorizationError("permission_denied")
+        self._managed_lab_role(session, principal, client)
         permissions = self._permissions(session, client.preset_id)
+        if client.managed_lab_role_version == TRUSTED_MANAGED_LAB_ROLE_VERSION:
+            permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
         if not definition.permissions.issubset(permissions):
             raise McpAuthorizationError("permission_denied")
         if (
@@ -1343,6 +1444,33 @@ class McpAuthorizationService:
                 .order_by(McpClientTargetGrantRow.target_id)
                 .limit(1001)
             ).all()
+            client = session.get(McpClientRow, str(principal.client_id))
+            if client is not None and self._managed_lab_role(
+                session, principal, client
+            ):
+                values = sorted(
+                    set(values)
+                    | set(
+                        session.scalars(
+                            select(ManagedInstanceRow.target_id)
+                            .join(
+                                TargetRow, TargetRow.id == ManagedInstanceRow.target_id
+                            )
+                            .join(
+                                RuntimeRevisionRow,
+                                RuntimeRevisionRow.id
+                                == ManagedInstanceRow.runtime_revision_id,
+                            )
+                            .where(
+                                TargetRow.target_type == TargetType.MANAGED,
+                                ManagedInstanceRow.instance_type
+                                == InstanceType.DISPOSABLE,
+                                RuntimeRevisionRow.approval_state == "approved",
+                            )
+                            .limit(1001)
+                        ).all()
+                    )
+                )
         if len(values) > 1000:
             raise McpAuthorizationError("response_too_large")
         return tuple(UUID(item) for item in values)
@@ -1358,7 +1486,10 @@ class McpAuthorizationService:
             client = session.get(McpClientRow, str(client_id))
             if client is None or not client.enabled:
                 return frozenset()
-            return self._permissions(session, client.preset_id)
+            permissions = self._permissions(session, client.preset_id)
+            if client.managed_lab_role_version == TRUSTED_MANAGED_LAB_ROLE_VERSION:
+                permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
+            return permissions
 
     @staticmethod
     def _production_preset_contract(preset_id: UUID) -> tuple[str, frozenset[str]]:

@@ -762,6 +762,7 @@ class AgentWorkspaceService:
         operation: Literal["create", "replace", "patch"],
         content: str,
         expected_text: str | None = None,
+        authorize: Callable[[Session], None] | None = None,
     ) -> AgentWorkspaceMutationRead:
         workspace = self._mutation_workspace(workspace_id, expected_generation)
         if workspace.current_tree_digest is None:
@@ -781,6 +782,9 @@ class AgentWorkspaceService:
                 ) as result,
                 self._session_factory.begin() as session,
             ):
+                if authorize is not None:
+                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                    authorize(session)
                 repository = AgentWorkspaceRepository(session)
                 if not repository.publish_mutation(
                     workspace_id,
@@ -839,9 +843,11 @@ class AgentWorkspaceService:
         expected_generation: int,
         relative_path: str,
         content: str,
+        authorize: Callable[[Session], None] | None = None,
     ) -> AgentWorkspaceMutationRead:
         return self._mutate(
             workspace_id,
+            authorize=authorize,
             expected_generation=expected_generation,
             relative_path=relative_path,
             operation="create",
@@ -855,9 +861,11 @@ class AgentWorkspaceService:
         expected_generation: int,
         relative_path: str,
         content: str,
+        authorize: Callable[[Session], None] | None = None,
     ) -> AgentWorkspaceMutationRead:
         return self._mutate(
             workspace_id,
+            authorize=authorize,
             expected_generation=expected_generation,
             relative_path=relative_path,
             operation="replace",
@@ -872,9 +880,11 @@ class AgentWorkspaceService:
         relative_path: str,
         expected_text: str,
         replacement_text: str,
+        authorize: Callable[[Session], None] | None = None,
     ) -> AgentWorkspaceMutationRead:
         return self._mutate(
             workspace_id,
+            authorize=authorize,
             expected_generation=expected_generation,
             relative_path=relative_path,
             operation="patch",

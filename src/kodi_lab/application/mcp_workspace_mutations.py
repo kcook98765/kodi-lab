@@ -31,6 +31,7 @@ from kodi_lab.domain import (
     AgentWorkspaceState,
     DevelopmentSourceKind,
 )
+from kodi_lab.domain.managed_lab import TRUSTED_MANAGED_LAB_ROLE_VERSION
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     McpAgentWorkspaceBindingRow,
@@ -136,6 +137,7 @@ class McpWorkspaceCreationService:
         request_id: UUID,
         source_id: UUID,
         reuse_project: bool = False,
+        authorize: Callable[[Session], None] | None = None,
     ) -> WorkspaceCreateResult:
         fingerprint = _fingerprint(source_id)
 
@@ -144,6 +146,8 @@ class McpWorkspaceCreationService:
             workspace: AgentWorkspace,
             operation: AgentWorkspaceCreationOperation,
         ) -> None:
+            if authorize is not None:
+                authorize(session)
             now = self._clock()
             if reuse_project:
                 self._require_current_authority(session, client_id, source_id)
@@ -336,7 +340,10 @@ class McpWorkspaceCreationService:
         if (
             client is None
             or not client.enabled
-            or permission is None
+            or (
+                permission is None
+                and client.managed_lab_role_version != TRUSTED_MANAGED_LAB_ROLE_VERSION
+            )
             or grant is None
             or source is None
         ):

@@ -34,6 +34,10 @@ from kodi_lab.application.screenshot_preferences import (
     read_screenshot_preference,
 )
 from kodi_lab.domain import ExternalAdministrativeState, TargetType
+from kodi_lab.domain.managed_lab import (
+    TRUSTED_MANAGED_LAB_PERMISSIONS,
+    TRUSTED_MANAGED_LAB_ROLE_VERSION,
+)
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
@@ -79,6 +83,7 @@ EXPLICIT_DEVELOPMENT_LAUNCH_PERMISSIONS = frozenset({"development.launch"})
 EXPLICIT_MANAGED_RESET_PERMISSIONS = frozenset({"managed.reset"})
 EXPLICIT_NATIVE_ZIP_PERMISSIONS = frozenset({"addon.install"})
 EXPLICIT_ADDON_SETTINGS_PERMISSIONS = frozenset({"development.settings.write"})
+
 
 _BUILTINS = (
     (
@@ -191,6 +196,8 @@ class McpClientRead(BaseModel):
     display_name: str = Field(max_length=120)
     enabled: bool
     authority_revision: int = Field(ge=1)
+    managed_lab_role_version: int | None = None
+    managed_lab_permissions: tuple[str, ...] = ()
     preset: McpPresetRead
     created_at: datetime
     last_used_at: datetime | None
@@ -480,7 +487,9 @@ class McpAdministrationService:
                 raise McpAdministrationError("mcp_client_not_found")
             return self._client_read(session, row, now)
 
-    def create_client(self, *, display_name: str, preset_id: UUID) -> McpClientRead:
+    def create_client(
+        self, *, display_name: str, preset_id: UUID, trusted_managed_lab: bool = False
+    ) -> McpClientRead:
         name = self._name(display_name)
         now = self._clock()
         client_id = uuid4()
@@ -496,6 +505,7 @@ class McpAdministrationService:
                     last_used_at=None,
                     disabled_at=None,
                     authority_revision=1,
+                    managed_lab_role_version=(1 if trusted_managed_lab else None),
                 )
             )
             self._event(
@@ -505,6 +515,28 @@ class McpAdministrationService:
                 client_id=client_id,
                 preset_id=preset_id,
             )
+            if trusted_managed_lab:
+                self._event(
+                    session, "managed_lab_role_granted", now, client_id=client_id
+                )
+        return self.get_client(client_id)
+
+    def set_managed_lab_role(self, client_id: UUID, enabled: bool) -> McpClientRead:
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            row = self._require_client(session, client_id)
+            version = TRUSTED_MANAGED_LAB_ROLE_VERSION if enabled else None
+            if row.managed_lab_role_version != version:
+                row.managed_lab_role_version = version
+                row.authority_revision += 1
+                self._event(
+                    session,
+                    "managed_lab_role_granted"
+                    if enabled
+                    else "managed_lab_role_revoked",
+                    now,
+                    client_id=client_id,
+                )
         return self.get_client(client_id)
 
     def rename_client(self, client_id: UUID, display_name: str) -> McpClientRead:
@@ -1826,6 +1858,13 @@ class McpAdministrationService:
             display_name=row.display_name,
             enabled=row.enabled,
             authority_revision=row.authority_revision,
+            managed_lab_role_version=row.managed_lab_role_version,
+            managed_lab_permissions=(
+                tuple(sorted(TRUSTED_MANAGED_LAB_PERMISSIONS))
+                if row.enabled
+                and row.managed_lab_role_version == TRUSTED_MANAGED_LAB_ROLE_VERSION
+                else ()
+            ),
             preset=self._preset_read(session, preset),
             created_at=created_at,
             last_used_at=_from_text(row.last_used_at),

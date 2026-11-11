@@ -33,7 +33,7 @@
     event.preventDefault();
     if (!event.currentTarget.reportValidity()) return;
     const form = new FormData(event.currentTarget);
-    await request("/api/mcp/clients", "POST", {display_name: form.get("display_name"), preset_id: form.get("preset_id")});
+    await request("/api/mcp/clients", "POST", {display_name: form.get("display_name"), preset_id: form.get("preset_id"), trusted_managed_lab: form.get("trusted_managed_lab") === "on"});
     location.reload();
   })));
   const presetForm = root.querySelector("[data-create-preset]");
@@ -82,6 +82,7 @@
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
+      if (action === "managed-lab-role") await request(`/api/mcp/clients/${id}/managed-lab-role`, "POST", {enabled: button.dataset.enabled !== "true"});
       if (action === "toggle") await request(`/api/mcp/clients/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
       if (action === "issue") showToken(await request(`/api/mcp/clients/${id}/credentials`, "POST", {expiration_seconds: lifetime()}), card);
       if (action === "grant") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}`, "POST");

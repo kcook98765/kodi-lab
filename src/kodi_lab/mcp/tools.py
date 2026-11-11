@@ -1037,11 +1037,18 @@ class McpTargetToolService:
         )
         if self._workspace_creation is None:
             raise McpAuthorizationError("capability_unavailable")
+
+        def authorize_creation(session: Session) -> None:
+            self._authorization.authorize_development_source(
+                principal, "workspace_create", source_id, read_session=session
+            )
+
         try:
             result = self._workspace_creation.create(
                 client_id=principal.client_id,
                 request_id=request_id,
                 source_id=source_id,
+                authorize=authorize_creation,
             )
         except McpWorkspaceMutationError as error:
             raise McpAuthorizationError(error.code, reason=error.reason) from error
@@ -1079,6 +1086,12 @@ class McpTargetToolService:
             principal, "workspace_edit", edit.workspace_id
         )
         service = self._workspace_service()
+
+        def authorize_mutation(session: Session) -> None:
+            self._authorization.authorize_workspace(
+                principal, "workspace_edit", edit.workspace_id, read_session=session
+            )
+
         with self._active_edit_lock:
             if edit.workspace_id in self._active_edits:
                 raise McpAuthorizationError("workspace_generation_conflict")
@@ -1090,6 +1103,7 @@ class McpTargetToolService:
                     mutation = service.create_text_file(
                         edit.workspace_id,
                         expected_generation=edit.expected_generation,
+                        authorize=authorize_mutation,
                         relative_path=edit.relative_path,
                         content=edit.content,
                     )
@@ -1099,6 +1113,7 @@ class McpTargetToolService:
                     mutation = service.replace_text_file(
                         edit.workspace_id,
                         expected_generation=edit.expected_generation,
+                        authorize=authorize_mutation,
                         relative_path=edit.relative_path,
                         content=edit.content,
                     )
@@ -1109,6 +1124,7 @@ class McpTargetToolService:
                     mutation = service.apply_exact_patch(
                         edit.workspace_id,
                         expected_generation=edit.expected_generation,
+                        authorize=authorize_mutation,
                         relative_path=edit.relative_path,
                         expected_text=edit.expected_text,
                         replacement_text=edit.replacement_text,

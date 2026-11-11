@@ -6614,6 +6614,13 @@ class McpClientRow(Base):
     last_used_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     disabled_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     authority_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    managed_lab_role_version: Mapped[int | None] = mapped_column(
+        Integer,
+        CheckConstraint(
+            "managed_lab_role_version = 1", name="managed_lab_role_version"
+        ),
+        nullable=True,
+    )
 
 
 class McpCredentialRow(Base):
