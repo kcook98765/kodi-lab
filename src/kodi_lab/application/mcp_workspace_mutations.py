@@ -33,6 +33,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.domain.managed_lab import TRUSTED_MANAGED_LAB_ROLE_VERSION
 from kodi_lab.storage.models import (
+    AgentProjectRow,
     AgentWorkspaceRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
@@ -330,6 +331,9 @@ class McpWorkspaceCreationService:
                 "development_source_id": str(source_id),
             },
         )
+        project = session.get(AgentProjectRow, str(source_id))
+        if project is not None and project.client_id != str(client_id):
+            raise McpWorkspaceMutationError("source_not_found_or_not_authorized")
         source = DevelopmentSourceRepository(session).get(source_id)
         permission = None
         if client is not None:

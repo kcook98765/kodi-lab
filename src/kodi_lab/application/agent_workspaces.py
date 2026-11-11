@@ -43,6 +43,7 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     PromotionVerificationState,
 )
+from kodi_lab.storage.models import AgentProjectRow
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCreationOperationRepository,
     AgentWorkspaceLifecycleEventRepository,
@@ -289,16 +290,30 @@ class AgentWorkspaceService:
         self._clock = clock
         self._uuid_factory = uuid_factory
 
-    def capture_registered_source_manifest(
-        self, source_id: UUID
-    ) -> DevelopmentTreeManifest:
-        """Capture one approved source for Web-only external baselining."""
-
+    def source_root(self, source_id: UUID) -> Path:
+        """Resolve only registered roots; a project never accepts a host path."""
+        with self._session_factory() as session:
+            project = session.get(AgentProjectRow, str(source_id))
+        if project is not None:
+            if project.state != "seeded":
+                raise AgentWorkspaceConflictError(
+                    "agent_project_intake_incomplete",
+                    "Project intake requires recovery.",
+                )
+            return self._data_root / "agent-projects" / "sources"
         if self._development_root is None:
             raise AgentWorkspaceError(
                 "agent_workspace_source_unavailable",
                 "Development sources are unavailable.",
             )
+        return self._development_root
+
+    def capture_registered_source_manifest(
+        self, source_id: UUID
+    ) -> DevelopmentTreeManifest:
+        """Capture one approved source for Web-only external baselining."""
+
+        source_root = self.source_root(source_id)
         with self._session_factory() as session:
             source = DevelopmentSourceRepository(session).get(source_id)
         if (
@@ -311,7 +326,7 @@ class AgentWorkspaceService:
             )
         try:
             return capture_development_tree(
-                self._development_root, source.relative_locator, reject_vcs=True
+                source_root, source.relative_locator, reject_vcs=True
             )
         except DevelopmentTreeError as error:
             raise AgentWorkspaceError(
@@ -344,11 +359,7 @@ class AgentWorkspaceService:
                 "agent_workspace_source_unsupported",
                 "Only a registered local-directory source is eligible.",
             )
-        if self._development_root is None:
-            raise AgentWorkspaceError(
-                "agent_workspace_source_unavailable",
-                "Development sources are unavailable.",
-            )
+        self.source_root(source_id)
         now = self._clock()
         workspace = AgentWorkspace(
             id=self._uuid_factory(),
@@ -445,11 +456,7 @@ class AgentWorkspaceService:
         return lease
 
     def run(self, lease: AgentWorkspaceCreationLease) -> None:
-        if self._development_root is None:
-            raise AgentWorkspaceError(
-                "agent_workspace_source_unavailable",
-                "Development sources are unavailable.",
-            )
+        source_root = self.source_root(lease.source_id)
 
         phase_map = {
             "capturing": AgentWorkspaceCreationPhase.CAPTURING,
@@ -475,7 +482,7 @@ class AgentWorkspaceService:
             result = create_workspace_storage(
                 self._data_root,
                 lease.workspace_id,
-                self._development_root,
+                source_root,
                 lease.source_locator,
                 lease.source_addon_id,
                 checkpoint=checkpoint,

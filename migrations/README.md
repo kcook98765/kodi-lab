@@ -87,3 +87,7 @@ remain protected from pruning. Used receipts prevent lossy downgrade.
 defaulting to no role, and extends the authority-revision mutation guard. Existing
 clients, presets, credentials and grants are unchanged. Downgrade refuses active
 roles or role audit history, preserving evidence even after revocation.
+
+`0010_agent_projects` adds only private project source/owner/request identities.
+Existing sources, workspaces and authority remain unchanged. Used project history
+prevents downgrade; immutable owner/request triggers preserve replay evidence.

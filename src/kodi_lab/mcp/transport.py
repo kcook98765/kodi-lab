@@ -50,6 +50,12 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
+from kodi_lab.application.agent_projects import (
+    AgentProjectList,
+    AgentProjectResult,
+    ProjectCreateInput,
+    ProjectStatusInput,
+)
 from kodi_lab.application.development_sessions import (
     RetainedSelectionPreview,
     RetainedSelectionRequest,
@@ -907,6 +913,34 @@ def build_mcp_http_transport(
         idle_seconds=15 * 60,
     )
     inventory = {
+        "project_status": Tool(
+            name="project_status",
+            title="List owned project intake and workspaces",
+            description=(
+                "Read only your own project records, including interrupted "
+                "reserved intake. No filesystem or native probes. Saved "
+                "request IDs support recovery without reallocating projects."
+            ),
+            input_schema=ProjectStatusInput.model_json_schema(),
+            output_schema=AgentProjectList.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "project_create": Tool(
+            name="project_create",
+            title="Create an agent-owned add-on project",
+            description=(
+                "Trusted Managed Lab only: create an inert Program or video add-on "
+                "in private Lab storage and allocate its owned workspace. No Web "
+                "source registration or bind mount. Save request_id; identical replay "
+                "returns the original project/workspace without replacing edits. "
+                "Use workspace_status/read/edit/validate next."
+            ),
+            input_schema=ProjectCreateInput.model_json_schema(),
+            output_schema=AgentProjectResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "log_read": Tool(
             name="log_read",
             title="Read Kodi log stats or a bounded excerpt",
@@ -1507,6 +1541,8 @@ def build_mcp_http_transport(
                 | ImportResult
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
+                | AgentProjectList
+                | AgentProjectResult
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
                 | WorkspaceLaunchResult
@@ -1518,6 +1554,7 @@ def build_mcp_http_transport(
                 | ManagedSelectionResult
             )
             if params.name in {
+                "project_status",
                 "development_source_list",
                 "workspace_read",
                 "workspace_status",
@@ -1531,6 +1568,7 @@ def build_mcp_http_transport(
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name in {
+                "project_create",
                 "workspace_edit",
                 "workspace_capture",
                 "workspace_import",
@@ -1710,6 +1748,18 @@ def build_mcp_http_transport(
                 )
                 if workspace_id is not None and result.workspaces:
                     source_id = result.workspaces[0].source_id
+            elif params.name == "project_status":
+                parsed_project_status = ProjectStatusInput.model_validate(arguments)
+                result = await asyncio.to_thread(
+                    tools.project_status, principal, parsed_project_status
+                )
+            elif params.name == "project_create":
+                parsed_project = ProjectCreateInput.model_validate(arguments)
+                result = await asyncio.to_thread(
+                    tools.project_create, principal, parsed_project
+                )
+                workspace_id = result.workspace.workspace_id
+                source_id = result.project_id
             elif params.name == "workspace_create":
                 parsed_create = _WorkspaceCreateInput.model_validate(arguments)
                 source_id = parsed_create.source_id

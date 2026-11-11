@@ -8046,3 +8046,17 @@ Workspace ownership/source checks, exact lifecycle guards, receipts and technica
 authority remain enforced. Changes advance the client's authority revision and
 retain audit events. Role and credential revocation are rechecked from current
 durable state. See [operator guidance](TRUSTED-MANAGED-LAB.md).
+
+## D-0493: Agent-created projects reuse owned workspace storage
+
+Trusted Managed Lab clients can bootstrap an inert Program/video add-on without
+Web source/workspace setup. A small immutable source/owner/request record binds
+an internal private seed to existing source grants and workspace allocation.
+Only registered project sources resolve to this fixed private namespace; no
+caller host path or extra per-add-on mount is accepted. Existing workspace
+capture, editing, generation/digests, quotas and deployment services remain in use.
+
+Publication rechecks the role, preserves original request identity and refuses
+unknown seed bytes or ownership changes. Completed replay never reseeds a project
+or replaces edits. Owner-only project status includes interrupted reservations.
+Global add-on ID collisions fail explicitly. See [agent workflow](AGENT-PROJECTS.md).
