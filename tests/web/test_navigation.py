@@ -186,13 +186,14 @@ def test_navigation_landing_priorities_and_unique_destinations(
         assert len(destinations) == len(set(destinations))
     development = client.get("/development").text
     primary, secondary = development.split('<details class="navigation-group">', 1)
+    assert 'href="/development-session"' in primary
     for destination in [
-        "/development-session",
         "/development-sources",
         "/agent-workspaces",
+        "/addon-zips",
+        "/snapshots/preserved",
+        "/history/instances",
     ]:
-        assert f'href="{destination}"' in primary
-    for destination in ["/addon-zips", "/snapshots/preserved", "/history/instances"]:
         assert f'href="{destination}"' in secondary
     settings = client.get("/settings").text
     assert "Access &amp; Security" in settings

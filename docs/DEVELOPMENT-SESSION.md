@@ -23,8 +23,19 @@ its Advanced page identifies it as noncurrent. **Development Tools** links here;
 separate management pages.
 
 The live screen uses [standard noVNC viewing](STANDARD-NOVNC.md) for exact
-installed, validated Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1
-r3 runtimes. No experimental flag or individual viewer allowlist is required.
+installed, validated display runtimes. Current reviewed stable recipes are
+Matrix 19.4 r4, Nexus 20.5 r4 and Omega 21.3 r6; existing profiles keep their
+exact pins. Historical standard-viewer acceptance covers Matrix r3, Nexus r3,
+Omega r5 and the separate Piers 22 RC1 r3 Preview recipe. More recent accepted
+Claw native evidence covers Omega r6 development, retained Omega r6 ↔ Nexus r4
+switching and scoped viewer checks. Current Matrix r4 native qualification remains
+incomplete. Acceptance applies only to the exact tested environments and
+workflows; it establishes no universal browser, platform or runtime qualification.
+Other experimental recipes gain no qualification. See the
+[version-specific qualification limits](STANDARD-NOVNC.md) and
+[graceful shutdown correction](MANAGED-GRACEFUL-STOP.md).
+No experimental flag or individual viewer allowlist is required for eligible
+standard display runtimes.
 Viewing runs at approximately 2 FPS at 640×360. **Start Viewing** is explicit and
 defaults to view-only, allowing independent MCP agent navigation while a human
 observes; **Stop Viewing** leaves Kodi running. **Take Control** acquires exclusive,
@@ -40,7 +51,8 @@ a selected, bound profile has no viewing controls and links back to Current Kodi
 A changed environment retires the old panel and requires a page reload and fresh
 explicit viewing. Admission and control handoff recheck the rendered session and
 profile, so an old page cannot attach a fresh profile on the same registration.
-Other recipes and older profiles gain no standard noVNC qualification. Viewing
+Other recipes gain no standard noVNC qualification. Historical display profiles
+must still meet their exact recipe, sealed-validation and identity checks. Viewing
 follows the selected [Web access mode](WEB-NETWORKING.md): fresh local HTTP uses
 WS, while HTTPS mode requires trusted HTTPS/WSS. Authentication, CSRF, grants,
 input ownership and viewer-cleanup requirements remain in force.

@@ -14,9 +14,11 @@ Neither successful dispatch nor an observed window proves add-on acceptance.
 When the action's screenshot refresh succeeds, `screenshot_retrieve` accepts its
 exact `target_id`, original `request_id` and `capture_id`. It returns PNG image
 content and capture metadata including capture time, age, request correlation
-and runtime state revision. This requires current `target.visual` permission,
-the current target policy/grant, the original client and the same runtime
-identity. Control/inspection permission alone cannot retrieve pixels.
+and runtime state revision. This requires current `target.inspect` permission,
+the exact target grant, current target policy/capability/state checks, the original
+client and the same runtime identity. Separate `target.visual` permission or
+visual scopes are not required. Control authority alone cannot retrieve pixels.
+Existing capture and retrieval rate limits still apply.
 
 Images expire after two minutes and may be replaced sooner by another capture.
 The existing per-target latest-image cache remains bounded; older action IDs
@@ -35,5 +37,8 @@ or a later opt-in returns `not_retained`. Use an explicitly authorized
 A capture-refresh contention result remains attached to the original action;
 do not replay navigation to obtain another frame.
 
-This initial contract covers managed development only. External/production
-capture reuse requires its own trust and visual-authority bindings.
+Capture reuse covers managed development only. External/production screenshots
+use `screenshot_capture` under current inspection authorization, verified
+identity-pinned Bridge capability and **Allow screenshots** set to On (default
+OFF); production also retains its current inspection scope. This does not enable
+external capture reuse.

@@ -141,7 +141,10 @@ paths, raw JSON-RPC or bridge secrets.
 
 ## MCP and workspace boundary
 
-The registry remains exactly fifteen tools. Slice 2 replaces only the direct
+The registry contained fifteen tools at the historical Slice 2 checkpoint.
+Use the [authoritative current registry](../src/kodi_lab/mcp/registry.py) and
+authenticated installed-server discovery for the current catalog.
+Slice 2 replaces only the direct
 target blanket veto with the production inspection evaluator described below.
 The workspace-target veto remains absolute, so indirect workspace deployment,
 execution and promotion stay unavailable. Production Remote Kodi is assignable
