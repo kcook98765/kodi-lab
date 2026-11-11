@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from kodi_lab.application.lifecycle_operations import RunningLifecycleOperation
 from kodi_lab.application.managed_versions import (
     AuthorizeVersion,
+    ManagedProfileIdentity,
     ManagedVersionError,
     ManagedVersionInput,
     ManagedVersionLifecycleService,
@@ -46,6 +47,18 @@ from kodi_lab.storage.models import (
 
 class ManagedResetInput(ManagedVersionInput):
     restart: bool = False
+    expected_profile: ManagedProfileIdentity | None = None
+    resume_bridge_version: int | None = Field(default=None, ge=0)
+
+
+class ManagedResetBridgeResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation_id: UUID | None = None
+    checkpoint: str = Field(max_length=32)
+    version: int | None = None
+    reason: str | None = Field(default=None, max_length=64)
+    stored_trust: str | None = Field(default=None, max_length=32)
+    live_readiness: Literal["not_observed"] = "not_observed"
 
 
 class ManagedResetResult(BaseModel):
@@ -68,6 +81,7 @@ class ManagedResetResult(BaseModel):
     profile_bound_state: Literal["not_confirmed", "invalidated"]
     recovery: str = Field(max_length=256)
     status: ManagedVersionStatus
+    bridge_preparation: ManagedResetBridgeResult | None = None
 
 
 class ManagedCleanResetService:
@@ -180,6 +194,12 @@ class ManagedCleanResetService:
                     str(slot.canonical_target_id),
                 ):
                     raise ManagedVersionError("request_conflict")
+                if operation.expected_profile is not None and (
+                    operation.expected_profile.container_id,
+                    str(operation.expected_profile.runtime_revision_id),
+                    operation.expected_profile.image_id,
+                ) != (row.old_container_id, row.runtime_revision_id, row.image_id):
+                    raise ManagedVersionError("request_conflict")
                 session.expunge(row)
                 return row, True
             if session.scalar(
@@ -222,6 +242,20 @@ class ManagedCleanResetService:
                 for r in inventory.containers
                 if r.managed_instance_id == str(slot.canonical_target_id)
             ]
+            if operation.expected_profile is not None and (
+                len(selected) != 1
+                or (
+                    selected[0].container_id,
+                    selected[0].runtime_revision_id,
+                    selected[0].image_id,
+                )
+                != (
+                    operation.expected_profile.container_id,
+                    str(operation.expected_profile.runtime_revision_id),
+                    operation.expected_profile.image_id,
+                )
+            ):
+                raise ManagedVersionError("managed_reset_identity_changed")
             current = active_session(session)
             old = selected[0].container_id if selected else None
             if current is not None and current.target_id == str(

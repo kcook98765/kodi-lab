@@ -389,7 +389,7 @@ class ManagedRuntimeLifecycleService:
         on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None],
         before_restart: Callable[[], None],
     ) -> ManagedRuntimeStatus:
-        """Web maintenance under ordinary managed authority, with one restart proof.
+        """Reviewed maintenance under managed authority, with one restart proof.
 
         The durable preparation coordinator owns all callers and child identities.
         Development, optional background preparation and MCP keep their admission.

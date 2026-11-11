@@ -48,6 +48,7 @@ from kodi_lab.application.managed_agent_lifecycle import (
     ManagedAgentLifecycleResult,
     ManagedAgentLifecycleService,
 )
+from kodi_lab.application.managed_agent_reset import ManagedAgentResetService
 from kodi_lab.application.managed_clean_reset import (
     ManagedCleanResetService,
     ManagedResetInput,
@@ -829,6 +830,9 @@ class McpTargetToolService:
         self._managed_reset = (
             ManagedCleanResetService(managed_versions) if managed_versions else None
         )
+        self._managed_agent_reset = (
+            ManagedAgentResetService(managed_versions) if managed_versions else None
+        )
         self._workspace_launch = workspace_launch
         self._addon_settings = addon_settings
         self._retained_sessions = retained_sessions
@@ -942,13 +946,23 @@ class McpTargetToolService:
     ) -> ManagedResetResult:
         if self._managed_reset is None:
             raise McpAuthorizationError("capability_unavailable")
+        with self._session_factory() as session:
+            trusted = self._authorization.has_managed_lab_role(session, principal)
+
+        def authorize(session: Session, target: UUID) -> None:
+            self._authorization.recheck_managed_versions(
+                session, principal, "managed_reset", target
+            )
+            if trusted:
+                self._authorization.require_managed_lab_role(session, principal)
+
         try:
-            result = self._managed_reset.invoke(
+            reset = self._managed_agent_reset if trusted else self._managed_reset
+            assert reset is not None
+            result = reset.invoke(
                 principal.client_id,
                 operation,
-                lambda session, target: self._authorization.recheck_managed_versions(
-                    session, principal, "managed_reset", target
-                ),
+                authorize,
             )
         except (
             ManagedVersionError,

@@ -30,7 +30,13 @@ def test_reset_is_opted_in_strict_replayable_and_stopped_by_default(
     }
     assert tools["managed_reset"]["annotations"]["destructiveHint"] is True
     schema = tools["managed_reset"]["inputSchema"]
-    assert set(schema["properties"]) == {"version", "request_id", "restart"}
+    assert set(schema["properties"]) == {
+        "version",
+        "request_id",
+        "restart",
+        "expected_profile",
+        "resume_bridge_version",
+    }
     assert schema["additionalProperties"] is False
     assert schema["properties"]["restart"]["default"] is False
     request = str(uuid4())
