@@ -26,10 +26,12 @@ claim is not made. The local candidate's clean committed `HEAD` contains exactly
 the recorded `HEAD^{tree}`. Staging verifies that copied recipe bytes match the
 installed wheel's reviewed recipe digests.
 
-Current standard-viewer recipes are Matrix 19.4 revision 3, Nexus 20.5 revision 3
-and Omega 21.3 revision 5. Historical resources remain in the wheel for exact
-pins and provenance; acquiring a recipe does not change a registered instance's
-image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
+Current reviewed stable viewer/runtime recipes are Matrix 19.4 revision 4,
+Nexus 20.5 revision 4 and Omega 21.3 revision 6. Recipe selection does not establish
+native qualification for these exact images; historical viewer acceptance covers
+the earlier Matrix r3, Nexus r3 and Omega r5 recipes. Historical resources remain
+in the wheel for exact pins and provenance; acquiring a recipe does not change a
+registered instance's image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
 
 The stable runtime recipes include the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
 
@@ -45,21 +47,29 @@ installation/Omega result and separate remaining native acceptance checks.
 macOS and ARM64 hosts are not qualified. Historical private archive bootstrap
 resources are not release prerequisites.
 
-The sole initial-release migration is `0001_initial_release`, included in both
-sdist and wheel. Unsupported prerelease databases are refused; there is no
-conversion or stamping path. Alembic remains available for future forward
-migrations. See the [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
+`0001_initial_release` is the initial database baseline. The supported forward
+chain is `0001_initial_release → 0002_managed_setup → 0003_managed_versions →
+0004_clean_reset → 0005_managed_web → 0006_external_screenshots →
+0007_production_navigation`, the current head. Both sdist and wheel include this
+migration tree. Supported upgrades use the explicit administrator upgrade flow;
+ordinary Web startup requires the installed head and never migrates. Unsupported
+prerelease databases are refused; there is no conversion or stamping path.
+See the [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
 
 Managed profiles may be disposable or explicitly retained for per-version
 development. Retention keeps a container's writable profile when switching; it
 is not a backup. Provisioning creates a
 stopped container from an exact pinned runtime revision; stopping retains that
 container and its writable layer. Deprovisioning removes the container and
-layer while retaining the managed record and durable Kodi Lab state. Reset
-returns it to the assigned deterministic fixture, and Snapshots provide
-bounded preservation, including the existing confirmed deletion/preservation
-policy. Retained profiles still use the container writable layer; deprovisioning
-removes that layer. There is no automatic profile reconstruction.
+layer while retaining the managed record and durable Kodi Lab state.
+**Reset permanently discards that version's writable Kodi profile**, settings and
+installed add-ons. Supported [clean Reset](MANAGED-CLEAN-RESET.md) recreates a
+profile from the same approved cached image without applying a fixture. The older
+Advanced fixture-reset flow instead reapplies an assigned deterministic fixture.
+Snapshots provide bounded preservation, including the existing confirmed
+deletion/preservation policy. Retained profiles still use the container writable
+layer; deprovisioning removes that layer. There is no automatic profile
+reconstruction.
 External/production Kodi targets may be long-lived installations and remain
 under their separate registration, onboarding, and bridge policies.
 

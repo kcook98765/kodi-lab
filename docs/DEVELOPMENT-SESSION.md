@@ -23,8 +23,15 @@ its Advanced page identifies it as noncurrent. **Development Tools** links here;
 separate management pages.
 
 The live screen uses [standard noVNC viewing](STANDARD-NOVNC.md) for exact
-installed, validated Matrix 19.4 r3, Nexus 20.5 r3, Omega 21.3 r5 and Piers 22 RC1
-r3 runtimes. No experimental flag or individual viewer allowlist is required.
+installed, validated display runtimes. Current reviewed stable recipes are
+Matrix 19.4 r4, Nexus 20.5 r4 and Omega 21.3 r6; existing profiles keep their
+exact pins. Historical viewer acceptance covers the earlier r3/r3/r5 images
+and the separate Piers 22 RC1 r3 Preview recipe, not qualification of the new
+stable images or other experimental recipes. See the
+[version-specific qualification limits](STANDARD-NOVNC.md) and
+[graceful shutdown correction](MANAGED-GRACEFUL-STOP.md).
+No experimental flag or individual viewer allowlist is required for eligible
+standard display runtimes.
 Viewing runs at approximately 2 FPS at 640×360. **Start Viewing** is explicit and
 defaults to view-only, allowing independent MCP agent navigation while a human
 observes; **Stop Viewing** leaves Kodi running. **Take Control** acquires exclusive,
@@ -40,7 +47,8 @@ a selected, bound profile has no viewing controls and links back to Current Kodi
 A changed environment retires the old panel and requires a page reload and fresh
 explicit viewing. Admission and control handoff recheck the rendered session and
 profile, so an old page cannot attach a fresh profile on the same registration.
-Other recipes and older profiles gain no standard noVNC qualification. Viewing
+Other recipes gain no standard noVNC qualification. Historical display profiles
+must still meet their exact recipe, sealed-validation and identity checks. Viewing
 follows the selected [Web access mode](WEB-NETWORKING.md): fresh local HTTP uses
 WS, while HTTPS mode requires trusted HTTPS/WSS. Authentication, CSRF, grants,
 input ownership and viewer-cleanup requirements remain in force.

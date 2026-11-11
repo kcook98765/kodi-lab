@@ -4,22 +4,30 @@ Managed instance details offer **Open screen**, then **Start Viewing**, without
 selecting Current Kodi or creating an add-on workspace. Current Kodi also offers
 **Start Viewing** for its exact selected development environment. Both paths
 require an installed, validated display runtime. No experimental UUID or
-Web/broker flag is needed. Fresh installations
-select these reviewed recipes:
+Web/broker flag is needed. Current stable runtime acquisition selects these
+reviewed recipes:
 
 | Kodi | Recipe | Revision |
 | --- | --- | --- |
-| Matrix 19.4 | ubuntu-jammy-matrix-19.4 | 3 |
-| Nexus 20.5 | ubuntu-noble-nexus-20.5 | 3 |
-| Omega 21.3 | ubuntu-resolute-omega-21.3 | 5 |
-| Piers 22 RC1 | piers-22.0-rc1-r3 | 3 |
+| Matrix 19.4 | ubuntu-jammy-matrix-19.4 | 4 |
+| Nexus 20.5 | ubuntu-noble-nexus-20.5 | 4 |
+| Omega 21.3 | ubuntu-resolute-omega-21.3 | 6 |
 
-Piers remains Preview and requires exact prerelease consent. Version names,
-package presence and screenshots alone never confer viewer eligibility. Admission
+These revisions contain the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md).
+The historical acceptance below covers Matrix r3, Nexus r3 and Omega r5; it does
+not establish native/browser acceptance of Matrix r4, Nexus r4 or Omega r6.
+Each exact image still requires its installation validation and version-specific
+qualification. Existing profiles retain their exact pins.
+
+Piers 22 RC1 (`piers-22.0-rc1-r3`, revision 3) remains a separate Preview recipe
+and requires exact prerelease consent. Its historical acceptance below applies
+only to that exact recipe; other Piers or experimental recipes gain no qualification.
+Version names, package presence and screenshots alone never confer viewer
+eligibility. Admission
 checks the exact packaged recipe and helper/package integrity, sealed installation
 and native display validation, current image/container incarnation, selected
-session identity when applicable and existing ownership/reconciliation fences. Unknown, altered,
-unvalidated and older images do not inherit standard viewing.
+session identity when applicable and existing ownership/reconciliation fences.
+Unknown, altered or unvalidated images do not inherit standard viewing.
 
 ## Normal workflow
 
@@ -105,15 +113,18 @@ The original 128 MiB comparisons, their failures and incomplete campaigns remain
 historical evidence in [the implementation ledger](STANDARD-NOVNC-IMPLEMENTATION.md)
 and the issue #163 deployment reports. This owner decision changes the standard
 acceptance budget, not their original verdicts. Prior exact-image native evidence
-covers all four recipes. Standard implementation, production deployment and
-installed acceptance are complete as recorded below; the earlier failed and
-incomplete attempts retain their original verdicts.
+covers the historical Matrix r3, Nexus r3, Omega r5 and Piers r3 recipes.
+Their standard implementation, production deployment and installed acceptance
+are complete as recorded below; the earlier failed and incomplete attempts retain
+their original verdicts.
 
 ## Older profiles and later production rollout
 
 Installing a standard recipe preserves an existing registration's exact pin.
-Older profiles remain ineligible for standard viewing and keep their eligible
-screenshot/JPEG paths. Historical Omega r4 remains separately experimental.
+Historical Matrix r3, Nexus r3 and Omega r5 display profiles retain their exact
+standard-viewer eligibility checks. Older recipes outside the closed standard
+display registry remain ineligible and keep their eligible screenshot/JPEG paths.
+Historical Omega r4 remains separately experimental.
 Replacement requires an explicit supported lifecycle operation and fresh profile;
 installing the recipe alone does not replace a profile. Advanced legacy Fresh
 Test/replacement retains its existing restrictions, including refusal in retained

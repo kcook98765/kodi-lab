@@ -130,10 +130,17 @@ enable/start the add-on, or give an agent new permissions. Follow the
    use `remote_action(observe_ui=true)` to receive the action's retained UI
    observation. For visual evidence, retrieve an available exact action capture
    with `screenshot_retrieve` using its original request and capture IDs, instead
-   of asking for another capture. Inspection and visual access each require
-   their own current permissions and exact grant. Capture reuse covers managed
-   development only; images expire after two minutes and may be replaced sooner,
-   and old capture IDs never select newer pixels. Retrieve does not recapture.
+   of asking for another capture. UI inspection, `screenshot_capture` and
+   `screenshot_retrieve` require current `target.inspect`, the exact target grant
+   and current target policy/capability/state checks; separate `target.visual`
+   permission or visual scopes are not required. External screenshot capture
+   additionally requires **Allow screenshots** set to On (default OFF) and
+   verified, identity-pinned Bridge capability; production inspection retains
+   its current inspection scope. Existing capture/retrieval rate limits remain
+   in force. Capture reuse revalidates the original client and runtime identity
+   and covers managed development only; images expire after two minutes and may
+   be replaced sooner, and old capture IDs never select newer pixels. Retrieve
+   does not recapture.
    See [action observations and capture reuse](REMOTE-ACTION-OBSERVATIONS.md).
 6. **Keep a small checkpoint and full evidence.** Retain complete receipts and
    warnings in the normal evidence store. Carry only the current target, source,

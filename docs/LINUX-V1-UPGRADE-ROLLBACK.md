@@ -2,10 +2,14 @@
 
 ## Applicability before the first public release
 
-The initial-release database has one revision: `0001_initial_release`. The current
-application refuses unsupported prerelease databases and backups; it does not
-convert or stamp them. Preserve unsupported state separately and use a fresh,
-independent installation. Never erase state to bypass a refusal. See the
+The initial database baseline is `0001_initial_release`. Supported forward
+migrations continue through `0002_managed_setup`, `0003_managed_versions`,
+`0004_clean_reset`, `0005_managed_web`, `0006_external_screenshots` and the current
+head, `0007_production_navigation`. The explicit administrator upgrade flow applies
+this chain; ordinary Web startup requires the installed head and never migrates.
+The current application refuses unsupported prerelease databases and backups;
+it does not convert or stamp them. Preserve unsupported state separately and use
+a fresh, independent installation. Never erase state to bypass a refusal. See the
 [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
 
 The general backup, transition and rollback safeguards below remain relevant

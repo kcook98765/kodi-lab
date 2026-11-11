@@ -142,12 +142,20 @@ operation.
 
 ## Reset and cleanup
 
-`stop` retains each container's writable layer. Reset one runtime through the
-existing authenticated Web reset operation after assigning a compatible
+`stop` retains each container's writable layer. For ordinary version-slot use,
+follow the [Managed Kodi Web workflow](MANAGED-KODI-WEB.md#stop-and-reset) or
+separately authorized [agent clean Reset](MANAGED-CLEAN-RESET.md).
+**Reset permanently discards that version's writable Kodi profile**, settings and
+installed add-ons. Clean Reset recreates from the same approved cached image
+without applying a fixture; independent source, workspaces, Git and retained
+Lab evidence survive.
+
+The older Advanced fixture-reset flow below is distinct from clean Reset.
+It uses the authenticated per-instance reset operation after assigning a compatible
 packaged fixture with `kodi-lab-lab fixture assign SELECTOR SLUG` in the Web
 container; it destroys and reprovisions that runtime's disposable layer.
 To reset all four, request four independent per-instance resets and inspect
-each result. Reset is not a Compose operation. Snapshot restore is separate
+each result. Fixture reset is not a Compose operation. Snapshot restore is separate
 from fixture reset. Deprovision one stopped runtime through its existing Web
 lifecycle operation; its managed record and snapshot history remain. To destroy
 an isolated disposable lab, deprovision each managed container, stop the

@@ -61,10 +61,11 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The recorded scoped V1 MCP registry contains twenty-six tools (D-0438).
-This count is a baseline for the V1 contract, not the installed tool count:
-later features may extend it. Discover the actual server toolset and verify
-current preset permissions and grants before use. The recorded baseline includes:
+The authoritative current MCP inventory and permission metadata are defined by
+[`build_mcp_tool_registry`](../src/kodi_lab/mcp/registry.py). Discover the installed
+server's toolset with an authenticated client and verify current preset
+permissions and exact grants before use. Later features extend the historical
+D-0438 baseline below; this list is not the complete current catalog:
 
 - `managed_ensure_ready`
 - `managed_release`
@@ -103,9 +104,9 @@ managed-target grants; they never provision or manage external targets. See
 [resource controls](MANAGED-KODI-RESOURCES.md). Batch import requires source
 inspection and workspace edit authority; see [batch import](WORKSPACE-BATCH-IMPORT.md).
 Optional post-action UI observations and `screenshot_retrieve` are initially
-managed-development only and preserve exact capture identity and current visual
-authority; see [action observations](REMOTE-ACTION-OBSERVATIONS.md). These additions
-do not widen the seven production-eligible tools.
+managed-development only and preserve exact capture identity and current
+`target.inspect` authority; see [action observations](REMOTE-ACTION-OBSERVATIONS.md).
+These additions do not widen the seven production-eligible tools.
 
 `inspect_ui_state` is a read-only `target.inspect` operation with a compact,
 provider-independent schema, actual focus and explicitly validated container/item
