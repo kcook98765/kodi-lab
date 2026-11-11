@@ -540,7 +540,10 @@ class WorkspaceEditInput(BaseModel):
     relative_path: str = Field(
         min_length=1,
         max_length=512,
-        description="Confined relative file path in the workspace; parent must exist.",
+        description=(
+            "Confined relative file path in the workspace. Create also "
+            "creates missing parents in agent-owned projects atomically with the file."
+        ),
     )
     content: str | None = Field(
         default=None,
@@ -734,7 +737,9 @@ class WorkspaceValidateResult(BaseModel):
     binary_change_classification: Literal["none"] = "none"
     type_transition_classification: Literal["none"] = "none"
     promotable: StrictBool
-    promotable_classification: Literal["promotable", "addon_identity_changed"]
+    promotable_classification: Literal[
+        "promotable", "addon_identity_changed", "agent_owned_project"
+    ]
     changed_paths: tuple[WorkspaceValidatedPath, ...] = Field(max_length=64)
     truncated: StrictBool
 

@@ -689,15 +689,83 @@ def _open_workspace_root_fd(data_root: Path, workspace_id: UUID) -> int:
         os.close(storage_fd)
 
 
+@dataclass
+class _CreatedParent:
+    parent_fd: int
+    name: str
+    device: int
+    inode: int
+    removed: bool = False
+
+
+def _rollback_created_parents(created: list[_CreatedParent]) -> None:
+    for item in reversed(created):
+        if item.removed:
+            continue
+        current = os.stat(item.name, dir_fd=item.parent_fd, follow_symlinks=False)
+        directory_fd = os.open(item.name, _DIRECTORY_FLAGS, dir_fd=item.parent_fd)
+        try:
+            opened = os.fstat(directory_fd)
+            if (
+                not stat.S_ISDIR(current.st_mode)
+                or stat.S_IMODE(current.st_mode) != 0o755
+                or current.st_uid != os.geteuid()
+                or opened.st_uid != os.geteuid()
+                or (current.st_dev, current.st_ino) != (item.device, item.inode)
+                or (opened.st_dev, opened.st_ino) != (item.device, item.inode)
+                or os.listdir(directory_fd)
+            ):
+                raise AgentWorkspaceStorageError(
+                    "agent_workspace_rollback_unproven",
+                    "A newly created parent changed; retained bytes require review.",
+                )
+            os.rmdir(item.name, dir_fd=item.parent_fd)
+            os.fsync(item.parent_fd)
+            item.removed = True
+        finally:
+            os.close(directory_fd)
+
+
 def _open_mutation_parent(
-    workspace_root_fd: int, parts: tuple[str, ...]
+    workspace_root_fd: int,
+    parts: tuple[str, ...],
+    *,
+    created: list[_CreatedParent] | None = None,
 ) -> tuple[int, str]:
     try:
         current_fd = os.open("tree", _DIRECTORY_FLAGS, dir_fd=workspace_root_fd)
         for part in parts[:-1]:
-            next_fd = os.open(part, _DIRECTORY_FLAGS, dir_fd=current_fd)
+            made = False
+            try:
+                next_fd = os.open(part, _DIRECTORY_FLAGS, dir_fd=current_fd)
+            except FileNotFoundError:
+                if created is None:
+                    raise
+                os.mkdir(part, mode=0o755, dir_fd=current_fd)
+                next_fd = os.open(part, _DIRECTORY_FLAGS, dir_fd=current_fd)
+                made = True
+            try:
+                if made:
+                    assert created is not None
+                    metadata = os.fstat(next_fd)
+                    if metadata.st_uid != os.geteuid():
+                        raise OSError("New workspace parent ownership changed")
+                    created.append(
+                        _CreatedParent(
+                            os.dup(current_fd), part, metadata.st_dev, metadata.st_ino
+                        )
+                    )
+            except BaseException:
+                os.close(next_fd)
+                raise
             os.close(current_fd)
             current_fd = next_fd
+            if made:
+                assert created is not None
+                os.fchmod(current_fd, 0o755)
+                os.fsync(current_fd)
+                os.fsync(created[-1].parent_fd)
+
         return current_fd, parts[-1]
     except OSError as error:
         with suppress(OSError, UnboundLocalError):
@@ -872,6 +940,7 @@ def mutate_workspace_text(
     content: str,
     expected_tree_digest: str,
     expected_text: str | None = None,
+    create_parents: bool = False,
 ) -> Iterator[WorkspaceMutationResult]:
     """Atomically mutate one text file and roll it back unless the caller commits."""
 
@@ -899,6 +968,7 @@ def mutate_workspace_text(
     committed = False
     preflight_complete = False
     post_identity: tuple[int, int] | None = None
+    created_parents: list[_CreatedParent] = []
     try:
         lock_fd = os.open(
             ".mutation.lock",
@@ -915,7 +985,13 @@ def mutate_workspace_text(
                     "Workspace tree no longer matches its durable generation.",
                 )
             preflight_complete = True
-            parent_fd, target = _open_mutation_parent(workspace_fd, parts)
+            parent_fd, target = _open_mutation_parent(
+                workspace_fd,
+                parts,
+                created=created_parents
+                if operation == "create" and create_parents
+                else None,
+            )
             mode = 0o644
             prior_payload: bytes | None = None
             if operation == "create":
@@ -1056,6 +1132,7 @@ def mutate_workspace_text(
                         )
                         backup = None
                         os.fsync(parent_fd)
+                    _rollback_created_parents(created_parents)
                     restored = _capture_workspace_tree(data_root, workspace_id)
                     if restored.digest != expected_tree_digest:
                         raise AgentWorkspaceStorageError(
@@ -1076,6 +1153,7 @@ def mutate_workspace_text(
                     if backup is not None:
                         os.unlink(backup, dir_fd=workspace_fd)
                         backup = None
+                    _rollback_created_parents(created_parents)
                     unchanged = _capture_workspace_tree(data_root, workspace_id)
                     if unchanged.digest != expected_tree_digest:
                         raise AgentWorkspaceStorageError(
@@ -1099,6 +1177,8 @@ def mutate_workspace_text(
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
     finally:
+        for item in created_parents:
+            os.close(item.parent_fd)
         if parent_fd >= 0:
             os.close(parent_fd)
         os.close(workspace_fd)
@@ -1157,6 +1237,7 @@ def _derive_workspace_diff_locked(
     *,
     expected_baseline_digest: str,
     expected_tree_digest: str,
+    allow_added_directories: bool = False,
     expected_addon_id: str,
 ) -> WorkspaceDiff:
     baseline = _capture_workspace_tree(data_root, workspace_id, baseline=True)
@@ -1181,6 +1262,12 @@ def _derive_workspace_diff_locked(
         present = current_by_path[path]
         prior = baseline_by_path.get(path)
         if prior is None:
+            if (
+                allow_added_directories
+                and present.entry_type == "directory"
+                and present.mode == 0o755
+            ):
+                continue
             if present.entry_type != "file":
                 raise AgentWorkspaceStorageError(
                     "agent_workspace_type_transition",
@@ -1249,6 +1336,7 @@ def derive_workspace_diff(
     *,
     expected_baseline_digest: str,
     expected_tree_digest: str,
+    allow_added_directories: bool = False,
     expected_addon_id: str,
 ) -> WorkspaceDiff:
     """Derive one coherent change view while excluding concurrent mutations."""
@@ -1261,6 +1349,7 @@ def derive_workspace_diff(
             workspace_id,
             expected_baseline_digest=expected_baseline_digest,
             expected_tree_digest=expected_tree_digest,
+            allow_added_directories=allow_added_directories,
             expected_addon_id=expected_addon_id,
         )
 
@@ -1286,6 +1375,7 @@ def _validate_workspace_structure_locked(
     *,
     expected_baseline_digest: str,
     expected_tree_digest: str,
+    allow_added_directories: bool = False,
 ) -> WorkspaceStructuralValidation:
     baseline = _capture_workspace_tree(data_root, workspace_id, baseline=True)
     current = _capture_workspace_tree(data_root, workspace_id)
@@ -1306,6 +1396,12 @@ def _validate_workspace_structure_locked(
         present = current_by_path[path]
         prior = baseline_by_path.get(path)
         if prior is None:
+            if (
+                allow_added_directories
+                and present.entry_type == "directory"
+                and present.mode == 0o755
+            ):
+                continue
             if present.entry_type != "file":
                 raise AgentWorkspaceStorageError(
                     "agent_workspace_type_transition",
@@ -1352,6 +1448,7 @@ def validate_workspace_structure(
     *,
     expected_baseline_digest: str,
     expected_tree_digest: str,
+    allow_added_directories: bool = False,
 ) -> WorkspaceStructuralValidation:
     """Validate one exact bounded structural view without returning content."""
 
@@ -1363,4 +1460,5 @@ def validate_workspace_structure(
             workspace_id,
             expected_baseline_digest=expected_baseline_digest,
             expected_tree_digest=expected_tree_digest,
+            allow_added_directories=allow_added_directories,
         )

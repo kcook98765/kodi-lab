@@ -1041,6 +1041,12 @@ class McpAuthorizationService:
                 or str(workspace.development_source_id) != binding.development_source_id
             ):
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+            if (
+                tool_name == "promotion_request"
+                and session.get(AgentProjectRow, binding.development_source_id)
+                is not None
+            ):
+                raise McpAuthorizationError("promotion_not_allowed")
             managed_role = self._managed_lab_target(
                 session, principal, client, target_id
             )

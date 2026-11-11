@@ -36,3 +36,16 @@ This first slice supports new projects. Reviewed checkout/package transfer,
 validated ZIP intake and retirement are subsequent #305 slices. Native and
 browser acceptance remain tracked by #310. No host path, shell, Git clone, remote
 URL fetch, Docker operation or external Kodi authority is provided by these tools.
+
+For agent-owned projects, `workspace_edit` with `operation=create` also creates
+missing safe parent directories in the private workspace. A nested resource file
+and its parents publish as one generation. No-follow traversal and existing path,
+text and tree bounds apply. Failed publication rolls back the known file and only
+unchanged empty parents created by that operation. Unexpected bytes or replaced
+parents are retained for reconciliation. Original source seeds are never edited.
+Registered-source workspaces retain their existing parent-directory rule.
+
+Private project seeds are immutable intake, so validation reports
+`promotable_classification=agent_owned_project` and `promotable=false` for source
+promotion. This does not prohibit managed deployment. `promotion_request` cannot
+write a private seed or turn project ownership into host filesystem authority.

@@ -8071,3 +8071,14 @@ Expired or unresolved interactive ownership remains fenced until native release
 is proven. Current agent authority is rechecked at actual managed dispatch.
 No keys are buffered or replayed on human release, and external authority is
 unchanged. See [GUI priority and qualification boundary](MANAGED-GUI-PRIORITY.md).
+
+## D-0495: Private project file creation may create bounded parent directories
+
+For an agent-owned project only, a complete-file create may add missing private
+workspace parents and publish them with the file in one generation. The common
+mutation lock, no-follow handles, digest proof and transactional authorization
+remain authoritative. Rollback removes only exact unchanged empty parents it
+created; changed postimages remain for reconciliation. Legacy registered-source
+workspaces retain their conservative directory rule. Structural/diff validation
+accepts safe added directories only for private projects; no source promotion is
+authorized for immutable project intake seeds. See [project workflow](AGENT-PROJECTS.md).

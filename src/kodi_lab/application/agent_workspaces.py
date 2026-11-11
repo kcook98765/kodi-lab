@@ -214,7 +214,9 @@ class AgentWorkspaceStructuralValidationRead(BaseModel):
     version_classification: Literal["unchanged", "changed"]
     extension_type_classification: Literal["unchanged", "changed"]
     promotable: bool
-    promotable_classification: Literal["promotable", "addon_identity_changed"]
+    promotable_classification: Literal[
+        "promotable", "addon_identity_changed", "agent_owned_project"
+    ]
     changes: tuple[AgentWorkspaceStructuralChangeRead, ...]
 
 
@@ -289,6 +291,10 @@ class AgentWorkspaceService:
         self._development_root = development_root
         self._clock = clock
         self._uuid_factory = uuid_factory
+
+    def _is_agent_project(self, source_id: UUID) -> bool:
+        with self._session_factory() as session:
+            return session.get(AgentProjectRow, str(source_id)) is not None
 
     def source_root(self, source_id: UUID) -> Path:
         """Resolve only registered roots; a project never accepts a host path."""
@@ -786,6 +792,9 @@ class AgentWorkspaceService:
                     content=content,
                     expected_tree_digest=workspace.current_tree_digest,
                     expected_text=expected_text,
+                    create_parents=self._is_agent_project(
+                        workspace.development_source_id
+                    ),
                 ) as result,
                 self._session_factory.begin() as session,
             ):
@@ -917,6 +926,9 @@ class AgentWorkspaceService:
                     expected_baseline_digest=workspace.baseline_manifest_digest,
                     expected_tree_digest=workspace.current_tree_digest,
                     expected_addon_id=workspace.source_addon_id,
+                    allow_added_directories=self._is_agent_project(
+                        workspace.development_source_id
+                    ),
                 )
                 break
             except AgentWorkspaceStorageError:
@@ -980,6 +992,9 @@ class AgentWorkspaceService:
                 workspace_id,
                 expected_baseline_digest=workspace.baseline_manifest_digest,
                 expected_tree_digest=workspace.current_tree_digest,
+                allow_added_directories=self._is_agent_project(
+                    workspace.development_source_id
+                ),
             )
         except AgentWorkspaceStorageError as error:
             if error.code == "agent_workspace_busy":
@@ -1024,6 +1039,7 @@ class AgentWorkspaceService:
         version_changed = observed.observed_version != baseline.observed_version
         extension_changed = observed.extension_types != baseline.extension_types
         smoke_reason = copied_video_plugin_unsupported_reason(observed)
+        project_owned = self._is_agent_project(workspace.development_source_id)
         return AgentWorkspaceStructuralValidationRead(
             workspace_id=workspace_id,
             development_source_id=workspace.development_source_id,
@@ -1040,9 +1056,13 @@ class AgentWorkspaceService:
             extension_type_classification=(
                 "changed" if extension_changed else "unchanged"
             ),
-            promotable=not addon_changed,
+            promotable=not addon_changed and not project_owned,
             promotable_classification=(
-                "addon_identity_changed" if addon_changed else "promotable"
+                "agent_owned_project"
+                if project_owned
+                else "addon_identity_changed"
+                if addon_changed
+                else "promotable"
             ),
             changes=tuple(
                 AgentWorkspaceStructuralChangeRead(
