@@ -38,7 +38,7 @@ const safe = content => {
       const fixture = cases['retained-stopped'], current = structuredClone(fixture.status);
       const target = current.slots.find(s => s.version === 'omega');
       target.message = 'FAKE-browser-token-283'; target.technical = {token:secrets.join('\n')};
-      target.needs_review = !!scenario.card;
+      target.needs_review = !!scenario.card || scenario.phase === 'uncertain';
       const original = {version:'omega', action:scenario.action, request_id:scenario.reference || request, expected_snapshot:target.snapshot, confirm_reset:scenario.action === 'reset'};
       await context.addInitScript(({clipboard, original, restore, key}) => {
         // Freeze only the existing poll timer so copy-only request counts are deterministic.
@@ -67,6 +67,7 @@ const safe = content => {
         assert.equal(await page.locator('[data-problem-copy]:visible').count(), 0);
       } else {
         await box.waitFor({state:'visible'});
+        assert.equal(await page.locator('[data-problem-copy]:visible').count(), 1, 'one relevant summary per condition');
         const button = box.locator('[data-problem-copy]');
         assert.equal(await button.getAttribute('type'), 'button');
         const before = calls.length, stored = await page.evaluate(() => localStorage.getItem('kodi-lab.managed-web.v1'));

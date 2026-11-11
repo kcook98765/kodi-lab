@@ -54,12 +54,13 @@
         manual.hidden = false;
         status.textContent = "Automatic copy is unavailable. Copy the selected problem details below.";
         input.focus(); input.select();
-      } finally { copying = false; }
+      } finally { if (original === generation) copying = false; }
     });
     return value => {
       const content = report(value);
       if (content === current) return; // Polling must preserve manual selection and feedback.
       current = content; generation++;
+      copying = false;
       root.hidden = !content;
       status.textContent = "";
       manual.hidden = true;
@@ -83,6 +84,12 @@
   const requestProblem = problem.presenter(root.querySelector('[data-problem-details="managed-request"]'));
   const errorProblem = problem.presenter(root.querySelector('[data-problem-details="managed-error"]'));
   const cardProblems = new Map(cards.map(card => [card, problem.presenter(card.querySelector('[data-problem-details]'))]));
+  let requestProblemVersion = null;
+  function showRequestProblem(details) {
+    requestProblemVersion = details?.version || null;
+    requestProblem(details);
+    if (details) errorProblem(null);
+  }
   let state = JSON.parse(document.querySelector("#managed-slots-config").textContent);
   let busy = false, saved = null, receipt = null, confirmation = null, returnFocus = null, rejected = null;
   const versions = new Set(["matrix", "nexus", "omega", "piers"]);
@@ -137,7 +144,7 @@
       find("install").hidden = value.preparation !== "Installation needed";
       find("install").href = value.install_url;
       find("recovery").hidden = !value.needs_review;
-      cardProblems.get(card)(value.needs_review === true ? {version:value.version, result:"review"} : null);
+      cardProblems.get(card)(value.needs_review === true && value.version !== requestProblemVersion ? {version:value.version, result:"review"} : null);
       find("recovery").href = value.recovery_url;
       find("advanced").href = value.advanced_url;
       find("history").href = value.recovery_url;
@@ -162,7 +169,7 @@
       if (result.version !== intent.version || result.action !== intent.action || result.request.request_id !== intent.request_id || result.request.expected_snapshot !== intent.expected_snapshot || result.request.confirm_reset !== intent.confirm_reset) throw new Error("The saved request has different details. Review recovery.");
       receipt = result;
       errorProblem(null);
-      requestProblem(result.phase === "complete" ? null : {
+      showRequestProblem(result.phase === "complete" ? null : {
         version:intent.version, action:intent.action, reference:intent.request_id, code:result.code,
         result:["blocked", "uncertain"].includes(result.phase) ? result.phase :
           ["not_dispatched", "accepted", "prepared", "provisioning", "starting", "stopping", "stopped", "removing", "retired"].includes(result.phase) ? "pending" : "unknown",
@@ -179,12 +186,12 @@
         // receipt read agrees. Absence alone never settles a lost response.
         localStorage.removeItem(key); saved = null; receipt = null; rejected = null;
         requestNotice("Kodi changed before this request was accepted. Review the current profile and confirm a new request.");
-        requestProblem({version:intent.version, action:intent.action, result:"blocked", code:"stale_browser"});
+        showRequestProblem({version:intent.version, action:intent.action, result:"blocked", code:"stale_browser"});
         return;
       }
       requestNotice(failure.status === 404 ? "No saved server receipt was found. Resume only this original request; Reset will require confirmation again." : failure.message);
       receipt = failure.status === 404 ? null : {can_resume:false};
-      requestProblem({version:intent.version, action:intent.action, reference:intent.request_id, result:"unknown"});
+      showRequestProblem({version:intent.version, action:intent.action, reference:intent.request_id, result:"unknown"});
     }
   }
   async function refresh() {
@@ -214,7 +221,7 @@
       try { localStorage.setItem(key, JSON.stringify(intent)); } // Must precede dispatch.
       catch (_) { throw new Error("Allow storage for Kodi Lab in this browser before sending a request. No operation was sent."); }
       saved = intent; receipt = null; busy = true; error(""); render();
-      requestProblem(null);
+      showRequestProblem(null);
       rejected = null;
       requestNotice(`${intent.action === "reset" ? "Resetting" : intent.action === "stop" ? "Stopping" : "Starting"} ${intent.version}… Waiting for the actual saved outcome.`);
       await json(`${api}/${intent.version}/${intent.action}`, {method:"POST", headers:{"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf},
@@ -265,7 +272,7 @@
     if (event.key === key) { requestNotice("This request changed in another tab. Refresh or resume its saved receipt."); restore(); refresh(); }
   });
   function restore() {
-    requestProblem(null);
+    showRequestProblem(null);
     try { const raw = JSON.parse(localStorage.getItem(key) || "null"); saved = valid(raw) ? raw : null; }
     catch (_) { error("Browser storage is unavailable. No new operation will be sent until its request can be saved."); saved = null; }
   }

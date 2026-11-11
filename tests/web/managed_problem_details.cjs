@@ -90,6 +90,21 @@ async function copy(app, root) {
   assert(part(lostDetails, 'text').value.includes('Action: Start Kodi'));
   assert(part(lostDetails, 'text').value.includes('Request outcome is not yet known'));
 
+  // A missing receipt supersedes the earlier POST error copy; same-version cards defer to the request.
+  await reply(lost.requests.at(-1), status({needs_review:true}));
+  await reply(lost.requests.at(-1), {}, 404);
+  assert(lost.nodes['managed-error'].hidden);
+  assert(!lost.nodes['managed-request'].hidden);
+  assert(lost.cards[2].querySelector('[data-problem-details]').hidden);
+  assert(!lost.cards[1].querySelector('[data-problem-details]').hidden, 'different version recovery remains available');
+  const dedup = boot({storage:new Map([[key, JSON.stringify(intent('reset'))]])});
+  await reply(dedup.requests[0], status({needs_review:true}));
+  await reply(dedup.requests.at(-1), receipt(intent('reset'), {phase:'uncertain', can_resume:false}));
+  assert(dedup.cards[2].querySelector('[data-problem-details]').hidden);
+  dedup.timers[0](); await reply(dedup.requests.at(-1), status());
+  await reply(dedup.requests.at(-1), receipt(intent('reset'), {phase:'complete', done:true}));
+  assert(dedup.nodes['managed-request'].hidden);
+
   // Complete requests and routine success have no copy controls.
   const completed = boot({storage:new Map([[key, JSON.stringify(intent())]])});
   await reply(completed.requests[0]); await reply(completed.requests.at(-1), receipt(intent(), {phase:'complete', done:true}));
@@ -112,6 +127,21 @@ async function copy(app, root) {
     update({result:'blocked'}); finish(); await flush();
     assert.equal(part(root,'status').textContent, ''); assert(part(root,'manual').hidden);
     update(null); assert(root.hidden); assert.equal(part(root,'text').value, '');
+  }
+  // A changed report can be copied while an older clipboard request is still pending.
+  for (const rejectOld of [false, true]) {
+    const pending = [], raceWindow = {}, root = new Element();
+    vm.runInNewContext(fs.readFileSync(`${__dirname}/../../src/kodi_lab/web/static/managed-slots.js`, 'utf8'), {document:{querySelector:() => null}, window:raceWindow, navigator:{clipboard:{writeText:content => new Promise((resolve,reject) => pending.push({content,resolve,reject}))}}});
+    const update = raceWindow.KodiLabManagedProblem.presenter(root);
+    update({result:'uncertain'}); part(root,'copy').dispatch('click');
+    update({result:'blocked'}); part(root,'copy').dispatch('click');
+    assert.equal(pending.length, 2, 'new report must not wait for an obsolete clipboard prompt');
+    (rejectOld ? pending[0].reject : pending[0].resolve)(); await flush();
+    part(root,'copy').dispatch('click'); assert.equal(pending.length, 2, 'old completion cannot unlock a new in-flight copy');
+    pending[1].resolve(); await flush();
+    assert.equal(part(root,'status').textContent, 'Problem details copied.');
+    assert.equal(pending[1].content, report({result:'blocked'}));
+    assert(part(root,'manual').hidden);
   }
   // Direct presenter success, fallback equality and suppression for unsupported reports.
   const root = new Element(), update = presenter(root);
