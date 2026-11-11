@@ -1392,12 +1392,16 @@ def build_mcp_http_transport(
             title="Reset a managed Kodi version to a clean profile",
             description=(
                 "Destructively replace only the granted canonical version's Kodi "
-                "profile from its existing approved cached image. Requires both "
-                "managed.versions and managed.reset on client and target policy, "
-                "plus the exact target grant. Preserves independent source, "
-                "workspace and Git state. No fixtures are restored. Defaults to "
-                "stopped; restart=true requests native Start, not Bridge or agent "
-                "readiness. Persist request_id and replay it after a lost response. "
+                "profile from its existing approved cached image. Trusted Managed "
+                "Lab uses its one-time role consent: supply expected_profile from "
+                "managed_status; Reset then prepares the reviewed compatible Bridge "
+                "with separate durable evidence. Other clients require explicit "
+                "managed.versions/reset policy and exact target grants and retain "
+                "native-only Reset. Sources/workspaces/Git are preserved. Default "
+                "is stopped; restart=true requests running state. Bridge stored "
+                "trust is separate from live readiness. Save request_id and replay "
+                "after a lost reply. For explicit Bridge recovery, send its exact "
+                "resume_bridge_version with the original Reset request. "
                 "Uncertain removal never permits replacement or another removal."
             ),
             input_schema=ManagedResetInput.model_json_schema(),

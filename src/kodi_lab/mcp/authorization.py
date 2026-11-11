@@ -259,6 +259,18 @@ class McpAuthorizationService:
             raise McpAuthorizationError("target_not_found_or_not_authorized")
         return True
 
+    def has_managed_lab_role(self, session: Session, principal: McpPrincipal) -> bool:
+        client = session.get(McpClientRow, str(principal.client_id))
+        if client is None:
+            raise McpAuthorizationError("permission_denied")
+        return self._managed_lab_role(session, principal, client)
+
+    def require_managed_lab_role(
+        self, session: Session, principal: McpPrincipal
+    ) -> None:
+        if not self.has_managed_lab_role(session, principal):
+            raise McpAuthorizationError("permission_denied")
+
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
         names = {item.name for item in self._registry.discoverable(permissions)}

@@ -8108,3 +8108,16 @@ refusals on this route. Package provenance is immutable additive schema evidence
 source review references are agent claims, with no server fetching or host paths.
 Larger transfers and agent native installation-for-test remain separate #305 work.
 See [project intake bounds](AGENT-PROJECTS.md).
+
+## D-0498: Managed role consent composes exact Reset and reviewed Bridge preparation
+
+Trusted Managed Lab Reset binds the caller's saved observed container/runtime/image
+identity, reuses clean replacement, then composes the existing compatible reviewed
+Bridge maintenance coordinator. Keep native replacement and Bridge parent/child
+evidence separate, linked by a deterministic request derived from the owned Reset.
+Reauthorize current role/credential at maintenance admission, claim and dispatch;
+retain capacity, input, hold, playback and uncertainty fences. Default final state
+is stopped. Explicit Bridge recovery uses the original Reset and preparation
+version; it cannot create another Reset, and completed recovery replays no child.
+Human/legacy native-only Reset consent is unchanged; #302's human composition
+remains open. See [agent Reset contract](MANAGED-AGENT-RESET.md).

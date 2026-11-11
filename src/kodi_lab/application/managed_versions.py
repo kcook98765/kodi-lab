@@ -100,12 +100,20 @@ class ManagedStatusInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class ManagedProfileIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    runtime_revision_id: UUID = Field(strict=False)
+    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class ManagedVersionStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     version: str
     kodi_release: str
     authorized: bool
     target_id: UUID | None = None
+    profile_identity: ManagedProfileIdentity | None = None
     state: Literal["empty", "stopped", "starting", "running", "blocked"]
     code: str = Field(max_length=64)
     native_ready: bool = False
@@ -1085,6 +1093,18 @@ class ManagedVersionLifecycleService:
             return ManagedVersionStatus(
                 **base,
                 state=state,
+                profile_identity=next(
+                    (
+                        ManagedProfileIdentity(
+                            container_id=record.container_id,
+                            runtime_revision_id=UUID(instance.runtime_revision_id),
+                            image_id=record.image_id,
+                        )
+                        for record in inventory.containers
+                        if record.managed_instance_id == str(slot.canonical_target_id)
+                    ),
+                    None,
+                ),
                 code=runtime.failure_code
                 or ("native_ready" if native else runtime.usability_state.value),
                 native_ready=native,

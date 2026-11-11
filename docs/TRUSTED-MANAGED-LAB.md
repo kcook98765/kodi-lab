@@ -21,8 +21,9 @@ the managed role preserves separately approved external access.
 The role grants no host filesystem, shell, Docker or service administration.
 Workspace ownership/source authority still applies, including isolation between
 agents. Agent-owned intake, selection-independent development and Reset/Bridge
-composition are separate slices under #305, #306 and #308; the role alone does
-not establish that these workflows have passed native acceptance.
+composition use the existing workspace and lifecycle services; the role alone
+does not establish that these workflows have passed native acceptance. See
+[project intake](AGENT-PROJECTS.md) and [agent Reset](MANAGED-AGENT-RESET.md).
 
 The client API reports `managed_lab_role_version` (configured role) and
 `managed_lab_permissions` (empty when disabled). Revoke the role in Agents to

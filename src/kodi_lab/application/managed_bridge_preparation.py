@@ -1,5 +1,6 @@
-"""Durable Web-only Bridge maintenance over existing managed lifecycle authority."""
+"""Durable authorized Bridge maintenance over existing managed lifecycle authority."""
 
+from collections.abc import Callable
 from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import func, select, text
@@ -175,9 +176,13 @@ class ManagedBridgePreparationService:
         target_id: UUID,
         keep_running: bool = False,
         create: CreateOperation | None = None,
+        authorize: Callable[[Session, UUID], None] | None = None,
+        expected: ManagedStartBinding | None = None,
     ) -> Row:
         with self.sessions.begin() as session:
             session.execute(text("BEGIN IMMEDIATE"))
+            if authorize is not None:
+                authorize(session, target_id)
             old = session.scalar(select(Row).where(Row.request_id == str(request_id)))
             if old:
                 if (old.target_id, old.keep_running, old.create_operation_id) != (
@@ -186,6 +191,20 @@ class ManagedBridgePreparationService:
                     str(create.id) if create else None,
                 ):
                     raise BridgePreparationError("managed_bridge_request_conflict")
+                if expected is not None and (
+                    old.target_id,
+                    old.runtime_revision_id,
+                    old.container_id,
+                    old.image_id,
+                ) != (
+                    expected.target_id,
+                    expected.revision_id,
+                    expected.container_id,
+                    expected.image_id,
+                ):
+                    raise BridgePreparationError(
+                        "managed_bridge_preparation_identity_changed"
+                    )
                 session.expunge(old)
                 return old
             if session.scalar(
@@ -241,6 +260,10 @@ class ManagedBridgePreparationService:
                 target_id=str(target_id),
                 revision_id=instance.runtime_revision_id,
             )
+            if expected is not None and binding != expected:
+                raise BridgePreparationError(
+                    "managed_bridge_preparation_identity_changed"
+                )
             if create is not None and (
                 binding.revision_id,
                 binding.container_id,
@@ -282,10 +305,20 @@ class ManagedBridgePreparationService:
     def child_id(row: Row) -> UUID:
         return uuid5(UUID(row.id), f"{row.phase}:{row.attempt}")
 
-    def continue_once(self, identity: UUID, *, version: int) -> Row:
+    def continue_once(
+        self,
+        identity: UUID,
+        *,
+        version: int,
+        authorize: Callable[[Session, UUID], None] | None = None,
+        actor: str = "web",
+    ) -> Row:
         op = self.get(identity)
         if op is None or op.version != version:
             raise BridgePreparationError("managed_bridge_stale_preparation")
+        if authorize is not None:
+            with self.sessions() as session:
+                authorize(session, UUID(op.target_id))
         if op.checkpoint in {"complete", "needs_attention"}:
             return op
         if op.checkpoint == "dispatched":
@@ -310,39 +343,43 @@ class ManagedBridgePreparationService:
         child_id = self.child_id(op)
 
         def pending(session: Session) -> None:
+            if authorize is not None:
+                authorize(session, UUID(op.target_id))
             row = session.get(Row, op.id)
             if row is None or row.version != op.version or row.checkpoint != "pending":
                 raise BridgePreparationError("managed_bridge_stale_preparation")
             self._binding(session, row)
             self.resources._guard(
-                session, UUID(row.target_id), reason="released", actor="web"
+                session, UUID(row.target_id), reason="released", actor=actor
             )
 
-        def before_stop() -> None:
-            def guarded() -> None:
-                with self.sessions.begin() as session:
-                    session.execute(text("BEGIN IMMEDIATE"))
-                    row = session.get(Row, op.id)
-                    if (
-                        row is None
-                        or row.checkpoint != "dispatched"
-                        or self.child_id(row) != child_id
-                    ):
-                        raise BridgePreparationError("managed_bridge_claim_changed")
-                    self._binding(session, row, epoch=False)
-                    self.resources._guard(
-                        session,
-                        UUID(op.target_id),
-                        reason="released",
-                        actor="web",
-                        own_operation_id=child_id,
-                    )
+        def dispatch_guard() -> None:
+            with self.sessions.begin() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                if authorize is not None:
+                    authorize(session, UUID(op.target_id))
+                row = session.get(Row, op.id)
+                if (
+                    row is None
+                    or row.checkpoint != "dispatched"
+                    or self.child_id(row) != child_id
+                ):
+                    raise BridgePreparationError("managed_bridge_claim_changed")
+                self._binding(session, row, epoch=False)
+                self.resources._guard(
+                    session,
+                    UUID(op.target_id),
+                    reason="released",
+                    actor=actor,
+                    own_operation_id=child_id,
+                )
 
-            guarded()
+        def before_stop() -> None:
+            dispatch_guard()
             self.resources._playback_evidence(
                 UUID(op.target_id), expected_container_id=op.container_id
             )
-            guarded()
+            dispatch_guard()
 
         def claim(session: Session, handle: RunningLifecycleOperation) -> None:
             row = session.get(Row, op.id)
@@ -428,6 +465,7 @@ class ManagedBridgePreparationService:
                     precondition=pending,
                     on_claim=claim,
                     on_terminal=terminal,
+                    before_dispatch=dispatch_guard,
                 )
             elif op.phase == "bridge":
                 self.lifecycle.prepare_managed_bridge(
@@ -470,7 +508,13 @@ class ManagedBridgePreparationService:
                 current.version += 1
                 current.updated_at = _now()
 
-    def resume(self, identity: UUID, *, version: int) -> Row:
+    def resume(
+        self,
+        identity: UUID,
+        *,
+        version: int,
+        authorize: Callable[[Session, UUID], None] | None = None,
+    ) -> Row:
         """Explicit recovery keeps the parent, all attempts and exact profile.
 
         A new child is permitted only after existing typed recovery has proven
@@ -485,6 +529,8 @@ class ManagedBridgePreparationService:
                 or row.checkpoint != "needs_attention"
             ):
                 raise BridgePreparationError("managed_bridge_stale_recovery")
+            if authorize is not None:
+                authorize(session, UUID(row.target_id))
             if row.attempt >= 32:
                 raise BridgePreparationError("managed_bridge_preparation_quota")
             self._binding(session, row, epoch=False)
