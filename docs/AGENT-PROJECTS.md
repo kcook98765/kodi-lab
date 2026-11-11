@@ -32,10 +32,29 @@ and existing workspace/global-heavy quotas also apply. Records and private seeds
 remain retained for replay and recovery. The private seed is only an input to the
 existing workspace storage and generation/digest machinery.
 
-This first slice supports new projects. Reviewed checkout/package transfer,
-validated ZIP intake and retirement are subsequent #305 slices. Native and
-browser acceptance remain tracked by #310. No host path, shell, Git clone, remote
-URL fetch, Docker operation or external Kodi authority is provided by these tools.
+`project_import` accepts an agent-reviewed checkout packaged as a source ZIP, or
+an existing source ZIP. Send base64 archive bytes, their SHA-256, `intake_kind`
+(`reviewed_checkout` or `source_zip`), a provenance reference (for example a
+repository commit), and a saved request UUID. The reference records the agent's
+review claim; Lab validates the transferred bytes and does not fetch that reference.
+`project_status` retains the package digest, reference, kind, file count and bytes.
+Provenance is immutable and protected from a lossy schema downgrade.
+
+Inline packages are bounded to 45 KiB compressed, 256 entries, 4 MiB expanded,
+and 1 MiB per file. They must contain one add-on ID directory, one eligible Python
+Program/plugin entry, UTF-8 source text and supported image/font resources.
+Extra dependencies, service/binary/repository add-ons and unsupported member types
+are refused with explicit codes. ZIP structure, paths, duplicates, symlinks, CRC
+and compressed stream validation reuse the existing ZIP validator. Source seeds
+publish with private read-only files and directories; workspace capture supplies
+the editable copy. Empty archive directories and executable permission bits are
+not imported as source files.
+
+Editable source import does not perform native ZIP installation. Larger packages
+and repository/native installation-for-test remain on their separately reviewed
+onboarding routes; agent MCP test-mode onboarding is still an open #305 gap.
+Native and browser acceptance remain tracked by #310. No host path, shell, Git
+clone, remote URL fetch, Docker operation or external Kodi authority is provided.
 
 For agent-owned projects, `workspace_edit` with `operation=create` also creates
 missing safe parent directories in the private workspace. A nested resource file

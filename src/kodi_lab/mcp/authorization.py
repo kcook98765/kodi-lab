@@ -265,7 +265,9 @@ class McpAuthorizationService:
         with self._session_factory() as session:
             client = session.get(McpClientRow, str(principal.client_id))
             if client is None or not self._managed_lab_role(session, principal, client):
-                names.difference_update({"project_create", "project_status"})
+                names.difference_update(
+                    {"project_create", "project_status", "project_import"}
+                )
         if (
             principal.preset_id
             in {
@@ -282,7 +284,7 @@ class McpAuthorizationService:
     def authorize_project(
         self, session: Session, principal: McpPrincipal, tool_name: str
     ) -> None:
-        if tool_name not in {"project_create", "project_status"}:
+        if tool_name not in {"project_create", "project_status", "project_import"}:
             raise McpAuthorizationError("permission_denied")
         client = self._require_client_permission(
             session, principal, self._definition(tool_name)

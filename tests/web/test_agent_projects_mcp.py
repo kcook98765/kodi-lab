@@ -86,3 +86,53 @@ def test_wire_project_creation_schema_replay_and_role_revocation(
     }
     assert "project_create" not in catalog_after
     _assert_tool_error(call(arguments), "permission_denied")
+
+
+def test_wire_reviewed_package_import_and_owner_provenance(client: TestClient) -> None:
+    from tests.application.test_project_package_import import package, request
+
+    context = cast(FastAPI, client.app).state.kodi_lab
+    context.agent_workspaces._development_root = None
+    admin = _administration(client)
+    agent = admin.create_client(
+        display_name="Wire package owner",
+        preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+        trusted_managed_lab=True,
+    )
+    token = admin.issue_credential(agent.id).token
+    catalog = {
+        item["name"]: item
+        for item in _post(client, token, "tools/list").json()["result"]["tools"]
+    }
+    operation = request(package(), "reviewed_checkout")
+    result = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "project_import",
+            "arguments": operation.model_dump(mode="json"),
+        },
+    ).json()["result"]
+    _strict_tool_result(result, catalog["project_import"]["outputSchema"])
+    assert not result.get("isError")
+    project_id = result["structuredContent"]["project_id"]
+    status = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "project_status",
+            "arguments": {"project_id": project_id},
+        },
+    ).json()["result"]
+    _strict_tool_result(status, catalog["project_status"]["outputSchema"])
+    provenance = status["structuredContent"]["projects"][0]["intake_provenance"]
+    assert provenance["package_sha256"] == operation.archive_sha256
+    assert provenance["intake_kind"] == "reviewed_checkout"
+    admin.set_managed_lab_role(agent.id, False)
+    names = {
+        item["name"]
+        for item in _post(client, token, "tools/list").json()["result"]["tools"]
+    }
+    assert "project_import" not in names

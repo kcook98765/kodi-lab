@@ -54,6 +54,7 @@ from kodi_lab.application.agent_projects import (
     AgentProjectList,
     AgentProjectResult,
     ProjectCreateInput,
+    ProjectImportInput,
     ProjectStatusInput,
 )
 from kodi_lab.application.development_sessions import (
@@ -941,6 +942,25 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "project_import": Tool(
+            name="project_import",
+            title="Import an agent-reviewed source package",
+            description=(
+                "Trusted Managed Lab only: transfer a reviewed checkout or source ZIP "
+                "as base64 (45 KiB compressed, 256 entries, 4 MiB expanded). Supply "
+                "its "
+                "SHA-256 and provenance reference. Supports one Python Program/plugin "
+                "with resources and no extra dependencies. No host paths/downloads. "
+                "Returns a private editable project/workspace; this does not perform "
+                "native ZIP installation. Use workspace_status, validate and deploy. "
+                "Save request_id for exact replay. Larger or native/repository "
+                "packages require the separate reviewed package onboarding route."
+            ),
+            input_schema=ProjectImportInput.model_json_schema(),
+            output_schema=AgentProjectResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "log_read": Tool(
             name="log_read",
             title="Read Kodi log stats or a bounded excerpt",
@@ -1569,6 +1589,7 @@ def build_mcp_http_transport(
                 raise McpAuthorizationError("rate_limited")
             if params.name in {
                 "project_create",
+                "project_import",
                 "workspace_edit",
                 "workspace_capture",
                 "workspace_import",
@@ -1757,6 +1778,13 @@ def build_mcp_http_transport(
                 parsed_project = ProjectCreateInput.model_validate(arguments)
                 result = await asyncio.to_thread(
                     tools.project_create, principal, parsed_project
+                )
+                workspace_id = result.workspace.workspace_id
+                source_id = result.project_id
+            elif params.name == "project_import":
+                parsed_project_import = ProjectImportInput.model_validate(arguments)
+                result = await asyncio.to_thread(
+                    tools.project_import, principal, parsed_project_import
                 )
                 workspace_id = result.workspace.workspace_id
                 source_id = result.project_id

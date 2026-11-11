@@ -130,7 +130,10 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
-from kodi_lab.storage.agent_project_sql import PROJECT_IMMUTABLE, PROJECT_NO_DELETE
+from kodi_lab.storage.agent_project_sql import (
+    PROJECT_INTAKE_IMMUTABLE,
+    PROJECT_NO_DELETE,
+)
 from kodi_lab.storage.bridge_capability_sql import (
     BRIDGE_CAPABILITY_SETS_SQL,
     REVIEWED_BRIDGE_CAPABILITY_SETS_SQL,
@@ -9184,8 +9187,19 @@ class AgentProjectRow(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
+    intake_provenance_json: Mapped[str | None] = mapped_column(
+        Text,
+        CheckConstraint(
+            "intake_provenance_json IS NULL OR "
+            "(json_valid(intake_provenance_json) "
+            "AND length(intake_provenance_json)<=2048)",
+            name="agent_project_provenance_bounded",
+        ),
+        nullable=True,
+    )
 
-for _project_trigger in (PROJECT_IMMUTABLE, PROJECT_NO_DELETE):
+
+for _project_trigger in (PROJECT_INTAKE_IMMUTABLE, PROJECT_NO_DELETE):
     event.listen(
         AgentProjectRow.__table__,
         "after_create",

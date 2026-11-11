@@ -28,6 +28,7 @@ from kodi_lab.application.agent_projects import (
     AgentProjectResult,
     AgentProjectService,
     ProjectCreateInput,
+    ProjectImportInput,
     ProjectStatusInput,
 )
 from kodi_lab.application.agent_workspaces import (
@@ -1074,6 +1075,25 @@ class McpTargetToolService:
             raise McpAuthorizationError("capability_unavailable")
         try:
             result = self._projects.create(
+                principal.client_id, operation, authorize=authorize
+            )
+        except (AgentProjectError, McpWorkspaceMutationError) as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def project_import(
+        self, principal: McpPrincipal, operation: ProjectImportInput
+    ) -> AgentProjectResult:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(session, principal, "project_import")
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._projects is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._projects.import_project(
                 principal.client_id, operation, authorize=authorize
             )
         except (AgentProjectError, McpWorkspaceMutationError) as error:

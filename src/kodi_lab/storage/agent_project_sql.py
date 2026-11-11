@@ -13,3 +13,9 @@ PROJECT_NO_DELETE = (
     "CREATE TRIGGER agent_project_no_delete BEFORE DELETE ON agent_projects "
     "BEGIN SELECT RAISE(ABORT,'agent_project_history_protected'); END"
 )
+
+PROJECT_INTAKE_IMMUTABLE = PROJECT_IMMUTABLE.replace(
+    "OR NEW.created_at<>OLD.created_at",
+    "OR NEW.intake_provenance_json IS NOT OLD.intake_provenance_json "
+    "OR NEW.created_at<>OLD.created_at",
+)
