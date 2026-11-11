@@ -36,9 +36,11 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
 )
+from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     require_session_admission,
+    require_workspace_session_admission,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
@@ -48,6 +50,7 @@ from kodi_lab.storage.managed_version_slots import (
     require_unique_version_profile,
 )
 from kodi_lab.storage.models import (
+    AgentWorkspaceRow,
     DevelopmentSessionRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
@@ -55,6 +58,7 @@ from kodi_lab.storage.models import (
     ManagedProvisionReservationRow,
     ManagedStartAuthorizationRow,
     ManagedStartReservationRow,
+    McpWorkspaceDeploymentOperationRow,
 )
 from kodi_lab.storage.retained_development import retained_inventory, retained_targets
 
@@ -373,14 +377,57 @@ class ManagedCapacityAdmission:
                         now=now,
                     )
                 else:
-                    require_session_admission(
-                        session,
-                        records,
-                        target_id=instance_id,
-                        revision_id=revision_id,
-                        container_id=container_id,
-                        starting=True,
+                    copy = (
+                        session.get(
+                            McpWorkspaceDeploymentOperationRow, lease.operation_id
+                        )
+                        if lease.operation_kind
+                        is ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT
+                        else None
                     )
+                    project_copy = copy is not None and owned_project_workspace(
+                        session,
+                        workspace_id=copy.workspace_id,
+                        source_id=copy.development_source_id,
+                        client_id=copy.client_id,
+                    )
+                    if project_copy and copy is not None:
+                        workspace = session.get(AgentWorkspaceRow, copy.workspace_id)
+                        if (
+                            workspace is None
+                            or workspace.generation != copy.generation
+                            or workspace.state.value != "ready"
+                            or workspace.bytes_state.value != "present"
+                            or copy.state != "running"
+                            or copy.phase != "start"
+                            or not copy.mutation_started
+                            or not copy.target_stopped
+                            or not copy.sync_completed
+                            or copy.target_started
+                            or copy.target_id != instance_id
+                            or copy.runtime_revision_id != revision_id
+                            or copy.original_container_id != container_id
+                        ):
+                            raise ManagedCapacityError(
+                                "managed_start_authority_unavailable"
+                            )
+                        require_workspace_session_admission(
+                            session,
+                            target_id=instance_id,
+                            revision_id=revision_id,
+                            workspace_id=copy.workspace_id,
+                            source_id=copy.development_source_id,
+                            container_id=container_id,
+                        )
+                    else:
+                        require_session_admission(
+                            session,
+                            records,
+                            target_id=instance_id,
+                            revision_id=revision_id,
+                            container_id=container_id,
+                            starting=True,
+                        )
                     # A generic request cannot borrow another request's ordinary lease.
                     if authorization is not None:
                         raise ManagedCapacityError(

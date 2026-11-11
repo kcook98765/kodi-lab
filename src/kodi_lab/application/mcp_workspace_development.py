@@ -143,11 +143,13 @@ from kodi_lab.repository.workspace_package import (
     bridge_manifest_for_zip,
     build_workspace_package,
 )
+from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     require_workspace_session_admission,
 )
 from kodi_lab.storage.models import (
+    AgentProjectRow,
     AgentWorkspaceCaptureOperationRow,
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
@@ -160,6 +162,7 @@ from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     ExternalDevelopmentSourceBaselineRow,
     ExternalKodiTargetRow,
+    ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
@@ -2351,6 +2354,7 @@ class McpWorkspaceDevelopmentService:
                     generation,
                     target_id,
                     require_baseline=deployment_mode == "direct",
+                    client_id=client_id,
                 )
                 if deployment_mode == "repository" and (
                     target.target_class != "external_development"
@@ -2647,6 +2651,7 @@ class McpWorkspaceDevelopmentService:
         target_id: UUID,
         *,
         require_baseline: bool = True,
+        client_id: UUID | None = None,
     ) -> tuple[Any, McpWorkspaceValidationRow, _DeploymentTarget]:
         workspace = AgentWorkspaceRepository(session).get(workspace_id)
         validation = session.scalar(
@@ -2687,13 +2692,23 @@ class McpWorkspaceDevelopmentService:
         if common_target is None:
             raise McpWorkspaceDevelopmentError("deployment_not_allowed")
         if common_target.target_type is TargetType.MANAGED:
+            project = owned_project_workspace(
+                session,
+                workspace_id=str(workspace_id),
+                source_id=str(source.id),
+                client_id=None if client_id is None else str(client_id),
+            )
+            if session.get(AgentProjectRow, str(source.id)) is not None and not project:
+                raise McpWorkspaceDevelopmentError(
+                    "workspace_not_found_or_not_authorized"
+                )
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 target_id, source.id
             )
             if (
                 instance is None
                 or instance.instance_type is not InstanceType.DISPOSABLE
-                or attachment is None
+                or (attachment is None and not project)
             ):
                 raise McpWorkspaceDevelopmentError("deployment_not_allowed")
             self._session_admission(
@@ -2703,6 +2718,20 @@ class McpWorkspaceDevelopmentService:
                 workspace_id=str(workspace_id),
                 source_id=str(source.id),
             )
+            if attachment is None:
+                competing = ManagedInstanceDevelopmentSourceRepository(
+                    session
+                ).get_by_addon_id(target_id, source.addon_id)
+                if competing is not None:
+                    raise McpWorkspaceDevelopmentError("deployment_not_allowed")
+                session.add(
+                    ManagedInstanceDevelopmentSourceRow(
+                        managed_instance_id=str(target_id),
+                        development_source_id=str(source.id),
+                        attached_at=_to_text(self._clock()),
+                    )
+                )
+                session.flush()
             baseline = DevelopmentSourceDeploymentRepository(session).get(
                 target_id, source.id
             )
@@ -2729,11 +2758,17 @@ class McpWorkspaceDevelopmentService:
                 )
                 .order_by(McpWorkspaceDeploymentOperationRow.completed_at.desc())
             )
-            if prior_workspace is None and (
-                baseline is None
-                or baseline.confidence
-                is not DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
-                or baseline.runtime_revision_id != instance.runtime_revision_id
+            if (
+                not project
+                and prior_workspace is None
+                and (
+                    baseline is None
+                    or baseline.confidence
+                    != (
+                        DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+                    )
+                    or baseline.runtime_revision_id != instance.runtime_revision_id
+                )
             ):
                 reason = (
                     "source_baseline_missing"
@@ -2908,6 +2943,44 @@ class McpWorkspaceDevelopmentService:
         if reused is not None:
             return reused
         container_id = self._exact_running_container(UUID(operation.target_id))
+        with self._sessions() as session:
+            project = owned_project_workspace(
+                session,
+                workspace_id=operation.workspace_id,
+                source_id=operation.development_source_id,
+                client_id=operation.client_id,
+            )
+            prior = (
+                session.scalar(
+                    select(McpWorkspaceDeploymentOperationRow.id)
+                    .where(
+                        McpWorkspaceDeploymentOperationRow.id != operation.id,
+                        McpWorkspaceDeploymentOperationRow.client_id
+                        == operation.client_id,
+                        McpWorkspaceDeploymentOperationRow.workspace_id
+                        == operation.workspace_id,
+                        McpWorkspaceDeploymentOperationRow.target_id
+                        == operation.target_id,
+                        McpWorkspaceDeploymentOperationRow.runtime_revision_id
+                        == operation.runtime_revision_id,
+                        McpWorkspaceDeploymentOperationRow.original_container_id
+                        == container_id,
+                        McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                    )
+                    .limit(1)
+                )
+                if project
+                else None
+            )
+        if project and prior is None:
+            inventory = self._inventory.get(UUID(operation.target_id))
+            if (
+                inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE
+                or not inventory.complete
+                or inventory.instance_id != UUID(operation.target_id)
+                or any(item.addon_id == operation.addon_id for item in inventory.items)
+            ):
+                raise McpWorkspaceDevelopmentError("deployment_not_allowed")
         with self._sessions.begin() as session:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             current = session.get(McpWorkspaceDeploymentOperationRow, operation.id)

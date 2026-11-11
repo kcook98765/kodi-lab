@@ -9019,13 +9019,13 @@ for _trigger_sql in NOVNC_INPUT_TRIGGERS:
 
 
 from kodi_lab.storage.retained_policy_sql import (  # noqa: E402
-    MANAGED_START_MUTATION_TRIGGER,
+    AGENT_PROJECT_MUTATION_TRIGGER,
 )
 
 event.listen(
     Base.metadata,
     "after_create",
-    DDL(MANAGED_START_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    DDL(AGENT_PROJECT_MUTATION_TRIGGER).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
 )
 
 

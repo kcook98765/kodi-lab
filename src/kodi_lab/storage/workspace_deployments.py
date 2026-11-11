@@ -8,8 +8,10 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
+    AgentProjectRow,
     DevelopmentSessionPolicyRow,
     DevelopmentSessionRow,
+    McpAgentWorkspaceBindingRow,
     McpWorkspaceDeploymentOperationRow,
 )
 
@@ -46,7 +48,24 @@ def selected_profile_lineage_sql() -> ColumnElement[bool]:
         .correlate(row)
         .exists()
     )
-    return or_(row.target_class == "external_development", ~active, matching)
+    project = (
+        select(AgentProjectRow.source_id)
+        .join(
+            McpAgentWorkspaceBindingRow,
+            McpAgentWorkspaceBindingRow.client_id == AgentProjectRow.client_id,
+        )
+        .where(
+            AgentProjectRow.source_id == row.development_source_id,
+            AgentProjectRow.client_id == row.client_id,
+            McpAgentWorkspaceBindingRow.workspace_id == row.workspace_id,
+            McpAgentWorkspaceBindingRow.development_source_id
+            == row.development_source_id,
+            row.target_class == "internal_lab",
+        )
+        .correlate(row)
+        .exists()
+    )
+    return or_(row.target_class == "external_development", ~active, matching, project)
 
 
 def failed_verified_workspace_copy(row: McpWorkspaceDeploymentOperationRow) -> bool:
