@@ -8060,3 +8060,14 @@ Publication rechecks the role, preserves original request identity and refuses
 unknown seed bytes or ownership changes. Completed replay never reseeds a project
 or replaces edits. Owner-only project status includes interrupted reservations.
 Global add-on ID collisions fail explicitly. See [agent workflow](AGENT-PROJECTS.md).
+
+## D-0494: Human managed input ownership is explicit at shared dispatch
+
+Keep noVNC's existing durable input ownership and database exclusion triggers.
+Add a typed human-control check before allocating a new managed MCP input receipt,
+and at shared remote admission/dispatch. Refusals still consume the normal actor
+input rate budget; completed/ambiguous receipts replay before new admission.
+Expired or unresolved interactive ownership remains fenced until native release
+is proven. Current agent authority is rechecked at actual managed dispatch.
+No keys are buffered or replayed on human release, and external authority is
+unchanged. See [GUI priority and qualification boundary](MANAGED-GUI-PRIORITY.md).

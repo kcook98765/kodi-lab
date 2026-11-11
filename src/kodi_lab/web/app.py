@@ -2709,6 +2709,7 @@ def create_app(
             "visual_kodi_not_ready": 409,
             "remote_action_unsupported": 409,
             "remote_action_conflict": 409,
+            "human_control_active": 409,
             "remote_no_active_player": 409,
             "remote_kodi_rejected": 502,
             "remote_action_ambiguous": 503,

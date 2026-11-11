@@ -506,6 +506,7 @@ class KodiTargetAdapterService:
                 action,
                 actor=actor,
                 invocation_id=invocation_id,
+                before_dispatch=lambda: self._before_dispatch(before_dispatch),
             )
         if invocation_id is None:
             raise BrowserRemoteError(

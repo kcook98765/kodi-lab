@@ -393,3 +393,28 @@ def test_only_proven_undispatched_failure_releases_input_fence(
     broker.remote_error = None
     recovered = client.post(url, json={"action": "right"}, headers=headers)
     assert recovered.status_code == (200 if undispatched else 409)
+
+
+def test_shared_dispatch_rechecks_authority_before_native_input(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    from typing import cast
+
+    from fastapi import FastAPI
+
+    csrf = login(client)
+    make_ready(client, csrf)
+    service = cast(FastAPI, client.app).state.kodi_lab.browser_remote
+    checked = []
+
+    def denied() -> None:
+        checked.append(True)
+        raise BrowserRemoteError("permission_denied", "Current authority was revoked.")
+
+    with pytest.raises(BrowserRemoteError) as captured:
+        service.invoke(INSTANCE_ID, BrowserRemoteAction.SELECT, before_dispatch=denied)
+    assert captured.value.code == "permission_denied"
+    assert checked == [True]
+    assert broker.remote_calls == []
+    service.invoke(INSTANCE_ID, BrowserRemoteAction.SELECT)
+    assert broker.remote_calls == [BrowserRemoteAction.SELECT]

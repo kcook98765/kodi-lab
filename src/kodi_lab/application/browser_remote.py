@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.browser_remote_coordination import (
     BrowserRemoteCoordinationConflict,
     BrowserRemoteCoordinationLost,
+    HumanControlConflict,
     acquire_browser_remote,
     mark_remote_dispatch,
     release_browser_remote,
@@ -189,13 +190,19 @@ class BrowserRemoteService:
         *,
         actor: RemoteActorContext | None = None,
         invocation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
         actor = actor or RemoteActorContext.web_local_admin()
         invocation_id = invocation_id or uuid4()
         requested_at = self._clock()
         try:
             return self._invoke(
-                instance_id, action, invocation_id, requested_at, actor=actor
+                instance_id,
+                action,
+                invocation_id,
+                requested_at,
+                actor=actor,
+                before_dispatch=before_dispatch,
             )
         except (BrowserRemoteError, ManagedInstanceNotFoundError) as error:
             completed_at = self._clock()
@@ -228,6 +235,7 @@ class BrowserRemoteService:
         requested_at: datetime,
         *,
         actor: RemoteActorContext,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
         runtime = self._status.get(instance_id)
         if not self._runtime_supported(runtime.runtime_revision_id):
@@ -253,6 +261,12 @@ class BrowserRemoteService:
             )
         try:
             lease = acquire_browser_remote(self._sessions, instance_id)
+        except HumanControlConflict as error:
+            raise BrowserRemoteError(
+                "human_control_active",
+                "Human Take Control is active. Inspect state and use a fresh "
+                "action after control is released.",
+            ) from error
         except BrowserRemoteCoordinationConflict as error:
             raise BrowserRemoteError(
                 "remote_action_conflict", "Another managed-instance action is active."
@@ -308,7 +322,15 @@ class BrowserRemoteService:
                 raise BrowserRemoteError(
                     "remote_action_conflict", "Managed activity could not be retained."
                 ) from error
-            mark_remote_dispatch(lease, container_id)
+            if before_dispatch is not None:
+                before_dispatch()
+            try:
+                mark_remote_dispatch(lease, container_id)
+            except HumanControlConflict as error:
+                raise BrowserRemoteError(
+                    "human_control_active",
+                    "Human Take Control is active; no agent input was dispatched.",
+                ) from error
             attempted = True
             unresolved = True
             adapter.dispatch(action, invocation_id)
