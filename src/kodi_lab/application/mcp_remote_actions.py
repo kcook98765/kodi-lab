@@ -19,6 +19,10 @@ from kodi_lab.application.browser_remote import (
     RemoteActorContext,
     ScreenshotRefreshResult,
 )
+from kodi_lab.application.browser_remote_coordination import (
+    HumanControlConflict,
+    require_no_human_control,
+)
 from kodi_lab.application.production_inspection import ProductionInspectionError
 from kodi_lab.application.production_navigation import (
     ProductionNavigationAuthority,
@@ -361,6 +365,22 @@ class McpRemoteActionReceiptService:
                 if existing is not None:
                     session.expunge(existing)
                     return _Claim(existing, False)
+                try:
+                    require_no_human_control(session, target_id)
+                except HumanControlConflict as error:
+                    # This call is not admitted and consumes no receipt slot.
+                    # Still apply the existing actor input rate limit to refusals.
+                    try:
+                        self._rate_limiter.require_allowed(
+                            RemoteActorContext.mcp_client(client_id).rate_key, target_id
+                        )
+                    except BrowserRemoteError as limited:
+                        raise McpRemoteActionReceiptError(
+                            "rate_limited"
+                            if limited.code == "visual_rate_limited"
+                            else limited.code
+                        ) from limited
+                    raise McpRemoteActionReceiptError("human_control_active") from error
                 client_count = session.scalar(
                     select(func.count())
                     .select_from(McpRemoteActionReceiptRow)

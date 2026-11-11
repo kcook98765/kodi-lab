@@ -16,8 +16,11 @@ from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.domain import TargetType
 from kodi_lab.storage.models import (
     ManagedRemoteGuardRow,
+    NovncSessionRow,
+    TargetRow,
 )
 
 _LOCK = RLock()
@@ -31,6 +34,21 @@ class BrowserRemoteCoordinationConflict(RuntimeError):
 
 class BrowserRemoteCoordinationLost(RuntimeError):
     pass
+
+
+class HumanControlConflict(BrowserRemoteCoordinationConflict):
+    """A human input fence is held until verified native release."""
+
+
+def require_no_human_control(session: Session, instance_id: UUID) -> None:
+    target = session.get(TargetRow, str(instance_id))
+    if target is None or target.target_type is not TargetType.MANAGED:
+        return
+    viewer = session.get(NovncSessionRow, str(instance_id))
+    if viewer is not None and viewer.mode == "interactive":
+        # Expiry/revocation is not worker-death proof. Existing noVNC release
+        # removes this fence only after its exact native handoff is confirmed.
+        raise HumanControlConflict("Human Take Control owns managed input.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +109,7 @@ def acquire_browser_remote(
         _ACTIVE[instance_id] = handle.invocation_id
     try:
         with session_factory.begin() as session:
+            require_no_human_control(session, instance_id)
             session.add(
                 ManagedRemoteGuardRow(
                     instance_id=str(instance_id),
@@ -116,6 +135,7 @@ def mark_remote_dispatch(
     handle: BrowserRemoteCoordinationHandle, container_id: str
 ) -> None:
     with handle.sessions.begin() as session:
+        require_no_human_control(session, handle.instance_id)
         result = session.execute(
             update(ManagedRemoteGuardRow)
             .where(

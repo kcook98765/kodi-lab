@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="script.kodilab.agentfixture" name="Kodi Lab Agent Fixture" version="0.1.0" provider-name="Kodi Lab">
+  <requires><import addon="xbmc.python" version="3.0.0" /></requires>
+  <extension point="xbmc.python.script" library="main.py" />
+  <extension point="xbmc.addon.metadata"><summary lang="en_GB">Inert agent input acceptance fixture</summary><platform>all</platform></extension>
+</addon>

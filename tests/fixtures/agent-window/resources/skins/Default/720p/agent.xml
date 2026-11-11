@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+  <defaultcontrol always="true">101</defaultcontrol>
+  <coordinates><system>1</system></coordinates>
+  <controls>
+    <control type="label" id="201"><left>80</left><top>80</top><width>1100</width><height>60</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Kodi Lab inert agent window</label></control>
+    <control type="label" id="200"><left>80</left><top>160</top><width>1100</width><height>60</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Loading fixture</label></control>
+    <control type="button" id="101"><left>80</left><top>280</top><width>440</width><height>70</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Select fixture</label><onup>102</onup><ondown>102</ondown><onleft>102</onleft><onright>102</onright></control>
+    <control type="button" id="102"><left>80</left><top>400</top><width>440</width><height>70</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Close fixture</label><onup>101</onup><ondown>101</ondown><onleft>101</onleft><onright>101</onright></control>
+  </controls>
+</window>
