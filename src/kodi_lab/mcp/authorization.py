@@ -75,6 +75,7 @@ from kodi_lab.screenshot_diagnostics import (
     emit_screenshot_stage,
 )
 from kodi_lab.storage.models import (
+    AgentProjectRow,
     ExternalProductionPolicyRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
@@ -261,6 +262,10 @@ class McpAuthorizationService:
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
         names = {item.name for item in self._registry.discoverable(permissions)}
+        with self._session_factory() as session:
+            client = session.get(McpClientRow, str(principal.client_id))
+            if client is None or not self._managed_lab_role(session, principal, client):
+                names.difference_update({"project_create", "project_status"})
         if (
             principal.preset_id
             in {
@@ -273,6 +278,17 @@ class McpAuthorizationService:
             # changes authorization on managed/development targets.
             names.add("remote_action")
         return tuple(sorted(names))
+
+    def authorize_project(
+        self, session: Session, principal: McpPrincipal, tool_name: str
+    ) -> None:
+        if tool_name not in {"project_create", "project_status"}:
+            raise McpAuthorizationError("permission_denied")
+        client = self._require_client_permission(
+            session, principal, self._definition(tool_name)
+        )
+        if not self._managed_lab_role(session, principal, client):
+            raise McpAuthorizationError("permission_denied")
 
     def authorize_unscoped(
         self, principal: McpPrincipal, tool_name: str
@@ -868,6 +884,9 @@ class McpAuthorizationService:
                     "development_source_id": str(source_id),
                 },
             )
+            project = session.get(AgentProjectRow, str(source_id))
+            if project is not None and project.client_id != str(principal.client_id):
+                raise McpAuthorizationError("source_not_found_or_not_authorized")
             source = DevelopmentSourceRepository(session).get(source_id)
         if grant is None or source is None:
             raise McpAuthorizationError("source_not_found_or_not_authorized")

@@ -22,6 +22,14 @@ from kodi_lab.application.addon_inventory import (
     ManagedInstanceAddonInventoryService,
 )
 from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
+from kodi_lab.application.agent_projects import (
+    AgentProjectError,
+    AgentProjectList,
+    AgentProjectResult,
+    AgentProjectService,
+    ProjectCreateInput,
+    ProjectStatusInput,
+)
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceNotFoundError,
@@ -798,6 +806,11 @@ class McpTargetToolService:
         self._remote_actions = remote_actions
         self._workspaces = workspaces
         self._workspace_creation = workspace_creation
+        self._projects = (
+            AgentProjectService(workspaces, workspace_creation)
+            if workspaces is not None and workspace_creation is not None
+            else None
+        )
         self._workspace_retention = workspace_retention
         self._workspace_development = workspace_development
         self._promotion_requests = promotion_requests
@@ -1023,6 +1036,44 @@ class McpTargetToolService:
         except ManagedAgentLifecycleError as error:
             raise McpAuthorizationError(error.code) from error
         self._require_bounded(result)
+        return result
+
+    def project_status(
+        self, principal: McpPrincipal, operation: ProjectStatusInput
+    ) -> AgentProjectList:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(session, principal, "project_status")
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._projects is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._projects.status(
+                principal.client_id, operation, authorize=authorize
+            )
+        except AgentProjectError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def project_create(
+        self, principal: McpPrincipal, operation: ProjectCreateInput
+    ) -> AgentProjectResult:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(session, principal, "project_create")
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._projects is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._projects.create(
+                principal.client_id, operation, authorize=authorize
+            )
+        except (AgentProjectError, McpWorkspaceMutationError) as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
         return result
 
     def workspace_create(

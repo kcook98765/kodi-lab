@@ -130,6 +130,7 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.storage.agent_project_sql import PROJECT_IMMUTABLE, PROJECT_NO_DELETE
 from kodi_lab.storage.bridge_capability_sql import (
     BRIDGE_CAPABILITY_SETS_SQL,
     REVIEWED_BRIDGE_CAPABILITY_SETS_SQL,
@@ -9155,4 +9156,38 @@ for _bridge_table, _bridge_sql in (
         _bridge_table,
         "after_create",
         DDL(_bridge_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+
+class AgentProjectRow(Base):
+    """Private source intake identity, owned by exactly one MCP client."""
+
+    __tablename__ = "agent_projects"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="agent_project_request_once"),
+        CheckConstraint("state IN ('reserved','seeded')", name="agent_project_state"),
+        CheckConstraint(
+            "length(parameter_fingerprint)=64", name="agent_project_fingerprint"
+        ),
+        CheckConstraint("length(created_at)=27", name="agent_project_timestamp"),
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    parameter_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+for _project_trigger in (PROJECT_IMMUTABLE, PROJECT_NO_DELETE):
+    event.listen(
+        AgentProjectRow.__table__,
+        "after_create",
+        DDL(_project_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )
