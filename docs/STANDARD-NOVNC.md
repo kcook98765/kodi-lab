@@ -1,9 +1,10 @@
 # Standard managed Kodi viewing
 
-Managed instance details offer **Open screen**, then **Start Viewing**, without
-selecting Current Kodi or creating an add-on workspace. Current Kodi also offers
-**Start Viewing** for its exact selected development environment. Both paths
-require an installed, validated display runtime. No experimental UUID or
+On **Managed Kodi**, choose **View Screen**, then **Start Viewing**, without
+selecting Current Managed Kodi or creating an add-on workspace.
+**Current Managed Kodi** also offers **Start Viewing** for its exact selected
+development environment. Both paths require an installed, validated display
+runtime. No experimental UUID or
 Web/broker flag is needed. Current stable runtime acquisition selects these
 reviewed recipes:
 
@@ -14,10 +15,24 @@ reviewed recipes:
 | Omega 21.3 | ubuntu-resolute-omega-21.3 | 6 |
 
 These revisions contain the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md).
-The historical acceptance below covers Matrix r3, Nexus r3 and Omega r5; it does
-not establish native/browser acceptance of Matrix r4, Nexus r4 or Omega r6.
-Each exact image still requires its installation validation and version-specific
-qualification. Existing profiles retain their exact pins.
+The historical standard-viewer acceptance below covers Matrix r3, Nexus r3 and
+Omega r5. More recent accepted Ubuntu/Claw native evidence covers the retained
+Omega r6 development edit/deploy/launch/restoration workflow in
+[#238](https://github.com/kcook98765/kodi-lab/issues/238#issuecomment-6732562897)
+and retained Omega r6 ↔ Nexus r4 switching in
+[#273](https://github.com/kcook98765/kodi-lab/issues/273#issuecomment-6751460914).
+The latter includes a 60-second Nexus r4 view-only observation and verified
+cleanup; it does not establish the historical first-viewer defect's cause or fix.
+
+Recent [installed viewer acceptance](https://github.com/kcook98765/kodi-lab/issues/282#issuecomment-6782367378)
+on Claw's retained Omega r6 covers actual graphics, explicit viewing/recovery,
+Take/Release Control and native cleanup proofs in Chromium 156.0.8078.4.
+Visibility/blur events were simulated; actual Firefox and physical tab-switch acceptance remain
+separate. Current Matrix r4 native qualification remains incomplete. These
+results cover only the exact tested environments and workflows, not universal
+browser, platform or runtime qualification. Native refusals for competing users,
+active leases and uncertain outcomes were not verified by #273. Each exact image still
+requires its installation validation; existing profiles retain their exact pins.
 
 Piers 22 RC1 (`piers-22.0-rc1-r3`, revision 3) remains a separate Preview recipe
 and requires exact prerelease consent. Its historical acceptance below applies
@@ -31,8 +46,8 @@ Unknown, altered or unvalidated images do not inherit standard viewing.
 
 ## Normal workflow
 
-For a running managed Kodi, open its exact instance details, click **Open
-screen**, then **Start Viewing**. Opening the page inspects availability; it does
+For a running version on **Managed Kodi**, choose **View Screen**, then
+**Start Viewing**. Opening the page inspects availability; it does
 not prepare, start, stop or select Kodi. The page is fenced to the exact
 server-resolved runtime, image, container, start incarnation and catalog identity.
 A changed or unavailable runtime requires reviewing that instance's status and
@@ -42,14 +57,14 @@ environment.
 
 If this exact Kodi is already selected for development but its environment is
 not fully bound, viewing is deliberately denied, including standalone admission.
-Review or complete that selection in Current Kodi, then reload the viewer. A
-missing or inconsistent workspace/source/container binding cannot be bypassed
+Review or complete that selection in **Current Managed Kodi**, then reload the
+viewer. A missing or inconsistent workspace/source/container binding cannot be bypassed
 by opening the exact-instance page. Viewing without a development selection,
 or while a different Kodi is selected, remains supported.
 
-Choose and prepare a fresh Kodi in Current Kodi, start it, then click Start
-Viewing. noVNC loads only on that request. The initial session is view-only;
-agent navigation remains independent. Take Control explicitly acquires human
+Choose and prepare a fresh Kodi in **Current Managed Kodi**, start it, then click
+**Start Viewing**. noVNC loads only on that request. The initial session is
+view-only; agent navigation remains independent. Take Control explicitly acquires human
 ownership and excludes conflicting agent/Web input. Release Control proves native
 input neutralization and restores agent input. Hiding the tab automatically
 releases control through that same verified handoff and continues view-only.
@@ -89,8 +104,8 @@ again. Viewing remains view-only until Take Control is explicitly granted.
 ## Resource qualification contract
 
 The owner-approved standard Firefox process-tree RSS budget is **512 MiB above
-the stable authenticated Current Kodi page before viewer import**. Freeze the
-baseline at the last five stable page samples. Import, connection, motion,
+the stable authenticated Current Managed Kodi page before viewer import**. Freeze
+the baseline at the last five stable page samples. Import, connection, motion,
 handoffs and stopped-open retention count against the same baseline; do not
 reset it between cycles. Preserve the **2 GiB absolute browser process-tree
 emergency ceiling**. Record absolute RSS and PSS independently; PSS is diagnostic

@@ -28,9 +28,13 @@ installed wheel's reviewed recipe digests.
 
 Current reviewed stable viewer/runtime recipes are Matrix 19.4 revision 4,
 Nexus 20.5 revision 4 and Omega 21.3 revision 6. Recipe selection does not establish
-native qualification for these exact images; historical viewer acceptance covers
-the earlier Matrix r3, Nexus r3 and Omega r5 recipes. Historical resources remain
-in the wheel for exact pins and provenance; acquiring a recipe does not change a
+native qualification for these exact images. Historical standard-viewer acceptance
+covers Matrix r3, Nexus r3 and Omega r5. More recent accepted Claw native evidence
+covers Omega r6 development, retained Omega r6 ↔ Nexus r4 switching and scoped
+installed viewer checks. Current Matrix r4 native qualification remains incomplete.
+Acceptance is limited to the exact tested environments and workflows; no evidence
+establishes universal browser, platform or runtime qualification. Historical
+resources remain in the wheel for exact pins and provenance; acquiring a recipe does not change a
 registered instance's image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
 
 The stable runtime recipes include the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
