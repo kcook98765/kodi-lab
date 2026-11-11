@@ -60,7 +60,7 @@ const report = {states: [], flows: [], errors: [], mutations: []};
       const next = page.locator('[data-managed-next]');
       const expectations = {
         'no-target': 'No Managed Kodi prepared',
-        'empty': 'No suitable inspect-only custom preset',
+        'empty': 'No suitable assignable inspect-only custom preset',
         'preset-only': 'No client selected',
         'wrong-client-preset': 'Insufficient permissions for this setup',
         'policy-missing': 'Kodi policy is unassigned or does not allow inspection',
@@ -68,6 +68,8 @@ const report = {states: [], flows: [], errors: [], mutations: []};
         'token-missing': 'Token missing, expired or revoked',
         'suitable': 'Existing configuration already suitable',
         'extra-grant': 'This client has other target grants',
+        'historical-grant': 'This client has other target grants with missing controls',
+        'unassignable': 'No suitable assignable inspect-only custom preset',
         'disabled': 'Client disabled',
         'expired': 'Token missing, expired or revoked',
         'revoked': 'Token missing, expired or revoked',
@@ -92,6 +94,37 @@ const report = {states: [], flows: [], errors: [], mutations: []};
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, name);
         report.states.push({width, name, keyboard: true, axeViolations: 0, implicitMutations: 0});
       }
+      // Stale/incomplete DOM must provide reload guidance, never throw or write.
+      for (const missing of ['[data-action="remove-grant"]', '[data-target-policy]', '[data-client-preset]']) {
+        state = missing.includes('remove-grant') ? 'extra-grant' : missing.includes('target-policy') ? 'policy-missing' : 'wrong-client-preset';
+        await page.goto(origin + '/mcp-clients'); await openGuide(); await choose();
+        await page.locator(missing).evaluateAll(nodes => nodes.forEach(node => node.remove()));
+        // Missing grant controls are also checked when a choice changes.
+        if (missing.includes('remove-grant')) await page.locator('[data-managed-target]').dispatchEvent('change');
+        else await next.click();
+        assert.match(await step.textContent(), /Reload/);
+        assert.equal(await next.isVisible(), false);
+        report.states.push({width, name: `missing ${missing}`, implicitMutations: 0});
+      }
+      // Preserve an existing policy selection, including an unsaved administrator edit.
+      state = 'policy-missing';
+      await page.goto(origin + '/mcp-clients'); await openGuide(); await choose();
+      const existingPolicy = page.locator(`[data-target-policy="${fixture.target}"]`);
+      const otherPolicy = await existingPolicy.locator('select option').evaluateAll(options => options.find(option => option.textContent === 'Full Lab Control').value);
+      await existingPolicy.evaluate((row, value) => {row.dataset.savedPolicyId = value; row.querySelector('select').value = value;}, otherPolicy);
+      await next.click();
+      assert.equal(await existingPolicy.locator('select').inputValue(), otherPolicy);
+      assert.match(await step.textContent(), /every client granted this Kodi/);
+      // Independent policy changes cannot be inferred from saved HTML; cancel/reload is explicit.
+      assert.match(await page.locator('[data-managed-inspection]').textContent(), /reload to review independently changed policies/);
+      page.once('dialog', async dialog => {
+        assert.match(dialog.message(), /every client granted this Kodi/);
+        assert.match(dialog.message(), /cancel and reload/);
+        await dialog.dismiss();
+      });
+      await existingPolicy.getByRole('button', {name: 'Assign policy', exact: true}).click();
+      assert.equal(await existingPolicy.locator('select').inputValue(), otherPolicy);
+      report.states.push({width, name: 'shared policy preserve and cancel stale save', implicitMutations: 0});
       // First-time setup: only the existing explicit save controls send requests.
       state = 'empty';
       await page.goto(origin + '/mcp-clients');
@@ -126,6 +159,7 @@ const report = {states: [], flows: [], errors: [], mutations: []};
       const policy = page.locator(`[data-target-policy="${fixture.target}"]`);
       assert.equal(await policy.locator('select').inputValue(), fixture.preset);
       expectedWrite = {path: `/api/mcp/target-policies/${fixture.target}`, body: {preset_id: fixture.preset}, nextState: 'grant-missing'};
+      page.once('dialog', dialog => dialog.accept());
       await Promise.all([page.waitForNavigation(), policy.getByRole('button', {name: 'Assign policy', exact: true}).click()]);
       await openGuide(); await choose(); await next.click();
       const card = page.locator(`[data-client-id="${fixture.client}"]`);

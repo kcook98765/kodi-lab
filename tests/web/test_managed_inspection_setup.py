@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_ID
 from kodi_lab.storage.metadata import Base
-from kodi_lab.storage.models import McpCredentialRow
+from kodi_lab.storage.models import McpCredentialRow, McpPresetRow
 from tests.web.conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 from tests.web.test_kodi_views import household as household
 from tests.web.test_mcp import _administration, _assert_tool_error, _post
@@ -159,7 +159,32 @@ def test_explicit_managed_inspection_setup_and_saved_state_guidance(
     tokens.append(issued.token)
     admin.grant_target(UUID(client_id), household)
     render("extra-grant")
+    with monkeypatch.context() as patch:
+        current_policies = admin.list_target_policies()
+        patch.setattr(
+            admin,
+            "list_target_policies",
+            lambda: [p for p in current_policies if p.target_id != household],
+        )
+        render("historical-grant")
     admin.remove_target_grant(UUID(client_id), household)
+    with database.begin() as session:
+        unavailable = session.get(McpPresetRow, preset_id)
+        assert unavailable is not None
+        unavailable.assignable = False
+    render("unassignable")
+    assert (
+        client.post(
+            f"/api/mcp/clients/{client_id}/preset",
+            headers=headers,
+            json={"preset_id": preset_id},
+        ).status_code
+        == 409
+    )
+    with database.begin() as session:
+        available = session.get(McpPresetRow, preset_id)
+        assert available is not None
+        available.assignable = True
     admin.set_client_enabled(UUID(client_id), False)
     render("disabled")
     assert _post(client, issued.token, "tools/list").status_code == 401

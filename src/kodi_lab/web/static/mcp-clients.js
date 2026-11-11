@@ -100,6 +100,7 @@
   });
   root.querySelectorAll("[data-target-policy]").forEach((row) => row.querySelector("button")?.addEventListener("click", () => run(async () => {
     if (!row.querySelector("select").reportValidity()) return;
+    if (!confirm("Changing this shared Kodi policy affects every client granted this Kodi and may remove or broaden their access. If the policy may have changed since this page loaded, cancel and reload to review it first. Save the selected policy?")) return;
     await request(`/api/mcp/target-policies/${row.dataset.targetPolicy}`, "POST", {preset_id: row.querySelector("select").value});
     location.reload();
   })));

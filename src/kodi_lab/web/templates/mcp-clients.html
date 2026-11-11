@@ -27,7 +27,7 @@
         {% if not inspection_presets %}<p>No suitable inspect-only custom preset. The next-step shortcut can prepare the existing preset form; review it and select <strong>Create preset</strong> to save.</p>{% endif %}
         <p id="managed-next-step" data-managed-status role="status" aria-live="polite">Enable JavaScript for next-step shortcuts, or use the existing controls below.</p>
         <button type="button" data-managed-next hidden>Open next step</button>
-        <p class="secondary">Shortcuts only open or prefill existing controls; save each change explicitly. After each save, reopen this guide and reselect your client and Kodi. Runtime support is checked separately.</p>
+        <p class="secondary">Shortcuts only open or prefill existing controls; save each change explicitly. After each save, reopen this guide and reselect your client and Kodi. This is saved page state; reload to review independently changed policies before saving. Runtime support is checked separately.</p>
       </details>
       <section aria-labelledby="agent-create-heading">
         <h2 id="agent-create-heading">1. Create or select a client and choose permissions</h2>
@@ -213,8 +213,8 @@
       </section>
       <section>
         <h2>Administration: Kodi policies</h2>
-        <p>Changing a Kodi policy changes its permission ceiling. It does not replace client grants or current production scopes.</p>
-        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select required aria-label="Policy for {{ target.target_name }}"><option value=""{% if not target.preset %} selected{% endif %}>Choose a policy…</option>{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
+        <p>This policy is shared: changing it affects every client granted this Kodi and may remove or broaden their access. Review the existing policy before explicitly saving a replacement. If it may have changed since this page loaded, reload first. Client grants and current production scopes remain separate.</p>
+        {% for target in targets %}<p data-target-policy="{{ target.target_id }}" data-saved-policy-id="{{ target.preset.id if target.preset else '' }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select required aria-label="Policy for {{ target.target_name }}"><option value=""{% if not target.preset %} selected{% endif %}>Choose a policy…</option>{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
       </section>
       <section>
         <h2>Preset reference</h2>
