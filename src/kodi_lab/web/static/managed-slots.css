@@ -20,5 +20,8 @@
 [data-slot-confirm] label { display:block; margin:1rem 0; }
 [data-slot-confirm] .actions { display:flex; flex-wrap:wrap; gap:.7rem; }
 [data-slot-request] { padding:1rem; border:1px solid #888; margin:1rem 0; }
+.managed-problem-details button { min-height:44px; padding:.65rem .85rem; }
+.managed-problem-details textarea { display:block; width:100%; max-width:100%; box-sizing:border-box; font-size:1rem; }
+.managed-problem-details :focus-visible { outline:3px solid #267bd9; outline-offset:3px; }
 [data-slot] button:focus-visible,[data-slot] a:focus-visible,[data-slot-confirm] :focus-visible { outline:3px solid #267bd9; outline-offset:3px; }
 @media(max-width:40rem) { .managed-slot-grid { grid-template-columns:minmax(0,1fr); } .slot-actions { flex-direction:column; } .slot-actions > div { flex:auto; width:100%; } }

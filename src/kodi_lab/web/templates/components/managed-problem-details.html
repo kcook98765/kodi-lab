@@ -1,0 +1,11 @@
+{% macro problem_details(id) %}
+<div class="managed-problem-details" data-problem-details="{{ id }}" hidden>
+  <button type="button" data-problem-copy>Copy problem details</button>
+  <p role="status" aria-live="polite" aria-atomic="true" data-problem-status></p>
+  <div data-problem-manual hidden>
+    <label for="{{ id }}-problem-text">Problem details</label>
+    <p id="{{ id }}-problem-help">Copy the selected text using your device’s Copy command. On a phone, touch and hold the text, then choose Select all and Copy.</p>
+    <textarea id="{{ id }}-problem-text" aria-describedby="{{ id }}-problem-help" rows="9" readonly spellcheck="false" data-problem-text></textarea>
+  </div>
+</div>
+{% endmacro %}

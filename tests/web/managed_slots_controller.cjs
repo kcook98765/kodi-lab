@@ -17,12 +17,19 @@ class Element {
   focus() { if (!this.disabled) this.focused = true; }
   showModal() { this.open = true; }
   close() { this.open = false; }
+  select() { this.selected = true; }
+  querySelector(selector) {
+    this.children ||= new Map();
+    if (!this.children.has(selector)) this.children.set(selector, new Element());
+    return this.children.get(selector);
+  }
 }
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-function boot({storage = new Map(), denied = false, lanHttp = false} = {}) {
+function boot({storage = new Map(), denied = false, lanHttp = false, clipboard} = {}) {
   const root = new Element(), document = new Element(), window = new Element();
   const names = ["slot-confirm", "slots-error", "slots-running", "slots-refresh", "slot-request", "slot-request-message", "slot-resume", "slot-receipt", "slot-request-recovery", "slot-confirm-check", "slot-confirm-form", "slot-cancel"];
   const nodes = Object.fromEntries(names.map(n => [n, new Element()]));
+  for (const name of ["managed-request", "managed-error"]) nodes[name] = Object.assign(new Element(), {hidden:true});
   const cards = versions.map(version => {
     const card = new Element(); card.dataset.slot = version;
     card.actions = ["start", "stop", "reset"].map(action => Object.assign(new Element(), {dataset:{slotAction:action}}));
@@ -38,21 +45,22 @@ function boot({storage = new Map(), denied = false, lanHttp = false} = {}) {
     return card;
   });
   root.querySelectorAll = () => cards;
-  root.querySelector = selector => nodes[selector.match(/data-([\w-]+)/)[1]];
+  root.querySelector = selector => selector.includes("data-problem-details=") ? nodes[selector.match(/="([\w-]+)"/)[1]] : nodes[selector.match(/data-([\w-]+)/)[1]];
   const title = new Element();
   document.querySelector = selector => selector === "[data-managed-slots]" ? root : selector === "#managed-slots-config" ? {textContent:JSON.stringify(status())} : selector === "#slot-confirm-title" ? title : {content:"secret-csrf"};
   const requests = [], timers = [], delays = []; let uuidCount = 0;
   const store = {getItem:k => storage.get(k), setItem(k,v) { if (denied) throw Error("storage denied"); storage.set(k,v); }, removeItem:k => storage.delete(k)};
-  vm.runInNewContext(source, {document, window, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:(fn, delay) => { timers.push(fn); delays.push(delay); },
+  const context = vm.createContext({document, window, navigator:{clipboard}, localStorage:store, crypto:lanHttp ? {getRandomValues:bytes => require("node:crypto").randomFillSync(bytes)} : {randomUUID:() => uuidCount++ ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : request}, setInterval:(fn, delay) => { timers.push(fn); delays.push(delay); },
     fetch:(url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
+  vm.runInContext(source, context);
   return {nodes, cards, requests, storage, document, window, timers, delays, click:action => cards[2].actions.find(a => a.dataset.slotAction === action).dispatch("click")};
 }
 async function reply(r, body = status(), code = 200) {
   r.resolve({ok:code < 400, status:code, json:async () => body}); await flush();
 }
 const posts = app => app.requests.filter(r => r.options.method === "POST");
-(async () => {
+if (require.main === module) (async () => {
   const lan = boot({lanHttp:true}); await reply(lan.requests[0]);
   lan.click("start");
   assert.equal(posts(lan).length, 1, "private-LAN HTTP can generate a cryptographic UUID without randomUUID");
@@ -239,3 +247,4 @@ const posts = app => app.requests.filter(r => r.options.method === "POST");
 
   console.log("Managed slots DOM: passive refresh, original UUID replay, concurrent Stop completion, stale polling fences, consent, stale dialog, keyboard cancel, uncertain recovery and storage failure passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = {boot, reply, status, receipt, posts, flush, key, request, snapshot, Element};

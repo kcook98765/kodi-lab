@@ -1,4 +1,5 @@
 {% from 'components/environment-identity.html' import environment_label, environment_ownership %}
+{% from 'components/managed-problem-details.html' import problem_details %}
 {% set stop_guidance = 'Finish playback in Kodi first. Kodi Lab checks playback and active use before stopping, and may refuse the request. Your settings and add-ons are kept.' %}
 {% set reset_guidance = 'If Kodi is running, finish playback first. Reset checks for playback and active use when you confirm, and may be refused.' %}
 <section aria-labelledby="managed-kodi-heading" data-managed-slots>
@@ -14,9 +15,11 @@
     <p role="status" aria-live="polite" data-slot-request-message></p>
     <button type="button" data-slot-resume hidden>Resume saved request</button>
     <a data-slot-request-recovery hidden>Review recovery</a>
+    {{ problem_details('managed-request') }}
     <details><summary>Advanced request details</summary><pre data-slot-receipt></pre></details>
   </div>
   <p data-slots-error role="alert" hidden></p>
+  {{ problem_details('managed-error') }}
   <button type="button" data-slots-refresh>Refresh status</button>
   <ul class="managed-slot-grid">
   {% for slot in managed_slots.slots %}
@@ -27,6 +30,7 @@
       <p data-slot-message role="status">{{ slot.message }}</p>
       <p class="notice" data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset replaced this profile. Previous Bridge trust and deployment checks are no longer valid. Review add-on testing setup.</p>
       <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery before continuing</a></p>
+      {{ problem_details('managed-' ~ slot.version) }}
       <div class="slot-actions">
         {% for action, label in [('start','Start Kodi'),('stop','Stop Kodi')] %}
         {% set guidance = stop_guidance if action == 'stop' else '' %}
