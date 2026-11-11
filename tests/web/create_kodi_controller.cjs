@@ -18,10 +18,11 @@ const flush = async () => { for (let i = 0; i < 25; i++) await Promise.resolve()
 function boot(storage = new Map(), denied = false, config = {}) {
   const root = new Element(), component = new Element(), refresh = new Element(), document = new Element(), window = new Element();
   const names = ["form", "generation", "approve", "check", "resume", "review", "progress", "phase", "message", "wait", "screen", "start", "manage", "recovery", "version", "reason", "notice", "error", "summary", "blockers", "another", "discard"];
+  for (const name of ["installation", "native_readiness", "narrow_bridge", "bridge_trust", "recovery"]) names.push(`preparation-${name}`);
   if (config.setupControls) names.push("start-after-setup", "preview-approved", "preview-consent");
   const nodes = Object.fromEntries(names.map(name => [name, new Element()]));
   if (config.setupControls) { nodes["start-after-setup"].checked = false; nodes["preview-approved"].checked = false; }
-  root.querySelector = selector => selector === "[data-kodi-prerequisites]" ? component : nodes[selector.match(/data-create-([\w-]+)/)[1]];
+  root.querySelector = selector => selector === "[data-kodi-prerequisites]" ? component : selector.includes("data-preparation-") ? nodes[`preparation-${selector.match(/data-preparation-([\w_]+)/)[1]}`] : nodes[selector.match(/data-create-([\w-]+)/)?.[1]];
   component.querySelector = () => refresh;
   document.hidden = false;
   document.querySelector = selector => selector === "[data-create-kodi]" ? root : selector === "#create-kodi-config" ? {textContent:JSON.stringify({...snapshot, ...config})} : {content:"csrf-private"};
@@ -485,5 +486,16 @@ async function approved(app) {
   const previewIntent = JSON.parse(posts(preview)[0].options.body);
   assert.equal(previewIntent.preview_approved,true);
   assert.equal(previewIntent.start_after_setup,false);
-  console.log("PASS: persisted approval, bounded progression, paced inspection, lost responses, reconnect/tabs, attention, readiness, historical completion, visibility and storage denial");
+  const bridgeProgress = boot(); await approved(bridgeProgress);
+  await bridgeProgress.tick();
+  await reply(posts(bridgeProgress).at(-1), status(1, {phase:"Preparing Bridge", stage:"readiness", checkpoint:"planned", preparation:{installation:"installed", native_readiness:"verified_during_setup", narrow_bridge:"pending", bridge_trust:"not_assessed", recovery:"none"}}));
+  assert.equal(bridgeProgress.nodes.phase.textContent,"Preparing Bridge");
+  assert.equal(bridgeProgress.nodes["preparation-native_readiness"].textContent,"verified during setup");
+  assert.equal(bridgeProgress.nodes["preparation-narrow_bridge"].textContent,"pending");
+  await bridgeProgress.tick();
+  await reply(posts(bridgeProgress).at(-1), status(2, {phase:"Stopping Kodi", stage:"readiness", checkpoint:"planned", preparation:{narrow_bridge:"verified_during_setup", bridge_trust:"stored_active"}}));
+  assert.equal(bridgeProgress.nodes.phase.textContent,"Stopping Kodi");
+  assert.equal(bridgeProgress.nodes["preparation-bridge_trust"].textContent,"stored active");
+  assert.equal(bridgeProgress.nodes.screen.hidden,true,"Bridge setup is not completed viewing acceptance");
+  console.log("PASS: persisted approval, Bridge/native progress, bounded progression, paced inspection, lost responses, reconnect/tabs, attention, readiness, historical completion, visibility and storage denial");
 })().catch(error => { console.error(error); process.exitCode = 1; });

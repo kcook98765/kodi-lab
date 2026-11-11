@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from uuid import UUID
@@ -18,6 +19,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     ManagedContainerRecord,
 )
+from kodi_lab.broker.operations import EstablishManagedBridgeTrustResult
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.kodi.readiness import (
@@ -26,6 +28,7 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.web.app import create_app
+from tests.application.test_managed_bridge_trust import Client
 from tests.create_kodi_readiness_support import Transport
 from tests.create_kodi_runner_support import Broker
 
@@ -96,7 +99,43 @@ class WebEnvironment:
                 broker=self.broker,
                 auth=WebAuthenticationService(sessions),
                 coordinator_factory=coordinator,
+                managed_playback_factory=lambda *_: SimpleNamespace(
+                    playback_active=lambda: False
+                ),
             )
+        # Every outbound Bridge/native transport is isolated as well. Create
+        # now exercises real trust admission after its native preparation.
+        from dataclasses import replace
+
+        from tests.application.test_managed_bridge_preparation import Native
+
+        self.bridge_native = Native(self, "1.1.31")  # type: ignore[arg-type]
+        self.bridge_client = Client()
+        self.app.state.kodi_lab.managed_bridge_trust.close()
+        self.app.state.kodi_lab.managed_bridge_trust.client = self.bridge_client
+        self.app.state.kodi_lab.managed_bridge_trust.transport = self.bridge_native
+        original_dispatch = self.broker.dispatch
+
+        def dispatch(target: str) -> Any:
+            result = original_dispatch(target)
+            self.broker.records = [
+                replace(record, health_state=ContainerHealthState.HEALTHY)
+                for record in self.broker.records
+            ]
+            return result
+
+        def establish(**kwargs: Any) -> EstablishManagedBridgeTrustResult:
+            if kwargs.get("install_reviewed"):
+                self.bridge_native.installed = True
+            return EstablishManagedBridgeTrustResult(
+                managed_instance_id=kwargs["managed_instance_id"],
+                container_id=kwargs["expected_container_id"],
+                generation=kwargs["generation"],
+                bridge_id=str(self.bridge_client.value.bridge_id),
+            )
+
+        self.broker.dispatch = dispatch  # type: ignore[method-assign]
+        self.broker.establish_managed_bridge_trust = establish  # type: ignore[attr-defined]
 
     @contextmanager
     def client(self) -> Iterator[TestClient]:

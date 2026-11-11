@@ -39,7 +39,7 @@
       <label class="check-label"><input type="checkbox" data-create-start-after-setup> Start Kodi after setup (requires a free running slot)</label>
       </details>
       <label class="check-label" data-create-preview-consent hidden><input type="checkbox" data-create-preview-approved> I understand Piers is a prerelease for development only.</label>
-      <p>Click Install and prepare to approve downloading if needed and preparing this version. It stays stopped unless you choose to start it.</p>
+      <p>Click Install and prepare to approve downloading if needed and preparing Kodi with its compatible Narrow Bridge. Preparation briefly starts Kodi and needs a free running slot. It returns stopped unless you choose to keep it running.</p>
       <button type="submit" data-create-approve disabled>Install and prepare</button>
     </form>
   </section>
@@ -55,7 +55,13 @@
     </div>
     <details class="technical-details">
       <summary>Setup details</summary>
-      <dl><dt>Requested version</dt><dd data-create-version></dd><dt>Status</dt><dd data-create-reason></dd></dl>
+      <dl><dt>Requested version</dt><dd data-create-version></dd><dt>Status</dt><dd data-create-reason></dd>
+        <dt>Kodi installation</dt><dd data-preparation-installation>Pending</dd>
+        <dt>Native readiness</dt><dd data-preparation-native_readiness>Not assessed</dd>
+        <dt>Narrow Bridge installation</dt><dd data-preparation-narrow_bridge>Pending</dd>
+        <dt>Bridge trust</dt><dd data-preparation-bridge_trust>Not assessed</dd>
+        <dt>Recovery</dt><dd data-preparation-recovery>None</dd>
+      </dl>
     </details>
   </section>
   <p data-create-notice role="status" aria-live="polite"></p>

@@ -2605,6 +2605,17 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
 
+    from kodi_lab.application.managed_bridge_preparation import (
+        ManagedBridgePreparationService,
+    )
+    from kodi_lab.web.bridge_preparation import bridge_preparation_router
+
+    bridge_preparation = ManagedBridgePreparationService(
+        session_factory, lifecycle_service, resources
+    )
+    app.include_router(
+        bridge_preparation_router(bridge_preparation, current_session, mutation_session)
+    )
     create_repository = CreateKodiRepository(session_factory)
     create_runner = CreateKodiRunner(
         create_repository,
@@ -2627,6 +2638,7 @@ def create_app(
         CreateKodiReadinessService(
             session_factory, create_repository, runtime_installations, broker
         ),
+        bridge=bridge_preparation,
     )
     app.include_router(
         create_kodi_router(

@@ -147,7 +147,7 @@ def finish_provision(
             CreateCheckpoint.CONFIRMED,
             CreateOutcome.SUCCEEDED,
         )
-        if not row.start_after_setup:
+        if not row.start_after_setup and not row.bridge_required:
             row.checkpoint = CreateCheckpoint.COMPLETE
             row.completed_at = _now()
         # Existing lease release advances projection exactly once after owned

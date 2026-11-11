@@ -28,7 +28,7 @@
       <p class="slot-status">Status: <strong data-slot-state>{{ slot.state_label }}</strong></p>
       <p class="slot-retention">Stop keeps settings and add-ons.</p>
       <p data-slot-message role="status">{{ slot.message }}</p>
-      <p class="notice" data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset replaced this profile. Previous Bridge trust and deployment checks are no longer valid. Review add-on testing setup.</p>
+      <p class="notice" data-slot-clean{% if not slot.reset_note %} hidden{% endif %}>Reset created a clean profile. Narrow Bridge preparation is incomplete; previous trust and deployment checks are invalid. <a href="{{ slot.advanced_url }}#bridge-preparation">Prepare/Repair Bridge for this Kodi</a>.</p>
       <p><a data-slot-recovery href="{{ slot.recovery_url }}"{% if not slot.needs_review %} hidden{% endif %}>Review recovery before continuing</a></p>
       {{ problem_details('managed-' ~ slot.version) }}
       <div class="slot-actions">

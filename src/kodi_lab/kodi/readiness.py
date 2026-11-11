@@ -93,6 +93,14 @@ class JsonRpcInvalidResponseError(RuntimeError):
     pass
 
 
+class JsonRpcMethodError(JsonRpcInvalidResponseError):
+    """A well-formed, identity-matched method error, without server text."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__("JSON-RPC method returned an error")
+        self.code = code
+
+
 class ReadinessCancelledError(RuntimeError):
     """The Web layer invalidated an ephemeral readiness observation."""
 
@@ -275,9 +283,19 @@ class KodiJsonRpcReadinessAdapter:
             not isinstance(document, dict)
             or document.get("jsonrpc") != "2.0"
             or document.get("id") != request_id
-            or "error" in document
-            or "result" not in document
         ):
+            raise JsonRpcInvalidResponseError("JSON-RPC response envelope is invalid")
+        if "error" in document:
+            method_error = document["error"]
+            if (
+                "result" not in document
+                and isinstance(method_error, dict)
+                and type(method_error.get("code")) is int
+                and isinstance(method_error.get("message"), str)
+            ):
+                raise JsonRpcMethodError(method_error["code"])
+            raise JsonRpcInvalidResponseError("JSON-RPC error envelope is invalid")
+        if "result" not in document:
             raise JsonRpcInvalidResponseError("JSON-RPC response envelope is invalid")
         return cast(dict[str, object], document)
 

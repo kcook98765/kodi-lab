@@ -377,6 +377,146 @@ class ManagedRuntimeLifecycleService:
 
         return self._run(instance_id, ManagedInstanceLifecycleKind.START, install)
 
+    def prepare_managed_bridge(
+        self,
+        instance_id: UUID,
+        *,
+        preparation_id: UUID,
+        operation_id: UUID,
+        expected: ManagedStartBinding,
+        precondition: Callable[[Session], None],
+        on_claim: Callable[[Session, RunningLifecycleOperation], None],
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None],
+        before_restart: Callable[[], None],
+    ) -> ManagedRuntimeStatus:
+        """Web maintenance under ordinary managed authority, with one restart proof.
+
+        The durable preparation coordinator owns all callers and child identities.
+        Development, optional background preparation and MCP keep their admission.
+        """
+        self._require_no_reset(instance_id)
+        proof = SecretStr(secrets.token_urlsafe(32))
+
+        def admission(session: Session) -> None:
+            require_managed_runtime(
+                session,
+                instance_id,
+                UUID(expected.revision_id),
+                data_root=self._data_root,
+            )
+            current = require_managed_start(
+                session,
+                self._broker.managed_container_inventory().containers,
+                target_id=str(instance_id),
+                revision_id=expected.revision_id,
+            )
+            if current != expected or current.state != "running":
+                raise LifecycleConflictError("Bridge preparation identity changed")
+            precondition(session)
+
+        def claimed(session: Session, handle: RunningLifecycleOperation) -> None:
+            session.add(
+                ManagedStartAuthorizationRow(
+                    operation_id=str(handle.operation_id),
+                    target_id=str(instance_id),
+                    runtime_revision_id=expected.revision_id,
+                    container_id=expected.container_id,
+                    image_id=expected.image_id,
+                    runtime_state_revision=handle.runtime_state_revision,
+                    lease_digest=handle.token_digest,
+                    proof_digest=hashlib.sha256(
+                        proof.get_secret_value().encode()
+                    ).hexdigest(),
+                    created_at=timestamp(datetime.now(UTC)),
+                )
+            )
+            session.flush()
+            on_claim(session, handle)
+
+        def prepare(target: UUID, profile: RuntimeExecutionProfile) -> None:
+            from kodi_lab.application.managed_bridge_trust import (
+                ManagedBridgeTrustError,
+            )
+
+            if self._bridge_trust is None:
+                raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
+
+            def native_ready() -> None:
+                result = self._coordinator_factory(
+                    self._broker, profile
+                ).wait_until_usable(str(target))
+                if result.usability_state.value != "usable" or result.failure_reason:
+                    raise ManagedBridgeTrustError("managed_bridge_native_not_ready")
+
+            native_ready()
+            if self._bridge_trust.status(target)[
+                "state"
+            ] == "active" and self._bridge_trust.maintenance_installed_current(
+                target, preparation_id=preparation_id
+            ):
+                try:
+                    self._bridge_trust.verify_maintenance(
+                        target, preparation_id=preparation_id
+                    )
+                    return
+                except ManagedBridgeTrustError:
+                    # Definite identity drift invalidates trust; an explicitly
+                    # requested repair can replace it. Transient reachability
+                    # failures keep active credentials and remain uncertain.
+                    if self._bridge_trust.status(target)["state"] == "active":
+                        raise
+            # Prepared intent alone cannot prove a previous staging/restart. A
+            # fresh explicit repair stages the reviewed bytes under this owner.
+            before_restart()
+            self._bridge_trust.stage_reviewed(target, preparation_id=preparation_id)
+            generation = self._bridge_trust.status(target)["generation"]
+            assert isinstance(generation, int)
+            try:
+                before_restart()
+                self._stop(target, profile, expected_container_id=expected.container_id)
+                result = self._dispatch_start(
+                    lambda: cast(
+                        _ManagedStartBroker, self._broker
+                    ).start_managed_container(
+                        managed_instance_id=str(target),
+                        expected_container_id=expected.container_id,
+                        expected_runtime_state=ContainerRuntimeState.STOPPED,
+                        ordinary_start_proof=proof,
+                    )
+                )
+                if (
+                    result.container_id != expected.container_id
+                    or result.managed_instance_id != str(target)
+                    or result.runtime_state is not ContainerRuntimeState.RUNNING
+                ):
+                    raise LifecycleDispatchUnconfirmedError
+                native_ready()
+                self._bridge_trust.resume_reviewed(
+                    target,
+                    expected_generation=generation,
+                    preparation_id=preparation_id,
+                )
+                self._bridge_trust.verify_maintenance(
+                    target, preparation_id=preparation_id
+                )
+            except Exception as error:
+                # Staging already touched profile/trust. Preserve ownership and
+                # typed recovery even if a later native observation is definite.
+                raise ManagedBridgeMutationUnconfirmedError(
+                    "managed_bridge_preparation_unconfirmed"
+                ) from error
+
+        return self._run(
+            instance_id,
+            ManagedInstanceLifecycleKind.START,
+            prepare,
+            ordinary_start=True,
+            operation_id=operation_id,
+            precondition=admission,
+            on_claim=claimed,
+            on_terminal=on_terminal,
+        )
+
     def resume_reviewed_bridge(
         self, instance_id: UUID, *, expected_generation: int
     ) -> ManagedRuntimeStatus:
@@ -463,6 +603,9 @@ class ManagedRuntimeLifecycleService:
         precondition: Callable[[Session], None] | None = None,
         on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
         before_dispatch: Callable[[], None] | None = None,
+        on_terminal: Callable[[Session, ManagedInstanceLifecycleOperation], None]
+        | None = None,
+        expected_container_id: str | None = None,
     ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
         from kodi_lab.application.browser_remote_coordination import (
@@ -475,19 +618,33 @@ class ManagedRuntimeLifecycleService:
                 return self._run(
                     instance_id,
                     ManagedInstanceLifecycleKind.STOP,
-                    self._stop,
+                    lambda target, profile: self._stop(
+                        target, profile, expected_container_id=expected_container_id
+                    ),
                     operation_id=operation_id,
                     precondition=precondition,
                     on_claim=on_claim,
                     before_dispatch=before_dispatch,
+                    on_terminal=on_terminal,
                 )
         except BrowserRemoteCoordinationConflict as error:
             raise LifecycleConflictError(
                 "An input dispatcher is still active."
             ) from error
 
-    def _stop(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
+    def _stop(
+        self,
+        instance_id: UUID,
+        _profile: RuntimeExecutionProfile,
+        *,
+        expected_container_id: str | None = None,
+    ) -> None:
         container = self._require_container(instance_id)
+        if (
+            expected_container_id is not None
+            and container.container_id != expected_container_id
+        ):
+            raise LifecycleConflictError("Stop identity changed")
         self._readiness.cancel(instance_id)
         try:
             result = self._broker.stop_managed_container(

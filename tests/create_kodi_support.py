@@ -44,6 +44,7 @@ def accept(
     *,
     start_after_setup: bool = True,
     preview_approved: bool = False,
+    bridge_required: bool = False,
 ) -> CreateOperation:
     return app.accept(
         request_id=request or uuid4(),
@@ -52,6 +53,7 @@ def accept(
         owner_approved=True,
         start_after_setup=start_after_setup,
         preview_approved=preview_approved,
+        bridge_required=bridge_required,
     ).operation
 
 

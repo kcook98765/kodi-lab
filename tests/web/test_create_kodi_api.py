@@ -69,6 +69,7 @@ def approval(
         recipe_revision=reviewed.recipe.recipe_revision,
         recipe_digest=reviewed.digest,
         owner_approved=True,
+        start_after_setup=True,
     )
 
 
@@ -627,6 +628,8 @@ def test_attention_codes_never_echo_internal_reason_or_trigger_recovery(
 
 
 def completed_parent(database: sessionmaker[Session], accepted: dict[str, Any]) -> UUID:
+    from kodi_lab.storage.models import ManagedBridgePreparationRow
+
     with database.begin() as session:
         row = session.get(CreateKodiOperationRow, accepted["operation_id"])
         assert row
@@ -643,6 +646,26 @@ def completed_parent(database: sessionmaker[Session], accepted: dict[str, Any]) 
             CONTAINER_ID,
         )
         row.runtime_state_revision = 4
+        if row.bridge_required:
+            session.add(
+                ManagedBridgePreparationRow(
+                    id=str(uuid4()),
+                    request_id=str(uuid4()),
+                    create_operation_id=row.id,
+                    target_id=row.target_id,
+                    runtime_revision_id=row.runtime_revision_id,
+                    container_id=row.container_id,
+                    image_id=row.image_id,
+                    runtime_state_revision=4,
+                    keep_running=row.start_after_setup,
+                    phase="complete",
+                    checkpoint="complete",
+                    version=4,
+                    attempt=0,
+                    created_at=row.updated_at,
+                    updated_at=row.updated_at,
+                )
+            )
         target_id = UUID(row.target_id)
         target = replace(
             make_target("Created Kodi"), id=target_id, target_type=TargetType.MANAGED

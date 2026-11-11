@@ -100,6 +100,7 @@ class Environment:
         generation: str = "omega",
         start_after_setup: bool = True,
         preview_approved: bool = False,
+        bridge_required: bool = False,
     ) -> None:
         self.sessions, self.repo = sessions, CreateKodiRepository(sessions)
         self.broker = Broker(sessions, self.repo)
@@ -148,6 +149,7 @@ class Environment:
                 generation=generation,
                 start_after_setup=start_after_setup,
                 preview_approved=preview_approved,
+                bridge_required=bridge_required,
             )
         else:
             existing = self.repo.get(operation_id)
@@ -167,7 +169,9 @@ class Environment:
         self.broker.parent = self.op.id
 
     def step(self) -> None:
-        self.op = self.runner.continue_once(self.op.id, version=self.op.version)
+        self.op = self.runner.continue_once(
+            self.op.id, version=self.runner.expected_version(self.op)
+        )
 
     def close(self) -> None:
         self.tasks.close()

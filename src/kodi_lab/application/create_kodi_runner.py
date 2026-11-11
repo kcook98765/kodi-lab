@@ -1,12 +1,15 @@
 """One explicit fixed-stage continuation, with no scheduler or implicit retry."""
 
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from kodi_lab.application.create_kodi_installation import CreateKodiInstallationService
 from kodi_lab.application.create_kodi_provisioning import CreateKodiProvisioningService
 from kodi_lab.application.create_kodi_readiness import CreateKodiReadinessService
 from kodi_lab.application.create_kodi_registration import CreateKodiRegistrationService
 from kodi_lab.application.create_kodi_start import CreateKodiStartService
+from kodi_lab.application.managed_bridge_preparation import (
+    ManagedBridgePreparationService,
+)
 from kodi_lab.domain.create_kodi import (
     CreateCheckpoint,
     CreateOperation,
@@ -33,8 +36,10 @@ class CreateKodiRunner:
         provisioning: CreateKodiProvisioningService,
         start: CreateKodiStartService,
         readiness: CreateKodiReadinessService,
+        bridge: ManagedBridgePreparationService | None = None,
     ) -> None:
         self._repository = repository
+        self.bridge = bridge
         self._installation, self._registration = installation, registration
         self._provisioning, self._start, self._readiness = (
             provisioning,
@@ -46,9 +51,24 @@ class CreateKodiRunner:
         op = self._repository.get(operation_id)
         if op is None:
             raise CreateTransitionError("operation_not_found")
-        if op.version != version:
+        if self.expected_version(op) != version:
             raise CreateTransitionError("stale_version")
         if op.checkpoint is CreateCheckpoint.COMPLETE:
+            if op.bridge_required:
+                if self.bridge is None:
+                    raise CreateTransitionError("managed_bridge_coordinator_required")
+                receipt = self.bridge.for_create(op.id)
+                if receipt is None:
+                    self.bridge.accept(
+                        request_id=uuid5(op.id, "managed-bridge-request:v1"),
+                        target_id=op.target_id,
+                        keep_running=op.start_after_setup,
+                        create=op,
+                    )
+                else:
+                    if version != op.version + receipt.version + 1:
+                        raise CreateTransitionError("stale_version")
+                    self.bridge.continue_once(UUID(receipt.id), version=receipt.version)
             return op
         try:
             self._step(op)
@@ -61,6 +81,14 @@ class CreateKodiRunner:
         latest = self._repository.get(op.id)
         assert latest is not None
         return latest
+
+    def expected_version(self, op: CreateOperation) -> int:
+        receipt = (
+            self.bridge.for_create(op.id)
+            if self.bridge and op.bridge_required
+            else None
+        )
+        return op.version + (receipt.version + 1 if receipt else 0)
 
     def _step(self, op: CreateOperation) -> None:
         if op.checkpoint is CreateCheckpoint.NEEDS_ATTENTION:

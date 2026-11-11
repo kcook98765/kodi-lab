@@ -95,3 +95,13 @@ into a clear Check again action, and leave GET/polling passive. A future runner
 must distinguish this read-only recheck from uncertain mutation dispatch. The
 guided wizard must keep native completion, screen availability and optional agent
 readiness separate. None of those endpoints, runner or wizard is implemented here.
+
+## Automatic Bridge preparation
+
+For new Web requests, native Complete is a native evidence checkpoint. Web Create
+then continues a separate exact-target Bridge maintenance receipt and reports
+Prepared only after reviewed installation, authentication and the requested final
+stopped/running state are verified. This adapter remains observation-only;
+`ManagedBridgePreparationService` owns the subsequent lifecycle mutations.
+Historical native-only receipts are never reopened. See
+[managed Bridge preparation](MANAGED-BRIDGE-PREPARATION.md).
