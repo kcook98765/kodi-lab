@@ -1418,9 +1418,12 @@ def build_mcp_http_transport(
             name="managed_start",
             title="Start a managed Kodi version",
             description=(
-                "Start a granted canonical version, reusing its profile or preparing "
-                "an absent profile from an approved cached runtime. Requires explicit "
-                "managed.versions on client and exact target. Never downloads, "
+                "Start an installed managed version using Trusted Managed Lab or "
+                "explicit legacy managed.versions client/target grants. For the "
+                "managed role, installation_required means a human must install "
+                "the version through Managed Kodi in the Web UI. Legacy callers "
+                "may prepare an absent profile from an approved cached runtime. "
+                "Never downloads, "
                 "repins, switches versions or grants workspace/Bridge authority. "
                 "Retain request_id; replay only resumes undispatched preparation or "
                 "observes the original child. A completed request never restarts "

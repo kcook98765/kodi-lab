@@ -4,10 +4,10 @@ Authorization: owner prompt, 2026-11-11; scope #303 and #304-#310.
 Claw lab-owned state disposable; unrelated data, repositories and host apps protected.
 
 ## Current checkpoint
-- Starting main: f3a666ec45ce5e23bebd6b5105799bdf7f459bae. Current integrated main: 202214eb32ddfeb8b99300521b93bf5675f98a7d.
+- Starting main: f3a666ec45ce5e23bebd6b5105799bdf7f459bae. Current integrated main: ccf8a414271d0032ff30e674d437f77a55bd0764.
 - Baseline schema verified: 0008_managed_bridge_preparation. Current main schema: 0012_agent_project_intake.
 - Worktree: /home/kyle/kodi-lab-worktrees/agent-first-20261111.
-- Active issue: #308 autonomous Reset and reviewed Bridge composition; branch feat/308-agent-reset-bridge; no PR yet.
+- Active issue: #306 actionable missing-version guidance; branch fix/306-missing-version-guidance; no PR yet.
 - #304 source merged: PR #311 https://github.com/kcook98765/kodi-lab/pull/311; head 860aa0221ed446341dabb5ad1d479aca6b4edef9; integration 4a78965be2eead684144f723e7fb9201bbf391bc. Native/integrated acceptance still open under #310.
 - #304 final design: independent client managed_lab_role_version=1 opt-in; legacy/external preset and grants unchanged. Typed managed shortcut only for approved disposable managed instances; owner/source, runtime and lifecycle guards retained.
 - #304 FOCUSED PASS: 192 distinct tests across role (10), role migration (1), Web admin/CSRF (1), initial schema (32), migration regressions (60), MCP foundation (17), production authorization (22), managed-version wire (10), workspace mutations (34), development inspection (5). Focused Ruff and mypy pass. Latest workspace lane: 49 passed, 18.9s including static checks.
@@ -72,3 +72,10 @@ All issue bodies saved beside this file. Keep per-PR tests, review, merge identi
 - Bridge coordinator adds optional current-authority callbacks at accept, child claim and actual dispatch, and an exact expected binding. Stopped default and requested running final state retained. Explicit resume_bridge_version keeps original parents/profile, cannot create a new Reset, and completed recovery replay issues no child. Uncertain children remain fenced. No schema change (head remains 0012).
 - FOCUSED PASS: 161 distinct tests (clean Reset 42, existing reviewed Bridge preparation 29, role composition 9, legacy Reset MCP 7, version MCP 10, managed role 10, version service 35, Start selection/holds 19). Existing Reset/Bridge lane 86.1s; broader version/role lane 88.3s; final recovery/dispatch lane 9 cases plus Ruff/mypy 8 paths passes in 19.5s (308-final-recovery.log). Self-review corrected recovery-only invocation creating a fresh Reset, and completed-recovery replay. All tests use isolated native doubles, NOT native Claw acceptance.
 - #308 remains source-implemented/native-pending; #302 human consent-aware composition remains open and unchanged. Remaining #306 gap found during fixture setup: role attempts on an uninstalled version produce target_not_found_or_not_authorized instead of actionable installation_required. Correct separately after this coherent PR; do not auto-register/acquire a missing runtime. #309 primary navigation/simplification eligible.
+
+- #308 source merged as PR #317 https://github.com/kcook98765/kodi-lab/pull/317; reviewed head 54dc42264bf174348064c927a73e663ea2ff0156. Merge/tree identities recorded below; native pending.
+- #317 integration ccf8a414271d0032ff30e674d437f77a55bd0764, exact tree match b6507879fbb1b32e9a93b4f372b2af20a51d7804.
+
+## #306 missing-version guidance checkpoint
+- Reproduced role-only uninstalled status falsely requesting another grant (306-installation-repro.log). Scoped canonical-version authorization now returns installation_required only for a current role/credential and absent target/managed instance. Status shows the role already authorized, empty installed state and ask_administrator. No native probe, target registration, cached-image acquisition or lifecycle receipt is created; legacy permission errors unchanged. MCP Start description names human Web installation.
+- FOCUSED PASS: 58 distinct tests (new missing-version 2 including cached image without installation, wire 11, managed role 10, legacy version service 35). Final settled lane 2 new cases plus Ruff/mypy five paths passes in 5.3s (306-installation-settled.log); broader lanes all runtime tests pass, initial static nested-if style corrected. Self-review complete, no schema/installed changes. Next: merge this narrow fix and implement #309 operator navigation/first-time flow, then integrated/full/native #310.

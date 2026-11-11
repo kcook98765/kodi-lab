@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
+from kodi_lab.application.mcp_administration import (
+    FULL_LAB_CONTROL_PRESET_ID,
+    READ_ONLY_INSPECTION_PRESET_ID,
+)
 from kodi_lab.application.mcp_workspace_development import BoundedIntervalRateLimiter
 from kodi_lab.host_bootstrap import generate_master_key
 from kodi_lab.runtime.recipes import load_reviewed_recipe, recipe_target_id
@@ -86,6 +89,31 @@ def call(
     )
     assert response.status_code == 200, response.text
     return cast(dict[str, Any], response.json()["result"])
+
+
+def test_role_missing_version_reports_human_installation_without_grant_or_acquisition(
+    client: TestClient,
+    broker: Broker,
+) -> None:
+    admin = _administration(client)
+    actor = admin.create_client(
+        display_name="Role only wire owner",
+        preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+        trusted_managed_lab=True,
+    )
+    token = admin.issue_credential(actor.id).token
+    status = call(client, token, "managed_status", {})
+    assert all(
+        item["authorized"]
+        and item["code"] == "installation_required"
+        and item["next_action"] == "ask_administrator"
+        for item in status["structuredContent"]["versions"]
+    )
+    missing = call(
+        client, token, "managed_start", {"version": "nexus", "request_id": str(uuid4())}
+    )
+    _assert_tool_error(missing, "installation_required")
+    assert broker.provisions == broker.starts == 0
 
 
 @pytest.mark.parametrize("trusted_development", [False, True])
