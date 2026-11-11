@@ -34,6 +34,7 @@ from kodi_lab.domain import (
     PromotionVerificationState,
     RepositoryReplacementOperationState,
 )
+from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     require_source_session_admission,
@@ -41,6 +42,7 @@ from kodi_lab.storage.development_sessions import (
 )
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
+    AgentProjectRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
 )
@@ -746,6 +748,29 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         instance_id, workspace.development_source_id
                     )
                 )
+                project = (
+                    operation is not None
+                    and workspace is not None
+                    and owned_project_workspace(
+                        session,
+                        workspace_id=workspace_id,
+                        source_id=str(workspace.development_source_id),
+                        client_id=operation.client_id,
+                    )
+                )
+                if (
+                    workspace is not None
+                    and session.get(
+                        AgentProjectRow, str(workspace.development_source_id)
+                    )
+                    is not None
+                    and not project
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Private project owner authority changed."
+                    )
+                if project:
+                    baseline = None
                 prior_workspace = (
                     None
                     if workspace is None
@@ -755,6 +780,11 @@ class SqliteDevelopmentSourceDeploymentResolver:
                             McpWorkspaceDeploymentOperationRow.id
                             != deployment_operation_id,
                             selected_profile_lineage_sql(),
+                            sa.or_(
+                                sa.true() if not project else sa.false(),
+                                McpWorkspaceDeploymentOperationRow.original_container_id
+                                == expected_container_id,
+                            ),
                             McpWorkspaceDeploymentOperationRow.workspace_id
                             == workspace_id,
                             McpWorkspaceDeploymentOperationRow.target_id
@@ -838,9 +868,20 @@ class SqliteDevelopmentSourceDeploymentResolver:
                 if (
                     prior_workspace.source_manifest_digest is None
                     or prior_workspace.verified_destination_digest is None
-                    or baseline is None
-                    or baseline.runtime_revision_id != instance.runtime_revision_id
-                    or baseline.trusted_container_id != expected_container_id
+                    or (
+                        project
+                        and prior_workspace.original_container_id
+                        != expected_container_id
+                    )
+                    or (
+                        not project
+                        and (
+                            baseline is None
+                            or baseline.runtime_revision_id
+                            != instance.runtime_revision_id
+                            or baseline.trusted_container_id != expected_container_id
+                        )
+                    )
                 ):
                     raise DevelopmentSourceDeploymentStateError(
                         "Prior workspace deployment evidence is incomplete."

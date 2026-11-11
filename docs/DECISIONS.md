@@ -8082,3 +8082,16 @@ created; changed postimages remain for reconciliation. Legacy registered-source
 workspaces retain their conservative directory rule. Structural/diff validation
 accepts safe added directories only for private projects; no source promotion is
 authorized for immutable project intake seeds. See [project workflow](AGENT-PROJECTS.md).
+
+## D-0496: Private project receipts select managed development context
+
+A current Trusted Managed Lab owner may use an exact private workspace generation
+and approved disposable managed target without changing human session selection.
+Reuse existing deployment, execution and launch parents; require owner/source
+bindings at application admission, the typed lease backstop and broker resolution.
+The first copy has no Web source baseline and must prove add-on absence; broker
+stopped-destination provenance checks still prevent replacement of unknown bytes.
+Later copies bind to the original container, independently of global selection.
+Existing lifecycle capacity, input, uncertainty and credential guards remain.
+Legacy registered sources and all external targets retain their existing rules.
+See [agent projects](AGENT-PROJECTS.md).

@@ -160,6 +160,22 @@ def require_workspace_session_admission(
     from kodi_lab.storage.retained_development import retained_targets
 
     current = active_session(session)
+    from kodi_lab.storage.agent_project_context import (
+        approved_project_target,
+        owned_project_workspace,
+    )
+
+    if owned_project_workspace(session, workspace_id=workspace_id, source_id=source_id):
+        if not approved_project_target(session, target_id, revision_id):
+            raise DevelopmentSessionConflict("development_session_requires_review")
+        if current is not None and current.phase != "bound":
+            raise DevelopmentSessionConflict("development_session_requires_review")
+        if (
+            session.scalar(select(ManagedProvisionReservationRow).limit(1)) is not None
+            or session.scalar(select(ManagedStartReservationRow).limit(1)) is not None
+        ):
+            raise DevelopmentSessionConflict("development_session_runtime_pending")
+        return None
     if current is None:
         if retained_targets(session):
             raise DevelopmentSessionConflict("retained_selection_required")

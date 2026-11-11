@@ -432,6 +432,7 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
 
         if tool_name == "development_launch":
+            from kodi_lab.storage.agent_project_context import owned_project_workspace
             from kodi_lab.storage.development_sessions import (
                 DevelopmentSessionConflict,
                 active_session,
@@ -443,6 +444,15 @@ class McpAuthorizationService:
                 raise McpAuthorizationError(
                     "development_session_requires_review"
                 ) from error
+            if managed_role and owned_project_workspace(
+                session,
+                workspace_id=str(workspace_id),
+                source_id=binding.development_source_id,
+                client_id=str(principal.client_id),
+            ):
+                if current is not None and current.phase != "bound":
+                    raise McpAuthorizationError("development_session_requires_review")
+                return
             if (
                 current is None
                 or current.phase != "bound"

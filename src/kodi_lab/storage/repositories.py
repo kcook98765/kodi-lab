@@ -6610,12 +6610,18 @@ class ManagedInstanceMutationLeaseRepository:
             raise ValueError(
                 "Only owned resident preparation preserves native projection"
             )
+        from kodi_lab.storage.agent_project_context import owned_project_operation
         from kodi_lab.storage.retained_development import require_retained_selection
 
         if kind not in {
             ManagedInstanceMutationKind.LIFECYCLE,
             ManagedInstanceMutationKind.RECONSTRUCTION,
-        }:
+        } and not owned_project_operation(
+            self._session,
+            kind=kind.value,
+            operation_id=str(operation_id),
+            target_id=str(instance_id),
+        ):
             require_retained_selection(self._session, str(instance_id))
         from kodi_lab.application.browser_remote_coordination import (
             require_no_active_browser_remote,

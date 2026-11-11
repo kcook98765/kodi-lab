@@ -42,3 +42,50 @@ MANAGED_START_MUTATION_TRIGGER = RETAINED_MUTATION_TRIGGER.replace(
     "AND a.consumed_at IS NULL)) "
     "AND NOT EXISTS(SELECT 1 FROM development_session_policy p ",
 )
+
+# A private project's existing typed parent receipt replaces human selection.
+# This is only the lease issuance backstop: broker/native, credential and
+# active-use checks remain mandatory at dispatch.
+_PROJECT_PARENTS = (
+    ("mcp_workspace_deployment", "mcp_workspace_deployment_operations", "", "o"),
+    (
+        "mcp_workspace_execution",
+        "mcp_workspace_execution_operations",
+        "JOIN mcp_workspace_deployment_operations d ON d.id=o.deployment_id "
+        "AND d.client_id=o.client_id AND d.workspace_id=o.workspace_id "
+        "AND d.target_id=o.target_id "
+        "AND d.development_source_id=o.development_source_id ",
+        "d",
+    ),
+    ("mcp_workspace_launch", "mcp_workspace_launches", "", "o"),
+)
+_PROJECT_EXCEPTIONS = "".join(
+    "AND NOT (NEW.operation_kind='"
+    + kind
+    + "' AND EXISTS(SELECT 1 FROM "
+    + table
+    + " o "
+    + extra_join
+    + "JOIN agent_projects p ON p.source_id=o.development_source_id "
+    "AND p.client_id=o.client_id JOIN mcp_clients c ON c.id=p.client_id "
+    "JOIN mcp_agent_workspace_bindings b ON b.workspace_id=o.workspace_id "
+    "AND b.client_id=p.client_id AND b.development_source_id=p.source_id "
+    "JOIN agent_workspaces w ON w.id=b.workspace_id "
+    "JOIN mcp_client_development_source_grants g ON g.client_id=p.client_id "
+    "AND g.development_source_id=p.source_id "
+    "JOIN managed_instances i ON i.target_id=o.target_id "
+    "JOIN targets t ON t.id=i.target_id "
+    "JOIN runtime_revisions r ON r.id=i.runtime_revision_id "
+    "WHERE o.id=NEW.operation_id AND o.target_id=NEW.managed_instance_id "
+    "AND " + revision_owner + ".runtime_revision_id=i.runtime_revision_id "
+    "AND o.generation=w.generation AND w.development_source_id=p.source_id "
+    "AND w.state='ready' AND w.bytes_state='present' "
+    "AND p.state='seeded' AND c.enabled=1 AND c.managed_lab_role_version=1 "
+    "AND t.target_type='managed' AND i.instance_type='disposable' "
+    "AND r.approval_state='approved' AND o.state='pending')) "
+    for kind, table, extra_join, revision_owner in _PROJECT_PARENTS
+)
+AGENT_PROJECT_MUTATION_TRIGGER = MANAGED_START_MUTATION_TRIGGER.replace(
+    "AND NOT EXISTS(SELECT 1 FROM development_session_policy p ",
+    _PROJECT_EXCEPTIONS + "AND NOT EXISTS(SELECT 1 FROM development_session_policy p ",
+)

@@ -49,3 +49,20 @@ Private project seeds are immutable intake, so validation reports
 `promotable_classification=agent_owned_project` and `promotable=false` for source
 promotion. This does not prohibit managed deployment. `promotion_request` cannot
 write a private seed or turn project ownership into host filesystem authority.
+
+Trusted project owners can select an installed managed target on each
+`workspace_deploy`, `development_launch`, `workspace_launch` or execution request.
+The workspace identifies the project; `expected_generation` binds its exact
+bytes, and `target_id` selects the prepared version returned by managed status.
+These operations neither require nor change the human development selection.
+Use existing `managed_stop` and `managed_start` to switch versions; absent
+versions still require human installation through Managed Kodi.
+
+The first private-project deployment creates its internal source association.
+It requires a complete fresh inventory with no existing add-on of that ID;
+the stopped broker copy independently refuses an existing destination without
+matching copy evidence. Later copies use only the same owner's workspace and
+exact runtime/container evidence. A reset profile requires a fresh deployment.
+Capacity, human input, holds, pending operations and uncertain outcomes retain
+their existing guards. An uncertain human selection remains a review blocker.
+Fixture/source validation does not establish native cross-version acceptance.
