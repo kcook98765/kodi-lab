@@ -1026,6 +1026,7 @@ class McpClientCreateRequest(BaseModel):
 
     display_name: str = Field(min_length=1, max_length=120)
     preset_id: UUID
+    trusted_managed_lab: StrictBool = False
 
 
 class McpPresetCreateRequest(BaseModel):
@@ -6108,7 +6109,9 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> McpClientRead:
         return context.mcp_administration.create_client(
-            display_name=payload.display_name, preset_id=payload.preset_id
+            display_name=payload.display_name,
+            preset_id=payload.preset_id,
+            trusted_managed_lab=payload.trusted_managed_lab,
         )
 
     @app.get("/api/mcp/clients/{client_id}", response_model=McpClientRead)
@@ -6133,6 +6136,18 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> McpClientRead:
         return context.mcp_administration.set_client_enabled(client_id, payload.enabled)
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/managed-lab-role", response_model=McpClientRead
+    )
+    def set_mcp_client_managed_lab_role(
+        client_id: UUID,
+        payload: McpClientEnabledRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.set_managed_lab_role(
+            client_id, payload.enabled
+        )
 
     @app.post("/api/mcp/clients/{client_id}/preset", response_model=McpClientRead)
     def assign_mcp_client_preset(

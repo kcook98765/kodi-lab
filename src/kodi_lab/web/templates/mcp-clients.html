@@ -45,12 +45,14 @@
           </select></label>
           <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Screenshots follow <strong>Allow screenshots</strong> on each external Kodi. This production preset does not authorize Kodi created by Kodi Lab.</p>
           <p>For Managed Kodi, use <a href="#managed-inspection" data-open-managed>Managed Kodi — Read-only inspection</a> above. Other permissions remain under <a href="#agent-advanced">Advanced administration</a>.</p>
+          <label><input type="checkbox" name="trusted_managed_lab"> Trusted Managed Lab — Full Development</label>
+          <p>One deliberate grant authorizes all installed managed versions, including future prepared versions, GUI control and autonomous Reset of idle profiles. External Kodi still needs separate explicit permissions and exact device grants.</p>
           <button type="submit">Create client</button>
         </form>
       </section>
       <section aria-labelledby="agent-config-heading">
         <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
-        <p>For <strong>External Production Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection guide above. Creating a client or issuing a token does not grant access.</p>
+        <p>For <strong>External Production Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For managed development, deliberately enable Trusted Managed Lab when creating the client or grant it on the client card. Read-only clients use the managed inspection guide above. A token uses the client's current authority.</p>
       </section>
       <section aria-labelledby="agent-copy-heading">
         <h2 id="agent-copy-heading" tabindex="-1">3. Issue a token and copy configuration</h2>

@@ -82,3 +82,8 @@ or new receipt history that the predecessor cannot represent. See D-0486.
 and separate exact-target Web maintenance/child receipts. Existing native-only
 requests, resource policy, profiles and authority rows are preserved. Children
 remain protected from pruning. Used receipts prevent lossy downgrade.
+
+`0009_trusted_managed_lab` adds a nullable versioned managed role to clients,
+defaulting to no role, and extends the authority-revision mutation guard. Existing
+clients, presets, credentials and grants are unchanged. Downgrade refuses active
+roles or role audit history, preserving evidence even after revocation.

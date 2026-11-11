@@ -8034,3 +8034,15 @@ still invalidates trust and has the explicit retained repair route. No agent
 permission, preset, policy, grant or external operation is added.
 
 See [architecture and native acceptance boundary](MANAGED-BRIDGE-PREPARATION.md).
+
+## D-0492: Trusted Managed Lab is an independent managed-only role
+
+An administrator explicitly opts a client into version 1 of the managed role.
+The role substitutes for per-target policy/grants only for approved disposable
+Managed Kodi instances. External classes continue through the original preset,
+exact-target grants and consent intersection; role permissions never enter that
+intersection. Existing clients, presets, credentials and grants are unchanged.
+Workspace ownership/source checks, exact lifecycle guards, receipts and technical
+authority remain enforced. Changes advance the client's authority revision and
+retain audit events. Role and credential revocation are rechecked from current
+durable state. See [operator guidance](TRUSTED-MANAGED-LAB.md).
