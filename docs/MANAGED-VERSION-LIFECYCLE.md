@@ -175,3 +175,10 @@ The first registry compatibility run found a stale expected tool count (31 versu
 caught the SQLAlchemy DDL constructor's missing typing, handled consistently with
 the existing trigger declarations. No complete release suite, real runtime,
 installed database, deployment or expensive native acceptance was exercised.
+
+Web empty slots use **Create Managed Kodi → Install and prepare** so fresh Web
+profiles include the reviewed Bridge. The agent cached-runtime Start contract
+above retains its separate existing authority. Ordinary Web Start/Stop resumes
+existing profiles. Existing profiles and clean Reset results have the explicit
+[exact-target Bridge preparation/repair](MANAGED-BRIDGE-PREPARATION.md) route;
+ordinary Start does not silently replace invalidated or revoked trust.

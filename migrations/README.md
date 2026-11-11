@@ -77,3 +77,8 @@ digest, extends the material revision guard, and allows new navigation receipts
 and audits to omit retired navigate-scope references. Historical rows, indexes,
 triggers and unrelated authority are preserved. Downgrade refuses active opt-ins
 or new receipt history that the predecessor cannot represent. See D-0486.
+
+`0008_managed_bridge_preparation` adds immutable Bridge-required Create intent
+and separate exact-target Web maintenance/child receipts. Existing native-only
+requests, resource policy, profiles and authority rows are preserved. Children
+remain protected from pruning. Used receipts prevent lossy downgrade.

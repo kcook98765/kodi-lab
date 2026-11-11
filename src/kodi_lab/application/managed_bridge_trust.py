@@ -160,7 +160,7 @@ class ManagedBridgeTrustService:
             self.client.close()
 
     def _admit(
-        self, target_id: UUID
+        self, target_id: UUID, *, preparation_id: UUID | None = None
     ) -> tuple[ObserveManagedKodiRuntimeResult, RuntimeExecutionProfile]:
         with self.sessions() as session:
             target = session.get(TargetRow, str(target_id))
@@ -203,7 +203,20 @@ class ManagedBridgeTrustService:
         )
 
         with self.sessions() as session:
-            if retained_targets(session):
+            if preparation_id is not None:
+                from kodi_lab.storage.bridge_preparation import (
+                    require_bridge_preparation,
+                )
+
+                require_bridge_preparation(
+                    session,
+                    preparation_id,
+                    target_id=str(target_id),
+                    revision_id=observed.runtime_revision_id,
+                    container_id=observed.container_id,
+                    image_id=inventory.containers[0].image_id,
+                )
+            elif retained_targets(session):
                 require_retained_container(
                     session,
                     self.broker.managed_container_inventory().containers,
@@ -393,21 +406,70 @@ class ManagedBridgeTrustService:
         )
         return result
 
-    def resume_reviewed(self, target_id: UUID, *, expected_generation: int) -> None:
+    def resume_reviewed(
+        self,
+        target_id: UUID,
+        *,
+        expected_generation: int,
+        preparation_id: UUID | None = None,
+    ) -> None:
         """Explicit lifecycle continuation; prepared intent is not staging proof."""
         with self._gate.enter(target_id):
             if not self._prepare(
                 target_id,
                 replace=False,
                 expected_prepared_generation=expected_generation,
+                preparation_id=preparation_id,
             ):
                 raise ManagedBridgeTrustError("managed_bridge_installation_incomplete")
 
-    def stage_reviewed(self, target_id: UUID) -> None:
+    def stage_reviewed(
+        self, target_id: UUID, *, preparation_id: UUID | None = None
+    ) -> None:
         """Explicit lifecycle admission only; restart must confirm resident identity."""
         with self._gate.enter(target_id):
-            if not self._prepare(target_id, replace=True, install_reviewed=True):
+            if not self._prepare(
+                target_id,
+                replace=True,
+                install_reviewed=True,
+                preparation_id=preparation_id,
+            ):
                 raise ManagedBridgeTrustError("managed_bridge_establishment_failed")
+
+    def verify_maintenance(self, target_id: UUID, *, preparation_id: UUID) -> None:
+        """Authenticate reviewed trust and verify native enablement separately."""
+        with self._gate.enter(target_id):
+            with self.sessions() as session:
+                row = session.get(ManagedBridgeTrustRow, str(target_id))
+                if row is None or row.state != "active":
+                    raise ManagedBridgeTrustError(
+                        "managed_bridge_installation_incomplete"
+                    )
+            if not self._prepare(
+                target_id, replace=False, preparation_id=preparation_id
+            ):
+                raise ManagedBridgeTrustError("managed_bridge_installation_incomplete")
+            observed, profile = self._admit(target_id, preparation_id=preparation_id)
+            result = self._call(
+                observed,
+                profile,
+                "Addons.GetAddonDetails",
+                {
+                    "addonid": "service.kodi_lab_bridge",
+                    "properties": ["enabled", "version"],
+                },
+            )
+            addon = result.get("addon") if isinstance(result, dict) else None
+            if not isinstance(addon, dict) or (
+                addon.get("addonid"),
+                addon.get("enabled"),
+                addon.get("version"),
+            ) != (
+                "service.kodi_lab_bridge",
+                True,
+                approved_bridge_build(profile.kodi_release.canonical)["addon_version"],
+            ):
+                raise ManagedBridgeTrustError("managed_bridge_installation_incomplete")
 
     def status(self, target_id: UUID) -> dict[str, str | int | bool | None]:
         with self.sessions() as session:
@@ -446,8 +508,13 @@ class ManagedBridgeTrustService:
         install_reviewed: bool = False,
         expected_prepared_generation: int | None = None,
         mutation_started: Callable[[], None] | None = None,
+        preparation_id: UUID | None = None,
     ) -> bool:
-        observed, profile = self._admit(target_id)
+        observed, profile = (
+            self._admit(target_id)
+            if preparation_id is None
+            else self._admit(target_id, preparation_id=preparation_id)
+        )
         if install_reviewed and profile.kodi_release.canonical not in {
             "19.4",
             "20.5",
@@ -488,7 +555,9 @@ class ManagedBridgeTrustService:
                     ),
                 )
                 require_approved_identity(
-                    identity, profile.kodi_release.canonical, established=True
+                    identity,
+                    profile.kodi_release.canonical,
+                    established=preparation_id is None,
                 )
                 if identity_json(identity) != row.identity_json:
                     raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")

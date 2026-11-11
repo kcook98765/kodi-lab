@@ -73,6 +73,7 @@ class CreateOperation:
     runtime_state_revision: int | None
     start_after_setup: bool = True
     preview_approved: bool = False
+    bridge_required: bool = False
 
     @property
     def child_id(self) -> UUID | None:

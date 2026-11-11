@@ -8010,3 +8010,27 @@ controls and displays Releasing Control; confirmed release and video connection
 are separate UI states. Window focus return cannot acquire control. Fixed
 visibility/blur/pending flags remain in the existing bounded local diagnostic
 buffer. See the Firefox follow-up in the tab handoff assessment.
+
+
+## D-0491: Managed Bridge preparation uses administrator lifecycle authority
+
+New Web Create requires reviewed Bridge preparation after native readiness, with
+a distinct durable receipt and stopped completion by default. Retained repair is
+an explicit exact-target administrator action independent of development project
+selection. Each native Start/restart has its own existing single-use managed
+Start proof and lease. Trust admission accepts maintenance only under the exact
+matching receipt, child, lease, authorization and current container/runtime/image.
+Development and MCP selection/grant checks remain unchanged. Valid current
+Bridge trust is authenticated and reused without restaging or restarting.
+
+Lost responses never create a second request or redispatch a child. An explicit
+recovery retains the original parent and all child attempts; prior typed recovery
+must be terminal and the exact original profile must still match. Separate
+installation/native and Bridge results prevent false full preparation. Stable
+1.1.31 serves Matrix/Nexus/Omega; Piers RC1 uses reviewed preview 1.1.32. Web empty
+slots use Install and prepare instead of creating native-only profiles through
+Start or Reset. Existing profiles retain ordinary lifecycle behavior; Reset
+still invalidates trust and has the explicit retained repair route. No agent
+permission, preset, policy, grant or external operation is added.
+
+See [architecture and native acceptance boundary](MANAGED-BRIDGE-PREPARATION.md).

@@ -20,6 +20,7 @@ class CreateKodiService:
         owner_approved: bool,
         start_after_setup: bool = True,
         preview_approved: bool = False,
+        bridge_required: bool = False,
     ) -> CreateAcceptance:
         if owner_approved is not True:
             raise ValueError("explicit Create approval required")
@@ -49,6 +50,7 @@ class CreateKodiService:
             resolve_intent=resolve,
             start_after_setup=start_after_setup,
             preview_approved=preview_approved,
+            bridge_required=bridge_required,
         )
 
     def get(self, operation_id: UUID) -> CreateOperation | None:

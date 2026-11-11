@@ -166,6 +166,7 @@ from kodi_lab.storage.models import (
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     HistoricalWorkspaceExecutionContainmentResolutionRow,
+    ManagedBridgePreparationChildRow,
     ManagedCleanResetRow,
     ManagedInstanceAddonRepositorySourceRow,
     ManagedInstanceDeleteOperationRow,
@@ -6581,6 +6582,9 @@ class ManagedInstanceLifecycleOperationRepository:
                     select(CreateKodiOperationRow.start_operation_id).where(
                         CreateKodiOperationRow.start_operation_id.is_not(None)
                     )
+                ),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(ManagedBridgePreparationChildRow.operation_id)
                 ),
             )
         )

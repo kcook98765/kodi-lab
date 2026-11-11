@@ -9,18 +9,23 @@ observes prerequisites and reconnects to durable status.
 ## Ordinary flow
 
 Choose a version, review the compact requirements summary/resource notes and
-click **Create Kodi** once. Setup leaves the new instance installed and stopped
-by default. **Start Kodi after setup** explicitly adds startup and readiness; it
-requires an available running slot. Installing a stopped profile is allowed
-while running capacity is full. The existing prerequisite component is embedded in
+click **Install and prepare** once. New setup obtains the approved runtime,
+prepares native Kodi and its compatible reviewed Narrow Bridge, verifies trust,
+and returns the instance stopped by default. **Start Kodi after setup** keeps it
+running. Native preparation briefly uses a running slot even for stopped
+completion. Runtime installation is retained if capacity or Bridge preparation
+requires recovery; no profile is discarded. The existing prerequisite component is embedded in
 an expander, with its existing Check again action. Missing/unknown authoritative
 checks and known blockers disable new approval; unknown host/VM memory or Docker
 storage stay advisory. The API repeats its own admission checks.
 
 The browser uses the existing acceptance and continuation APIs. There are no
 per-stage approval prompts. The visible phases are Preparing Kodi, Setting up
-Kodi, Starting Kodi, Checking Kodi, Ready and Needs attention, without percentages.
-Optional agent/Bridge setup is not part of this flow.
+Kodi, Starting Kodi, Checking Kodi, Preparing Bridge, Stopping Kodi, Ready and
+Needs attention, without percentages. Agent access remains a separate explicit
+authorization. Setup details distinguish installation, native evidence, Bridge
+installation, trust and recovery. Existing native-only requests retain their
+original meaning. See [Bridge preparation](MANAGED-BRIDGE-PREPARATION.md).
 
 ## Approval identity and reconnect
 
@@ -102,12 +107,16 @@ Verified failed installation links to existing installation records. Uncertain
 provision/Start links to the exact instance history/recovery surface. There is no
 generic Retry, reset, replacement, repin or new-attempt mechanism.
 
-Ready is historical native Create completion. Current availability is separate.
+Ready records successful preparation for the original request. New requests
+include native and reviewed Bridge evidence plus the requested final state;
+older native-only requests retain their original meaning. Current availability
+is separate.
 A running exact match offers Open screen, linking to the existing PR #197 viewer
 page. That page retains its independent binding, explicit view-only ticket startup,
 authentication, CSRF and input ownership controls; Create never mints a ticket.
 A completed but stopped Kodi says **Created successfully — currently stopped**
-and links to its existing normal Start controls. Create never restarts it.
+and links to its existing normal Start controls. Reopening completed history
+never restarts it.
 Completed history keeps version selection available for creating a different
 supported Kodi, preserving the original parent, profile and current runtime.
 

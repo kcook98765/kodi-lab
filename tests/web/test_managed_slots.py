@@ -19,13 +19,38 @@ from tests.web.conftest import ORIGIN, login
 from tests.web.test_managed_versions_mcp import broker as broker
 
 
-def setup(client: TestClient, database: sessionmaker[Session]) -> str:
+def setup(
+    client: TestClient, database: sessionmaker[Session], *, prepared: bool = True
+) -> str:
     _ready(database, generation="omega")
     csrf = login(client)
     cast(
         FastAPI, client.app
     ).state.kodi_lab.managed_versions._rate = BoundedIntervalRateLimiter(0)
+    if prepared:
+        prepare_existing(client, database, "omega")
     return csrf
+
+
+def prepare_existing(
+    client: TestClient, database: sessionmaker[Session], version: str
+) -> None:
+    """Prepare a stopped native fixture representing a retained installation."""
+    context = cast(FastAPI, client.app).state.kodi_lab
+    versions = context.managed_versions
+    # Prepare the retained fixture through the core coordinator. The Web empty
+    # slot route is tested separately and cannot create a native-only profile.
+    for action in ("start", "stop"):
+        result = versions.invoke(
+            client_id=WEB_ADMIN_OWNER,
+            request_id=uuid4(),
+            version=version,
+            action=action,
+            authorize=lambda _session, _target: None,
+        )
+        assert result.receipt_state == "complete", result.code
+        wait(client)
+    versions._lifecycle._broker.starts = versions._lifecycle._broker.stops = 0
 
 
 def slot(client: TestClient, version: str = "omega") -> dict[str, Any]:
@@ -60,7 +85,7 @@ def wait(client: TestClient) -> None:
 def test_four_version_cards_and_cached_empty_start_without_mcp_identity(
     client: TestClient, database: sessionmaker[Session], broker: Broker
 ) -> None:
-    csrf = setup(client, database)
+    csrf = setup(client, database, prepared=False)
     page = client.get("/managed-kodi")
     assert page.status_code == 200
     for version in ("matrix", "nexus", "omega", "piers"):
@@ -68,7 +93,12 @@ def test_four_version_cards_and_cached_empty_start_without_mcp_identity(
     assert "Only one managed Kodi can run" in page.text
     assert "Piers (preview)" in page.text and "Set up for add-on testing" in page.text
     before = slot(client)
-    assert before["state"] == "empty" and before["start"]
+    assert before["state"] == "empty" and not before["start"]
+    assert "Create Managed Kodi" in before["start_reason"]
+    refused = act(client, csrf, "start")
+    assert refused.status_code == 409
+    assert broker.provisions == broker.starts == 0
+    prepare_existing(client, database, "omega")
     result = act(client, csrf, "start")
     assert result.status_code == 200, result.text
     assert result.json()["phase"] == "complete", result.text
@@ -172,7 +202,7 @@ def test_mutations_preserve_web_authorization_csrf_and_origin(
         f"/api/managed-kodi/omega/{action}", json=payload, headers=headers
     )
     assert response.status_code in {401, 403}
-    assert broker.starts == broker.provisions == broker.removals == 0
+    assert broker.starts == broker.removals == 0 and broker.provisions == 1
 
 
 @pytest.mark.parametrize("blocker", ["client", "viewer", "input"])
@@ -256,7 +286,7 @@ def test_active_client_viewer_or_input_disables_and_blocks_stop_and_reset(
 def test_refresh_and_replay_after_uncertain_provision_never_repeat_create(
     client: TestClient, database: sessionmaker[Session], broker: Broker
 ) -> None:
-    csrf = setup(client, database)
+    csrf = setup(client, database, prepared=False)
     original = dict(
         request_id=str(uuid4()),
         expected_snapshot=slot(client)["snapshot"],
@@ -264,24 +294,25 @@ def test_refresh_and_replay_after_uncertain_provision_never_repeat_create(
     )
     broker.fault = "lost_provision_response"
     reply = act(client, csrf, "start", payload=original)
-    assert reply.status_code == 200, reply.text
-    assert reply.json()["phase"] == "uncertain", reply.text
+    assert reply.status_code == 409, reply.text
+    assert reply.json()["code"] == "managed_create_preparation_required"
     counts = broker.provisions, broker.starts
     for _ in range(3):
         assert client.get("/managed-kodi").status_code == 200
         assert client.get("/api/managed-kodi/slots").status_code == 200
         receipt = client.get("/api/managed-kodi/requests/" + original["request_id"])
-        assert receipt.status_code == 200
+        assert receipt.status_code == 404
     assert (broker.provisions, broker.starts) == counts
     broker.fault = ""
     replay = act(client, csrf, "start", payload=original)
-    assert replay.status_code == 200 and replay.json()["phase"] == "uncertain", (
-        replay.text
-    )
-    assert broker.provisions == 1 and broker.starts == 0
+    assert replay.status_code == 409
+    assert broker.provisions == 0 and broker.starts == 0
     # Original request cannot be rebound to another action or profile confirmation.
     conflict = act(client, csrf, "reset", payload={**original, "confirm_reset": True})
-    assert conflict.status_code == 409 and conflict.json()["code"] == "request_conflict"
+    assert (
+        conflict.status_code == 409
+        and conflict.json()["code"] == "managed_create_preparation_required"
+    )
 
 
 def test_uncertain_reset_remains_visible_and_reading_never_replays_destruction(
@@ -389,7 +420,7 @@ def test_live_admin_session_is_rechecked_before_acceptance(
     monkeypatch.setattr(adapter.v, "invoke", revoke)
     response = act(client, csrf, "start")
     assert response.status_code == 401
-    assert broker.provisions == broker.starts == 0
+    assert broker.provisions == 1 and broker.starts == 0
 
 
 def test_start_never_switches_another_running_version_and_bridge_is_separate(
@@ -400,16 +431,17 @@ def test_start_never_switches_another_running_version_and_bridge_is_separate(
     assert act(client, csrf, "start").status_code == 200
     wait(client)
     other = slot(client, "nexus")
-    assert not other["start"] and "Stop Omega first" in other["start_reason"]
+    assert not other["start"] and "Create Managed Kodi" in other["start_reason"]
     assert slot(client)["technical"]["agent_readiness"] == "not_assessed"
     response = client.post(
         "/api/managed-kodi/nexus/start",
         json=dict(request_id=str(uuid4()), expected_snapshot=other["snapshot"]),
         headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
     )
-    assert response.status_code == 200 and response.json()["phase"] == "blocked", (
-        response.text
-    )
+    assert (
+        response.status_code == 409
+        and response.json()["code"] == "managed_create_preparation_required"
+    ), response.text
     assert broker.starts == broker.provisions == 1 and broker.stops == 0
 
 
@@ -424,7 +456,7 @@ def test_missing_cached_files_and_duplicate_profile_have_clear_recovery(
     missing = slot(client, "matrix")
     assert missing["preparation"] == "Installation needed" and not missing["start"]
     assert missing["install_url"] == "/create-kodi?generation=matrix"
-    assert "Install and approve" in missing["start_reason"]
+    assert "Create Managed Kodi" in missing["start_reason"]
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
     broker.records.append(
@@ -575,7 +607,7 @@ def test_failed_native_readiness_never_offers_another_version_as_a_switch(
     current, other = slot(client), slot(client, "nexus")
     assert current["state"] == "blocked" and current["native"] != "Ready"
     assert not current["screen_url"] and current["recovery_url"].endswith("/history")
-    assert not other["start"] and "Omega's recovery" in other["start_reason"]
+    assert not other["start"] and "Create Managed Kodi" in other["start_reason"]
     assert client.get("/api/managed-kodi/slots").json()["running"] == ["Omega"]
     assert broker.starts == 1 and broker.stops == 0
 

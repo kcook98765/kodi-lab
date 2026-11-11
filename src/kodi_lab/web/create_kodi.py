@@ -72,7 +72,7 @@ class CreateApproval(BaseModel):
     recipe_revision: int = Field(ge=1)
     recipe_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     owner_approved: bool
-    start_after_setup: bool = True
+    start_after_setup: bool = False
     preview_approved: bool = False
 
     @model_validator(mode="after")
@@ -115,6 +115,7 @@ class CreateStatus(BaseModel):
     instance: CreateAvailability
     # Advisory receipt observation only; continuation still verifies ownership.
     installation_result_available: bool | None = None
+    preparation: dict[str, str] = Field(default_factory=dict)
 
 
 class CreateAccepted(CreateStatus):
@@ -300,6 +301,7 @@ class CreateKodiAPI:
                         owner_approved=True,
                         start_after_setup=payload.start_after_setup,
                         preview_approved=payload.preview_approved,
+                        bridge_required=existing_target.bridge_required,
                     )
                 raise CreateApiError(
                     409,
@@ -320,6 +322,7 @@ class CreateKodiAPI:
                 if existing is None:
                     raise
                 self._match_request(payload, existing)
+        existing_request = self.service.for_request(payload.request_id)
         try:
             return self.service.accept(
                 request_id=payload.request_id,
@@ -328,6 +331,9 @@ class CreateKodiAPI:
                 owner_approved=True,
                 start_after_setup=payload.start_after_setup,
                 preview_approved=payload.preview_approved,
+                bridge_required=existing_request.bridge_required
+                if existing_request
+                else True,
             )
         except CreateConflict as error:
             code = (
@@ -358,7 +364,7 @@ class CreateKodiAPI:
                     "create_operation_not_found",
                     "No saved Create request was found.",
                 )
-            if op.version != version:
+            if self._runner.expected_version(op) != version:
                 raise CreateTransitionError("stale_version")
             return self.present(
                 self._runner.continue_once(operation_id, version=version)
@@ -502,7 +508,16 @@ class CreateKodiAPI:
         except (ValueError, RuntimeError):
             kodi_version = None
         instance = self._availability(op)
-        complete = op.checkpoint is CreateCheckpoint.COMPLETE
+        native_complete = op.checkpoint is CreateCheckpoint.COMPLETE
+        bridge = (
+            self._runner.bridge.for_create(op.id)
+            if self._runner.bridge and op.bridge_required
+            else None
+        )
+        complete = native_complete and (
+            not op.bridge_required or bool(bridge and bridge.checkpoint == "complete")
+        )
+        checkpoint = op.checkpoint
         state: Literal["waiting", "preparing", "needs_attention", "complete"] = (
             "preparing"
         )
@@ -514,13 +529,64 @@ class CreateKodiAPI:
             CreateStage.READINESS: "Checking Kodi",
         }[op.stage]
         reason, message = None, f"{phase}."
+        preparation = {
+            "installation": "installed" if op.runtime_revision_id else "pending",
+            "native_readiness": "verified_during_setup"
+            if native_complete and op.start_operation_id
+            else "pending",
+            "narrow_bridge": "not_required_by_original_request"
+            if not op.bridge_required
+            else "pending",
+            "bridge_trust": "not_assessed",
+            "recovery": "none",
+        }
+        if native_complete and op.bridge_required:
+            checkpoint = (
+                CreateCheckpoint.COMPLETE
+                if complete
+                else CreateCheckpoint.NEEDS_ATTENTION
+                if bridge and bridge.checkpoint == "needs_attention"
+                else CreateCheckpoint.DISPATCHED
+                if bridge and bridge.checkpoint == "dispatched"
+                else CreateCheckpoint.PLANNED
+            )
+            phase = (
+                "Stopping Kodi"
+                if bridge and bridge.phase == "stop"
+                else "Preparing Bridge"
+            )
+            message = (
+                "Kodi is installed. Preparing its reviewed Narrow Bridge."
+                if phase == "Preparing Bridge"
+                else "Bridge preparation passed. Returning Kodi to stopped state."
+            )
+            if bridge and bridge.phase in {"stop", "complete"}:
+                preparation["narrow_bridge"] = "verified_during_setup"
+                assert self._runner.bridge is not None
+                preparation["bridge_trust"] = (
+                    "stored_" + self._runner.bridge.stored_trust(bridge)
+                )
+            if checkpoint is CreateCheckpoint.NEEDS_ATTENTION:
+                state, phase, reason = (
+                    "needs_attention",
+                    "Needs attention",
+                    "create_bridge_preparation_requires_review",
+                )
+                preparation["recovery"] = "review_original_bridge_preparation"
+                message = (
+                    "Kodi is installed. Bridge preparation needs attention. "
+                    "Open Manage Kodi and continue the saved Bridge preparation "
+                    "after reviewing its recovery history."
+                )
         if complete:
             state, phase, message = (
                 "complete",
-                "Ready" if op.start_after_setup else "Installed",
+                "Ready" if op.start_after_setup or op.bridge_required else "Installed",
                 "Kodi setup completed. " + instance.message,
             )
-        elif op.checkpoint is CreateCheckpoint.NEEDS_ATTENTION:
+        elif checkpoint is CreateCheckpoint.NEEDS_ATTENTION and not (
+            native_complete and op.bridge_required
+        ):
             state, phase = "needs_attention", "Needs attention"
             reason = (
                 "create_outcome_unconfirmed"
@@ -533,7 +599,7 @@ class CreateKodiAPI:
                 "Setup needs review. "
                 "Its saved outcome does not permit an automatic retry."
             )
-        elif instance.state == "needs_attention":
+        elif instance.state == "needs_attention" and state != "needs_attention":
             state, phase, reason = (
                 "needs_attention",
                 "Needs attention",
@@ -549,7 +615,9 @@ class CreateKodiAPI:
                 "create_awaiting_setup",
                 "Create approved. Setup has not started.",
             )
-        elif op.checkpoint is CreateCheckpoint.DISPATCHED:
+        elif checkpoint is CreateCheckpoint.DISPATCHED and not (
+            native_complete and op.bridge_required
+        ):
             state, reason = "waiting", "create_confirmation_pending"
             message = "Setup has been requested; its result has not been confirmed yet."
             if op.stage is CreateStage.READINESS:
@@ -562,7 +630,7 @@ class CreateKodiAPI:
             next_action = "complete"
         elif state == "needs_attention":
             next_action = "needs_attention"
-        elif op.checkpoint is CreateCheckpoint.DISPATCHED:
+        elif checkpoint is CreateCheckpoint.DISPATCHED:
             next_action = (
                 "check_again"
                 if op.stage in {CreateStage.READINESS, CreateStage.REGISTRATION}
@@ -572,9 +640,9 @@ class CreateKodiAPI:
             operation_id=op.id,
             generation=op.generation,
             kodi_version=kodi_version,
-            version=op.version,
+            version=self._runner.expected_version(op),
             stage=op.stage,
-            checkpoint=op.checkpoint,
+            checkpoint=checkpoint,
             phase=phase,
             status=state,
             reason_code=reason,
@@ -584,6 +652,7 @@ class CreateKodiAPI:
             next_action=next_action,
             instance=instance,
             installation_result_available=installation_result_available,
+            preparation=preparation,
         )
 
 

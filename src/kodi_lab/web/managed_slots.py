@@ -51,6 +51,10 @@ class WebSlotRequest(BaseModel):
 
 
 _MESSAGES = {
+    "managed_create_preparation_required": (
+        "Use Create Managed Kodi to install and prepare this version "
+        "with its reviewed Bridge."
+    ),
     "not_authorized": "This version's saved registration needs review in Advanced.",
     "managed_reset_pending": (
         "A clean Reset is in progress. Check its saved request or review recovery."
@@ -232,6 +236,12 @@ class ManagedSlotsWeb:
                 ) != binding:
                     raise ManagedVersionError("request_conflict")
             else:
+                if action in {"start", "reset"} and not any(
+                    r.managed_instance_id
+                    == str(self.v.slot(version).canonical_target_id)
+                    for r in self.v._inventory().containers
+                ):
+                    raise ManagedVersionError("managed_create_preparation_required")
                 if (
                     session.scalar(
                         select(func.count()).select_from(ManagedWebIntentRow)
@@ -470,9 +480,22 @@ class ManagedSlotsWeb:
             state_reason = friendly(value.code) if value.state == "blocked" else None
             # Routine Stop/Reset protection does not make a stopped profile
             # need recovery or prevent ordinary Start.
-            reason = state_reason or protections["start"]
+            reason = (
+                state_reason
+                or protections["start"]
+                or (
+                    "Use Create Managed Kodi to install and prepare this version."
+                    if value.state == "empty"
+                    else None
+                )
+            )
             start_reason = (
-                ("Kodi is already running." if ready else None)
+                (
+                    "Use Create Managed Kodi to install and prepare this version."
+                    if value.state == "empty"
+                    else None
+                )
+                or ("Kodi is already running." if ready else None)
                 or (
                     "Wait for the current request to finish."
                     if value.state == "starting"
@@ -507,7 +530,12 @@ class ManagedSlotsWeb:
                 )
             )
             reset_reason = (
-                state_reason
+                (
+                    "Use Create Managed Kodi to install and prepare this version."
+                    if value.state == "empty"
+                    else None
+                )
+                or state_reason
                 or protections["reset"]
                 or (None if cache_ok else friendly("approved_cached_runtime_required"))
                 or (
@@ -530,8 +558,10 @@ class ManagedSlotsWeb:
                         "running": "Running",
                         "blocked": "Needs attention",
                     }[value.state],
-                    preparation="Profile prepared"
-                    if instance and value.state != "empty"
+                    preparation="Installation needed"
+                    if value.state == "empty"
+                    else "Profile prepared"
+                    if instance
                     else "Kodi files available"
                     if cache_ok
                     else "Installation needed",

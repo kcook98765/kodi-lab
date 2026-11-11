@@ -134,6 +134,11 @@ from kodi_lab.storage.bridge_capability_sql import (
     BRIDGE_CAPABILITY_SETS_SQL,
     REVIEWED_BRIDGE_CAPABILITY_SETS_SQL,
 )
+from kodi_lab.storage.bridge_preparation_sql import (
+    BRIDGE_CHILD_IMMUTABLE,
+    BRIDGE_PREPARATION_IMMUTABLE,
+    CREATE_BRIDGE_IMMUTABLE,
+)
 from kodi_lab.storage.development_capability_sql import (
     DEVELOPMENT_CAPABILITY_TRIGGERS,
     PRODUCTION_SCREENSHOT_TARGET_GUARD,
@@ -5704,11 +5709,84 @@ class ManagedInstanceDeleteOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class ManagedBridgePreparationRow(Base):
+    """Web maintenance intent; native child receipts never supply agent authority."""
+
+    __tablename__ = "managed_bridge_preparations"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('start','bridge','stop','complete')",
+            name="bridge_preparation_phase",
+        ),
+        CheckConstraint(
+            "checkpoint IN ('pending','dispatched','needs_attention','complete')",
+            name="bridge_preparation_checkpoint",
+        ),
+        CheckConstraint(
+            "keep_running IN (0,1) AND version>=0 AND attempt>=0 "
+            "AND runtime_state_revision>=0",
+            name="bridge_preparation_options",
+        ),
+        CheckConstraint(
+            "(phase='complete') = (checkpoint='complete')",
+            name="bridge_preparation_completion",
+        ),
+        Index(
+            "uq_bridge_preparation_active",
+            "target_id",
+            unique=True,
+            sqlite_where=text("checkpoint NOT IN ('complete','needs_attention')"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    create_operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    keep_running: Mapped[bool] = mapped_column(Boolean(), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    checkpoint: Mapped[str] = mapped_column(String(16), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reason: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ManagedBridgePreparationChildRow(Base):
+    __tablename__ = "managed_bridge_preparation_children"
+    __table_args__ = (
+        UniqueConstraint(
+            "preparation_id", "phase", "attempt", name="bridge_preparation_child_once"
+        ),
+        CheckConstraint(
+            "phase IN ('start','bridge','stop') AND attempt>=0",
+            name="bridge_preparation_child_phase",
+        ),
+    )
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instance_lifecycle_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    preparation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_bridge_preparations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class CreateKodiOperationRow(Base):
     """One immutable approved intent per canonical Kodi, including terminal history."""
 
     __tablename__ = "create_kodi_operations"
     __table_args__ = (
+        CheckConstraint("bridge_required IN (0, 1)", name="create_bridge_required"),
         CheckConstraint("start_after_setup IN (0, 1)", name="create_start_after_setup"),
         CheckConstraint("preview_approved IN (0, 1)", name="create_preview_approved"),
         CheckConstraint(
@@ -5778,6 +5856,9 @@ class CreateKodiOperationRow(Base):
     request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     target_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     generation: Mapped[str] = mapped_column(String(16), nullable=False)
+    bridge_required: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, server_default="0"
+    )
     start_after_setup: Mapped[bool] = mapped_column(
         Boolean(),
         nullable=False,
@@ -9057,3 +9138,14 @@ event.listen(
     "after_create",
     DDL(_WEB_INTENT_IMMUTABLE).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
 )
+
+for _bridge_table, _bridge_sql in (
+    (ManagedBridgePreparationRow.__table__, BRIDGE_PREPARATION_IMMUTABLE),
+    (ManagedBridgePreparationChildRow.__table__, BRIDGE_CHILD_IMMUTABLE),
+    (CreateKodiOperationRow.__table__, CREATE_BRIDGE_IMMUTABLE),
+):
+    event.listen(
+        _bridge_table,
+        "after_create",
+        DDL(_bridge_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )

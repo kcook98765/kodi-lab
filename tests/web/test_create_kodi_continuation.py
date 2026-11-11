@@ -293,7 +293,8 @@ def test_one_post_one_runner_call_and_full_approved_progression(
             break
     assert status["complete"] and status["next_action"] == "complete"
     assert len(env.broker.launches) == (0 if cached else 1)
-    assert env.broker.provisions == env.broker.starts == 1
+    assert env.broker.provisions == 1 and env.broker.starts == 2
+    assert env.broker.stops == 1  # This case explicitly requests running completion.
     assert set(env.transport.methods) == {"JSONRPC.Ping", "Application.GetProperties"}
     assert client.get(status["status_url"]).json() == status
     assert (
@@ -599,7 +600,13 @@ def test_native_recheck_and_completed_replay_after_stop_are_readonly(
     assert client.get(status["status_url"]).json() == waiting and counts(env) == before
     env.transport.mode = "ready"
     completed = step(web, waiting)
-    assert completed["complete"] and counts(env)[:3] == before[:3]
+    assert not completed["complete"] and counts(env)[:3] == before[:3]
+    assert completed["phase"] == "Preparing Bridge"
+    for _ in range(3):
+        if completed["complete"]:
+            break
+        completed = step(web, completed)
+    assert completed["complete"]
     env.broker.records[0] = replace(
         env.broker.records[0], runtime_state=ContainerRuntimeState.STOPPED
     )

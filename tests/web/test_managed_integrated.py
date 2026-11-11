@@ -236,9 +236,10 @@ def test_failed_empty_start_recovery_link_resolves_without_an_instance(
         FastAPI, client.app
     ).state.kodi_lab.managed_versions._rate = BoundedIntervalRateLimiter(0)
     response = act(client, csrf, "start")
-    assert response.status_code == 200 and response.json()["phase"] == "blocked", (
-        response.text
-    )
+    assert (
+        response.status_code == 409
+        and response.json()["code"] == "managed_create_preparation_required"
+    ), response.text
     with database() as session:
         assert (
             session.get(
@@ -251,7 +252,7 @@ def test_failed_empty_start_recovery_link_resolves_without_an_instance(
             )
             is None
         )
-    recovery = client.get(response.json()["recovery_url"])
+    recovery = client.get(slot(client, "omega")["install_url"])
     assert recovery.status_code == 200, recovery.text
     assert broker.provisions == broker.starts == 0
 
@@ -432,6 +433,9 @@ def test_supported_admin_handoff_releases_only_web_hold_then_agent_can_stop(
         client, database, permissions=PERMISSIONS | {"managed.lifecycle"}
     )
     csrf = login(client)
+    from tests.web.test_managed_slots import prepare_existing
+
+    prepare_existing(client, database, "omega")
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
     original = broker.records[0].container_id
@@ -490,6 +494,9 @@ def test_web_reuses_exact_existing_canonical_target_with_a_custom_name(
     from kodi_lab.storage.models import TargetRow
 
     _, target, _ = authority(client, database, permissions=PERMISSIONS)
+    from tests.web.test_managed_slots import prepare_existing
+
+    prepare_existing(client, database, "omega")
     with database.begin() as session:
         row = session.get(TargetRow, str(target))
         assert row is not None
@@ -504,7 +511,8 @@ def test_web_reuses_exact_existing_canonical_target_with_a_custom_name(
         row = session.get(TargetRow, str(target))
         assert row is not None and row.name == "My approved Omega"
     assert broker.records[0].managed_instance_id == str(target)
-    assert broker.provisions == 1 and broker.removals == 0
+    assert broker.provisions == (2 if action == "reset" else 1)
+    assert broker.removals == (1 if action == "reset" else 0)
 
 
 def test_existing_canonical_target_still_requires_exact_version_metadata(
@@ -562,6 +570,10 @@ def test_web_empty_cached_slots_start_stop_and_clean_reset_for_each_version(
         return cast(dict[str, Any], response.json())
 
     assert slot(client, version)["state"] == "empty"
+    assert not slot(client, version)["start"]
+    from tests.web.test_managed_slots import prepare_existing
+
+    prepare_existing(client, database, version)
     action("start")
     wait(client)
     assert slot(client, version)["native"] == "Ready"

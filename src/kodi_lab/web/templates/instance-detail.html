@@ -5,7 +5,7 @@
 {% block head %}
 <script src="{{ url_for('static', path='/instance-controls.js') }}" defer></script>
 <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
-<script src="{{ url_for('static', path='/reviewed-bridge.js') }}" defer></script>
+<script src="{{ url_for('static', path='/bridge-preparation.js') }}" defer></script>
 <script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>
 <script src="{{ url_for('static', path='/managed-launch-reconcile.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-attachment.js') }}" defer></script>
@@ -114,12 +114,17 @@
         </dl>
       </details>
       {% if detail.runtime.kodi_version in ['19.4', '20.5', '21.3', '22.0-rc.1'] %}
-      <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
+      <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}" data-bridge-preparation="{{ detail.runtime.managed_instance_id }}" aria-busy="false">
         <h2>Reviewed Bridge</h2>
-        <p>The reviewed Bridge adds direct manifest entry-point launch on managed development Kodi. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
+        <p>Prepare or repair the compatible reviewed Narrow Bridge on this exact Kodi. Setup may start and restart Kodi. New repairs return stopped; continuing a saved setup keeps its requested final state. Your selected development project, add-ons and settings are kept. Agent permissions remain separate.</p>
         <button type="button" data-reviewed-bridge-install disabled>Install reviewed Bridge</button>
         <button type="button" data-reviewed-bridge-refresh>Refresh status</button>
         <p role="status" data-reviewed-bridge-status>Checking Bridge status…</p>
+        <dl>
+          <dt>Narrow Bridge installation evidence</dt><dd data-bridge-installation>Not assessed</dd>
+          <dt>Stored Bridge trust (live access checked separately)</dt><dd data-bridge-trust>Not assessed</dd>
+          <dt>Required recovery</dt><dd data-bridge-recovery>Not assessed</dd>
+        </dl>
       </section>
       {% endif %}
       <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/diagnostics">Save stopped test diagnostics</a></p>

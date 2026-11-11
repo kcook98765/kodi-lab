@@ -11,7 +11,7 @@
   const byTarget = target => json(`${api}/by-target/${target}?missing=empty`);
   const uuid = value => typeof value === "string" && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
   const generations = new Set(["matrix", "nexus", "omega", "piers"]);
-  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Ready", "Installed", "Needs attention"]);
+  const phases = new Set(["Preparing Kodi", "Setting up Kodi", "Starting Kodi", "Checking Kodi", "Preparing Bridge", "Stopping Kodi", "Ready", "Installed", "Needs attention"]);
   const actions = new Set(["continue", "wait", "check_again", "needs_attention", "complete"]);
   const csrf = document.querySelector('meta[name="kodi-lab-csrf"]').content;
   let snapshot = JSON.parse(document.querySelector("#create-kodi-config").textContent);
@@ -118,6 +118,10 @@
         op.next_action === "check_again" ? "Kodi may need a little more startup time. Its saved setup is kept." : "");
       text("version", op.kodi_version || generation);
       text("reason", op.reason_code || op.status);
+      for (const name of ["installation", "native_readiness", "narrow_bridge", "bridge_trust", "recovery"]) {
+        const item = root.querySelector(`[data-preparation-${name}]`);
+        if (item) item.textContent = op.preparation?.[name]?.replaceAll('_', ' ') || 'Not assessed';
+      }
       if (op.instance.details_url === `/instances/${op.instance.target_id}`) {
         find("manage").href = op.instance.details_url;
         find("manage").hidden = false;
@@ -137,7 +141,7 @@
       } else if (attention() || !available()) {
         pause(); text("phase", "Needs attention"); text("wait", "");
         if (!attention() && !available()) text("message", "Kodi availability needs review. Check status before continuing.");
-        find("recovery").href = op.stage === "installation" || !op.instance.details_url
+        find("recovery").href = op.reason_code === "create_bridge_preparation_requires_review" ? `/instances/${op.instance.target_id}` : op.stage === "installation" || !op.instance.details_url
           ? "/runtimes#installation-records" : `/instances/${op.instance.target_id}/history`;
         find("recovery").hidden = false;
       }
