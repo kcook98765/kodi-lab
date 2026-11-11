@@ -257,13 +257,12 @@ agent. Choose the read-only setup for your kind of Kodi:
 
 - **External Production Kodi:** choose **Production Inspection**, grant
   that Kodi, then **Grant current inspect scope**. This preset is production-only.
-- **Managed Kodi:** under **Advanced administration**, create a custom preset using
-  **Read-only Inspection** as the permission ceiling and select only **Inspect Kodi health,
-  add-ons and UI state** (`target.inspect`). Choose that preset for the client
-  and your Kodi's policy, then grant only that Kodi. A new Kodi's unassigned
-  policy denies access. The built-in **Read-only Inspection** preset also
-  includes screenshot permission; the custom `target.inspect` preset also permits
-  supported screenshots. External Kodi still requires **Allow screenshots** set to On.
+- **Managed Kodi:** open **Managed Kodi — Read-only inspection** in the connection
+  guide. Select your existing client and exact Kodi; the next-step guidance opens
+  the existing controls for an inspect-only custom preset, Kodi policy and target
+  grant. Reuse a suitable preset or explicitly save one with only `target.inspect`.
+  Supported screenshots use this inspection permission. Each change requires an
+  explicit save; no client, grant or credential is created while browsing setup.
 
 Issue a token and save it in the agent's private environment. A token does not
 replace the Kodi policy or target grant. Keep an existing suitable client and

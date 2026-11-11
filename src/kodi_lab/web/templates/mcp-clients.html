@@ -6,6 +6,8 @@
 {% block content %}
 {% set lan_ready = mcp_lan is defined and mcp_lan.ready %}
 {% set http_ready = mcp_lan_http is defined and mcp_lan_http.ready %}
+{% set inspection_presets = presets | rejectattr('builtin') | selectattr('assignable') | selectattr('permissions', 'equalto', ('target.inspect',)) | list %}
+{% set managed_targets = targets | selectattr('target_class', 'equalto', 'managed') | list %}
       <h1>Agents &amp; Permissions</h1>
       <p>Each agent has its own client, permissions and tokens. Viewing these controls grants no access; changes require an explicit authorized action.</p>
       <p class="error" data-error role="alert" hidden></p>
@@ -13,6 +15,20 @@
       {% if clients %}{% include 'agent-clients.html' %}{% endif %}
       <details data-agent-onboarding{% if not clients %} open{% endif %}>
         <summary>{{ 'Connect another agent' if clients else 'Connect your first agent' }}</summary>
+      <details data-managed-inspection id="managed-inspection">
+        <summary>Managed Kodi — Read-only inspection</summary>
+        <p>Inspect authorized Managed Kodi health, add-ons and supported UI state. Supported screenshots follow the existing <code>target.inspect</code> contract. This setup cannot navigate, control, install, deploy, modify workspaces, Start/Stop Kodi or Reset a profile. External Production Kodi uses the separate <strong>Production Inspection</strong> choice below.</p>
+        <p>Use a custom preset with the <strong>Read-only Inspection</strong> ceiling and only <code>target.inspect</code>. Choose an existing client and exact Managed Kodi below; the next step opens the existing setup controls.</p>
+        <p>An unassigned Kodi policy denies access. Client permission, Kodi policy and an exact-target grant are all required; running Kodi or holding a token does not establish access.</p>
+        <label>Inspection client <select data-managed-client aria-describedby="managed-next-step"><option value="">Choose an existing client…</option>{% for client in clients %}<option value="{{ client.id }}">{{ client.display_name }} · {{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }}</option>{% endfor %}</select></label>
+        <button type="button" data-managed-create>Use existing create-client form</button>
+        <label>Managed Kodi to inspect <select data-managed-target aria-describedby="managed-next-step"><option value="">Choose the exact Managed Kodi…</option>{% for target in managed_targets %}<option value="{{ target.target_id }}" data-policy-inspects="{{ 'true' if target.preset and 'target.inspect' in target.preset.permissions else 'false' }}">{{ target.target_name }} · {{ target.target_id }}</option>{% endfor %}</select></label>
+        {% if not managed_targets %}<p>No Managed Kodi prepared. <a href="/managed-kodi">Prepare a Managed Kodi</a>, then return here. Preparation does not authorize an agent.</p>{% endif %}
+        {% if not inspection_presets %}<p>No suitable inspect-only custom preset. The next-step shortcut can prepare the existing preset form; review it and select <strong>Create preset</strong> to save.</p>{% endif %}
+        <p id="managed-next-step" data-managed-status role="status" aria-live="polite">Enable JavaScript for next-step shortcuts, or use the existing controls below.</p>
+        <button type="button" data-managed-next hidden>Open next step</button>
+        <p class="secondary">Shortcuts only open or prefill existing controls; save each change explicitly. After each save, reopen this guide and reselect your client and Kodi. Runtime support is checked separately.</p>
+      </details>
       <section aria-labelledby="agent-create-heading">
         <h2 id="agent-create-heading">1. Create or select a client and choose permissions</h2>
         <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your agents</a>.</p>
@@ -23,28 +39,21 @@
             <optgroup label="Read-only External Production Kodi inspection">
               {% for preset in presets if preset.builtin and preset.assignable and preset.display_name == 'Production Inspection' %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
             </optgroup>
-
+            <optgroup label="Managed Kodi — Read-only inspection">
+              {% for preset in inspection_presets %}<option value="{{ preset.id }}" data-managed-preset>{{ preset.display_name }}</option>{% endfor %}
+            </optgroup>
           </select></label>
           <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is External Production Kodi only, for read-only health, add-on and UI-state inspection. Screenshots follow <strong>Allow screenshots</strong> on each external Kodi. This production preset does not authorize Kodi created by Kodi Lab.</p>
-          <details>
-            <summary>Inspection for Kodi created by Kodi Lab</summary>
-            <ol>
-              <li>Under <strong>Advanced administration</strong>, create a preset with <strong>Read-only Inspection</strong> as its permission ceiling. Select <strong>Inspect Kodi health, add-ons and UI state</strong> for read-only access, including supported screenshots.</li>
-              <li>Choose that preset for this client and for your Kodi's policy. An unassigned Kodi policy denies access.</li>
-              <li>Under this client's <strong>Kodi access</strong>, grant only that Kodi, then issue a token.</li>
-            </ol>
-            <p>The built-in <strong>Read-only Inspection</strong> preset also includes screenshot permission. A custom preset with only <code>target.inspect</code> also permits supported screenshots; external Kodi must have Allow screenshots set to On.</p>
-          </details>
-          <p>For managed or test Kodi and other presets, open <a href="#agent-advanced">Advanced administration</a>.</p>
+          <p>For Managed Kodi, use <a href="#managed-inspection" data-open-managed>Managed Kodi — Read-only inspection</a> above. Other permissions remain under <a href="#agent-advanced">Advanced administration</a>.</p>
           <button type="submit">Create client</button>
         </form>
       </section>
       <section aria-labelledby="agent-config-heading">
         <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
-        <p>For <strong>External Production Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection steps above. Creating a client or issuing a token does not grant access.</p>
+        <p>For <strong>External Production Kodi</strong>, open your client in <a href="#agent-clients-heading">Your agents</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong>, then <strong>Grant current inspect scope</strong>. For Kodi created by Kodi Lab, follow the managed inspection guide above. Creating a client or issuing a token does not grant access.</p>
       </section>
       <section aria-labelledby="agent-copy-heading">
-        <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
+        <h2 id="agent-copy-heading" tabindex="-1">3. Issue a token and copy configuration</h2>
         <p>In your client, choose a <strong>Token lifetime</strong> and select <strong>Issue token</strong>. The configuration below will include the new token. Copy and store it securely before leaving or reloading this page: the token is shown only once and cannot be recovered.</p>
         <p><strong>On the Kodi Lab computer:</strong> the default Linux installation already provides <code>http://127.0.0.1:18100/mcp</code>. Use your client's bearer token, not your Web password. No stdio adapter or LAN listener setup is needed. If you chose another published Web port, use it in this URL.</p>
         <details class="agent-connection-details">
@@ -150,7 +159,7 @@
       </section>
       <section>
         <h2>Create custom preset</h2>
-        <p>For ordinary external production inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
+        <p>For ordinary external production inspection, choose an existing Production Inspection preset above. The managed inspection shortcut can prefill this form with exactly <code>target.inspect</code>; review and save it explicitly. Other custom presets are for advanced use. The permission ceiling limits the available choices; checkboxes start unselected unless you use the managed inspection shortcut. A saved preset is immutable.</p>
         <p><a href="https://github.com/kcook98765/kodi-lab/blob/main/docs/TRUSTED-LOCAL-DEVELOPMENT.md">Configure a trusted local development agent</a> with separate managed Start/Stop and selected-project launch permissions.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
