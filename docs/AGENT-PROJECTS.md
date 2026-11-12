@@ -74,8 +74,8 @@ exact native payload, version/type and enabled state. A URL, download or GUI
 notification alone is not installation success. See
 [native ZIP testing](NATIVE-ZIP-INSTALLATION.md) for the reviewed route and its
 operator-assisted limitations. No generic builtin or direct-path installer is
-introduced. Larger/chunked transfers remain unsupported by this bounded inline
-protocol.
+introduced. For larger editable sources, use the bounded `project_transfer` route below.
+Original native ZIP intake retains its separate inline limit.
 Native and browser acceptance remain tracked by #310. No host path, shell, Git
 clone, remote URL fetch, Docker operation or external Kodi authority is provided.
 
@@ -129,3 +129,47 @@ Scripts that need their metadata or resource path should use
 `xbmcaddon.Addon("their.addon.id")`; a bare `xbmcaddon.Addon()` can fail. The inert
 custom-window fixture uses its explicit ID. Launch receipt acceptance still
 requires subsequent log/UI inspection to establish that the script opened.
+
+## Larger source transfer
+
+Use `project_transfer` to stage a reviewed ZIP, then `project_import` to publish
+it as an owned project. This is the source import method for larger checkouts;
+Lab never clones a repository or reads a caller-selected server path.
+
+1. Package one add-on directory whose name equals its `addon.xml` ID. Exclude
+   version-control metadata, symlinks and native binaries. Retain the reviewed
+   repository commit and SHA-256 of the ZIP bytes.
+2. Save a transfer request UUID. Call `project_transfer` with that `request_id`,
+   `archive_sha256`, `archive_size`, `offset` and `chunk_base64`. Send ordered
+   **32,768-byte decoded chunks**, with a shorter final chunk. Every call remains
+   within the existing 64 KiB MCP request limit. Retain returned `next_offset`.
+3. After response loss, retry the identical chunk or use `action: "status"`
+   with the same UUID, size and digest. Conflicting bytes/metadata are refused.
+   If status reaches the total size while still receiving after interruption,
+   replay the final chunk to finish verification. A retained partial temporary
+   file or changed storage is fenced for review, never overwritten.
+4. When `state: "ready"`, call `project_import` with its own saved request UUID,
+   `transfer_id` equal to the transfer UUID, `archive_sha256`, `intake_kind`
+   and `provenance_reference`; omit `archive_base64`. Continue with the returned
+   workspace's normal capture, edit, validation and deployment workflow.
+5. `action: "cancel"` removes only that transfer's exact staged chunks and
+   retains its tombstone. It never deletes an imported project. Imports already
+   published replay after cancellation/expiry and preserve workspace edits.
+
+Staged ZIP bounds: **4 MiB compressed, 16 MiB expanded, 1,024 entries,
+2 MiB per file**. Existing inline limits remain 45 KiB/256 entries/4 MiB/1 MiB.
+The same ZIP structure, CRC, path, duplicate, special-file, compression-ratio,
+manifest and source-type protections apply. Entry counts are checked before
+central-directory objects are allocated. Expanded validation/publication is
+serialized to bound process memory; existing workspace capture remains separate.
+
+There are four retained transfer receipts per client and 32 globally, including
+cancelled/failed/expired receipts. They are bounded reservations, consistent with
+retained project quotas, not reusable general upload storage. Incomplete/ready
+transfers expire after 24 hours; status/write observes expiry and discards exact
+chunks. Cancellation immediately releases staged bytes. At most 128 MiB of ZIP
+chunks can be retained globally; intake preserves the 2 GiB free-space reserve.
+Project seeds can add at most 512 MiB across the 32 project slots before existing
+workspace copies; those remain subject to their independent quotas. Supported
+application backup/recovery retains transfer receipts, chunks and private modes.
+Source text beyond the existing 2 MiB workspace read/edit limit is refused.

@@ -121,6 +121,11 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionTransientApprovalService,
     ProductionTransientResult,
 )
+from kodi_lab.application.project_transfers import (
+    ProjectTransferError,
+    ProjectTransferInput,
+    ProjectTransferStatus,
+)
 from kodi_lab.application.remote_observations import (
     CaptureReuseError,
     RemoteObservationService,
@@ -1134,7 +1139,32 @@ class McpTargetToolService:
             result = self._projects.import_project(
                 principal.client_id, operation, authorize=authorize
             )
-        except (AgentProjectError, McpWorkspaceMutationError) as error:
+        except (
+            AgentProjectError,
+            ProjectTransferError,
+            McpWorkspaceMutationError,
+        ) as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def project_transfer(
+        self, principal: McpPrincipal, operation: ProjectTransferInput
+    ) -> ProjectTransferStatus:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(
+                session, principal, "project_transfer"
+            )
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._projects is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._projects.transfer(
+                principal.client_id, operation, authorize=authorize
+            )
+        except (AgentProjectError, ProjectTransferError) as error:
             raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result

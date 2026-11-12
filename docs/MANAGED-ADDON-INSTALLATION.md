@@ -32,7 +32,8 @@ retains its independent authority model.
 2. Create an owned inert Program or video plugin with `project_create`, or import
    a reviewed source ZIP with `project_import`. Use a distinct add-on ID. Retain
    the request UUID, project/workspace identity, and import SHA-256/provenance.
-   Import accepts at most 45 KiB compressed, 256 entries and 4 MiB expanded;
+   Inline import accepts at most 45 KiB compressed; use `project_transfer` then
+   `project_import` for up to 4 MiB compressed, 1,024 entries and 16 MiB expanded;
    [the source intake rules](AGENT-PROJECTS.md) apply.
 3. Wait for `workspace_status` to report the captured generation. Use
    `workspace_read`, `workspace_tree` and generation-bound `workspace_edit` as

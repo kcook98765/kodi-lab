@@ -284,6 +284,7 @@ class McpAuthorizationService:
                         "project_create",
                         "project_status",
                         "project_import",
+                        "project_transfer",
                         "package_import",
                         "package_status",
                         "package_install",
@@ -310,6 +311,7 @@ class McpAuthorizationService:
             "project_create",
             "project_status",
             "project_import",
+            "project_transfer",
             "package_import",
             "package_status",
         }:

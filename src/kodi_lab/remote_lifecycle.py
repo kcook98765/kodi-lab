@@ -640,6 +640,8 @@ def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
                 if len(suffix) == 1 and directory
                 else mode in ({0o500, 0o700} if directory else {0o400, 0o600})
             )
+        elif suffix[0] == "transfers":
+            safe_mode = mode == (0o700 if directory else 0o600)
         else:
             safe_mode = bool(
                 len(suffix) == 1

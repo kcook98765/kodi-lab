@@ -17,7 +17,7 @@ from typing import Literal
 from uuid import UUID, uuid4, uuid5
 from xml.etree import ElementTree
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -28,6 +28,13 @@ from kodi_lab.application.mcp_workspace_mutations import (
     MCP_PRESENT_WORKSPACES_PER_CLIENT,
     McpWorkspaceCreationService,
     WorkspaceCreateResult,
+)
+from kodi_lab.application.project_transfers import (
+    ProjectTransferInput,
+    ProjectTransferStatus,
+    project_import_lock,
+    read_source_transfer,
+    transfer_source,
 )
 from kodi_lab.development.addon_zip import (
     AddonZipValidationError,
@@ -77,11 +84,18 @@ class ProjectImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
     request_id: UUID
     archive_base64: str = Field(
-        min_length=4, max_length=61440, pattern=r"^[A-Za-z0-9+/]+={0,2}$"
+        default="", max_length=61440, pattern=r"^(?:[A-Za-z0-9+/]+={0,2})?$"
     )
+    transfer_id: UUID | None = None
     archive_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     intake_kind: Literal["reviewed_checkout", "source_zip"]
     provenance_reference: str = Field(min_length=1, max_length=512)
+
+    @model_validator(mode="after")
+    def one_transport(self) -> ProjectImportInput:
+        if bool(self.archive_base64) == (self.transfer_id is not None):
+            raise ValueError("Supply inline bytes or an owned source transfer.")
+        return self
 
 
 class AgentProjectResult(BaseModel):
@@ -287,6 +301,19 @@ class AgentProjectService:
         self._workspaces, self._creation = workspaces, creation
         self._sessions, self._root = workspaces._session_factory, workspaces._data_root
 
+    def transfer(
+        self,
+        client_id: UUID,
+        operation: ProjectTransferInput,
+        *,
+        authorize: Callable[[Session], None],
+    ) -> ProjectTransferStatus:
+        def recheck() -> None:
+            with self._sessions() as session:
+                authorize(session)
+
+        return transfer_source(self._root, client_id, operation, authorize=recheck)
+
     def status(
         self,
         client_id: UUID,
@@ -382,18 +409,82 @@ class AgentProjectService:
         *,
         authorize: Callable[[Session], None],
     ) -> AgentProjectResult:
+        def recheck() -> None:
+            with self._sessions() as session:
+                authorize(session)
+
+        with project_import_lock(self._root, recheck):
+            return self._import_project(client_id, operation, authorize=authorize)
+
+    def _import_project(
+        self,
+        client_id: UUID,
+        operation: ProjectImportInput,
+        *,
+        authorize: Callable[[Session], None],
+    ) -> AgentProjectResult:
         with self._sessions() as session:
             authorize(session)
+            metadata = operation.model_dump(exclude={"archive_base64"}, mode="json")
+            if operation.transfer_id is None:
+                metadata.pop("transfer_id")
+            fingerprint = hashlib.sha256(
+                json.dumps(metadata, sort_keys=True).encode()
+            ).hexdigest()
+            prior = session.scalar(
+                select(AgentProjectRow).where(
+                    AgentProjectRow.client_id == str(client_id),
+                    AgentProjectRow.request_id == str(operation.request_id),
+                )
+            )
+            if prior is not None and prior.parameter_fingerprint != fingerprint:
+                raise AgentProjectError("request_id_conflict")
+            if (
+                operation.transfer_id is not None
+                and prior is not None
+                and prior.state == "seeded"
+            ):
+                source = DevelopmentSourceRepository(session).get(UUID(prior.source_id))
+                if source is None:
+                    raise AgentProjectError("project_intake_requires_review")
+                # Published requests replay after transport cancellation/expiry.
+                # A reserved publication still needs the original verified bytes.
+                return self._create_seed(
+                    client_id,
+                    request_id=operation.request_id,
+                    addon_id=source.addon_id,
+                    display_name=source.observed_name,
+                    fingerprint=fingerprint,
+                    files={},
+                    provenance=prior.intake_provenance_json,
+                    authorize=authorize,
+                )
         try:
-            payload = base64.b64decode(operation.archive_base64, validate=True)
+
+            def recheck() -> None:
+                with self._sessions() as session:
+                    authorize(session)
+
+            payload = (
+                base64.b64decode(operation.archive_base64, validate=True)
+                if operation.transfer_id is None
+                else read_source_transfer(
+                    self._root,
+                    client_id,
+                    operation.transfer_id,
+                    operation.archive_sha256,
+                    authorize=recheck,
+                )
+            )
             if hashlib.sha256(payload).hexdigest() != operation.archive_sha256:
                 raise AgentProjectError("project_package_digest_mismatch")
-            package = read_editable_addon_zip(payload)
+            package = read_editable_addon_zip(
+                payload, staged=operation.transfer_id is not None
+            )
         except binascii.Error as error:
             raise AgentProjectError("project_package_encoding_invalid") from error
         except AddonZipValidationError as error:
             raise AgentProjectError(error.code) from error
-        metadata = operation.model_dump(exclude={"archive_base64"}, mode="json")
         provenance = json.dumps(
             {
                 "intake_kind": operation.intake_kind,
@@ -410,9 +501,7 @@ class AgentProjectService:
             request_id=operation.request_id,
             addon_id=package.descriptor.addon_id,
             display_name=package.descriptor.observed_name,
-            fingerprint=hashlib.sha256(
-                json.dumps(metadata, sort_keys=True).encode()
-            ).hexdigest(),
+            fingerprint=fingerprint,
             files=package.files,
             provenance=provenance,
             authorize=authorize,

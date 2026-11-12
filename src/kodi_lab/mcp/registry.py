@@ -535,6 +535,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
+            name="project_transfer",
+            schema_revision=1,
+            permissions=frozenset({"workspace.edit"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset(),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
+            adapter="agent_project.transfer_source",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.GLOBAL,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
             name="workspace_create",
             schema_revision=1,
             permissions=frozenset({"workspace.edit"}),

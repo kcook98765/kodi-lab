@@ -1,5 +1,7 @@
 """Private project seeds survive the supported application rollback inventory."""
 
+import base64
+import hashlib
 import os
 import shutil
 import stat
@@ -10,6 +12,11 @@ from uuid import UUID
 import pytest
 
 from kodi_lab.application.agent_projects import _seed_source
+from kodi_lab.application.project_transfers import (
+    ProjectTransferInput,
+    read_source_transfer,
+    transfer_source,
+)
 from kodi_lab.host_bootstrap import HostBootstrapError
 from kodi_lab.remote_lifecycle import (
     _files,
@@ -41,6 +48,20 @@ def test_sealed_private_seed_backup_and_clean_recovery(tmp_path: Path) -> None:
     root = tmp_path / "state"
     initialize(root, url(root))
     source = seed(root)
+    transfer_id = UUID("55fe6010-9786-4707-b286-608607d54a43")
+    payload = b"source transfer recovery"
+    digest = hashlib.sha256(payload).hexdigest()
+    transfer_source(
+        root,
+        PROJECT,
+        ProjectTransferInput(
+            request_id=transfer_id,
+            archive_size=len(payload),
+            archive_sha256=digest,
+            chunk_base64=base64.b64encode(payload).decode(),
+        ),
+        authorize=lambda: None,
+    )
     with lifecycle_lock(root):
         identifier = backup(root, url(root))
     manifest = cast(dict[str, Any], _verify_backup(root, identifier))
@@ -60,6 +81,12 @@ def test_sealed_private_seed_backup_and_clean_recovery(tmp_path: Path) -> None:
     assert stat.S_IMODE((recovered / "addon.xml").stat().st_mode) == 0o400
     # Intake itself must accept the restored immutable seed without replacing it.
     assert seed(restored) == recovered
+    assert (
+        read_source_transfer(
+            restored, PROJECT, transfer_id, digest, authorize=lambda: None
+        )
+        == payload
+    )
 
 
 @pytest.mark.parametrize(
