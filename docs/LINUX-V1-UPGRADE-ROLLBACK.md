@@ -4,9 +4,12 @@
 
 The initial database baseline is `0001_initial_release`. Supported forward
 migrations continue through `0002_managed_setup`, `0003_managed_versions`,
-`0004_clean_reset`, `0005_managed_web`, `0006_external_screenshots` and the current
-head, `0007_production_navigation`. The explicit administrator upgrade flow applies
-this chain; ordinary Web startup requires the installed head and never migrates.
+`0004_clean_reset`, `0005_managed_web`, `0006_external_screenshots`,
+`0007_production_navigation`, `0008_managed_bridge_preparation`,
+`0009_trusted_managed_lab`, `0010_agent_projects`, `0011_agent_project_versions`,
+`0012_agent_project_intake` and the current head, `0013_agent_packages`.
+The explicit administrator upgrade flow applies this chain; ordinary Web startup
+requires the installed head and never migrates.
 The current application refuses unsupported prerelease databases and backups;
 it does not convert or stamp them. Preserve unsupported state separately and use
 a fresh, independent installation. Never erase state to bypass a refusal. See the

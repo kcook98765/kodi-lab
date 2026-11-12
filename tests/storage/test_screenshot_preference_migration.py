@@ -20,7 +20,6 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 from kodi_lab.storage.secrets import ExternalCredentialStore
 from tests.application.test_production_bridges import _Verifier
 from tests.migration_support import (  # noqa: F401
@@ -413,14 +412,9 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             == REVISION
         )
         _assert_preserved(connection, before, old_columns)
-        assert _triggers(connection) == {
-            **original_triggers,
-            **{
-                statement.split()[2]: statement
-                for statement in SCREENSHOT_PREFERENCE_TRIGGERS
-                if "trg_external_screenshot_preference_initialize" not in statement
-            },
-        }
+        # Both historical constants identify the frozen baseline. Its legacy
+        # initialization trigger must not be replaced by the later OFF default.
+        assert _triggers(connection) == original_triggers
         assert (
             connection.scalar(
                 text(
@@ -486,15 +480,33 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             {k: v for k, v in before.items() if k != "external_screenshot_preferences"},
             old_columns,
         )
-        assert {
-            name: _triggers(connection)[name]
-            for name in original_triggers
-            if name != "trg_external_screenshot_preference_initialize"
-        } == {
-            name: sql
-            for name, sql in original_triggers.items()
-            if name != "trg_external_screenshot_preference_initialize"
+        current_triggers = _triggers(connection)
+        changed = {
+            "trg_external_screenshot_preference_initialize",  # 0006
+            "trg_external_production_policy_material_revision",  # 0007
+            "trg_mcp_client_authority_revision",  # 0009
+            "retained_mutation_insert",  # 0011
         }
+        assert {
+            name: current_triggers[name]
+            for name in original_triggers
+            if name not in changed
+        } == {
+            name: sql for name, sql in original_triggers.items() if name not in changed
+        }
+        assert (
+            "remote_navigation_enabled"
+            in current_triggers["trg_external_production_policy_material_revision"]
+        )
+        assert (
+            "managed_lab_role_version"
+            in current_triggers["trg_mcp_client_authority_revision"]
+        )
+        assert "agent_projects" in current_triggers["retained_mutation_insert"]
+        assert (
+            current_triggers["trg_external_screenshot_preference_initialize"]
+            != original_triggers["trg_external_screenshot_preference_initialize"]
+        )
         assert {
             "external_secret_retirements",
             "household_onboarding_operations",
@@ -512,7 +524,7 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
     engine.dispose()
 
 
-def test_empty_upgrade_downgrade_and_new_registration_defaults(
+def test_empty_upgrade_and_historical_registration_defaults(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
@@ -522,7 +534,36 @@ def test_empty_upgrade_downgrade_and_new_registration_defaults(
     command.upgrade(config, REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
-    target_id, _ = _register_household(sessions, tmp_path)
+    # Current registration needs the later production-navigation policy column.
+    # Insert historical columns to exercise this baseline's actual SQL default.
+    target_id = uuid4()
+    with engine.begin() as connection:
+        _insert(
+            connection,
+            "targets",
+            id=str(target_id),
+            name="Historical registration",
+            target_type="external_production",
+            kodi_version=None,
+            availability="unavailable",
+            health="warning",
+            connection_state="disconnected",
+        )
+        _insert(
+            connection,
+            "external_kodi_targets",
+            target_id=str(target_id),
+            protocol_kind="jsonrpc_http",
+            host="192.168.50.40",
+            port=8080,
+            authentication_mode="none",
+            configured_capabilities_json='["target_inspect","screenshot"]',
+            verified_capabilities_json="[]",
+            administrative_state="disabled",
+            verification_state="unverified",
+            verified_addresses_json="[]",
+            production_policy_revision=1,
+            created_at=NOW,
+        )
     assert ScreenshotPreferenceService(sessions).read(target_id).enabled
     engine.dispose()
-    # An untouched default loses no policy on downgrade, even when populated.
