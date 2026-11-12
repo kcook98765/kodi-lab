@@ -74,6 +74,7 @@ ROLLBACK_ROOTS = frozenset(
         ".state.json",
         "addon-zips",
         "agent-workspaces",
+        "agent-projects",
         "source-promotions",
     }
 )
@@ -626,6 +627,29 @@ def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
             0o700 if directory and len(suffix) <= 1 else (0o500 if directory else 0o400)
         )
         safe_mode = mode == expected
+    elif "agent-projects" in path.parts:
+        suffix = path.parts[path.parts.index("agent-projects") + 1 :]
+        # Seed publication seals directories/files to 0500/0400. Preserve a
+        # private interrupted 0700/0600 seed too; backup never certifies intake.
+        # UUID lock files remain private and empty, as required by intake.
+        if not suffix:
+            safe_mode = directory and mode == 0o700
+        elif suffix[0] == "sources":
+            safe_mode = (
+                mode == 0o700
+                if len(suffix) == 1 and directory
+                else mode in ({0o500, 0o700} if directory else {0o400, 0o600})
+            )
+        else:
+            safe_mode = bool(
+                len(suffix) == 1
+                and not directory
+                and re.fullmatch(
+                    r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.lock", suffix[0]
+                )
+                and mode == 0o600
+                and item.st_size == 0
+            )
     elif directory and path.name in {"agent-workspaces", "source-promotions"}:
         safe_mode = mode == 0o700
     elif directory:

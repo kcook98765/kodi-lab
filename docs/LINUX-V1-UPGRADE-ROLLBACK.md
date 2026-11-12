@@ -523,3 +523,15 @@ configured successor `.env`, and the existing Caddy arguments if Caddy is desire
 All other site/runtime values and normal backup/transition/upgrade requirements
 remain. Original receipts are retained; do not edit them. Changing Web transport
 does not authorize database initialization, credential replacement or deployment.
+
+### Agent-owned private project storage
+
+Installations containing agent-created/imported projects also retain the private
+`agent-projects` seed tree in the application rollback set. Use an administrator
+image that recognizes this root when validating or backing up the old state;
+the administrator must support the exact installed schema. Earlier agent-first
+images could report `unclassified state root: agent-projects`. Use the corrected
+reviewed administrator for that same-schema backup before candidate transition.
+Keep the project bytes and original operation receipts; do not remove the root
+to bypass validation. Sealed seed modes and private interrupted intake bytes are
+preserved, while unsafe ownership, links and permissions remain failures.
