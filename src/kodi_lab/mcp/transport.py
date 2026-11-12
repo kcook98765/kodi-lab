@@ -105,6 +105,10 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
 )
+from kodi_lab.application.project_transfers import (
+    ProjectTransferInput,
+    ProjectTransferStatus,
+)
 from kodi_lab.application.workspace_deployment_preflight import (
     DeploymentPreflightInput,
     DeploymentPreflightResult,
@@ -217,6 +221,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "development_source_list",
         "project_create",
         "project_import",
+        "project_transfer",
         "project_status",
         "package_import",
         "package_status",
@@ -1026,19 +1031,36 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "project_transfer": Tool(
+            name="project_transfer",
+            title="Transfer reviewed add-on source",
+            description=(
+                "Trusted Managed Lab only: upload an owned source ZIP in ordered "
+                "32 KiB decoded chunks (4 MiB total). Save request_id, size and "
+                "SHA-256; retry identical chunks or inspect status.next_offset. "
+                "Cancel releases bytes and retains the receipt. Four transfers/client, "
+                "32 globally, 24 hour expiry. When ready pass transfer_id=request_id "
+                "to project_import. No host paths or downloads."
+            ),
+            input_schema=ProjectTransferInput.model_json_schema(),
+            output_schema=ProjectTransferStatus.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "project_import": Tool(
             name="project_import",
             title="Import an agent-reviewed source package",
             description=(
                 "Trusted Managed Lab only: transfer a reviewed checkout or source ZIP "
-                "as base64 (45 KiB compressed, 256 entries, 4 MiB expanded). Supply "
+                "as base64 (45 KiB) or an owned ready project_transfer (4 MiB). Staged "
+                "sources allow 1024 entries, 16 MiB expanded, 2 MiB/file. Supply "
                 "its "
                 "SHA-256 and provenance reference. Supports one Python Program/plugin "
                 "with resources and no extra dependencies. No host paths/downloads. "
                 "Returns a private editable project/workspace; this does not perform "
                 "native ZIP installation. Use workspace_status, validate and deploy. "
-                "Save request_id for exact replay. Larger or native/repository "
-                "packages require the separate reviewed package onboarding route."
+                "Save request_id for exact replay. Native/repository packages use the "
+                "separate reviewed package onboarding route."
             ),
             input_schema=ProjectImportInput.model_json_schema(),
             output_schema=AgentProjectResult.model_json_schema(),
@@ -1653,6 +1675,7 @@ def build_mcp_http_transport(
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
                 | AgentProjectList
+                | ProjectTransferStatus
                 | AgentProjectResult
                 | PackageStatus
                 | NativeZipStatus
@@ -1685,6 +1708,7 @@ def build_mcp_http_transport(
             if params.name in {
                 "project_create",
                 "project_import",
+                "project_transfer",
                 "package_import",
                 "package_install",
                 "workspace_edit",
@@ -1906,6 +1930,12 @@ def build_mcp_http_transport(
                 )
                 workspace_id = result.workspace.workspace_id
                 source_id = result.project_id
+            elif params.name == "project_transfer":
+                parsed_transfer = ProjectTransferInput.model_validate(arguments)
+                request_id = parsed_transfer.request_id
+                result = await asyncio.to_thread(
+                    tools.project_transfer, principal, parsed_transfer
+                )
             elif params.name == "project_import":
                 parsed_project_import = ProjectImportInput.model_validate(arguments)
                 request_id = parsed_project_import.request_id

@@ -162,6 +162,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "project_create",
         "project_import",
         "project_status",
+        "project_transfer",
         "promotion_request",
         "remote_action",
         "screenshot_capture",

@@ -37,6 +37,75 @@ def assert_owned_audit(
     return payloads
 
 
+def test_wire_bounded_source_transfer_and_import(client: TestClient) -> None:
+    import base64
+    import hashlib
+
+    from tests.application.test_project_package_import import package
+
+    admin = _administration(client)
+    owner = admin.create_client(
+        display_name="Wire transfer owner",
+        preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+        trusted_managed_lab=True,
+    )
+    token = admin.issue_credential(owner.id).token
+    catalog = {
+        t["name"]: t
+        for t in _post(client, token, "tools/list").json()["result"]["tools"]
+    }
+    payload = package(
+        {
+            "catalog.txt": b"\n".join(
+                hashlib.sha256(str(i).encode()).hexdigest().encode()
+                for i in range(1500)
+            )
+        }
+    )
+    request_id = str(uuid4())
+    digest = hashlib.sha256(payload).hexdigest()
+    for offset in range(0, len(payload), 32768):
+        response = _post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": "project_transfer",
+                "arguments": {
+                    "request_id": request_id,
+                    "archive_size": len(payload),
+                    "archive_sha256": digest,
+                    "offset": offset,
+                    "chunk_base64": base64.b64encode(
+                        payload[offset : offset + 32768]
+                    ).decode(),
+                },
+            },
+        )
+        result = response.json()["result"]
+        _strict_tool_result(result, catalog["project_transfer"]["outputSchema"])
+        assert not result.get("isError"), result
+    assert result["structuredContent"]["state"] == "ready"
+    imported = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "project_import",
+            "arguments": {
+                "request_id": str(uuid4()),
+                "transfer_id": request_id,
+                "archive_sha256": digest,
+                "intake_kind": "reviewed_checkout",
+                "provenance_reference": "wire-reviewed@fixed",
+            },
+        },
+    ).json()["result"]
+    _strict_tool_result(imported, catalog["project_import"]["outputSchema"])
+    assert not imported.get("isError"), imported
+    assert imported["structuredContent"]["addon_id"] == "script.package.example"
+
+
 def test_wire_project_creation_schema_replay_and_role_revocation(
     client: TestClient,
     mcp_audit_records: list[logging.LogRecord],

@@ -8157,3 +8157,20 @@ A future repository consumer needs supported pre-execution package/dependency
 pinning, explicit consent semantics, ownership and durable replay evidence;
 post-install readback cannot retroactively authorize an unintended selection.
 See [the feasibility decision and supported agent loop](MANAGED-ADDON-INSTALLATION.md).
+
+## 2026-11-12: Bounded owned source transfer for managed development (#339)
+
+Four approved native runtimes execute a representative larger validated source
+and separately deployed Python module. The 45 KiB inline ZIP ceiling comes from
+MCP's 64 KiB request bound. Retain that bound and reuse strict ZIP validation,
+private project seeds and workspace deployment. Add one resumable transfer helper
+feeding project_import: 4 MiB compressed, 16 MiB expanded, 1,024 entries,
+2 MiB/file, SHA-256, private request/owner receipts, explicit cancel/expiry,
+serialized expansion and existing application backup/recovery. No server clone,
+caller host paths, native ZIP installer or repository publisher is added.
+
+Native UpdateLocalAddons finds experimental live copies but adds no benefit to
+existing stopped-copy/start deployment. Fresh Python invocation sees source/module
+updates; active interpreters retain their imports. Preserve that predictable
+lifecycle and its receipts. No broad Bridge builtin, hot-reload infrastructure
+or extra orchestration wrapper is warranted by the native evidence.

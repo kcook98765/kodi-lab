@@ -132,24 +132,33 @@ class EditableAddonZip:
     sha256: str
 
 
-def read_editable_addon_zip(payload: bytes) -> EditableAddonZip:
+def read_editable_addon_zip(
+    payload: bytes, *, staged: bool = False
+) -> EditableAddonZip:
     """Reuse strict ZIP structure/CRC validation for a small editable project.
 
     No archive path is extracted. The existing native ZIP qualifier is unchanged.
     This bounded inline route fits the MCP request limit and admits Python entry
     points/resources, with no dependency installation or repository onboarding.
     """
-    if len(payload) > 45 * 1024:
+    compressed_limit = 4 * 1024 * 1024 if staged else 45 * 1024
+    if len(payload) > compressed_limit:
         raise AddonZipValidationError(
-            "project_package_too_large", "Inline ZIP exceeds 45 KiB."
+            "project_package_too_large", "Source ZIP exceeds its transport bound."
         )
     stream = io.BytesIO(payload)
-    members = _parse_members(stream, len(payload))
+    members = _parse_members(
+        stream, len(payload), maximum_entries=1024 if staged else 256
+    )
     _validate_logical_tree(members)
     if (
-        len(members) > 256
-        or sum(member.uncompressed_size for member in members) > 4 * 1024 * 1024
-        or any(member.uncompressed_size > 1024 * 1024 for member in members)
+        len(members) > (1024 if staged else 256)
+        or sum(member.uncompressed_size for member in members)
+        > (16 if staged else 4) * 1024 * 1024
+        or any(
+            member.uncompressed_size > (2 if staged else 1) * 1024 * 1024
+            for member in members
+        )
     ):
         raise AddonZipValidationError(
             "project_package_bound", "Source package exceeds fixed bounds."
@@ -465,7 +474,9 @@ def _unix_mode(create_system: int, external_attributes: int, directory: bool) ->
     return 0o755 if directory else 0o644 | (raw_mode & 0o111)
 
 
-def _parse_members(stream: BinaryIO, file_size: int) -> tuple[ZipMember, ...]:
+def _parse_members(
+    stream: BinaryIO, file_size: int, *, maximum_entries: int = MAX_ENTRIES
+) -> tuple[ZipMember, ...]:
     if file_size < _EOCD.size or file_size > MAX_COMPRESSED_BYTES:
         raise AddonZipValidationError(
             "addon_zip_size_invalid", "ZIP compressed size is outside fixed bounds."
@@ -502,7 +513,7 @@ def _parse_members(stream: BinaryIO, file_size: int) -> tuple[ZipMember, ...]:
         raise AddonZipValidationError(
             "addon_zip_zip64", "ZIP64 packages are not supported."
         )
-    if total_entries > MAX_ENTRIES or central_size > MAX_CENTRAL_DIRECTORY_BYTES:
+    if total_entries > maximum_entries or central_size > MAX_CENTRAL_DIRECTORY_BYTES:
         raise AddonZipValidationError(
             "addon_zip_central_bound", "ZIP central directory exceeds fixed bounds."
         )
