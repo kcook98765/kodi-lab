@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
@@ -12,7 +12,10 @@ from kodi_lab.domain.lifecycle_operations import ManagedInstanceLifecycleKind
 from kodi_lab.domain.snapshots import ManagedInstanceMutationKind
 from kodi_lab.storage.managed_lifecycle_owner import lifecycle_actor
 from kodi_lab.storage.models import (
+    CreateKodiOperationRow,
     ManagedAgentLifecycleRequestRow,
+    ManagedBridgePreparationChildRow,
+    ManagedBridgePreparationRow,
     ManagedCleanResetRow,
     ManagedIdleStateRow,
     ManagedInstanceLifecycleOperationRow,
@@ -154,6 +157,57 @@ def record_operation_activity(
         ):
             end_running_holds(session, instance_id)
             return
+        if (
+            lifecycle is not None
+            and lifecycle.kind is ManagedInstanceLifecycleKind.START
+        ):
+            # A human installs a stopped profile without claiming a running use.
+            # Its temporary native readiness Start must not protect that idle
+            # profile from the subsequently authorized managed agent's Reset.
+            create = session.scalar(
+                select(CreateKodiOperationRow).where(
+                    CreateKodiOperationRow.start_operation_id == str(operation_id),
+                    CreateKodiOperationRow.target_id == str(instance_id),
+                )
+            )
+            if create is not None and not create.start_after_setup:
+                return
+            bridge_child = session.get(
+                ManagedBridgePreparationChildRow, str(operation_id)
+            )
+            preparation = (
+                None
+                if bridge_child is None
+                else session.get(
+                    ManagedBridgePreparationRow, bridge_child.preparation_id
+                )
+            )
+            if (
+                bridge_child is not None
+                and bridge_child.phase in {"start", "bridge"}
+                and preparation is not None
+                and preparation.target_id == str(instance_id)
+                and preparation.phase == bridge_child.phase
+                and preparation.checkpoint == "dispatched"
+                and preparation.attempt == bridge_child.attempt
+            ):
+                # Maintenance ending stopped is not a new human-use claim.
+                # Existing real activity/holds are left intact.
+                if not preparation.keep_running:
+                    return
+                reset_owner = session.scalar(
+                    select(ManagedCleanResetRow).where(
+                        ManagedCleanResetRow.target_id == preparation.target_id,
+                        ManagedCleanResetRow.runtime_revision_id
+                        == preparation.runtime_revision_id,
+                        ManagedCleanResetRow.new_container_id
+                        == preparation.container_id,
+                    )
+                )
+                if reset_owner is not None and preparation.request_id == str(
+                    uuid5(UUID(reset_owner.id), "trusted-managed-bridge:v1")
+                ):
+                    actor = lifecycle_actor(reset_owner.client_id)
         idle = session.get(ManagedIdleStateRow, str(instance_id))
         if idle is not None and idle.last_stop_operation_id == str(operation_id):
             return

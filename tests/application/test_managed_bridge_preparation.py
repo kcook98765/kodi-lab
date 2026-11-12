@@ -5,6 +5,7 @@ import json
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -24,7 +25,10 @@ from kodi_lab.application.managed_bridge_trust import (
     ManagedBridgeTrustService,
     invalidate_managed_bridge_trust,
 )
-from kodi_lab.application.managed_resources import ManagedResourceService
+from kodi_lab.application.managed_resources import (
+    ManagedResourceProtected,
+    ManagedResourceService,
+)
 from kodi_lab.broker.docker_inventory import ContainerHealthState
 from kodi_lab.broker.managed_bridge_trust import (
     approved_bridge_build,
@@ -36,11 +40,13 @@ from kodi_lab.kodi.rc1_bridge import (
     packaged_rc1_bridge_sources,
     packaged_stable_bridge_sources,
 )
+from kodi_lab.storage.managed_activity import record_activity
 from kodi_lab.storage.models import (
     ManagedBridgePreparationChildRow,
     ManagedBridgeTrustRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
+    ManagedInstanceUseRow,
 )
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore
 from tests.application.test_create_kodi_installation import (
@@ -279,6 +285,8 @@ def test_fresh_create_prepares_exact_reviewed_bridge_and_requested_final_state(
         )
         assert setup.native.installed and setup.native.enabled
         with factory() as session:
+            use = session.get(ManagedInstanceUseRow, (str(result.target_id), "web"))
+            assert (use is not None) == keep_running
             trust = session.get(ManagedBridgeTrustRow, str(setup.env.op.target_id))
             assert trust and trust.state == "active"
             assert (trust.container_id, trust.runtime_revision_id) == (
@@ -330,6 +338,32 @@ def test_existing_valid_bridge_checks_without_staging_or_restart(setup: Setup) -
         setup.env.broker.stops,
         setup.stages,
     )
+
+
+def test_stopped_maintenance_preserves_real_prior_human_use(setup: Setup) -> None:
+    first = setup.finish()
+    target = UUID(first.target_id)
+    with setup.env.sessions.begin() as db:
+        record_activity(db, target, actor="web", now=datetime.now(UTC))
+        db.flush()
+        use = db.get(ManagedInstanceUseRow, (str(target), "web"))
+        assert use is not None
+        prior = use.last_activity_at
+    row = setup.service.accept(request_id=uuid4(), target_id=target, keep_running=False)
+    for _ in range(3):
+        row = setup.service.continue_once(UUID(row.id), version=row.version)
+    assert row.checkpoint == "complete"
+    with setup.env.sessions() as db:
+        use = db.get(ManagedInstanceUseRow, (str(target), "web"))
+        assert (
+            use is not None
+            and use.last_activity_at == prior
+            and use.released_at is None
+        )
+        with pytest.raises(ManagedResourceProtected, match="other_client_active"):
+            setup.service.resources._guard(
+                db, target, reason="reset", actor=f"mcp:{uuid4()}"
+            )
 
 
 @pytest.mark.parametrize("missing", [True, False])
