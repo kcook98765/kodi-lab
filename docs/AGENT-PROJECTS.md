@@ -1,5 +1,9 @@
 # Agent-owned projects
 
+For unattended managed installation and updates, use the
+[validated source-deployment loop](MANAGED-ADDON-INSTALLATION.md). Repository
+`InstallAddon(id)` requires confirmation and cannot pin a reviewed package.
+
 A client with Trusted Managed Lab may call `project_create` with a saved
 `request_id`, `addon_id`, `display_name`, optional `version` (default `0.1.0`)
 and `kind` (`program` by default, or `video`). The result contains a stable

@@ -1,0 +1,310 @@
+{
+  "campaign": "issue339-20261112",
+  "initial_installation_authority": "No production QA clients/credentials or grants created; raw RPC only on dedicated isolated disposable profiles",
+  "installation_prompts_accepted": 0,
+  "records": {
+    "matrix": {
+      "blocking_python_pending_until_cancel": true,
+      "candidate_installed": false,
+      "catalogs": {
+        "peer": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Peer 2",
+            "version": "2.0.0"
+          }
+        ],
+        "primary": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          }
+        ]
+      },
+      "collision_candidate": "Issue339 Peer 2 / 2.0.0",
+      "disabled_existing_id": "remained disabled",
+      "final_container_exit": 0,
+      "image_id": "sha256:c3d87a817ea422db3d8e0faa24ed03f48b6b19c21d46d4191184fead315d35db",
+      "native_version": {
+        "name": "Kodi",
+        "version": {
+          "major": 19,
+          "minor": 4,
+          "revision": "20220409-nogitfound",
+          "tag": "stable"
+        }
+      },
+      "primary_candidate": "Issue339 Primary 1 / 1.0.0",
+      "primary_prompt_title": "Add-on required",
+      "qa_container_id": "ad5fba89cbb935bf7878d5931e1b4a047ec951a48716b946ddc9d9a516806d5e",
+      "raw_evidence_sha256": {
+        "collision-prompt.json": "dd4eaede4f9e8125c620173be7b648fce35de1aceb08a501bb35d60b42825949",
+        "created.json": "df3b817b85ad8dea6411127fc03db303c7746659ba8b7d27b57737f8b52e1c56",
+        "disabled-existing-id.json": "7f36c1b17a8458628b76f6caffc0f10193561b7e95c6a3a800f868f656144c21",
+        "existing-id.json": "00331cbfd7c36ac42355ad1e994e822591f9ca83692a7a48c41ae63c9e981881",
+        "final-container.json": "e621da110b1cdf806e19faec38d9c353f127f070a3e39f2dc0f5c34db287b4dd",
+        "initial-inventory.json": "2f713074d38c9d431f6aef7948765375ddc8195907d1fc6583decb290f2d2647",
+        "native-identity.json": "3e622b2fdfa1988c8d915d0596cd6511148dfc3e98f211e699bdd51dce380d92",
+        "primary-cancelled.json": "f92967544b89eb55457e41b942cece6e4bd23b2cefc5bf43818834f7460e8b6f",
+        "primary-prompt.json": "2662fda9d36443b6c533ce86e74fbca8ffce0ffa9131c7a78289e10a8dde88fd",
+        "refresh-dispatch.json": "1c9d69903a93c2b3b325073507d3f8383cf493f3d649b340c6af2aafaf8b75e8",
+        "result-before-cancel.json": "e181e02f9c87cf825f9a34b787b5c36afe9e4ade0884030a34f2fe1206b5f06c",
+        "startup-dialogs-cancelled.json": "7284a33802d1a5d574fdaae7f4b2adc7f06333cbf105a09bae94dd5c4f629476",
+        "stopped-profile-inventory.json": "0131725479af870ceaa3b6697cd3aee1ee0da55b79ea7a36c174df98ac44f9fb",
+        "verdict.json": "4e24a56a351962bbc61cd9c221a3428988a1c6d22701ac629c313deba7098fa8"
+      },
+      "scope": "fresh independent profile on approved managed-runtime image; standalone native probe, not Lab lifecycle or agent publication acceptance",
+      "seed_original_files_unchanged_sha256": {
+        "addon.xml": "e366e24b1be836b03b7d429eea21a8e489a4892d78dd40d550f8017d5759ca85",
+        "default.py": "b7dd6ca5e99c8f5f93726533d0bb38f15b3c2a6cc245b035ac5dca06ab36ae05"
+      },
+      "system_repository_disable_refused": false,
+      "upgrade": "0.1.0 unchanged despite catalog 0.2.0",
+      "verdict": "UNSUPPORTED: confirmation and no package pin; negative feasibility behavior reproduced"
+    },
+    "nexus": {
+      "blocking_python_pending_until_cancel": true,
+      "candidate_installed": false,
+      "catalogs": {
+        "peer": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Peer 2",
+            "version": "2.0.0"
+          }
+        ],
+        "primary": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          }
+        ]
+      },
+      "collision_candidate": "Issue339 Peer 2 / 2.0.0",
+      "disabled_existing_id": "remained disabled",
+      "final_container_exit": 0,
+      "image_id": "sha256:617719c43df6277f9051074b81fdc8a0facbdb54b229971c8052daa0dd04f172",
+      "native_version": {
+        "name": "Kodi",
+        "version": {
+          "major": 20,
+          "minor": 5,
+          "revision": "20240927-nogitfound",
+          "tag": "stable"
+        }
+      },
+      "primary_candidate": "Issue339 Primary 1 / 1.0.0",
+      "primary_prompt_title": "Add-on required",
+      "qa_container_id": "bd19636f11f954f96d9cc9f3bc0e7ef842c591af8ce175617df4dfe9d538ffb2",
+      "raw_evidence_sha256": {
+        "collision-prompt.json": "dd4eaede4f9e8125c620173be7b648fce35de1aceb08a501bb35d60b42825949",
+        "created.json": "912f3622a1f918e18c48dbd620263235559846a8ecae7c64a16289d583ba1440",
+        "disabled-existing-id.json": "30e091b335b2f5871c85939742c6edce9cfa88ba512652ca76a7da1273a141f3",
+        "existing-id.json": "bb7d9e9f0de2ef12b9da720badde7fc703b6b902876de27bea48708ecd0a8c9d",
+        "final-container.json": "59b0decc62e270c7819d898f85d530aedbb467c40b854749dad2014c1f9ebd90",
+        "initial-inventory.json": "9069e962b8b4b8a309f58138dcdb26884c630c11d6f698a8038c8c3c042ea48d",
+        "native-identity.json": "94af38c6072ed3a4d6a39f06f33ddc86a687ca07f12fd28204a0c7b1f552e28a",
+        "primary-cancelled.json": "eae550e8d56323e4a2f5e7e5464f6aa9e8ed6e4a4961d1fce02eea9a37f974ee",
+        "primary-prompt.json": "2662fda9d36443b6c533ce86e74fbca8ffce0ffa9131c7a78289e10a8dde88fd",
+        "refresh-dispatch.json": "3ed516a89c1bc1ae7a862b758edaff09fe10a3e73d8097e67dedd608f36e18ec",
+        "result-before-cancel.json": "e181e02f9c87cf825f9a34b787b5c36afe9e4ade0884030a34f2fe1206b5f06c",
+        "startup-dialogs-cancelled.json": "c399a4fd2c2b1ae3b2287bd1ba1019d50008e6c7840416286bd149afa5ede487",
+        "stopped-profile-inventory.json": "8506fd109405286c7c75714ca43edc690585f1f36aa6394610d1fee63ecdc265",
+        "verdict.json": "4e24a56a351962bbc61cd9c221a3428988a1c6d22701ac629c313deba7098fa8"
+      },
+      "scope": "fresh independent profile on approved managed-runtime image; standalone native probe, not Lab lifecycle or agent publication acceptance",
+      "seed_original_files_unchanged_sha256": {
+        "addon.xml": "e366e24b1be836b03b7d429eea21a8e489a4892d78dd40d550f8017d5759ca85",
+        "default.py": "b7dd6ca5e99c8f5f93726533d0bb38f15b3c2a6cc245b035ac5dca06ab36ae05"
+      },
+      "system_repository_disable_refused": false,
+      "upgrade": "0.1.0 unchanged despite catalog 0.2.0",
+      "verdict": "UNSUPPORTED: confirmation and no package pin; negative feasibility behavior reproduced"
+    },
+    "omega": {
+      "blocking_python_pending_until_cancel": true,
+      "candidate_installed": false,
+      "catalogs": {
+        "peer": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Peer 2",
+            "version": "2.0.0"
+          }
+        ],
+        "primary": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          }
+        ]
+      },
+      "collision_candidate": "Issue339 Peer 2 / 2.0.0",
+      "disabled_existing_id": "remained disabled",
+      "final_container_exit": 0,
+      "image_id": "sha256:7f779626cd56fb3bf86e14e39657fee5e8c5299a8f6f7abf59449a1163e7aa8e",
+      "native_version": {
+        "name": "Kodi",
+        "version": {
+          "major": 21,
+          "minor": 3,
+          "revision": "20260315-nogitfound",
+          "tag": "stable"
+        }
+      },
+      "primary_candidate": "Issue339 Primary 1 / 1.0.0",
+      "primary_prompt_title": "Add-on required",
+      "qa_container_id": "61797af9969eca2427a94ab03100a061d4697713b6e22997919cdb21551e7bd3",
+      "raw_evidence_sha256": {
+        "collision-prompt.json": "dd4eaede4f9e8125c620173be7b648fce35de1aceb08a501bb35d60b42825949",
+        "created.json": "3b915b5f98e5aa5ce85b80004e4d8fe8d44a8baf5cc28a02500cdb29593af500",
+        "disabled-existing-id.json": "19ac47cdf35de9938c91c7875f64f26a7ee854145147fb92bec1af52fc263c05",
+        "existing-id.json": "645384b780b7f388befee1d54a130c0bb0d263cb220dce11837e330bca7ead39",
+        "final-container.json": "9b28ab555a2cc8dd039ab8b65b571b7240283d3c60d34fd6bacf5606ac793e71",
+        "initial-inventory.json": "61a28560c594cc2eca81cb9ff09dbb529713b25063c1db05233e35e4f4ba294d",
+        "native-identity.json": "a4ed660c059cfd01cf36e7edd60c6ca5eebc3c53782e4e686b47d0aef211c501",
+        "primary-cancelled.json": "96fec0f6eb6cd07c318add08544708630fa7a467093cf4e53ee86781d1e6d12e",
+        "primary-prompt.json": "2662fda9d36443b6c533ce86e74fbca8ffce0ffa9131c7a78289e10a8dde88fd",
+        "refresh-dispatch.json": "58f6afdec8e0b46535189dfd9536d48c5bc932c64a825d71464cf19f6fe1e2c6",
+        "result-before-cancel.json": "e181e02f9c87cf825f9a34b787b5c36afe9e4ade0884030a34f2fe1206b5f06c",
+        "startup-dialogs-cancelled.json": "7284a33802d1a5d574fdaae7f4b2adc7f06333cbf105a09bae94dd5c4f629476",
+        "stopped-profile-inventory.json": "f0b9e4bf10b49359639f76b0ab29046b21bc30997d3acc2fc9ea455ea3a2b1be",
+        "verdict.json": "4e24a56a351962bbc61cd9c221a3428988a1c6d22701ac629c313deba7098fa8"
+      },
+      "scope": "fresh independent profile on approved managed-runtime image; standalone native probe, not Lab lifecycle or agent publication acceptance",
+      "seed_original_files_unchanged_sha256": {
+        "addon.xml": "e366e24b1be836b03b7d429eea21a8e489a4892d78dd40d550f8017d5759ca85",
+        "default.py": "b7dd6ca5e99c8f5f93726533d0bb38f15b3c2a6cc245b035ac5dca06ab36ae05"
+      },
+      "system_repository_disable_refused": false,
+      "upgrade": "0.1.0 unchanged despite catalog 0.2.0",
+      "verdict": "UNSUPPORTED: confirmation and no package pin; negative feasibility behavior reproduced"
+    },
+    "piers": {
+      "blocking_python_pending_until_cancel": true,
+      "candidate_installed": false,
+      "catalogs": {
+        "peer": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Peer 2",
+            "version": "2.0.0"
+          }
+        ],
+        "primary": [
+          {
+            "addon_id": "plugin.video.issue339probe",
+            "name": "Issue339 Primary 1",
+            "version": "1.0.0"
+          },
+          {
+            "addon_id": "plugin.video.issue339seed",
+            "name": "Issue339 Seed Update",
+            "version": "0.2.0"
+          }
+        ]
+      },
+      "collision_candidate": "Issue339 Peer 2 / 2.0.0",
+      "disabled_existing_id": "remained disabled",
+      "final_container_exit": 0,
+      "image_id": "sha256:514421c9050bfc3912773728f7b16825b708bead64dd58d6a44e610f048e5cc0",
+      "native_version": {
+        "name": "Kodi",
+        "version": {
+          "major": 22,
+          "minor": 0,
+          "revision": "20260927-28ea2eac-dirty",
+          "tag": "releasecandidate",
+          "tagversion": "1"
+        }
+      },
+      "primary_candidate": "Issue339 Primary 1 / 1.0.0",
+      "primary_prompt_title": "Add-on required",
+      "qa_container_id": "ebfaed6f5b159deaf7b2ec4ec51a4b936e55ce8d7ff85c30d59c2de25f40d234",
+      "raw_evidence_sha256": {
+        "collision-prompt.json": "dd4eaede4f9e8125c620173be7b648fce35de1aceb08a501bb35d60b42825949",
+        "created.json": "46d48b257265a09faaa9bfc1af16fb30b4ddffa76a16acd7dfd23acb76ea36f1",
+        "disabled-existing-id.json": "8062fc816d2373d5bc9bdfd9dff137268cfb7457e7b1934b026403fa99ae56dc",
+        "existing-id.json": "915bbc063d718e9b61d3c8ddb4786c0ffb0d4da6d179b87ac2f4b13a03ffa543",
+        "final-container.json": "6a85886dfe51054226ff735493cd546827116653c811ab2681005e9cd3bf62ca",
+        "initial-inventory.json": "32847dd10002991469158a39bc8093ab611821002f531d148060006bf5697538",
+        "native-identity.json": "9559f5c8d68cc687b069ffbb77917917a0389b0756e06cca5b3f5491f466cf27",
+        "primary-cancelled.json": "1ec0c16b2cc3e0bf3b2e62a0efda24055c8d37e2f270661769ba86dabe6360c6",
+        "primary-prompt.json": "2662fda9d36443b6c533ce86e74fbca8ffce0ffa9131c7a78289e10a8dde88fd",
+        "protected-system-repository-repository.xbmc.org.json": "486eb91279a8ed3a078673199507fb5307e164b2bb5a55d777ab289ae01cbf3e",
+        "refresh-dispatch.json": "fb2c5583d9b2576d3000620c6ba9dcd9bce6158ee2a49e9f055cf3fcc6b14497",
+        "result-before-cancel.json": "e181e02f9c87cf825f9a34b787b5c36afe9e4ade0884030a34f2fe1206b5f06c",
+        "startup-dialogs-cancelled.json": "d57567bfd61290f1d70389ebaf15f734bf619cfb7cd88d9b8b3b63172d684a69",
+        "stopped-profile-inventory.json": "1c244c0b71b6c235d214247cd479f1c7b2e3542ae75d04096c271278eb53d979",
+        "verdict.json": "4e24a56a351962bbc61cd9c221a3428988a1c6d22701ac629c313deba7098fa8"
+      },
+      "scope": "fresh independent profile on approved managed-runtime image; standalone native probe, not Lab lifecycle or agent publication acceptance",
+      "seed_original_files_unchanged_sha256": {
+        "addon.xml": "e366e24b1be836b03b7d429eea21a8e489a4892d78dd40d550f8017d5759ca85",
+        "default.py": "b7dd6ca5e99c8f5f93726533d0bb38f15b3c2a6cc245b035ac5dca06ab36ae05"
+      },
+      "system_repository_disable_refused": true,
+      "upgrade": "0.1.0 unchanged despite catalog 0.2.0",
+      "verdict": "UNSUPPORTED: confirmation and no package pin; negative feasibility behavior reproduced"
+    }
+  },
+  "test_plugin_zip_downloads": 0
+}

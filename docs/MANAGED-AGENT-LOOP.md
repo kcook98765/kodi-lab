@@ -1,5 +1,11 @@
 # Managed add-on development: agent quick start
 
+For a **Trusted Managed Lab** agent creating/importing its own add-on, start
+with the [unattended owned-project workflow](MANAGED-ADDON-INSTALLATION.md). It
+uses direct deployment to an explicit managed version without human Web source
+registration, publication approval or Kodi installation navigation. The
+registered-source workflow below retains its separate setup and permissions.
+
 For a new local add-on, start in **Development → Current Managed Kodi**: select
 the project and its development agent, then choose Kodi. [Automatic local project
 onboarding](LOCAL-PROJECT-ONBOARDING.md) supplies the internal source registration,

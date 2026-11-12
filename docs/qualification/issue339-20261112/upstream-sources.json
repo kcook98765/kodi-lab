@@ -1,0 +1,250 @@
+[
+  {
+    "bytes": 17986,
+    "path": "xbmc/interfaces/builtins/AddonBuiltins.cpp",
+    "sha256": "b96c2a22969f2e0ed1058bcc1398b9f9fe656e96934f5405baf0173b418fc776",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/interfaces/builtins/AddonBuiltins.cpp"
+  },
+  {
+    "bytes": 38157,
+    "path": "xbmc/addons/AddonInstaller.cpp",
+    "sha256": "2009a022a9914cb7b314415d8edd7c37938b5d384a73a8197cabfd7a109ee495",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/addons/AddonInstaller.cpp"
+  },
+  {
+    "bytes": 9850,
+    "path": "xbmc/addons/AddonInstaller.h",
+    "sha256": "f237cb459312f8778f1ed37d631590c089c06de5291f3c1b416e06c466ec9299",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/addons/AddonInstaller.h"
+  },
+  {
+    "bytes": 39997,
+    "path": "xbmc/addons/AddonDatabase.cpp",
+    "sha256": "d2b00795cb508cc61fadb48e322ffc84e6c90c2a4484ef3ee829d5e844761e05",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/addons/AddonDatabase.cpp"
+  },
+  {
+    "bytes": 16714,
+    "path": "xbmc/addons/AddonRepos.cpp",
+    "sha256": "f60c3c872b61ce2c3abd9dbbbf6938da7817ccc48869ac46706c277af1639a97",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/addons/AddonRepos.cpp"
+  },
+  {
+    "bytes": 7386,
+    "path": "xbmc/addons/RepositoryUpdater.cpp",
+    "sha256": "cbf96477a0efa7c043022246cdbe66d6e5b5c987411826aac062f93fbb028aae",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/addons/RepositoryUpdater.cpp"
+  },
+  {
+    "bytes": 117094,
+    "path": "xbmc/interfaces/json-rpc/schema/methods.json",
+    "sha256": "3b1dd8fa3a6eb2fea352c3ad39d68672271c9b3a29449cee52d5a3ca7fb5a349",
+    "tag": "19.4-Matrix",
+    "tag_commit": "e12e66e019af29ba9d5f5a2614315b15a138b81a",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/19.4-Matrix/xbmc/interfaces/json-rpc/schema/methods.json"
+  },
+  {
+    "bytes": 18563,
+    "path": "xbmc/interfaces/builtins/AddonBuiltins.cpp",
+    "sha256": "628003e3c97ac572870d26620827109f59a3cb7b3e7a23d298d3e0600405c248",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/interfaces/builtins/AddonBuiltins.cpp"
+  },
+  {
+    "bytes": 44887,
+    "path": "xbmc/addons/AddonInstaller.cpp",
+    "sha256": "0224d115847da8c79e9a34f159cd1e9ec4c8f1050985cc92f828e2e3c1615584",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/addons/AddonInstaller.cpp"
+  },
+  {
+    "bytes": 8475,
+    "path": "xbmc/addons/AddonInstaller.h",
+    "sha256": "00e889ad80a048bd7c0e8a59ac431ddd09bb4fe9ee8a7686772a522a84d0cc4e",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/addons/AddonInstaller.h"
+  },
+  {
+    "bytes": 38132,
+    "path": "xbmc/addons/AddonDatabase.cpp",
+    "sha256": "06c93d4a2ffe15d65b96f94b934658ded09e8a106db0bbda06a185f0743d21d3",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/addons/AddonDatabase.cpp"
+  },
+  {
+    "bytes": 16607,
+    "path": "xbmc/addons/AddonRepos.cpp",
+    "sha256": "9d841c3d30a7be7bad2a3f60de2956fa6717928abb7f653704735ed40d8e6bfd",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/addons/AddonRepos.cpp"
+  },
+  {
+    "bytes": 10329,
+    "path": "xbmc/addons/RepositoryUpdater.cpp",
+    "sha256": "ed346471d05be228d7df97e320cfc8b78597f4786f1ddcd27256792a6c6b3774",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/addons/RepositoryUpdater.cpp"
+  },
+  {
+    "bytes": 120208,
+    "path": "xbmc/interfaces/json-rpc/schema/methods.json",
+    "sha256": "886e0ecdc94feb88d0f19b49e44c3b200048f5f73cbaf1157eee9500d1bd1953",
+    "tag": "20.5-Nexus",
+    "tag_commit": "4b95737efaddf7c869736e539318f18433413ff1",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/20.5-Nexus/xbmc/interfaces/json-rpc/schema/methods.json"
+  },
+  {
+    "bytes": 18563,
+    "path": "xbmc/interfaces/builtins/AddonBuiltins.cpp",
+    "sha256": "628003e3c97ac572870d26620827109f59a3cb7b3e7a23d298d3e0600405c248",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/interfaces/builtins/AddonBuiltins.cpp"
+  },
+  {
+    "bytes": 44905,
+    "path": "xbmc/addons/AddonInstaller.cpp",
+    "sha256": "29024dba601d0eecc939a44b6f58ce81128635b73ff42dbc38bb6007456846b4",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonInstaller.cpp"
+  },
+  {
+    "bytes": 8475,
+    "path": "xbmc/addons/AddonInstaller.h",
+    "sha256": "00e889ad80a048bd7c0e8a59ac431ddd09bb4fe9ee8a7686772a522a84d0cc4e",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonInstaller.h"
+  },
+  {
+    "bytes": 38132,
+    "path": "xbmc/addons/AddonDatabase.cpp",
+    "sha256": "06c93d4a2ffe15d65b96f94b934658ded09e8a106db0bbda06a185f0743d21d3",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonDatabase.cpp"
+  },
+  {
+    "bytes": 16602,
+    "path": "xbmc/addons/AddonRepos.cpp",
+    "sha256": "7497fce366313caad99e18983cf370118cfff0115a553b9d2225e501674267a4",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonRepos.cpp"
+  },
+  {
+    "bytes": 11110,
+    "path": "xbmc/addons/RepositoryUpdater.cpp",
+    "sha256": "92e44c82995060552f71b675bdc03c9bb08b63430d2d83b59fcdb78ea7d5c0f2",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/RepositoryUpdater.cpp"
+  },
+  {
+    "bytes": 159778,
+    "path": "xbmc/interfaces/json-rpc/schema/methods.json",
+    "sha256": "9df7592690d30140e62b3b94cc34af16eb056412436939ff87792c951a21357f",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/interfaces/json-rpc/schema/methods.json"
+  },
+  {
+    "bytes": 18685,
+    "path": "xbmc/interfaces/builtins/AddonBuiltins.cpp",
+    "sha256": "dac106f92062955baf7156bae8ae1adf0cce5dfb5eeb8ce21fdd8e6a4c286b47",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/interfaces/builtins/AddonBuiltins.cpp"
+  },
+  {
+    "bytes": 46541,
+    "path": "xbmc/addons/AddonInstaller.cpp",
+    "sha256": "0bfc3f4dba2e60c13c32d6529979180e40772350166739783837d5cc48950a6e",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/addons/AddonInstaller.cpp"
+  },
+  {
+    "bytes": 8370,
+    "path": "xbmc/addons/AddonInstaller.h",
+    "sha256": "24048f84a047980477ac911027cfa345463dd283101de16de10b845b72d44f20",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/addons/AddonInstaller.h"
+  },
+  {
+    "bytes": 38896,
+    "path": "xbmc/addons/AddonDatabase.cpp",
+    "sha256": "8f20cb7ebd3cc24aa41615dde4b7c6759a75bff4461e626b3fc1ba6584231bdc",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/addons/AddonDatabase.cpp"
+  },
+  {
+    "bytes": 16177,
+    "path": "xbmc/addons/AddonRepos.cpp",
+    "sha256": "f886af80933c577f5b3f0e456e7ee930c338b76388d5964542cb46f49e23683c",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/addons/AddonRepos.cpp"
+  },
+  {
+    "bytes": 11823,
+    "path": "xbmc/addons/RepositoryUpdater.cpp",
+    "sha256": "f7734accafc682be7a504de4e0c403b1294526a36ae6aa2fe2d35529eeff0522",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/addons/RepositoryUpdater.cpp"
+  },
+  {
+    "bytes": 166053,
+    "path": "xbmc/interfaces/json-rpc/schema/methods.json",
+    "sha256": "b14e3cc56593ef0c7d2ce1cea7908c8ba433ab71f967f2ead36e329ca4716eaf",
+    "tag": "22.0rc1-Piers",
+    "tag_commit": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/22.0rc1-Piers/xbmc/interfaces/json-rpc/schema/methods.json"
+  },
+  {
+    "bytes": 41601,
+    "path": "xbmc/addons/AddonManager.cpp",
+    "sha256": "0a9a7184a93b5f06f0c8be8f12319348717e9ab222796ad3d0cd0ae56dee1be1",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonManager.cpp"
+  },
+  {
+    "bytes": 25860,
+    "path": "xbmc/addons/AddonManager.h",
+    "sha256": "3503985e6687b0b6a989c09fdf16a8cbaa331f9edda749fac2787ed72861270c",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/addons/AddonManager.h"
+  },
+  {
+    "bytes": 11101,
+    "path": "xbmc/interfaces/json-rpc/AddonsOperations.cpp",
+    "sha256": "f5ffa7acdd3e47a6661345d63dd8ea86b996922c4373ca2e138f9c8dfd2911d7",
+    "tag": "21.3-Omega",
+    "tag_commit": "a3a448d26b8d560a65655dab2cd122994dc4e146",
+    "url": "https://raw.githubusercontent.com/xbmc/xbmc/21.3-Omega/xbmc/interfaces/json-rpc/AddonsOperations.cpp"
+  }
+]

@@ -8141,3 +8141,19 @@ an unresolved consumer requires fresh stopped/absent proof before Reset, includi
 after delivery expiry. Inline size/format limits, explicit delivery origin and
 operator-assisted GUI consumption remain documented qualification limits. See
 [agent intake](AGENT-PROJECTS.md) and [native ZIP testing](NATIVE-ZIP-INSTALLATION.md).
+
+## D-0500: Managed agents retain direct source deployment after install-by-ID research
+
+On approved Kodi 19.4/20.5/21.3/22.0 RC1, `InstallAddon(id)` requests a confirmation,
+accepts no reviewed repository/version/package identity and short-circuits for an
+installed ID. Repository refresh also covers all enabled repositories and can
+initiate policy-enabled updates. Do not expose these builtins as an unattended
+exact-package installer or add an unused automatic development-feed bootstrap.
+
+Use the existing owned-project, exact-generation validation/deployment/launch
+workflow for unattended managed iteration. Preserve original-ZIP GUI testing,
+human-approved repository publication and external-target authority separately.
+A future repository consumer needs supported pre-execution package/dependency
+pinning, explicit consent semantics, ownership and durable replay evidence;
+post-install readback cannot retroactively authorize an unintended selection.
+See [the feasibility decision and supported agent loop](MANAGED-ADDON-INSTALLATION.md).
