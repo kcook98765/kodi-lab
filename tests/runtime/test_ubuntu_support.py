@@ -170,3 +170,122 @@ def test_bounded_download_failures(kind: str, monkeypatch: pytest.MonkeyPatch) -
             KeyboardInterrupt if kind == "interrupted" else SupportError
         ):
             support.download_support(Lease(), uuid4())  # type: ignore[arg-type]
+
+
+def test_snapshot_allowlist_binds_only_the_four_original_r3_perl_artifacts() -> None:
+    from urllib.parse import urlsplit
+
+    closure = support.load_support_closure(revision=3)
+    admitted = []
+    for (url, digest), fallback in support._R3_ARCHIVE_FALLBACKS.items():
+        package = next(
+            p for p in closure.packages if (p.url, p.sha256) == (url, digest)
+        )
+        assert package.version == "5.40.1-7ubuntu0.3"
+        parsed = urlsplit(fallback)
+        assert parsed.scheme == "https" and parsed.netloc == "snapshot.ubuntu.com"
+        assert parsed.path == (
+            "/ubuntu/20261001T000000Z/pool/main/p/perl/" + package.archive_name
+        )
+        admitted.append(package.name)
+    assert set(admitted) == {"libperl5.40", "perl", "perl-base", "perl-modules-5.40"}
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "exact",
+        "primary-success",
+        "other-revision",
+        "unmapped-url",
+        "unmapped-hash",
+        "server-error",
+        "snapshot-unavailable",
+        "bad-digest",
+        "too-large",
+        "redirect",
+    ],
+)
+def test_snapshot_recovery_preserves_content_bounds_and_closed_admission(
+    kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import urllib.error
+    import urllib.request
+    from email.message import Message
+
+    original = "https://archive.ubuntu.com/ubuntu/pool/main/f/fixture_1_all.deb"
+    fallback = "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/f/fixture_1_all.deb"
+    digest = hashlib.sha256(b"fixture").hexdigest()
+    # A tiny policy fixture exercises transport without adding multi-MiB DEBs to Git.
+    # The separate contract above checks the actual immutable four-artifact policy.
+    monkeypatch.setattr(
+        support, "_R3_ARCHIVE_FALLBACKS", {(original, digest): fallback}
+    )
+    package = support.SupportPackage(
+        "fixture",
+        "1",
+        "all",
+        "fixture_1_all.deb",
+        original if kind != "unmapped-url" else original + "?other",
+        digest if kind != "unmapped-hash" else "0" * 64,
+        7,
+        "index",
+    )
+    monkeypatch.setattr(
+        support,
+        "load_support_closure",
+        lambda **kwargs: support.SupportClosure(b"{}", (package,), (), ()),
+    )
+    calls = []
+
+    class Opener:
+        def open(self, request, *, timeout):  # type: ignore[no-untyped-def]
+            assert 0 < timeout <= 30
+            calls.append(request.full_url)
+            if request.full_url == package.url:
+                if kind == "primary-success":
+                    return io.BytesIO(b"fixture")
+                raise urllib.error.HTTPError(
+                    package.url,
+                    503 if kind == "server-error" else 404,
+                    "unavailable",
+                    Message(),
+                    None,
+                )
+            assert request.full_url == fallback
+            if kind == "snapshot-unavailable":
+                raise urllib.error.HTTPError(
+                    fallback, 404, "unavailable", Message(), None
+                )
+            if kind == "redirect":
+                raise SupportError("support_redirect_rejected")
+            return io.BytesIO(
+                b"changed!"
+                if kind == "too-large"
+                else b"changed"
+                if kind == "bad-digest"
+                else b"fixture"
+            )
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    revision = 2 if kind == "other-revision" else 3
+    if kind in {"exact", "primary-success"}:
+        assert support.fetch_support_packages(revision=revision) == {
+            "support/fixture_1_all.deb": b"fixture"
+        }
+    else:
+        with pytest.raises(SupportError):
+            support.fetch_support_packages(revision=revision)
+    assert calls == (
+        [package.url]
+        if kind
+        in {
+            "primary-success",
+            "other-revision",
+            "unmapped-url",
+            "unmapped-hash",
+            "server-error",
+        }
+        else [package.url, fallback]
+    )
