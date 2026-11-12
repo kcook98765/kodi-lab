@@ -3,7 +3,20 @@
 Authorization: owner prompt, 2026-11-11; scope #303 and #304-#310.
 Claw lab-owned state disposable; unrelated data, repositories and host apps protected.
 
-## Current checkpoint
+## Final campaign checkpoint — 2026-11-11 local / November 12 UTC
+
+- Scope: #303/#304–#310. Source PRs #311–#334 merged normally. Completed capabilities: #304 role, #306 explicit project/version workflow, #308 autonomous Reset/Bridge, #309 operator console. #305 native ZIP consumer, #307 sustained native viewer and #310 integrated acceptance remain PARTIAL/open; #303 remains tracking. No public release.
+- Qualified application and installed Claw commit: **875adfb00c190cffa0d63c6d8ca927e0748370f6**, tree **f014a20f21bf26a3ab375f99b68d0e6e5539112c**, schema **0013_agent_packages**. This reporting PR changes documentation/checkpoints only; inspect its normal merge commit for current main. Application/test bytes are unchanged.
+- **RELEASE PASS (source gate)**: 8,739 passed, 49 skipped, 5 warnings; pytest 2,828.42 s, complete script 48m01s / wrapper 2,881.754 s. Global Ruff/mypy, six guards, package build, Alembic history and import passed. Corrected run finished 04:29:40.935925 UTC. Earlier full gate’s 47 failures/errors were corrected before this settled-byte run; both evidence sets retained.
+- **Native PASS**: fresh human Web Nexus 20.5/Omega 21.3 installation with reviewed Bridge; one role before both installations; private authored project/edit/validate/deploy/enable/launch/Select/Back across versions; imported source ZIP on Omega; one-running capacity; actual human priority/no queued key; idle Nexus Reset, separate Bridge receipt, original-UUID replay, unchanged sources/Omega, fresh deployment on replacement; real Chromium desktop/mobile frames and primary-console accessibility/layout checks.
+- **PARTIAL**: longer Omega viewer sessions ended with Web watchdog timeout and broker web_lease_expired after one explicit reconnect; helpers exited 0, cleanup proved. Native ZIP delivery expired unverified; no installation claim. #214, #275 Windows/WSL2 and #302 human Reset consent remain open. Known historical Create-after-Delete parent and custom-window raw-label limitations are documented.
+- Final native state: both Kodi profiles stopped/retained, three application services healthy, zero viewer/input/mutation leases. Exact QA roles withdrawn and credentials revoked (401); campaign Web session signed out. Original external/client/base/credential state preserved; six old managed grants and two managed preset assignments were retired with the disposable profiles. Other 579 baseline containers and 22 networks retained; actual NFS and unrelated DinD preserved.
+- Active final source worktree: `/home/kyle/kodi-lab-worktrees/agent-first-audit-20261111`. Detailed live campaign ledger/logs: `/home/kyle/kodi-lab-worktrees/agent-first-20261111/.campaign/agent-first/`. Private acceptance root: `/home/kyle/kodi-lab-deployment/agent-first-20261111-gxnryyki`; installed bundle `bundle-final-qualified`. Do not use earlier source worktrees as current installed code.
+- Native evidence: 333 retained files, `NATIVE-EVIDENCE-SHA256.json` SHA256 `851e05979cf9f529b8903a9422f456b8dbd7b3a57b9df4e84ae14761ee1b06f8`. Private credentials/request/source-URL files stay outside Git. Never repeat the one-time obsolete pre-campaign Omega parent cleanup.
+- Exact next action: read the [qualification report](../../docs/AGENT-FIRST-QUALIFICATION.md). Owner may reset the Web password in a normal hidden-input Claw terminal using its exact command, then grant the owner’s agent one role. Remaining native transport/consumer checks require a concrete fix and bounded qualification; do not relax liveness guards, auto-retry uncertain operations or close partial issues. No required in-flight campaign operation remains.
+
+## Historical checkpoint at PR #321 (retained)
+
 - Starting main: f3a666ec45ce5e23bebd6b5105799bdf7f459bae. Current integrated main: 37be6e3226d5d2dc117f4ab1940d36d91f774e22.
 - Baseline schema verified: 0008_managed_bridge_preparation. Current main schema: 0013_agent_packages.
 - Worktree: /home/kyle/kodi-lab-worktrees/agent-first-20261111.

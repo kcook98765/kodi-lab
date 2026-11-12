@@ -328,6 +328,8 @@ Known prerelease concerns include the
 [Nexus first-viewer disconnect](docs/STANDARD-NOVNC.md#known-first-connection-limitation)
 and the Windows managed development qualification above. Earlier
 [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical records.
+See the [agent-first qualification report](docs/AGENT-FIRST-QUALIFICATION.md)
+for current source results, native Nexus/Omega evidence and remaining viewer/ZIP limits.
 
 ## Documentation
 
