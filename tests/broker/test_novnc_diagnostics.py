@@ -90,6 +90,10 @@ def test_helper_terminal_evidence_is_correlated_and_sanitized(
         }[ending]
     )
     assert terminal["terminated"] is True
+    assert all(
+        type(terminal[name]) is int and terminal[name] >= 0
+        for name in ("validation_ms", "iteration_gap_ms", "web_renew_gap_ms")
+    )
     if ending != "revoked":
         assert terminal["exit_code"] == 23
     assert terminal["armed"] == (ending in {"normal", "helper_exit"})

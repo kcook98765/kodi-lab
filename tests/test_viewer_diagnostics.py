@@ -43,6 +43,9 @@ def test_records_are_closed_schema_and_files_are_bounded(
                 startup_ms=10,
                 elapsed_ms=2000,
                 bytes_down=12,
+                validation_ms=20,
+                iteration_gap_ms=30,
+                web_renew_gap_ms=40,
                 ticket="ticket-secret",
                 stderr=b"stderr-secret",
                 cookies="cookie-secret",
@@ -54,6 +57,11 @@ def test_records_are_closed_schema_and_files_are_bounded(
             "web_ended",
             reason="reason-secret",
             phase="phase-secret",
+            watchdog_phase="phase-secret",
+            watchdog_check_ms=True,
+            watchdog_gap_ms=-1,
+            watchdog_write_gap_ms="gap-secret",
+            gc_pause_ms=10**13,
             ws_code=4007,
             bytes_up=-1,
             exit_code=True,
@@ -73,6 +81,9 @@ def test_records_are_closed_schema_and_files_are_bounded(
         normal = next(row for row in records if row["event"] == "helper_ended")
         assert normal["instance"] == str(instance) and normal["attempt"] == str(attempt)
         assert normal["exit_code"] == 1 and normal["elapsed_ms"] == 2000
+        assert normal["validation_ms"] == 20
+        assert normal["iteration_gap_ms"] == 30
+        assert normal["web_renew_gap_ms"] == 40
         assert all(len(line) < 1024 for line in text.splitlines())
         malformed = next(row for row in records if row["event"] == "web_ended")
         assert set(malformed) == {"event", "at_ms"}

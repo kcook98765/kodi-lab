@@ -91,6 +91,17 @@ WS_CODES = frozenset(
         4403,
     }
 )
+WATCHDOG_PHASES = frozenset(
+    {
+        "not_started",
+        "auth_check",
+        "binding_check",
+        "control_check",
+        "ownership_renew",
+        "lease_write",
+        "sleep",
+    }
+)
 
 
 def diagnostic(
@@ -114,6 +125,9 @@ def diagnostic(
         elif key == "phase":
             if isinstance(value, str) and value in PHASES:
                 data[key] = value
+        elif key == "watchdog_phase":
+            if isinstance(value, str) and value in WATCHDOG_PHASES:
+                data[key] = value
         elif key in {"ws_code", "close_requested_code"}:
             if type(value) is int and value in WS_CODES:
                 data[key] = value
@@ -124,7 +138,21 @@ def diagnostic(
             if type(value) is bool:
                 data[key] = value
         elif (
-            key in {"elapsed_ms", "startup_ms", "teardown_ms", "bytes_down", "bytes_up"}
+            key
+            in {
+                "elapsed_ms",
+                "startup_ms",
+                "teardown_ms",
+                "bytes_down",
+                "bytes_up",
+                "watchdog_check_ms",
+                "watchdog_gap_ms",
+                "watchdog_write_gap_ms",
+                "gc_pause_ms",
+                "web_renew_gap_ms",
+                "validation_ms",
+                "iteration_gap_ms",
+            }
             and type(value) is int
             and 0 <= value <= 10**12
         ):
