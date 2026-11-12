@@ -30,7 +30,9 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     assert 'href="/development-session">Current Managed Kodi</a>' in page
     assert "stopped managed profile available" in page
     assert "It does not start Kodi or authorize an agent" in page
-    assert "Prepare Kodi" in page and "Start Kodi" in page
+    assert 'href="/mcp-clients">Agents</a>' in page
+    assert "grant Trusted Managed Lab" in page
+    assert "without Web workspace selection" in page
     assert "Each step requires a separate action" in page
     assert "data-install-review" in page and "data-install-approved" in page
     assert "No operation recorded" in page

@@ -16,7 +16,7 @@
           <li>Review and approve installation. The runtime is downloaded and validated; stable versions create their stopped instance automatically. Preview offers a separate Create managed instance step after validation.</li>
           <li>Open <a href="/managed-kodi">Managed Kodi</a> for everyday Start, Stop and View Screen controls.</li>
         </ol>
-        <p>For add-on testing, open <a href="/development">Development Tools</a>. In <a href="/development-session">Current Managed Kodi</a>, select a runtime and workspace, then use Prepare Kodi and Start Kodi. Each step requires a separate action.</p>
+        <p>For agent development, connect your coding agent in <a href="/mcp-clients">Agents</a> and grant Trusted Managed Lab. It manages its projects without Web workspace selection. Legacy selected-project controls remain in <a href="/development">Development Tools</a> and <a href="/development-session">Current Managed Kodi</a>. Each step requires a separate action in that legacy workflow.</p>
         <label>1. Kodi version <select data-setup-version><option value="">Choose a version…</option>{% for item in installations %}<option value="{{ item.generation }}">{{ item.display_name }} · {{ item.version }}</option>{% endfor %}</select></label>
         <p data-setup-name role="status">Choose a version to review the instance name.</p>
         <p>Names for this installation are fixed by the reviewed recipe. Existing instances retain their exact identity and runtime pin. Installation does not rename or replace them.</p>

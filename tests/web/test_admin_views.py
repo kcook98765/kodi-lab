@@ -28,11 +28,8 @@ def navigation(html: str) -> list[str]:
 
 
 NAVIGATION = [
-    "/kodi",
     "/managed-kodi",
-    "/production-targets",
-    "/external-targets",
-    "/development",
+    "/external-kodi",
     "/mcp-clients",
     "/settings",
 ]
@@ -53,7 +50,8 @@ def test_unified_navigation_ignores_legacy_cookie(
         assert "data-standard-view" not in page
     page = client.get("/kodi").text
     assert 'id="managed-summary-heading"' in page
-    assert 'id="external_development-summary-heading"' in page
+    assert 'id="external-summary-heading"' in page
+    assert 'id="agents-summary-heading"' in page
     assert "data-managed-slots" not in page
     assert 'id="managed-kodi-heading"' in client.get("/managed-kodi").text
     assert "Create custom preset" in client.get("/mcp-clients").text
@@ -133,7 +131,7 @@ def test_legacy_submission_auth_csrf_origin_and_no_authorization_state(
     assert client.get("/api/runtime-installations").status_code == 200
     # An untrusted preference cannot grant any mode beyond presentation.
     client.cookies.set(ADMIN_VIEW_COOKIE, "invalid")
-    assert len(navigation(client.get("/kodi").text)) == 7
+    assert navigation(client.get("/kodi").text) == NAVIGATION
 
 
 @pytest.mark.parametrize(
@@ -209,6 +207,7 @@ def test_export_isolated_browser_fixtures(
                 "/kodi",
                 "/managed-kodi",
                 "/managed-instances",
+                "/external-kodi",
                 "/production-targets",
                 "/external-targets",
                 "/create-kodi",
