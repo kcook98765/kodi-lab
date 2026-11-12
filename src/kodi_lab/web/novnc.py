@@ -674,7 +674,14 @@ async def relay(
                 previous = checking
                 try:
                     allowed = await viewer.checked(
-                        authorized, cancelled=item.session.cancelled
+                        authorized,
+                        cancelled=item.session.cancelled,
+                        # This check includes the durable ownership commit. Claw
+                        # traced 924 ms in renewal alone, including two syncs of
+                        # 450/322 ms. Leave 250 ms scheduling margin after the
+                        # 250 ms tick within the independent 2 s broker lease.
+                        # Admission and every lease/deadline remain unchanged.
+                        timeout=1.5,
                     )
                 finally:
                     check_max = max(check_max, time.monotonic() - checking)
