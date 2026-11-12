@@ -26,28 +26,24 @@
     <p>Versions needing attention: <strong>{{ overview.managed_attention }}</strong>.</p>
     <a href="/managed-kodi">{{ 'Open Managed Kodi' if overview.managed_setup_started else 'Set up Managed Kodi' }}</a>
   </section>
-  {% for kind, summary, destination in [('external_production', overview.production, '/production-targets'), ('external_development', overview.development, '/external-targets')] %}
-  <section class="kodi-card" aria-labelledby="{{ kind }}-summary-heading">
-    <h2 id="{{ kind }}-summary-heading">{{ environment_label(kind) }}</h2>
-    <p>Registered devices: <strong>{{ summary.total }}</strong>.</p>
-    {% if summary.total %}
-    <p>Last recorded checks: {{ summary.connected }} {{ 'connected' if kind == 'external_production' else 'reachable' }}, {{ summary.disconnected }} disconnected, {{ summary.attention }} needing attention, {{ summary.unknown }} unknown.</p>
-    {% else %}
+  <section class="kodi-card" aria-labelledby="external-summary-heading">
+    <h2 id="external-summary-heading">External Kodi</h2>
+    <p>Production devices: <strong>{{ overview.production.total }}</strong>. Development devices: <strong>{{ overview.development.total }}</strong>.</p>
+    {% if not overview.production.total and not overview.development.total %}
     <p>No devices registered yet.</p>
-    {% if kind == 'external_production' %}
-    <p>Connect an existing Kodi installation, usually on a household device. Inspection, screenshots, remote control and agent access each require explicit setup and authorization.</p>
-    {% else %}
-    <p>Connect Kodi running on another device for add-on development and testing.</p>
     {% endif %}
-    {% endif %}
-    <a href="{{ destination }}">{{ 'Open' if summary.total else 'Set up' }} {{ environment_identity(kind).display_name }}</a>
+    {% if overview.production.total %}<p>Last recorded production checks: {{ overview.production.connected }} connected, {{ overview.production.disconnected }} disconnected, {{ overview.production.unknown }} unknown.</p>{% endif %}
+    {% if overview.development.total %}<p>Last recorded development checks: {{ overview.development.connected }} reachable, {{ overview.development.disconnected }} disconnected, {{ overview.development.unknown }} unknown.</p>{% endif %}
+    <p>Inspection, screenshots, control and agent access require explicit approval for each device.</p>
+    <p>Devices needing attention: <strong>{{ overview.production.attention + overview.development.attention }}</strong>.</p>
+    <a href="/external-kodi">Open External Kodi</a>
   </section>
-  {% endfor %}
   <section class="kodi-card" aria-labelledby="agents-summary-heading">
     <h2 id="agents-summary-heading">Agents</h2>
     <p>Registered clients: <strong>{{ overview.clients }}</strong>. Enabled: <strong>{{ overview.enabled_clients }}</strong>.</p>
     <p class="secondary">Client configuration does not establish current connectivity or Kodi access.</p>
-    <a href="/mcp-clients">Open Agents &amp; Permissions</a>
+    <p>Grant Trusted Managed Lab once for installed managed versions. External device permissions remain separate.</p>
+    <a href="/mcp-clients">Open Agents</a>
   </section>
 </div>
 <noscript><p>Looking for an old managed version bookmark? <a href="/managed-kodi">Open Managed Kodi</a>.</p></noscript>

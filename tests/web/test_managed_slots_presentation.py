@@ -45,8 +45,8 @@ def test_export_managed_card_review_states(
         assert response.status_code == 200
         status = client.get("/api/managed-kodi/slots").json()
         assert "Ready to view:" in response.text
-        assert "Ready to inspect:" in response.text
-        assert "explicit inspection permissions" in response.text
+        assert "grant Trusted Managed Lab once" in response.text
+        assert "agent GUI input is blocked" in response.text
         for item in status["slots"]:
             card = response.text.split(f'data-slot="{item["version"]}"', 1)[1]
             screen = card.split("data-slot-screen", 1)[1].split(">", 1)[0]
@@ -145,10 +145,11 @@ def test_plain_guidance_keeps_ordinary_setup_and_development_separate(
     client: TestClient, database: sessionmaker[Session], broker: Broker
 ) -> None:
     csrf = setup(client, database)
-    missing, cached = slot(client, "matrix"), slot(client)
+    missing, installed = slot(client, "matrix"), slot(client)
     assert missing["state_label"] == "Not set up"
     assert "Create Managed Kodi" in missing["message"]
-    assert "prepares and starts" in cached["message"]
+    assert installed["state"] == "stopped"
+    assert "saved settings and add-ons" in installed["message"]
     assert act(client, csrf, "start").json()["phase"] == "complete"
     wait(client)
     assert slot(client)["message"] == "Kodi is running."
@@ -158,5 +159,5 @@ def test_plain_guidance_keeps_ordinary_setup_and_development_separate(
     assert "saved settings and add-ons" in retained["message"]
     assert "Reset" not in retained["message"]
     page = client.get("/managed-kodi").text
-    assert 'href="/development-session">Current Managed Kodi' in page
-    assert "Everyday Start, Stop and View Screen do not need a workspace" in page
+    assert 'href="/development-session">Legacy Current Managed Kodi' in page
+    assert "The agent manages its projects and tests installed versions" in page

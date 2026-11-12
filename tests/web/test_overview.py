@@ -60,18 +60,16 @@ def test_empty_overview_and_managed_pages_have_distinct_ownership(
     assert "Versions prepared: <strong>0 of 4</strong>" in main
     assert "Last recorded running: <strong>None</strong>" in main
     assert "Versions needing attention: <strong>0</strong>" in main
-    assert main.count("Registered devices: <strong>0</strong>") == 2
+    assert "Production devices: <strong>0</strong>" in main
+    assert "Development devices: <strong>0</strong>" in main
     assert "Registered clients: <strong>0</strong>" in main
     assert "isolated Kodi installation for testing" in main
-    assert "usually on a household device" in main
-    assert "another device for add-on development and testing" in main
-    for label, destination in (
-        ("Managed Kodi", "/managed-kodi"),
-        ("External Production Kodi", "/production-targets"),
-        ("External Development Kodi", "/external-targets"),
-    ):
+    assert "explicit approval for each device" in main
+    assert main.count('class="kodi-card"') == 3
+    for label, destination in (("Managed Kodi", "/managed-kodi"),):
         assert main.count(f'href="{destination}">Set up {label}</a>') == 1
         assert f">Open {label}</a>" not in main.split("<noscript>", 1)[0]
+    assert 'href="/external-kodi">Open External Kodi</a>' in main
     for forbidden in (
         "<form",
         "<button",
@@ -186,12 +184,14 @@ def test_external_counts_stay_separate_and_recorded(
         assert "Living room" not in html
         assert str(household) not in html
         assert str(EXTERNAL_TARGET_ID) not in html
-    assert 'href="/production-targets"' in overview
-    assert 'href="/external-targets"' in overview
+    assert 'href="/external-kodi"' in overview
     assert 'data-slot="omega"' not in overview
+    external = client.get("/external-kodi").text
+    assert 'href="/production-targets"' in external
+    assert 'href="/external-targets"' in external
     for label in ("External Production Kodi", "External Development Kodi"):
-        assert f">Open {label}</a>" in overview
-        assert f">Set up {label}</a>" not in overview
+        assert f">Open {label}</a>" in external
+        assert f">Set up {label}</a>" not in external
 
 
 def test_agent_counts_and_production_attention(

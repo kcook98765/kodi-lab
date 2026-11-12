@@ -44,9 +44,9 @@ const report = {states: [], flows: [], errors: [], mutations: []};
       page.setDefaultTimeout(5000);
       page.on('pageerror', error => report.errors.push(error.message));
       const openGuide = async () => {
-        const onboarding = page.locator('[data-agent-onboarding]');
-        if (!await onboarding.evaluate(e => e.open)) {
-          await onboarding.locator(':scope > summary').focus();
+        const advanced = page.locator('[data-agent-advanced]');
+        if (!await advanced.evaluate(e => e.open)) {
+          await advanced.locator(':scope > summary').focus();
           await page.keyboard.press('Enter');
         }
         await page.locator('[data-managed-inspection] > summary').focus();
@@ -148,7 +148,7 @@ const report = {states: [], flows: [], errors: [], mutations: []};
       const create = page.locator('[data-create-client]');
       assert.equal(await create.locator('[name=preset_id]').inputValue(), fixture.preset);
       await create.locator('[name=display_name]').fill('My existing agent');
-      expectedWrite = {path: '/api/mcp/clients', body: {display_name: 'My existing agent', preset_id: fixture.preset}, nextState: 'policy-missing'};
+      expectedWrite = {path: '/api/mcp/clients', body: {display_name: 'My existing agent', preset_id: fixture.preset, trusted_managed_lab: false}, nextState: 'policy-missing'};
       await Promise.all([page.waitForNavigation(), create.getByRole('button', {name: 'Create client', exact: true}).click()]);
       await openGuide(); await choose();
       // An unsaved edit to the client's selector must not influence Kodi policy.

@@ -34,6 +34,7 @@ from kodi_lab.storage.models import (
     ManagedCleanResetRow,
 )
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore
+from kodi_lab.web.managed_slots import ManagedSlotsWeb
 from tests.application.test_create_kodi_installation import factory as factory
 from tests.application.test_create_kodi_installation import schema as schema
 from tests.application.test_managed_bridge_preparation import Native
@@ -157,6 +158,9 @@ def test_role_reset_replacement_reviewed_bridge_and_exact_replay(
         "running" if restart else "stopped"
     )
     assert setup.native.installed and setup.native.enabled and setup.stages == 1
+    slots = ManagedSlotsWeb(setup.env.service, lambda _: False).status(lambda _: None)
+    omega = next(slot for slot in slots["slots"] if slot["version"] == "omega")
+    assert not omega["reset_note"], "A prepared Bridge must not be labeled incomplete"
     original_counts = (
         setup.env.broker.provisions,
         setup.env.broker.removals,

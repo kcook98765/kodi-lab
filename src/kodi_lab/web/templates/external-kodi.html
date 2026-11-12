@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% set nav_section = 'external' %}
+{% block title %}External Kodi · Kodi Lab{% endblock %}
+{% block content %}
+<h1>External Kodi</h1>
+<p>Connect Kodi on your own devices. Each device keeps its own permissions; Trusted Managed Lab grants no access here.</p>
+<div class="kodi-grid">
+  <section class="kodi-card" aria-labelledby="external-production-heading">
+    <h2 id="external-production-heading">Production Kodi</h2>
+    <p>Connect an existing household Kodi. Approve inspection, screenshots, remote navigation and agent access for that device.</p>
+    <p><a href="/production-targets">Open External Production Kodi</a></p>
+    <p><a href="/add-kodi?mode=home">Connect a production device</a></p>
+  </section>
+  <section class="kodi-card" aria-labelledby="external-development-heading">
+    <h2 id="external-development-heading">Development Kodi</h2>
+    <p>Connect an external test device and explicitly approve development access. Pair its reviewed Narrow Bridge when required.</p>
+    <p><a href="/external-targets">Open External Development Kodi</a></p>
+    <p><a href="/add-kodi?mode=development">Connect a development device</a></p>
+  </section>
+</div>
+{% endblock %}

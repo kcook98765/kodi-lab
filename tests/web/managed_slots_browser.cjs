@@ -45,6 +45,7 @@ const report={method:'Disposable real lifecycle/controller fixtures, fake broker
        for(const value of current.slots){
          const card=page.locator(`[data-slot="${value.version}"]`),advanced=card.locator('[data-slot-options]');
          assert.equal(await advanced.evaluate(e=>e.open),false);
+         assert.equal(await card.locator('[data-slot-primary-actions]').isVisible(),value.preparation!=='Installation needed');
          assert.equal(await card.locator('[data-slot-action="reset"]').isVisible(),false);
          assert.equal(await card.locator('[data-slot-action="start"]').isDisabled(),!value.start||pending);
          assert.equal(await card.locator('[data-slot-action="stop"]').isDisabled(),!value.stop||pending);

@@ -27,6 +27,7 @@ from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
 from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER
 from kodi_lab.storage.managed_version_slots import managed_version_slots
 from kodi_lab.storage.models import (
+    ManagedBridgeTrustRow,
     ManagedCleanResetRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
@@ -468,6 +469,19 @@ class ManagedSlotsWeb:
                             ).containers
                             if record.managed_instance_id == str(target)
                         )
+                        trust = session.get(ManagedBridgeTrustRow, str(target))
+                        if (
+                            reset_note
+                            and trust is not None
+                            and trust.state == "active"
+                            and trust.container_id == latest.new_container_id
+                            and trust.runtime_revision_id == latest.runtime_revision_id
+                            and trust.runtime_revision_id
+                            == instance.runtime_revision_id
+                        ):
+                            # Stored trust is enough to dismiss "incomplete";
+                            # it does not establish current live readiness.
+                            reset_note = False
                 intent = (
                     session.get(ManagedWebIntentRow, str(value.request_id))
                     if value.request_id
@@ -619,7 +633,7 @@ class ManagedSlotsWeb:
                     else "/runtimes",
                     advanced_url=f"/instances/{target}" if instance else "/runtimes",
                     reset_note=reset_note,
-                    needs_review=bool(reason),
+                    needs_review=bool(state_reason or protections["start"]),
                     pending_request=str(value.request_id) if intent else None,
                     technical=value.model_dump(mode="json"),
                 )

@@ -62,7 +62,7 @@ class Links(HTMLParser):
 
 
 @pytest.mark.parametrize(
-    "path", ["/kodi", "/managed-kodi", "/development", "/settings"]
+    "path", ["/kodi", "/managed-kodi", "/external-kodi", "/development", "/settings"]
 )
 def test_landing_pages_keep_existing_authentication(
     client: TestClient, path: str
@@ -86,22 +86,23 @@ def test_landing_pages_keep_existing_authentication(
         ("/managed-instances", "/settings"),
         ("/kodi", "/kodi"),
         ("/managed-kodi", "/managed-kodi"),
-        ("/add-kodi", "/production-targets"),
-        ("/production-targets", "/production-targets"),
+        ("/external-kodi", "/external-kodi"),
+        ("/add-kodi", "/external-kodi"),
+        ("/production-targets", "/external-kodi"),
         ("/mcp-clients", "/mcp-clients"),
-        ("/development", "/development"),
-        ("/external-targets", "/external-targets"),
-        ("/pair-kodi", "/external-targets"),
+        ("/development", "/settings"),
+        ("/external-targets", "/external-kodi"),
+        ("/pair-kodi", "/external-kodi"),
         ("/runtimes", "/settings"),
-        ("/development-sources", "/development"),
-        ("/agent-workspaces", "/development"),
-        ("/addon-zips", "/development"),
-        ("/addon-repositories", "/development"),
-        ("/snapshots/preserved", "/development"),
-        ("/history/instances", "/development"),
+        ("/development-sources", "/settings"),
+        ("/agent-workspaces", "/settings"),
+        ("/addon-zips", "/settings"),
+        ("/addon-repositories", "/settings"),
+        ("/snapshots/preserved", "/settings"),
+        ("/history/instances", "/settings"),
         (f"/instances/{INSTANCE_ID}", "/settings"),
-        (f"/instances/{INSTANCE_ID}/history", "/development"),
-        (f"/instances/{INSTANCE_ID}/snapshots", "/development"),
+        (f"/instances/{INSTANCE_ID}/history", "/settings"),
+        (f"/instances/{INSTANCE_ID}/snapshots", "/settings"),
         ("/settings", "/settings"),
         ("/kodi-repository", "/settings"),
     ],
@@ -115,16 +116,13 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     html = response.text
     navigation = re.search(r'<nav id="admin-navigation".*?</nav>', html, re.S)
     assert navigation is not None
-    assert re.findall(r'<a href="([^"]+)"', navigation.group()) == [
-        "/kodi",
+    assert re.findall(r'<a[^>]*href="([^"]+)"', navigation.group()) == [
         "/managed-kodi",
-        "/production-targets",
-        "/external-targets",
-        "/development",
+        "/external-kodi",
         "/mcp-clients",
         "/settings",
     ]
-    assert re.findall(r'<a href="([^"]+)" aria-current="page"', html) == [active]
+    assert re.findall(r'<a[^>]*href="([^"]+)" aria-current="page"', html) == [active]
     assert 'aria-controls="admin-navigation"' in html
     assert 'href="#main-content"' in html
     assert '<main id="main-content" tabindex="-1"' in html
@@ -141,6 +139,7 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
         "/",
         "/kodi",
         "/managed-kodi",
+        "/external-kodi",
         "/production-targets",
         "/external-targets",
         "/development",
