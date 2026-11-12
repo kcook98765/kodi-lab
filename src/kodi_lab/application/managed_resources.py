@@ -43,6 +43,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceUseRow,
     ManagedRemoteGuardRow,
     ManagedStartReservationRow,
+    NativeZipInstallationRow,
     NovncSessionRow,
     TargetRow,
 )
@@ -246,7 +247,35 @@ class ManagedResourceService:
         actor: str | None,
         own_operation_id: UUID | None = None,
     ) -> None:
-        self.require_managed(session, instance_id)
+        instance = self.require_managed(session, instance_id)
+        if reason == "reset":
+            pending_native = list(
+                session.scalars(
+                    select(NativeZipInstallationRow).where(
+                        NativeZipInstallationRow.target_id == str(instance_id),
+                        NativeZipInstallationRow.runtime_revision_id
+                        == instance.runtime_revision_id,
+                        NativeZipInstallationRow.state.in_(("requested", "unverified")),
+                        (NativeZipInstallationRow.expires_at > timestamp(self._clock()))
+                        | NativeZipInstallationRow.zip_get_requested_at.is_not(None),
+                    )
+                )
+            )
+            if pending_native:
+                # Stop/retirement must be native-proven, never inferred from a
+                # cached stopped row. Old delivery cannot name a replacement CID.
+                records = [
+                    record
+                    for record in self._broker.managed_container_inventory().containers
+                    if record.managed_instance_id == str(instance_id)
+                ]
+                if len(records) > 1 or any(
+                    record.container_id == delivery.expected_container_id
+                    and record.runtime_state is not ContainerRuntimeState.STOPPED
+                    for delivery in pending_native
+                    for record in records
+                ):
+                    raise ManagedResourceProtected("native_installation_pending")
         lease = session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
         if lease is not None and lease.operation_id != str(own_operation_id):
             raise ManagedResourceProtected("active_operation")

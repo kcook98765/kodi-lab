@@ -458,7 +458,10 @@ class SqliteAddonZipInstallationResolver:
                 or instance.instance_type is not InstanceType.DISPOSABLE
                 or str(instance.runtime_revision_id) != row.runtime_revision_id
                 or artifact.extension_classification
-                is not AddonZipExtensionClassification.KODI_REPOSITORY
+                not in {
+                    AddonZipExtensionClassification.KODI_REPOSITORY,
+                    AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN,
+                }
                 or artifact.origin is not AddonZipOrigin.UPLOADED_ZIP
             ):
                 raise ValueError("native artifact authority unavailable")

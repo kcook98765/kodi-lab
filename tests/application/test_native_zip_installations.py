@@ -390,11 +390,21 @@ def test_delivery_detects_original_zip_tampering(native: Fixture) -> None:
         )
 
 
-def test_native_permission_is_explicit_and_does_not_expand_mcp_catalog(
+def test_native_permission_is_explicit_and_role_package_tools_stay_scoped(
     native: Fixture,
 ) -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 35
+    package_tools = {
+        "package_import",
+        "package_status",
+        "package_install",
+        "package_install_status",
+    }
+    assert package_tools.issubset(registry.names())
+    assert package_tools.isdisjoint(
+        native.authorization.discoverable_tools(native.principal)
+    )
+    assert all(not registry.require(name).production_eligible for name in package_tools)
     assert registry.discoverable(frozenset({"addon.install"})) == ()
     presets = native.admin.list_presets()
     assert all("addon.install" not in p.permissions for p in presets if p.builtin)

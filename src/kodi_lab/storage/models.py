@@ -130,6 +130,7 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.storage.agent_package_sql import PACKAGE_IMMUTABLE, PACKAGE_NO_DELETE
 from kodi_lab.storage.agent_project_sql import (
     PROJECT_INTAKE_IMMUTABLE,
     PROJECT_NO_DELETE,
@@ -9204,4 +9205,39 @@ for _project_trigger in (PROJECT_INTAKE_IMMUTABLE, PROJECT_NO_DELETE):
         AgentProjectRow.__table__,
         "after_create",
         DDL(_project_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+
+class AgentPackageRow(Base):
+    """Owner-scoped test-package identity, separate from editable projects."""
+
+    __tablename__ = "agent_packages"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="agent_package_request_once"),
+        CheckConstraint(
+            "state IN ('reserved','accepted','failed')", name="agent_package_state"
+        ),
+        CheckConstraint("length(archive_sha256)=64", name="agent_package_sha"),
+        CheckConstraint(
+            "length(provenance_reference) BETWEEN 1 AND 512",
+            name="agent_package_provenance",
+        ),
+        CheckConstraint("length(created_at)=27", name="agent_package_timestamp"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    archive_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    provenance_reference: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
+for _package_trigger in (PACKAGE_IMMUTABLE, PACKAGE_NO_DELETE):
+    event.listen(
+        AgentPackageRow.__table__,
+        "after_create",
+        DDL(_package_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )

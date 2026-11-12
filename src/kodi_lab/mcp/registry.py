@@ -475,6 +475,32 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             scope=ToolScope.GLOBAL,
         )
     )
+    for name, read_only, scoped in (
+        ("package_import", False, False),
+        ("package_status", True, False),
+        ("package_install", False, True),
+        ("package_install_status", True, False),
+    ):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset(
+                    {"workspace.inspect" if read_only else "workspace.edit"}
+                ),
+                effect=ToolEffect.READ_ONLY if read_only else ToolEffect.MUTATING,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset(),
+                required_states=frozenset(),
+                rate_class=ToolRateClass.DEVELOPMENT_READ
+                if read_only
+                else ToolRateClass.DEVELOPMENT_EDIT,
+                adapter="agent_package.reviewed_native_zip",
+                production_eligible=False,
+                target_scope_required=scoped,
+                scope=ToolScope.TARGET if scoped else ToolScope.GLOBAL,
+            )
+        )
     registry.register(
         McpToolDefinition(
             name="project_create",
