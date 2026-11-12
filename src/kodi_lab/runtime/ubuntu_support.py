@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -36,6 +37,36 @@ _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
 _VERSION = re.compile(r"[0-9][A-Za-z0-9.+:~_-]{0,95}\Z")
 _FILE = re.compile(r"[a-z0-9][a-zA-Z0-9.+_~%-]{0,191}\.deb\Z")
+
+# These four r3 artifacts disappeared from the moving archive. Their original
+# reviewed bytes are retained by the already used immutable Ubuntu snapshot.
+# This is an exact URL+content allowlist, not a mirror or replacement resolver.
+_R3_ARCHIVE_FALLBACKS = {
+    (
+        "https://archive.ubuntu.com/ubuntu/pool/main/p/perl/"
+        "libperl5.40_5.40.1-7ubuntu0.3_amd64.deb",
+        "cf480ce25c4dc859e48619df013f820f7259f02f93397cf9975de548fd356bce",
+    ): "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/p/perl/"
+    "libperl5.40_5.40.1-7ubuntu0.3_amd64.deb",
+    (
+        "https://archive.ubuntu.com/ubuntu/pool/main/p/perl/"
+        "perl_5.40.1-7ubuntu0.3_amd64.deb",
+        "e06e80879beca89fc363a5ecbc0e15ceae68aed20bc8e4ea952a10d45f69a47d",
+    ): "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/p/perl/"
+    "perl_5.40.1-7ubuntu0.3_amd64.deb",
+    (
+        "https://archive.ubuntu.com/ubuntu/pool/main/p/perl/"
+        "perl-base_5.40.1-7ubuntu0.3_amd64.deb",
+        "eae28e944eccca8ab1a5387dfec710ed32f66531880a6c2a3285ffd95d3b59f2",
+    ): "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/p/perl/"
+    "perl-base_5.40.1-7ubuntu0.3_amd64.deb",
+    (
+        "https://archive.ubuntu.com/ubuntu/pool/main/p/perl/"
+        "perl-modules-5.40_5.40.1-7ubuntu0.3_all.deb",
+        "19c81efa2c37662080df7d44289b9b5c516205ee8cf9c54410b0031ff2208e41",
+    ): "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/p/perl/"
+    "perl-modules-5.40_5.40.1-7ubuntu0.3_all.deb",
+}
 
 
 class SupportError(RuntimeError):
@@ -213,9 +244,26 @@ def fetch_support_packages(*, revision: int = 2) -> dict[str, bytes]:
             p.url, headers={"User-Agent": "Kodi-Lab-reviewed-support"}
         )
         try:
-            with opener.open(
-                request, timeout=min(30, max(0.1, deadline - time.monotonic()))
-            ) as response:
+            try:
+                response = opener.open(
+                    request, timeout=min(30, max(0.1, deadline - time.monotonic()))
+                )
+            except urllib.error.HTTPError as error:
+                fallback = (
+                    _R3_ARCHIVE_FALLBACKS.get((p.url, p.sha256))
+                    if revision == 3 and error.code == 404
+                    else None
+                )
+                if fallback is None:
+                    raise
+                error.close()
+                response = opener.open(
+                    urllib.request.Request(
+                        fallback, headers={"User-Agent": "Kodi-Lab-reviewed-support"}
+                    ),
+                    timeout=min(30, max(0.1, deadline - time.monotonic())),
+                )
+            with response:
                 payload = bytearray()
                 digest = hashlib.sha256()
                 while chunk := response.read(1024**2):
