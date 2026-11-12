@@ -126,6 +126,7 @@
       const find = name => card.querySelector(`[data-slot-${name}]`);
       for (const [name, content] of [["preparation", value.preparation], ["state", value.state_label], ["native", value.native], ["message", value.message]]) text(find(name), content);
       find("clean").hidden = !value.reset_note;
+      find("primary-actions").hidden = value.preparation === "Installation needed";
       for (const button of card.querySelectorAll("[data-slot-action]")) {
         const action = button.dataset.slotAction;
         button.disabled = busy || !!saved || !!confirmation || !value[action];

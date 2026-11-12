@@ -3751,6 +3751,7 @@ def create_app(
 
     @app.get("/development", response_class=HTMLResponse)
     @app.get("/settings", response_class=HTMLResponse)
+    @app.get("/external-kodi", response_class=HTMLResponse)
     async def navigation_landing_page(
         request: Request,
         authenticated: AuthenticatedWebSession = Depends(current_session),

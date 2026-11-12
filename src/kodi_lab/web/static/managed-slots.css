@@ -11,6 +11,7 @@
 .managed-slot dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.35rem .8rem; }
 .managed-slot dd { margin:0; }
 .slot-actions { display:flex; flex-wrap:wrap; gap:.65rem; align-items:flex-start; }
+.slot-actions[hidden] { display:none; }
 .slot-actions > div { flex:1 1 8rem; min-width:0; }
 .slot-actions button,.slot-actions .button-link,[data-slots-refresh],[data-slot-resume] { min-height:44px; padding:.65rem .85rem; }
 .managed-slot pre,[data-slot-receipt] { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.85rem; }

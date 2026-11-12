@@ -112,7 +112,7 @@ def test_visible_agent_controls_preserve_every_stored_authority_row(
     assert credential.json()["token"] not in response.text
     assert f'data-target-id="{household}"' in response.text
     assert f'data-target-id="{EXTERNAL_TARGET_ID}"' in response.text
-    assert "Viewing these controls grants no access" in response.text
+    assert "deliberately grant Trusted Managed Lab once" in response.text
     parser = Selects()
     parser.feed(response.text)
     for control in parser.selects:
@@ -126,7 +126,8 @@ def test_visible_agent_controls_preserve_every_stored_authority_row(
                 assert {o["value"] for o in control["options"] if o["value"]} == {
                     p["id"]
                     for p in presets
-                    if p["display_name"] == "Production Inspection"
+                    if p["display_name"]
+                    in {"Production Inspection", "Read-only Inspection"}
                 }
         elif attributes.get("aria-label", "").startswith("Policy for "):
             assert selected == [""] and control["advanced"]

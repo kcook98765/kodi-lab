@@ -31,8 +31,8 @@ def test_landing_empty_keeps_next_actions_and_advanced_controls(
     login(client)
     page = client.get("/kodi").text
     assert "No devices registered yet" in page
-    assert 'href="/production-targets"' in page
-    assert 'href="/mcp-clients">Open Agents &amp; Permissions' in page
+    assert 'href="/external-kodi"' in page
+    assert 'href="/mcp-clients">Open Agents' in page
     assert "Fixture and reset" not in page
     assert '<section id="managed-details"' not in page
     managed = client.get("/managed-instances").text
@@ -95,14 +95,14 @@ def test_home_household_is_recorded_and_network_free(
         event.remove(bind, "before_cursor_execute", record)
     assert response.status_code == 200
     primary = response.text
-    assert primary.count('class="kodi-card"') == 4
+    assert primary.count('class="kodi-card"') == 3
     assert primary.count('class="managed-slot"') == 0
     assert "app.js" not in primary and "managed-resources.js" not in primary
     assert "managed-slots.js" not in primary
     assert "Living room" not in primary
     assert str(household) not in primary
     assert "recorded information" in primary
-    assert "Registered devices: <strong>1</strong>" in primary
+    assert "Production devices: <strong>1</strong>" in primary
     assert (
         "0 connected, 1 disconnected" in primary
         if unreachable
@@ -158,9 +158,9 @@ def test_agents_requires_deliberate_preset_and_supported_config(
     )
     assert custom.status_code == 201
     page = client.get("/mcp-clients").text
-    assert "<h1>Agents &amp; Permissions</h1>" in page
-    assert page.index("Create or select a client") < page.index("Create custom preset")
-    assert '<option value="" selected>Choose a preset' in page
+    assert "<h1>Agents</h1>" in page
+    assert page.index("Connect a coding agent") < page.index("Create custom preset")
+    assert '<option value="" selected>Choose agent access' in page
     recommended = re.search(
         r'<optgroup label="Read-only External Production Kodi inspection">'
         r"(.*?)</optgroup>",

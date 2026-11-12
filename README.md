@@ -1,6 +1,6 @@
 # Kodi Lab
 
-**Self-hosted Kodi development, testing, and MCP integration for AI agents.**
+**Agent-operated Kodi add-on development and testing, with a simple operator Web UI.**
 
 Kodi Lab provides a Web interface and a permission-controlled Model Context
 Protocol (MCP) server for working with Kodi. Connect installations you already
@@ -20,15 +20,16 @@ using MCP-compatible coding agents.
   **only one managed Kodi instance runs at a time**.
   Broker admission prevents a second writable profile for the same version;
   conflicting older profiles require administrator review without automatic deletion.
-- Develop and test one add-on workspace in **Current Managed Kodi**, using
-  disposable profiles or explicitly enabled retained profiles for each version.
+- Grant **Trusted Managed Lab** once so an agent can create or import its own
+  projects, edit, deploy, launch, inspect and Reset installed managed versions.
 - Inspect Kodi UI state and capture screenshots. View supported managed Kodi
   through [noVNC](docs/STANDARD-NOVNC.md) (about 2 FPS, view-only by default,
   with optional human control; no audio).
-- Grant MCP-compatible agents access only to selected Kodi targets and
-  explicitly authorized operations.
-- Manage runtime installation, connections, permissions, and development
-  workflows from the Web UI.
+- Keep external Kodi under independent per-device permissions, including for
+  agents that already have Trusted Managed Lab authority.
+- Use the Web UI to install managed versions, connect external Kodi, authorize
+  agents, view screens and Take Control. Recovery and legacy project controls
+  remain under **Advanced**.
 
 ## Architecture at a glance
 
@@ -46,14 +47,14 @@ After signing in, **Overview** (`/kodi`) links to three choices:
 | Choice | Use it to |
 | --- | --- |
 | **Managed Kodi** (`/managed-kodi`) | Run Kodi hosted by Kodi Lab for testing, with a separate profile per version. |
-| **External Production Kodi** (`/production-targets`) | Connect an existing household Kodi on your own device. |
-| **External Development Kodi** (`/external-targets`) | Connect Kodi running on another development device for add-on testing. |
+| **External Kodi** (`/external-kodi`) | Connect an existing household or development Kodi, with independent permissions. |
+| **Agents** (`/mcp-clients`) | Connect an agent and deliberately grant its managed or external authority. |
 
 Managed setup downloads and validates a reviewed runtime when needed. Starting
-and viewing Managed Kodi needs no agent, workspace or Bridge pairing. For add-on
-development, **Development Tools → Current Managed Kodi** (`/development-session`)
-adds a selected workspace and development profile; see the
-[walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+and viewing Managed Kodi needs no agent, workspace or Bridge pairing. Trusted
+agents manage their own projects through MCP without Web workspace selection.
+Legacy selected-project workflows remain under **Advanced → Development tools**;
+see the [walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
 
 The external pages offer **Connect External Production Kodi** or **Connect External
 Development Kodi** through the existing connection and pairing workflow. Kodi Lab
@@ -191,17 +192,22 @@ To use Kodi hosted by Kodi Lab:
 2. If installation is needed, choose **Create Managed Kodi for this version…**,
    then **Install and prepare**. Setup leaves Kodi stopped by default. Return
    using **Return to Managed Kodi versions**.
-3. Select **Start Kodi**. An existing stopped profile resumes; an empty slot
-   uses the approved cached image. Wait for **Running** and **View Screen** to
+3. Select **Start Kodi** for the installed version. An empty slot requires
+   **Create Managed Kodi for this version…** first. Wait for **Running** and **View Screen** to
    become available, then choose **View Screen → Start Viewing**.
    Viewing starts view-only; **Take Control** is a separate explicit action.
 4. Select **Stop Kodi** to preserve that version's settings and installed add-ons.
 
 This manual **Install and prepare → Start Kodi → View Screen → Stop Kodi** workflow
 is available now. Only one managed Kodi runs at a time: deliberately Stop one
-version before starting another. Automatic version switching is not implemented.
-Native Kodi readiness does not establish Bridge readiness, agent inspection
-authorization or successful add-on execution.
+version before starting another. Agents can compose the same explicit Stop and
+Start operations; Kodi Lab does not evict a running version automatically.
+Fresh Web installation also prepares the compatible reviewed Narrow Bridge.
+Native readiness and stored Bridge trust remain separate from live inspection
+and successful add-on execution. In **Agents**, choose **Managed Kodi agent** and
+deliberately enable **Trusted Managed Lab** once. The agent can create/import
+its projects and use installed versions without Web workspace selection.
+External devices still require separate explicit permissions.
 
 **Reset Kodi**, under the version's **Advanced options**, requires confirmation
 and intentionally discards its writable Kodi profile, settings and installed
@@ -215,7 +221,7 @@ automatically migrate existing profiles. See the
 administration, and the [agent lifecycle](docs/MANAGED-VERSION-LIFECYCLE.md) and
 [clean Reset](docs/MANAGED-CLEAN-RESET.md) contracts for separately authorized agents.
 
-To connect Kodi on another device, choose **External Production Kodi** or
+To connect Kodi on another device, open **External Kodi**, then choose **External Production Kodi** or
 **External Development Kodi** from Overview and follow its connection workflow.
 See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
 [reconnection](docs/KODI-RECONNECT.md), and
@@ -225,47 +231,47 @@ See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kod
 
 **Choose add-on project → Choose Kodi version → Develop and test.**
 
-Open **Development Tools → Current Managed Kodi**. Select an eligible local project
-and its development agent, then choose Matrix, Nexus, Omega or Piers using the retained
-profile controls. Kodi Lab automatically registers or reuses the internal source,
-approves only that project for the selected agent, and prepares or reuses its
-private workspace. Selecting it again keeps workspace edits and existing profiles.
+Install the desired managed versions in the Web UI. In **Agents**, choose
+**Managed Kodi agent**, explicitly enable **Trusted Managed Lab**, and issue
+the agent a credential. The agent creates a project or imports a bounded reviewed
+source package, edits and validates its private workspace, then selects an
+installed managed version for deployment, launch and inspection. It can Stop one
+version and Start another, use supported GUI actions, or Reset an idle profile
+with reviewed Bridge preparation. No individual source registration or Web
+workspace selection is needed for this workflow.
 
-An administrator first configures the [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development)
-and an enabled development client. The project may contain addon.xml directly or
-one immediate installable add-on subdirectory. No host directory is guessed.
+See [agent-owned projects](docs/AGENT-PROJECTS.md),
+[Trusted Managed Lab](docs/TRUSTED-MANAGED-LAB.md) and
+[agent Reset](docs/MANAGED-AGENT-RESET.md) for supported inputs, exact operation
+identity and recovery. Source implementation and fixture success are distinct
+from the integrated native qualification tracked in
+[#310](https://github.com/kcook98765/kodi-lab/issues/310).
 
-Use **Start Kodi**, open its screen, then **Edit, validate and deploy/test**.
-**Check add-on testing setup** shows any remaining guarded source baseline,
-installation or Bridge prerequisites. Project preparation alone does not prove
-native readiness or successful deployment. **Stop Kodi** keeps the profile.
-
-Automatic approval covers only the selected client/project; target control,
-destructive Reset, source promotion and production access keep their separate
-permissions. [Workflow details and supported layouts](docs/LOCAL-PROJECT-ONBOARDING.md)
-include replay and recovery behavior. Manual source registration and advanced
-client grants remain available for unusual cases under **More options and Advanced**.
-
-For an explicitly approved local agent, [trusted local development setup](docs/TRUSTED-LOCAL-DEVELOPMENT.md)
-provides managed Start/Stop, editing, deployment and Program entry launch without
-general Kodi control. Navigation remains a separate follow-up.
+The existing manually selected workflow remains under **Advanced → Development
+tools → Current Managed Kodi**. Its [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development),
+[project onboarding](docs/LOCAL-PROJECT-ONBOARDING.md) and
+[walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough) retain their
+separate source, workspace and client permissions.
 
 ## Connect Your AI Agent
 
-Open **Agents & Permissions** (`/mcp-clients`) and use a separate client for each
-agent. Choose the read-only setup for your kind of Kodi:
+Open **Agents** (`/mcp-clients`) and use a separate client for each agent. Select
+its purpose and deliberately grant the required authority:
+
+- **Managed Kodi agent:** explicitly enable **Trusted Managed Lab** for autonomous
+  development across installed managed versions. It grants no external access.
 
 - **External Production Kodi:** choose **Production Inspection**, grant
   that Kodi, then **Grant current inspect scope**. This preset is production-only.
-- **Managed Kodi:** open **Managed Kodi — Read-only inspection** in the connection
-  guide. Select your existing client and exact Kodi; the next-step guidance opens
+- **Limited managed inspection:** open **Advanced → Managed Kodi — Read-only
+  inspection** in the connection guide. Select your existing client and exact Kodi; the next-step guidance opens
   the existing controls for an inspect-only custom preset, Kodi policy and target
   grant. Reuse a suitable preset or explicitly save one with only `target.inspect`.
   Supported screenshots use this inspection permission. Each change requires an
   explicit save; no client, grant or credential is created while browsing setup.
 
 Issue a token and save it in the agent's private environment. A token does not
-replace the Kodi policy or target grant. Keep an existing suitable client and
+replace the role or independent external Kodi policy and grant. Keep a suitable client and
 unexpired credential rather than creating another for each connection.
 
 For **OpenCode on the same computer**, add this to
@@ -289,7 +295,7 @@ For **OpenCode on the same computer**, add this to
 Set the token without putting it in a command argument, then launch OpenCode:
 
 ```sh
-read -r -s -p "Token from Agents & Permissions: " KODI_LAB_MCP_TOKEN
+read -r -s -p "Token from Agents: " KODI_LAB_MCP_TOKEN
 export KODI_LAB_MCP_TOKEN
 opencode
 ```

@@ -8,8 +8,9 @@ workspace, Bridge pairing or an agent.
 1. Choose a version. If installation is needed, select **Create Managed Kodi for
    this version…**, then **Install and prepare**. Setup leaves Kodi stopped by
    default; select **Return to Managed Kodi versions** when it finishes.
-2. Select **Start Kodi**. A prepared profile resumes with its settings and add-ons;
-   an empty slot is prepared from its approved cached image. Wait for **Running**
+2. Select **Start Kodi** for the installed version. A prepared profile resumes
+   with its settings and add-ons; an empty slot requires **Create Managed Kodi
+   for this version…** first. Wait for **Running**
    and **View Screen** to become available. A saved request or **Starting** is
    not proof Kodi is ready. **Advanced options → Kodi connection check** shows
    native readiness separately.
@@ -37,9 +38,12 @@ are preserved under their existing retention rules.
 
 Old Bridge pairing/trust, installed-add-on assumptions, deployment baselines,
 readiness, viewing tickets and cached observations cannot prove anything about
-the replacement. Follow **Set up for add-on testing**: choose the existing
-workspace, explicitly bind the replacement through Current Managed Kodi's supported
-selection, complete development preparation and deploy fresh workspace files.
+the replacement. After human Web Reset, follow **Set up for add-on testing** to
+prepare Bridge again. Trusted Managed Lab agents can deploy their own projects
+without human workspace selection. Their MCP Reset composes reviewed Bridge
+preparation automatically, with separate durable evidence; see
+[agent Reset](MANAGED-AGENT-RESET.md). Legacy selected-project clients explicitly
+bind the replacement through Current Managed Kodi and deploy fresh workspace files.
 Native readiness does not establish Bridge readiness, inspection authorization
 or successful add-on execution. Automatic reattachment of an old development
 session is a separate follow-up.
@@ -70,7 +74,7 @@ See [clean Reset](MANAGED-CLEAN-RESET.md) and
 Each card's **Advanced options** section retains exact identity/readiness and links to
 profile/Bridge diagnostics and operation history. The page's **Advanced managed
 administration** retains registrations, recovery, runtime installation/approval
-and resource settings. **Development Tools → Current Managed Kodi** selects a
+and resource settings. **Advanced → Development tools → Current Managed Kodi** selects a
 workspace and development profile. Its lifecycle controls and the Advanced
 instance-detail controls remain available for development/recovery.
 Guided installation prepares stopped Kodi by default and returns to the version
@@ -82,8 +86,9 @@ coordinators. It rechecks the live session inside consequential lifecycle
 transactions and binds human consent to the exact observed version/profile.
 It never creates or impersonates an MCP client, credential, preset or target grant.
 A reserved administrator receipt-owner namespace uses the existing parent receipt
-schema; MCP authorization explicitly refuses that namespace. Existing MCP grants
-and destructive permission requirements are unchanged.
+schema; MCP authorization explicitly refuses that namespace. Existing MCP clients
+and grants are unchanged unless an administrator explicitly assigns Trusted
+Managed Lab. That role includes managed Reset and grants no external authority.
 
 Migration `0005_managed_web` adds only the immutable browser-intent ledger. It
 changes no runtime/profile data, grants, presets or resource policy. Historical
@@ -98,8 +103,8 @@ populated Nexus Reset in [#274](https://github.com/kcook98765/kodi-lab/issues/27
 Those closed issues retain their exact versions and limitations; they do not
 qualify every runtime, browser or platform. The current Windows/WSL2 managed
 development workflow remains tracked in
-[#275](https://github.com/kcook98765/kodi-lab/issues/275). Automatic version
-switching is not implemented.
+[#275](https://github.com/kcook98765/kodi-lab/issues/275). Trusted agents compose
+explicit Stop and Start for version switching; no running version is evicted.
 
 Start and Stop do not wait for historical agent activity. A stopped retained
 profile can start immediately after a successful Stop. Start creates no implicit
