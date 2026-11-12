@@ -98,6 +98,12 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
                 "0005_managed_web_intents.py",
                 "0006_external_screenshots.py",
                 "0007_production_navigation.py",
+                "0008_managed_bridge_preparation.py",
+                "0009_trusted_managed_lab.py",
+                "0010_agent_projects.py",
+                "0011_agent_project_versions.py",
+                "0012_agent_project_intake.py",
+                "0013_agent_packages.py",
             }
         )
         for kind in ("templates", "static"):

@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from kodi_lab import remote_lifecycle
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
@@ -83,9 +84,13 @@ def repository_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
     tree = tmp_path / "future-migrations"
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
+    current = Config()
+    current.set_main_option("script_location", str(tree))
+    current_head = ScriptDirectory.from_config(current).get_current_head()
+    assert current_head is not None
     (tree / "versions/0002_future_test.py").write_text(
         "from alembic import op\n"
-        "revision='0002_future_test'\ndown_revision='0007_production_navigation'\n"
+        f"revision='0002_future_test'\ndown_revision='{current_head}'\n"
         "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
         "def downgrade(): op.execute('DROP TABLE future_marker')\n"
     )

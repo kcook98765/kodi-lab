@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from kodi_lab import remote_lifecycle
 from kodi_lab.host_bootstrap import (
@@ -87,9 +88,13 @@ def migrations(
 
     tree = tmp_path_factory.mktemp("forward-migrations") / "migrations"
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
+    current = Config()
+    current.set_main_option("script_location", str(tree))
+    current_head = ScriptDirectory.from_config(current).get_current_head()
+    assert current_head is not None
     (tree / "versions/0002_public_test.py").write_text(
         "from alembic import op\n"
-        "revision='0002_public_test'\ndown_revision='0007_production_navigation'\n"
+        f"revision='0002_public_test'\ndown_revision='{current_head}'\n"
         "def upgrade(): op.execute('CREATE TABLE future_marker (id INTEGER)')\n"
         "def downgrade(): op.execute('DROP TABLE future_marker')\n"
     )
