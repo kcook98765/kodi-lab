@@ -1,5 +1,10 @@
 # Agent-first redesign qualification — 2026-11-11/12
 
+The subsequent [Matrix/Piers native campaign](MATRIX-PIERS-AGENT-QUALIFICATION.md)
+records both remaining versions' actual native development, GUI, Reset/Bridge,
+switching and isolation evidence, plus the newer installed application checkpoint.
+The results and commands below retain their original campaign context.
+
 This campaign implemented #303/#304–#310 on Claw (Ubuntu 24.04, Linux amd64). Source integration and the native Nexus/Omega development path are demonstrated. Integrated qualification remains **PARTIAL** because long human viewer sessions and native GUI ZIP installation did not complete reliably. No public release, publication or tag was performed.
 
 ## Exact checkpoints
