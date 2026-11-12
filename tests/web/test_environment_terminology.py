@@ -102,8 +102,8 @@ def test_current_managed_identity_is_distinct_from_version_slots(
     page = client.get("/development-session")
     assert page.status_code == 200
     assert "Current Managed Kodi" in page.text
-    assert "selected with an add-on workspace" in page.text
-    assert "Selecting a retained version keeps the other profiles." in page.text
+    assert "Choose your project and Kodi version" in page.text
+    assert "Switching retained versions keeps the other profiles." in page.text
     assert 'href="/managed-kodi"' in page.text
     assert set(IdentityLabels(page.text).types) == {"managed"}
     assert "data-managed-slots" not in page.text
@@ -123,7 +123,8 @@ def test_grouped_identity_is_not_repeated_on_every_card(
     login(client)
     client.cookies.set("kodi_lab_admin_view", "development")
     overview = client.get("/kodi").text
-    assert IdentityLabels(overview).types.count("external_production") == 1
+    assert IdentityLabels(overview).types == ["managed"]
+    assert 'id="external-summary-heading">External Kodi' in overview
     for path, kind in [
         ("/production-targets", "external_production"),
         ("/external-targets", "external_development"),

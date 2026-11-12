@@ -138,7 +138,7 @@ def test_empty_kodi_list(client: TestClient) -> None:
     page = client.get("/kodi")
     assert page.status_code == 200
     assert "No devices registered yet" in page.text
-    assert 'href="/production-targets"' in page.text
+    assert 'href="/external-kodi"' in page.text
     assert 'data-target-id="' not in page.text
 
 
@@ -151,7 +151,7 @@ def test_detail_safe_auth_and_classification(
     for target in (INSTANCE_ID, EXTERNAL_TARGET_ID, uuid4()):
         assert client.get(f"/kodi/{target}").status_code == 404
     page = detail(client, household)
-    assert 'href="/production-targets" aria-current="page"' in page
+    assert 'href="/external-kodi" aria-current="page"' in page
     assert "Living room" in page
     assert 'data-status="connected">Connected' in page
     assert "21.3" in page and "Verified relationship" in page
@@ -370,7 +370,10 @@ def test_remote_configuration_is_not_authorization(
     page = detail(client, household)
     assert "<dt>Remote control</dt>" not in page
     assert f'data-navigation-preference="{household}"' in page
-    assert "These settings do not grant an agent access" in page
+    assert "agents authorized to inspect this exact Kodi may use" in page
+    assert (
+        "Select, Context Menu, playback and volume receive no additional access" in page
+    )
     assert "<button" not in page.split("<main ")[1]
 
 

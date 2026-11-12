@@ -100,8 +100,12 @@ def test_pending_or_invalidated_production_keeps_category(
     for path in ("/kodi", f"/kodi/{target.target_id}", "/production-targets"):
         response = client.get(path)
         assert response.status_code == 200
-        assert "External Production Kodi" in response.text
-        assert "external_production" in IdentityLabels(response.text).types
+        if path == "/kodi":
+            assert 'id="external-summary-heading">External Kodi' in response.text
+            assert "Production devices:" in response.text
+        else:
+            assert "External Production Kodi" in response.text
+            assert "external_production" in IdentityLabels(response.text).types
         assert 'data-status="connected"' not in response.text
     assert service.get(target.target_id).target_class == "external_production"
 
@@ -147,20 +151,25 @@ def test_identity_pages_keep_links_and_accessible_labels(
             assert environment_identity(kind).display_name in response.text
         pages[path] = response.text
     overview = pages["/kodi"]
-    assert set(IdentityLabels(overview).types) == {kind.value for kind in TargetType}
+    assert IdentityLabels(overview).types == ["managed"]
+    assert "Production devices:" in overview and "Development devices:" in overview
     for destination in (
         "/managed-kodi",
-        "/production-targets",
-        "/external-targets",
+        "/external-kodi",
         "/mcp-clients",
     ):
         assert f'href="{destination}"' in overview
+    external = client.get("/external-kodi").text
+    for destination in ("/production-targets", "/external-targets"):
+        assert f'href="{destination}"' in external
     assert 'data-status="connected"' in pages[f"/kodi/{household}"]
     assert 'data-slot="omega"' not in overview
     managed = client.get("/managed-kodi").text
     assert set(IdentityLabels(managed).types) == {"managed"}
     assert 'data-slot="omega"' in managed
+    assert "data-slot-install" in managed
     assert 'data-slot-action="start"' in managed
+    assert "data-slot-primary-actions hidden" in managed  # Empty slots show Create.
     assert str(household) not in managed
     assert "Living room" not in managed
     # Optional controller-rendered fixtures for an entirely intercepted browser.

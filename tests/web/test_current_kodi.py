@@ -313,7 +313,7 @@ def test_current_page_and_advanced_are_accessible_in_both_presentation_modes(
         ):
             assert f'href="{destination}"' in advanced
         page = client.get("/development-session").text
-        assert 'href="/development" aria-current="page"' in page
+        assert 'href="/settings" aria-current="page"' in page
         assert "This is a Development administration page" not in page
 
 
