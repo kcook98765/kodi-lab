@@ -15,8 +15,11 @@ automatic development-repository provisioning, trusted-agent feed publication,
 new Bridge command or dependency downloader was added. Source deployment and
 native repository installation are separate claims.
 
-The [native feasibility report](MANAGED-ADDON-INSTALLATION-QUALIFICATION.md)
-records real four-version observations, fixture boundaries and preservation.
+The [repository installation report](MANAGED-ADDON-INSTALLATION-QUALIFICATION.md)
+records the earlier installer investigation. The current
+[source development qualification](MANAGED-SOURCE-DEVELOPMENT-QUALIFICATION.md)
+records larger source intake, module execution, updates and native denials on
+the four approved versions.
 
 ## Supported unattended workflow
 
@@ -38,6 +41,13 @@ retains its independent authority model.
 3. Wait for `workspace_status` to report the captured generation. Use
    `workspace_read`, `workspace_tree` and generation-bound `workspace_edit` as
    needed. Save each resulting generation; never guess or increment one locally.
+   Reads default to 200 lines. Follow `next_line` using `start_line` until
+   `next_line` is null, checking the same generation and file SHA-256 on every
+   page. Do not replace a whole file with a partial read. Existing edit limits
+   remain: 48 KiB aggregate UTF-8 text and a 64 KiB request. `replace` requires
+   complete resulting file text; `exact_patch` requires both complete expected
+   and resulting file texts within the aggregate bound. Larger imported files
+   do not gain a larger MCP mutation payload.
 4. Validate that generation with `workspace_validate`, then inspect durable
    prerequisites with `workspace_deploy_preflight`. Validation is structural,
    not execution or a promise that all dependencies are available. Preflight
