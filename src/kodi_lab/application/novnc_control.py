@@ -22,6 +22,7 @@ from kodi_lab.storage.models import (
     ManagedRemoteGuardRow,
     NovncSessionRow,
 )
+from kodi_lab.viewer_diagnostics import diagnostic
 
 MAX_SESSION_SECONDS = 600
 
@@ -158,34 +159,63 @@ class HumanViewerOwnership:
             )
 
     def renew(self, instance: UUID, attempt: UUID, owner: str) -> bool:
-        with self.sessions.begin() as db:
-            # A late check must not write through to a replacement attempt.
-            # Take the writer lock before sampling time, so a lock wait cannot
-            # revive a lease that expired while this renewal was waiting.
-            db.execute(text("BEGIN IMMEDIATE"))
-            now = datetime.now(UTC)
-            expires = timestamp(now + timedelta(seconds=2))
-            result = db.execute(
-                update(NovncSessionRow)
-                .where(
-                    NovncSessionRow.instance_id == str(instance),
-                    NovncSessionRow.attempt == str(attempt),
-                    NovncSessionRow.owner == owner,
-                    NovncSessionRow.state == "active",
-                    NovncSessionRow.expires_at > timestamp(now),
-                    NovncSessionRow.absolute_expires_at > timestamp(now),
-                )
-                .values(
-                    expires_at=case(
-                        (
-                            NovncSessionRow.absolute_expires_at < expires,
-                            NovncSessionRow.absolute_expires_at,
-                        ),
-                        else_=expires,
+        began = time.monotonic()
+        locked = updated = 0.0
+        completed = matched = False
+        phase = "ownership_lock"
+        try:
+            with self.sessions.begin() as db:
+                # A late check must not write through to a replacement attempt.
+                # Take the writer lock before sampling time, so a lock wait cannot
+                # revive a lease that expired while this renewal was waiting.
+                db.execute(text("BEGIN IMMEDIATE"))
+                locked = time.monotonic()
+                phase = "ownership_update"
+                now = datetime.now(UTC)
+                expires = timestamp(now + timedelta(seconds=2))
+                result = db.execute(
+                    update(NovncSessionRow)
+                    .where(
+                        NovncSessionRow.instance_id == str(instance),
+                        NovncSessionRow.attempt == str(attempt),
+                        NovncSessionRow.owner == owner,
+                        NovncSessionRow.state == "active",
+                        NovncSessionRow.expires_at > timestamp(now),
+                        NovncSessionRow.absolute_expires_at > timestamp(now),
+                    )
+                    .values(
+                        expires_at=case(
+                            (
+                                NovncSessionRow.absolute_expires_at < expires,
+                                NovncSessionRow.absolute_expires_at,
+                            ),
+                            else_=expires,
+                        )
                     )
                 )
-            )
-            return int(getattr(result, "rowcount", 0)) == 1
+                matched = int(getattr(result, "rowcount", 0)) == 1
+                updated = time.monotonic()
+                phase = "ownership_commit"
+            completed = True
+            return matched
+        finally:
+            ended = time.monotonic()
+            if ended - began >= 0.1:
+                # Slow checks only; no SQL, owner secret, exception or row data.
+                diagnostic(
+                    "ownership_renewed",
+                    instance=instance,
+                    attempt=attempt,
+                    phase=phase,
+                    reason="task_completed" if completed else "failed",
+                    accepted=completed and matched,
+                    elapsed_ms=int((ended - began) * 1000),
+                    lock_ms=int(((locked or ended) - began) * 1000),
+                    update_ms=int(((updated or ended) - locked) * 1000)
+                    if locked
+                    else 0,
+                    commit_ms=int((ended - updated) * 1000) if updated else 0,
+                )
 
     def revoke(
         self, instance: UUID, attempt: UUID | None = None, owner: str | None = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.novnc_control import HumanViewerOwnership, timestamp
 from kodi_lab.storage.models import NovncSessionRow
+from kodi_lab.viewer_diagnostics import LOGGER
 
 from .conftest import INSTANCE_ID
 from .test_novnc_control import BINDING, OWNER
@@ -76,7 +79,12 @@ def test_delayed_renewal_cannot_shorten_or_extend_successor(
 
 def test_expiry_while_waiting_for_writer_does_not_revive_control(
     database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    monkeypatch.setattr(logging.getLogger(LOGGER), "disabled", False)
+    monkeypatch.setattr(logging.getLogger(LOGGER), "propagate", True)
+    caplog.set_level(logging.INFO, logger=LOGGER)
     ownership = HumanViewerOwnership(database)
     attempt, broker = view_attempt(), str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
@@ -111,6 +119,9 @@ def test_expiry_while_waiting_for_writer_does_not_revive_control(
                 db.flush()  # This transaction holds the writer until after expiry.
                 future = pool.submit(renew)
                 assert waiting.wait(2)
+                expires = datetime.now(UTC) + timedelta(milliseconds=200)
+                row.expires_at = timestamp(expires)
+                db.flush()
                 while datetime.now(UTC) <= expires:
                     time.sleep(0.01)
                 assert not future.done()
@@ -118,5 +129,10 @@ def test_expiry_while_waiting_for_writer_does_not_revive_control(
         with database() as db:
             row = db.get(NovncSessionRow, str(INSTANCE_ID))
             assert row and row.expires_at == timestamp(expires)
+        records = [json.loads(r.message) for r in caplog.records if r.name == LOGGER]
+        evidence = next(r for r in records if r["event"] == "ownership_renewed")
+        assert evidence["lock_ms"] >= 100
+        assert evidence["accepted"] is False
+        assert evidence["phase"] == "ownership_commit"
     finally:
         event.remove(engine, "before_cursor_execute", before_cursor_execute)
