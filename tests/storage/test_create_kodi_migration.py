@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import CheckConstraint, inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -58,15 +59,29 @@ def test_upgrade_is_additive_matches_orm_and_reinitialization(
             for constraint in metadata.tables["create_kodi_operations"].constraints
             if isinstance(constraint, CheckConstraint)
         }
-        assert checks == expected
+        # Bridge-required intent is added by 0008, after this exact 0002 check.
+        assert checks == {
+            name: value
+            for name, value in expected.items()
+            if name != "create_bridge_required"
+        }
         assert c.scalar(text("PRAGMA integrity_check")) == "ok"
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
     command.upgrade(config, NEW)
+    # The current repository requires the later Bridge-required column.
+    command.upgrade(config, "head")
     # Use the production repository against the migrated, not ORM-created, table.
     op = accept(service(url))
     assert service(url).get(op.id) == op
     with engine.connect() as c:
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == NEW
+        assert (
+            c.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
+        )
+        assert {
+            row["name"]: "".join(row["sqltext"].split())
+            for row in inspect(c).get_check_constraints("create_kodi_operations")
+        } == {name: "".join(value.split()) for name, value in expected.items()}
         assert c.scalar(text("SELECT count(*) FROM create_kodi_operations")) == 1
     engine.dispose()
 
@@ -92,6 +107,7 @@ def test_sql_constraints_reject_invalid_records(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     command.upgrade(config, NEW)
+    command.upgrade(config, "head")
     accept(service(url))
     engine = create_database_engine(url)
     with engine.begin() as c, pytest.raises(IntegrityError):
