@@ -1,5 +1,11 @@
 # Matrix/Piers native agent-first qualification — 2026-11-12
 
+Later on November 12, the [viewer/Piers follow-up](VIEWER-PIERS-QUALIFICATION.md)
+accepted genuinely fresh guided Piers Create, its first native viewer and retained
+reuse. It also records measured viewer corrections and five-minute Omega/Nexus
+observations; sustained reliability remains PARTIAL for distinct residual failures.
+The evidence and checkpoints below retain this earlier campaign's context.
+
 **Matrix 19.4 native core: PASS. Piers 22.0-rc.1 native core: PASS. Integrated
 release qualification: PARTIAL.** Campaign [#336](https://github.com/kcook98765/kodi-lab/issues/336)
 extends [#303](https://github.com/kcook98765/kodi-lab/issues/303) and

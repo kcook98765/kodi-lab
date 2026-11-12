@@ -5,6 +5,11 @@ records both remaining versions' actual native development, GUI, Reset/Bridge,
 switching and isolation evidence, plus the newer installed application checkpoint.
 The results and commands below retain their original campaign context.
 
+The later [viewer/Piers follow-up](VIEWER-PIERS-QUALIFICATION.md) records fresh
+guided Piers Create and first-viewer native PASS, measured viewer corrections,
+five-minute Omega/Nexus observations and the remaining distinct viewer failures.
+Native GUI ZIP installation remains a separate capability outside that campaign.
+
 This campaign implemented #303/#304–#310 on Claw (Ubuntu 24.04, Linux amd64). Source integration and the native Nexus/Omega development path are demonstrated. Integrated qualification remains **PARTIAL** because long human viewer sessions and native GUI ZIP installation did not complete reliably. No public release, publication or tag was performed.
 
 ## Exact checkpoints
