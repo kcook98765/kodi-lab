@@ -66,7 +66,7 @@ def verify_owned_dependencies(
     module = "xbmc.python.module" in descriptor.extension_types or (
         source is not None and "xbmc.python.module" in source.extension_types
     )
-    if not module and not dependencies:
+    if not module and not descriptor.dependencies:
         return
     if module and python_module_library(descriptor) is None:
         refuse("project_module_descriptor_unsupported")
