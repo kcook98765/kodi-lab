@@ -99,3 +99,27 @@ def python_service_descriptor_eligible(
         and not entries[0].has_platform_library
         and safe_launch_library(entries[0].library)
     )
+
+
+def python_module_library(descriptor: DevelopmentSourceValidationResult) -> str | None:
+    """One passive source module, with a safe directory and no module closure."""
+    entries = [
+        item for item in descriptor.extensions if item.point != "xbmc.addon.metadata"
+    ]
+    if (
+        not descriptor.addon_id.startswith("script.module.")
+        or len(entries) != 1
+        or entries[0].point != "xbmc.python.module"
+        or entries[0].has_platform_library
+        or any(item.dependency_id != "xbmc.python" for item in descriptor.dependencies)
+    ):
+        return None
+    library = entries[0].library
+    if (
+        not library
+        or len(library) > 256
+        or not re.fullmatch(r"[A-Za-z0-9_.\-/]+", library)
+        or any(part in {"", ".", ".."} for part in library.split("/"))
+    ):
+        return None
+    return library

@@ -479,7 +479,7 @@ class AgentProjectService:
             if hashlib.sha256(payload).hexdigest() != operation.archive_sha256:
                 raise AgentProjectError("project_package_digest_mismatch")
             package = read_editable_addon_zip(
-                payload, staged=operation.transfer_id is not None
+                payload, staged=operation.transfer_id is not None, source_modules=True
             )
         except binascii.Error as error:
             raise AgentProjectError("project_package_encoding_invalid") from error

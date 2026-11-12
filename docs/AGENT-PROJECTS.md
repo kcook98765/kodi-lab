@@ -47,8 +47,8 @@ Provenance is immutable and protected from a lossy schema downgrade.
 Inline packages are bounded to 45 KiB compressed, 256 entries, 4 MiB expanded,
 and 1 MiB per file. They must contain one add-on ID directory, one eligible Python
 Program/plugin entry, UTF-8 source text and supported image/font resources.
-Extra dependencies, service/binary/repository add-ons and unsupported member types
-are refused with explicit codes. ZIP structure, paths, duplicates, symlinks, CRC
+Eligible separately reviewed pure-Python modules and their consumers are covered
+below; service/binary/repository add-ons and unsupported member types are refused. ZIP structure, paths, duplicates, symlinks, CRC
 and compressed stream validation reuse the existing ZIP validator. Source seeds
 publish with private read-only files and directories; workspace capture supplies
 the editable copy. Empty archive directories and executable permission bits are
@@ -58,8 +58,8 @@ Editable source import does not perform native ZIP installation. For separate
 test-mode intake, use `package_import` with original ZIP bytes, SHA-256, provenance
 and a saved request UUID, then `package_status`. It accepts bounded Python video
 plugins or passive reviewed repository descriptors through the existing immutable
-artifact validator. Python test packages have the same dependency/file-type
-restrictions as editable imports; Program source import remains supported through
+artifact validator. Python test packages retain the original bundled-Python-only dependency/file-type
+restrictions; editable source module support does not broaden native ZIP intake. Program source import remains supported through
 `project_import`, while Program native ZIP testing is unsupported. Intake has
 four reservations per agent and 32 globally, including failed/interrupted records.
 An interrupted `reserved` package requires inspection of the original request;
@@ -111,6 +111,8 @@ Fixture/source validation does not establish native cross-version acceptance.
 
 When Kodi discovers a newly copied owned Program or video project disabled,
 managed workspace deployment enables that exact add-on before reporting success.
+The same exact-tree verification and original lease also cover eligible passive
+Python module projects.
 It verifies the copied tree, native identity and dependencies, and rechecks the
 current credential and role under the original deployment lease. This does not
 enable service add-ons or change external-device policy. A lost enablement
@@ -173,3 +175,40 @@ Project seeds can add at most 512 MiB across the 32 project slots before existin
 workspace copies; those remain subject to their independent quotas. Supported
 application backup/recovery retains transfer receipts, chunks and private modes.
 Source text beyond the existing 2 MiB workspace read/edit limit is refused.
+
+## Separately reviewed Python module dependencies
+
+Import a module as its own private project with `project_import`, using staged
+transfer if needed. It must use a `script.module.*` ID, one `xbmc.python.module`
+extension whose safe relative `library` directory contains Python source, no
+platform-specific library and no executable/service extension. Modules may declare
+only `xbmc.python`; transitive module graphs and cycles are refused in this first
+slice. Native binaries and unsupported source members remain refused.
+
+Import the consuming Program/video plugin separately, declaring each required
+`script.module.*` dependency and numeric `major.minor.patch` minimum version in
+`addon.xml`. At most three modules are supported, consistent with four owned
+project slots. Optional modules, minversion ranges and other dependency types
+are unsupported; there is no repository search or silent dependency download.
+
+1. Validate and `workspace_deploy` each module to the explicit managed target.
+   Retain its exact generation, version, source/destination digests and deployment
+   receipt. A passive module has no launch operation.
+2. Validate and deploy the consumer. Lab checks native API compatibility and each
+   module's enabled/version/type state, exact installed tree, same owner, target,
+   runtime/container and latest successful owned deployment receipt before copying
+   the consumer. Unknown installed modules do not substitute for owned receipts.
+3. Launch the consumer and inspect native logs/UI to prove its import and behavior.
+   Launch/smoke repeats module verification. A successful copy is not execution.
+4. Update a module through its owned workspace, validate and deploy it first,
+   then launch or redeploy the consumer. Undeployed module edits, failed/uncertain
+   newer module receipts, changed installed files, disabled/incompatible modules
+   and changed ownership/runtime are refused. Resolve the named module and retry
+   with a fresh operation only after the original receipt is reconciled.
+
+This is explicit dependency ordering through existing independent deployments,
+not an atomic multi-add-on installer or lockfile. Keep the consumer receipt and
+all separate module receipts as the evidence for the tested combination. A fresh
+plugin invocation loads updated Python code; an already running interpreter keeps
+its imports. Normal managed deployment already stops/copies/starts Kodi and
+verifies discovery/enablement. No rescan, hot reload or extra restart API is needed.

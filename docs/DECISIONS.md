@@ -8174,3 +8174,15 @@ existing stopped-copy/start deployment. Fresh Python invocation sees source/modu
 updates; active interpreters retain their imports. Preserve that predictable
 lifecycle and its receipts. No broad Bridge builtin, hot-reload infrastructure
 or extra orchestration wrapper is warranted by the native evidence.
+
+## 2026-11-12: Explicit passive Python module deployment (#339)
+
+Admit separately reviewed source-only script.module projects through existing
+owned source validation/workspaces. Modules may depend only on xbmc.python;
+consumer Program/plugins may require at most three separately owned modules.
+This structurally rejects cycles and recursive ordering. Deployment and launch
+check live API/version/enabled/type/declaration state plus exact current owned
+module deployment receipts and broker tree readback under the existing target
+lease. Preserve separate module/consumer receipts; do not add an atomic closure
+installer, dependency downloader, broad Bridge command or orchestration wrapper.
+Native ZIP, repository publication and external target admission remain narrower.
