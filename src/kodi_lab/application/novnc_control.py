@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import case, delete, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.novnc import ViewBinding
@@ -158,22 +158,34 @@ class HumanViewerOwnership:
             )
 
     def renew(self, instance: UUID, attempt: UUID, owner: str) -> bool:
-        now = datetime.now(UTC)
         with self.sessions.begin() as db:
-            row = db.get(NovncSessionRow, str(instance))
-            if (
-                not row
-                or row.attempt != str(attempt)
-                or row.owner != owner
-                or row.state != "active"
-                or row.expires_at <= timestamp(now)
-                or row.absolute_expires_at <= timestamp(now)
-            ):
-                return False
-            row.expires_at = min(
-                timestamp(now + timedelta(seconds=2)), row.absolute_expires_at
+            # A late check must not write through to a replacement attempt.
+            # Take the writer lock before sampling time, so a lock wait cannot
+            # revive a lease that expired while this renewal was waiting.
+            db.execute(text("BEGIN IMMEDIATE"))
+            now = datetime.now(UTC)
+            expires = timestamp(now + timedelta(seconds=2))
+            result = db.execute(
+                update(NovncSessionRow)
+                .where(
+                    NovncSessionRow.instance_id == str(instance),
+                    NovncSessionRow.attempt == str(attempt),
+                    NovncSessionRow.owner == owner,
+                    NovncSessionRow.state == "active",
+                    NovncSessionRow.expires_at > timestamp(now),
+                    NovncSessionRow.absolute_expires_at > timestamp(now),
+                )
+                .values(
+                    expires_at=case(
+                        (
+                            NovncSessionRow.absolute_expires_at < expires,
+                            NovncSessionRow.absolute_expires_at,
+                        ),
+                        else_=expires,
+                    )
+                )
             )
-            return True
+            return int(getattr(result, "rowcount", 0)) == 1
 
     def revoke(
         self, instance: UUID, attempt: UUID | None = None, owner: str | None = None
