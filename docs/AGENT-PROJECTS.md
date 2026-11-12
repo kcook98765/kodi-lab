@@ -118,3 +118,10 @@ Advanced stopped-tree recovery can still verify the original container and the
 complete requested tree from that deployment receipt. It records containment,
 keeps the failed receipt, and permits a separately requested deployment. Unknown
 bytes remain fenced; inspection never copies files, starts Kodi or enables an add-on.
+
+Manifest-selected Program launch executes the exact declared library through
+`RunScript(file)`. Kodi does not populate implicit add-on identity in that mode.
+Scripts that need their metadata or resource path should use
+`xbmcaddon.Addon("their.addon.id")`; a bare `xbmcaddon.Addon()` can fail. The inert
+custom-window fixture uses its explicit ID. Launch receipt acceptance still
+requires subsequent log/UI inspection to establish that the script opened.
