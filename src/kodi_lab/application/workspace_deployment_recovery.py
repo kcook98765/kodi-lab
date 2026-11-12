@@ -15,6 +15,7 @@ from kodi_lab.broker.operations import (
     ManagedContainerInventoryResult,
 )
 from kodi_lab.domain import InstanceType, TargetType
+from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.managed_activity import timestamp
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -266,9 +267,30 @@ class WorkspaceDeploymentRecoveryService:
                 and baseline.runtime_revision_id == row.runtime_revision_id
             ):
                 container_id = baseline.trusted_container_id
+            project_copy = (
+                baseline is None
+                and workspace is not None
+                and row.original_container_id is not None
+                and row.sync_completed
+                and row.source_manifest_digest == workspace.current_tree_digest
+                and row.verified_destination_digest is not None
+                and owned_project_workspace(
+                    session,
+                    workspace_id=row.workspace_id,
+                    source_id=row.development_source_id,
+                    client_id=row.client_id,
+                )
+            )
+            baseline_matches = (
+                baseline is not None
+                and baseline.runtime_revision_id == row.runtime_revision_id
+                and baseline.trusted_container_id == container_id
+                and datetime.fromisoformat(baseline.verified_at.replace("Z", "+00:00"))
+                <= datetime.fromisoformat(row.requested_at.replace("Z", "+00:00"))
+            )
             valid = (
                 workspace is not None
-                and baseline is not None
+                and (baseline_matches or project_copy)
                 and attachment is not None
                 and workspace.generation == row.generation
                 and workspace.current_tree_digest is not None
@@ -277,10 +299,6 @@ class WorkspaceDeploymentRecoveryService:
                 and workspace.development_source_id == row.development_source_id
                 and instance.runtime_revision_id == row.runtime_revision_id
                 and container_id is not None
-                and baseline.runtime_revision_id == row.runtime_revision_id
-                and baseline.trusted_container_id == container_id
-                and datetime.fromisoformat(baseline.verified_at.replace("Z", "+00:00"))
-                <= datetime.fromisoformat(row.requested_at.replace("Z", "+00:00"))
             )
             prior = (
                 prior_workspace_copy(
@@ -313,7 +331,7 @@ class WorkspaceDeploymentRecoveryService:
             return self._pending(
                 operation_id, "retained_workspace_or_runtime_binding_unavailable"
             )
-        assert baseline is not None and container_id is not None
+        assert container_id is not None
         status = self._reconciliation.status(target_id)
         if status.operation_uuid != operation_id or not status.blocking:
             return self._pending(

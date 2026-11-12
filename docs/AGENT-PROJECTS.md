@@ -112,3 +112,9 @@ current credential and role under the original deployment lease. This does not
 enable service add-ons or change external-device policy. A lost enablement
 response retains the original deployment fence and requires explicit stopped-tree
 inspection; replay does not send another enable request.
+
+For a failed first deployment, an owned project has no registered-source baseline.
+Advanced stopped-tree recovery can still verify the original container and the
+complete requested tree from that deployment receipt. It records containment,
+keeps the failed receipt, and permits a separately requested deployment. Unknown
+bytes remain fenced; inspection never copies files, starts Kodi or enables an add-on.

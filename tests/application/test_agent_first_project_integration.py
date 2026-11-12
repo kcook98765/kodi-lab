@@ -178,7 +178,7 @@ def test_new_owned_program_real_service_chain_without_web_selection(
             values["expected_container_id"],
         )
         assert spec.development_source_id == str(source)
-        assert spec.prior_evidence is None
+        assert (spec.prior_evidence is None) == (e.broker.sync_count == 0)
         return synchronize(**values).model_copy(
             update={
                 "development_source_id": str(source),
@@ -316,6 +316,105 @@ def test_new_owned_program_real_service_chain_without_web_selection(
             e.broker.stop_count,
         )
         assert enable_calls == ([ADDON] if initial == "lost_enable" else [])
+        if initial in {"lost_enable", "tree_changed"}:
+            from kodi_lab.application.mcp_workspace_development import (
+                BoundedIntervalRateLimiter,
+            )
+            from kodi_lab.application.workspace_deployment_recovery import (
+                WorkspaceDeploymentRecoveryService,
+            )
+            from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+            from kodi_lab.broker.operations import InspectMcpWorkspaceDeploymentResult
+
+            read_containers = e.broker.managed_container_inventory
+
+            def containers() -> Any:
+                observed = read_containers()
+                return observed.model_copy(
+                    update={
+                        "containers": [
+                            item.model_copy(
+                                update={
+                                    "runtime_revision_id": str(
+                                        fixture.RUNTIME_REVISION_ID
+                                    )
+                                }
+                            )
+                            for item in observed.containers
+                        ]
+                    }
+                )
+
+            monkeypatch.setattr(e.broker, "managed_container_inventory", containers)
+            inspections: list[str] = []
+
+            def inspect(**values: Any) -> Any:
+                spec = resolver.resolve_workspace_reconciliation(
+                    values["deployment_operation_id"],
+                    values["managed_instance_id"],
+                    values["expected_container_id"],
+                )
+                assert (
+                    spec.require_stopped and spec.alternate_destination_digest is None
+                )
+                inspections.append(values["deployment_operation_id"])
+                if initial == "tree_changed":
+                    raise RuntimeError("Native tree cannot prove requested bytes")
+                assert spec.requested_source_digest is not None
+                return InspectMcpWorkspaceDeploymentResult(
+                    deployment_operation_id=values["deployment_operation_id"],
+                    managed_instance_id=spec.managed_instance_id,
+                    development_source_id=spec.development_source_id,
+                    runtime_revision_id=spec.runtime_revision_id,
+                    container_id=spec.trusted_container_id,
+                    requested_manifest_digest=spec.requested_source_digest,
+                    requested_destination_digest=spec.verified_destination_digest,
+                    installed_manifest_digest=spec.verified_destination_digest,
+                    matches_requested=True,
+                    matches_prior=False,
+                )
+
+            monkeypatch.setattr(
+                e.broker, "inspect_mcp_workspace_deployment", inspect, raising=False
+            )
+            recovery = WorkspaceDeploymentRecoveryService(
+                e.sessions, cast(Any, e.broker), data_root=tmp_path / "data"
+            )
+            recovered = recovery.reconcile(fixture.TARGET_ID, UUID(receipt.id))
+            if initial == "tree_changed":
+                assert recovered.outcome == "still_requires_admin"
+                assert counts == (
+                    e.broker.sync_count,
+                    e.broker.start_count,
+                    e.broker.stop_count,
+                )
+                with e.sessions() as db:
+                    fenced = db.get(McpWorkspaceDeploymentOperationRow, receipt.id)
+                    assert (
+                        fenced is not None and fenced.state == "reconciliation_required"
+                    )
+                return
+            assert recovered.outcome == "contained_requested_tree"
+            assert not recovered.deployment_succeeded
+            assert recovery.reconcile(fixture.TARGET_ID, UUID(receipt.id)).replayed
+            assert inspections == [receipt.id]
+            assert counts == (
+                e.broker.sync_count,
+                e.broker.start_count,
+                e.broker.stop_count,
+            )
+            e.development._clock = lambda: fixture.NOW + timedelta(minutes=10)
+            e.development._deployment_rate = BoundedIntervalRateLimiter(
+                300, clock=lambda: 2000.0
+            )
+            e.broker.state = ContainerRuntimeState.RUNNING
+            fresh = tools.workspace_deploy(
+                principal, operation.model_copy(update={"request_id": uuid4()})
+            )
+            assert fresh.state == "succeeded" and fresh.deployment_id != UUID(
+                receipt.id
+            )
+            assert enable_calls == [ADDON]
         return
     deployed = tools.workspace_deploy(principal, operation)
     assert enable_calls == ([ADDON] if initial == "disabled" else [])
