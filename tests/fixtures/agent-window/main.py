@@ -40,7 +40,9 @@ class Fixture(xbmcgui.WindowXML):  # type: ignore[misc]
 
 
 evidence("START")
-addon = xbmcaddon.Addon()
+# Manifest-selected library launch uses RunScript(file), so Kodi does not
+# populate an implicit add-on context. Keep identity explicit in this fixture.
+addon = xbmcaddon.Addon("script.kodilab.agentfixture")
 window = Fixture("agent.xml", addon.getAddonInfo("path"), "Default", "720p")
 window.doModal()
 evidence("CLOSED")
