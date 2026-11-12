@@ -1,5 +1,13 @@
 # Standard managed Kodi viewing
 
+The [November 12 viewer/Piers qualification](VIEWER-PIERS-QUALIFICATION.md)
+records atomic ownership-renewal and periodic-check corrections, actual
+five-minute Omega/Nexus observations, native human-priority checks and distinct
+remaining viewer failures. Sustained reliability remains PARTIAL. The periodic
+authorization plus durable-renewal check now allows 1.5 seconds; admission stays
+at one second, with unchanged two-second broker/ownership leases and ten-minute
+absolute session limit. This does not introduce automatic reconnect or input retry.
+
 On **Managed Kodi**, choose **View Screen**, then **Start Viewing**, without
 selecting Current Managed Kodi or creating an add-on workspace.
 **Current Managed Kodi** also offers **Start Viewing** for its exact selected
