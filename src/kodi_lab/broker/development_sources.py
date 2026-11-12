@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -30,6 +31,7 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentResult,
     DevelopmentSourceKind,
     InstanceType,
+    ManagedInstanceMutationKind,
     PromotionVerificationPhase,
     PromotionVerificationState,
     RepositoryReplacementOperationState,
@@ -56,6 +58,7 @@ from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     ManagedInstanceDevelopmentSourceRepository,
+    ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     PromotionVerificationOperationRepository,
     RepositoryReplacementOperationRepository,
@@ -210,11 +213,13 @@ class SqliteDevelopmentSourceDeploymentResolver:
         development_root: Path | None,
         data_root: Path,
         enforce_source_mount: bool = False,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._session_factory = session_factory
         self._development_root = development_root
         self._data_root = data_root
         self._enforce_source_mount = enforce_source_mount
+        self._clock = clock
 
     @classmethod
     def production(cls) -> SqliteDevelopmentSourceDeploymentResolver:
@@ -1076,11 +1081,38 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     instance.runtime_revision_id
                 )
             )
+            lease = ManagedInstanceMutationLeaseRepository(session).current(instance_id)
+            enabling = bool(
+                operation is not None
+                and operation.state == "running"
+                and operation.phase == "inventory"
+                and operation.target_class == "internal_lab"
+                and operation.deployment_mode == "direct"
+                and operation.mutation_started
+                and operation.sync_completed
+                and operation.target_started
+                and operation.original_container_id == expected_container_id
+                and lease is not None
+                and lease.operation_id == operation.id
+                and lease.operation_kind
+                is ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT
+                and lease.lease_expires_at is not None
+                and lease.lease_expires_at
+                > self._clock()
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z")
+                and owned_project_workspace(
+                    session,
+                    workspace_id=operation.workspace_id,
+                    source_id=operation.development_source_id,
+                    client_id=operation.client_id,
+                )
+            )
         if (
             operation is None
             or instance is None
             or profile is None
-            or operation.state != "succeeded"
+            or (operation.state != "succeeded" and not enabling)
             or operation.target_id != managed_instance_id
             or operation.runtime_revision_id != str(instance.runtime_revision_id)
             or operation.verified_destination_digest is None

@@ -4,6 +4,7 @@ No successful receipt is inserted or rewritten to make the next service pass.
 This is source subsystem integration, not native Kodi acceptance.
 """
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -17,6 +18,7 @@ from kodi_lab.application.mcp_administration import (
     McpAdministrationService,
     McpAuthenticationService,
 )
+from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
 from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
 from kodi_lab.application.workspace_launch import WorkspaceLaunchService
 from kodi_lab.broker.development_sources import (
@@ -59,8 +61,20 @@ ADDON = "script.agentfirst.integration"
 
 
 @pytest.mark.parametrize("release", ["20.5", "21.3"])
+@pytest.mark.parametrize(
+    "initial",
+    [
+        "enabled",
+        "disabled",
+        "lost_enable",
+        "dependency_changed",
+        "role_revoked",
+        "tree_changed",
+        "lease_expired",
+    ],
+)
 def test_new_owned_program_real_service_chain_without_web_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, release: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, release: str, initial: str
 ) -> None:
     e = fixture._environment(tmp_path, kodi_release=release)
     e.workspaces._development_root = None
@@ -144,9 +158,14 @@ def test_new_owned_program_real_service_chain_without_web_selection(
     assert validated.addon_id == ADDON and validated.observed_generation == 1
     manifest = capture_workspace_deployment_tree(tmp_path / "data", workspace_id)
     source = project.project_id
+    enabled = initial == "enabled"
+    enable_calls: list[str] = []
     # The broker's production receipt/owner/path resolver runs before simulated copy.
     resolver = SqliteDevelopmentSourceDeploymentResolver(
-        e.sessions, development_root=None, data_root=tmp_path / "data"
+        e.sessions,
+        development_root=None,
+        data_root=tmp_path / "data",
+        clock=lambda: fixture.NOW,
     )
     synchronize = e.broker.copy_sync_mcp_workspace
 
@@ -176,11 +195,15 @@ def test_new_owned_program_real_service_chain_without_web_selection(
     verify = e.broker.verify_mcp_workspace_destination
 
     def readback(**values: Any) -> Any:
+        if initial == "lease_expired":
+            resolver._clock = lambda: fixture.NOW + timedelta(hours=1)
         resolver.resolve_workspace_destination_verification(
             values["deployment_operation_id"],
             values["managed_instance_id"],
             values["expected_container_id"],
         )
+        if initial == "tree_changed":
+            raise RuntimeError("Native copied tree changed")
         return verify(**values).model_copy(
             update={
                 "development_source_id": str(source),
@@ -210,6 +233,7 @@ def test_new_owned_program_real_service_chain_without_web_selection(
                         "name": "Integration Program",
                         "version": "0.1.0",
                         "kodi_type": "xbmc.python.script",
+                        "enabled": enabled,
                     }
                 )
             )
@@ -220,18 +244,16 @@ def test_new_owned_program_real_service_chain_without_web_selection(
 
     class NativeInventory:
         def get_inventory(self) -> KodiAddonInventoryResult:
-            items = [
-                KodiAddonInventoryRecord(
-                    "xbmc.python", "Python", "3.0.1", True, "xbmc.python.module"
-                )
-            ]
+            # Kodi system API capabilities are reviewed per release, not
+            # enumerable add-ons. A reported fake system record is unverified.
+            items: list[KodiAddonInventoryRecord] = []
             if e.broker.sync_count:
                 items.append(
                     KodiAddonInventoryRecord(
                         ADDON,
                         "Integration Program",
                         "0.1.0",
-                        True,
+                        enabled,
                         "xbmc.python.script",
                     )
                 )
@@ -243,16 +265,30 @@ def test_new_owned_program_real_service_chain_without_web_selection(
     e.development._inventory_factory = lambda _observation, _profile: NativeInventory()
 
     class Details:
+        def enable(self, addon_id: str) -> None:
+            nonlocal enabled
+            enable_calls.append(addon_id)
+            with e.sessions() as db:
+                receipt = db.scalar(select(McpWorkspaceDeploymentOperationRow))
+                assert receipt is not None and receipt.phase == "inventory"
+                assert receipt.mutation_started and receipt.sync_completed
+                assert receipt.addon_enabled is False
+            enabled = True
+            if initial == "lost_enable":
+                raise RuntimeError("Lost native enable response")
+
         def get_addon_details(self, addon_id: str) -> KodiAddonDetailsRecord:
+            if initial == "role_revoked" and not enabled:
+                admin.set_managed_lab_role(owner.id, False)
             return KodiAddonDetailsRecord(
                 addon_id=addon_id,
                 name="Integration Program",
                 version="0.1.0",
-                enabled=True,
+                enabled=enabled,
                 kodi_type="xbmc.python.script",
-                dependencies=(
-                    KodiReportedAddonDependency("xbmc.python", "3.0.0", False),
-                ),
+                dependencies=()
+                if initial == "dependency_changed"
+                else (KodiReportedAddonDependency("xbmc.python", "3.0.0", False),),
             )
 
     e.development._details_factory = lambda _observation, _profile: Details()
@@ -262,7 +298,27 @@ def test_new_owned_program_real_service_chain_without_web_selection(
         expected_generation=1,
         target_id=fixture.TARGET_ID,
     )
+    if initial not in {"enabled", "disabled"}:
+        with pytest.raises(McpAuthorizationError, match="deployment_ambiguous"):
+            tools.workspace_deploy(principal, operation)
+        with e.sessions() as db:
+            receipt = db.scalar(select(McpWorkspaceDeploymentOperationRow))
+            assert receipt is not None and receipt.state == "reconciliation_required"
+            assert receipt.sync_completed and receipt.addon_enabled is not True
+        assert enable_calls == ([ADDON] if initial == "lost_enable" else [])
+        assert e.broker.state.value == "stopped"
+        counts = (e.broker.sync_count, e.broker.start_count, e.broker.stop_count)
+        with pytest.raises((McpAuthorizationError, McpWorkspaceDevelopmentError)):
+            tools.workspace_deploy(principal, operation)
+        assert counts == (
+            e.broker.sync_count,
+            e.broker.start_count,
+            e.broker.stop_count,
+        )
+        assert enable_calls == ([ADDON] if initial == "lost_enable" else [])
+        return
     deployed = tools.workspace_deploy(principal, operation)
+    assert enable_calls == ([ADDON] if initial == "disabled" else [])
     assert deployed.state == "succeeded", deployed
     launch_request = WorkspaceLaunchInput(
         request_id=uuid4(),

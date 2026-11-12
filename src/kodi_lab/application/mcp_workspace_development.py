@@ -3165,6 +3165,34 @@ class McpWorkspaceDevelopmentService:
             ),
             None,
         )
+        if (
+            project
+            and inventory.query_status is AddonInventoryQueryStatus.AVAILABLE
+            and item is not None
+            and item.version == operation.addon_version
+            and not item.enabled
+        ):
+            # Kodi discovers first-copy Python add-ons disabled. Enable only an
+            # exact owned passive project under this already durable operation.
+            from kodi_lab.application.workspace_project_enablement import (
+                enable_owned_project,
+            )
+
+            enable_owned_project(
+                self, self._deployment_required(operation_id), digest, recheck_authority
+            )
+            inventory = measurement.run(
+                "enabled_inventory",
+                lambda: self._inventory.get(UUID(operation.target_id)),
+            )
+            item = next(
+                (
+                    entry
+                    for entry in inventory.items
+                    if entry.addon_id == operation.addon_id
+                ),
+                None,
+            )
         matched = (
             inventory.query_status is AddonInventoryQueryStatus.AVAILABLE
             and item is not None

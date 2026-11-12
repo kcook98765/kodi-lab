@@ -104,3 +104,11 @@ exact runtime/container evidence. A reset profile requires a fresh deployment.
 Capacity, human input, holds, pending operations and uncertain outcomes retain
 their existing guards. An uncertain human selection remains a review blocker.
 Fixture/source validation does not establish native cross-version acceptance.
+
+When Kodi discovers a newly copied owned Program or video project disabled,
+managed workspace deployment enables that exact add-on before reporting success.
+It verifies the copied tree, native identity and dependencies, and rechecks the
+current credential and role under the original deployment lease. This does not
+enable service add-ons or change external-device policy. A lost enablement
+response retains the original deployment fence and requires explicit stopped-tree
+inspection; replay does not send another enable request.
