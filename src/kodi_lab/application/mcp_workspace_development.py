@@ -2965,7 +2965,15 @@ class McpWorkspaceDevelopmentService:
                         == operation.runtime_revision_id,
                         McpWorkspaceDeploymentOperationRow.original_container_id
                         == container_id,
-                        McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                        (
+                            (McpWorkspaceDeploymentOperationRow.state == "succeeded")
+                            | (
+                                (McpWorkspaceDeploymentOperationRow.state == "failed")
+                                & McpWorkspaceDeploymentOperationRow.recovery_state.in_(
+                                    ["contained_requested_tree", "contained_prior_tree"]
+                                )
+                            )
+                        ),
                     )
                     .limit(1)
                 )

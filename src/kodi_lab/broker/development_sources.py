@@ -976,6 +976,21 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     UUID(managed_instance_id), UUID(operation.development_source_id)
                 )
             )
+            project_copy = (
+                operation is not None
+                and baseline is None
+                and workspace is not None
+                and operation.original_container_id is not None
+                and operation.sync_completed
+                and operation.source_manifest_digest == workspace.current_tree_digest
+                and operation.verified_destination_digest is not None
+                and owned_project_workspace(
+                    session,
+                    workspace_id=operation.workspace_id,
+                    source_id=operation.development_source_id,
+                    client_id=operation.client_id,
+                )
+            )
         binding = None if operation is None else operation.original_container_id
         if (
             binding is None
@@ -985,24 +1000,28 @@ class SqliteDevelopmentSourceDeploymentResolver:
             <= datetime.fromisoformat(operation.requested_at.replace("Z", "+00:00"))
         ):
             binding = baseline.trusted_container_id
+        baseline_matches = (
+            operation is not None
+            and baseline is not None
+            and str(baseline.runtime_revision_id) == operation.runtime_revision_id
+            and baseline.trusted_container_id == expected_container_id
+            and baseline.verified_at
+            <= datetime.fromisoformat(operation.requested_at.replace("Z", "+00:00"))
+        )
         if (
             operation is None
             or instance is None
             or workspace is None
             or profile is None
             or attachment is None
-            or baseline is None
+            or not (baseline_matches or project_copy)
             or operation.target_class != "internal_lab"
             or operation.deployment_mode != "direct"
             or operation.state not in {"ambiguous", "reconciliation_required"}
             or operation.target_id != managed_instance_id
             or instance.instance_type is not InstanceType.DISPOSABLE
             or operation.runtime_revision_id != str(instance.runtime_revision_id)
-            or str(baseline.runtime_revision_id) != operation.runtime_revision_id
             or binding != expected_container_id
-            or baseline.trusted_container_id != expected_container_id
-            or baseline.verified_at
-            > datetime.fromisoformat(operation.requested_at.replace("Z", "+00:00"))
             or workspace.generation != operation.generation
             or workspace.current_tree_digest is None
             or workspace.state.value != "ready"
@@ -1014,16 +1033,22 @@ class SqliteDevelopmentSourceDeploymentResolver:
                 "Exact stopped workspace recovery evidence is unavailable."
             )
         with self._session_factory() as session:
-            prior = prior_workspace_copy(
-                session,
-                operation,
-                container_id=binding,
-                baseline_verified_at=baseline.verified_at,
+            prior = (
+                prior_workspace_copy(
+                    session,
+                    operation,
+                    container_id=binding,
+                    baseline_verified_at=baseline.verified_at,
+                )
+                if baseline is not None
+                else None
             )
             prior_digest = (
                 prior.verified_destination_digest
                 if prior is not None
                 else baseline.verified_destination_digest
+                if baseline is not None
+                else None
             )
         captured = capture_development_tree(
             self._data_root / "agent-workspaces" / operation.workspace_id, "tree"
