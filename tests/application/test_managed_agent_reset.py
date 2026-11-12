@@ -32,6 +32,7 @@ from kodi_lab.storage.models import (
     ManagedBridgePreparationRow,
     ManagedBridgeTrustRow,
     ManagedCleanResetRow,
+    ManagedInstanceUseRow,
 )
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore
 from kodi_lab.web.managed_slots import ManagedSlotsWeb
@@ -158,6 +159,14 @@ def test_role_reset_replacement_reviewed_bridge_and_exact_replay(
         "running" if restart else "stopped"
     )
     assert setup.native.installed and setup.native.enabled and setup.stages == 1
+    with setup.env.factory() as db:
+        assert db.get(ManagedInstanceUseRow, (str(setup.target), "web")) is None
+        if restart:
+            own = db.get(
+                ManagedInstanceUseRow,
+                (str(setup.target), f"mcp:{setup.env.principal.client_id}"),
+            )
+            assert own is not None and own.released_at is None
     slots = ManagedSlotsWeb(setup.env.service, lambda _: False).status(lambda _: None)
     omega = next(slot for slot in slots["slots"] if slot["version"] == "omega")
     assert not omega["reset_note"], "A prepared Bridge must not be labeled incomplete"
