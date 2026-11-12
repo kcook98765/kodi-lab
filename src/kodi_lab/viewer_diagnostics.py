@@ -21,6 +21,7 @@ EVENTS = frozenset(
         "helper_started",
         "helper_ended",
         "helper_rejected",
+        "ownership_renewed",
     }
 )
 REASONS = frozenset(
@@ -69,6 +70,9 @@ PHASES = frozenset(
         "helper_create",
         "helper_attach",
         "helper_stream",
+        "ownership_lock",
+        "ownership_update",
+        "ownership_commit",
     }
 )
 WS_CODES = frozenset(
@@ -150,6 +154,9 @@ def diagnostic(
                 "watchdog_write_gap_ms",
                 "gc_pause_ms",
                 "web_renew_gap_ms",
+                "lock_ms",
+                "update_ms",
+                "commit_ms",
                 "validation_ms",
                 "iteration_gap_ms",
             }
