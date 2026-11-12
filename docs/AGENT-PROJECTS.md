@@ -3,6 +3,8 @@
 For unattended managed installation and updates, use the
 [validated source-deployment loop](MANAGED-ADDON-INSTALLATION.md). Repository
 `InstallAddon(id)` requires confirmation and cannot pin a reviewed package.
+See the [four-version source qualification](MANAGED-SOURCE-DEVELOPMENT-QUALIFICATION.md)
+for actual larger GitHub intake, separate Python modules and native updates.
 
 A client with Trusted Managed Lab may call `project_create` with a saved
 `request_id`, `addon_id`, `display_name`, optional `version` (default `0.1.0`)
@@ -171,11 +173,22 @@ cancelled/failed/expired receipts. They are bounded reservations, consistent wit
 retained project quotas, not reusable general upload storage. Incomplete/ready
 transfers expire after 24 hours; status/write observes expiry and discards exact
 chunks. Cancellation immediately releases staged bytes. At most 128 MiB of ZIP
-chunks can be retained globally; intake preserves the 2 GiB free-space reserve.
+chunks can be retained globally; each new transfer admission checks for 2 GiB
+of free headroom plus the bounded 4 MiB archive allocation.
 Project seeds can add at most 512 MiB across the 32 project slots before existing
 workspace copies; those remain subject to their independent quotas. Supported
 application backup/recovery retains transfer receipts, chunks and private modes.
 Source text beyond the existing 2 MiB workspace read/edit limit is refused.
+MCP reads remain paginated, with 200 lines by default. Follow `next_line` using
+`start_line` until `next_line` is null, requiring the same `observed_generation`
+and complete-file `sha256` throughout. A response with `truncated: true` is not
+a complete replacement file. Existing `workspace_edit` with
+`operation: "replace"` requires complete resulting file text; `exact_patch`
+requires complete expected and resulting file texts. The 48 KiB aggregate
+edit-text limit and 64 KiB request limit still apply. Use complete verified pages
+or the complete reviewed client source. Editing files whose required text exceeds
+those existing MCP limits remains unsupported, even when the larger source ZIP
+can be imported and deployed.
 
 ## Separately reviewed Python module dependencies
 
