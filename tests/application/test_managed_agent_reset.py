@@ -155,6 +155,9 @@ def test_role_reset_replacement_reviewed_bridge_and_exact_replay(
     bridge = result.bridge_preparation
     assert bridge is not None and bridge.checkpoint == "complete", result
     assert bridge.stored_trust == "active" and bridge.live_readiness == "not_observed"
+    assert result.recovery is not None
+    assert "Reviewed Bridge preparation is complete" in result.recovery
+    assert "No Web project selection is required" in result.recovery
     assert setup.env.broker.records[0].runtime_state == (
         "running" if restart else "stopped"
     )
