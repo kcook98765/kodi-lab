@@ -8,6 +8,7 @@ verified server handoff and exclusive human input ownership.
 from __future__ import annotations
 
 import asyncio
+import gc
 import hashlib
 import json
 import secrets
@@ -525,6 +526,21 @@ async def relay(
     accepted = False
     ws_code: object = None
     outcomes = dict.fromkeys(("incoming", "outgoing", "watchdog"), "pending")
+    watchdog_phase = "not_started"
+    check_max = gap_max = write_gap_max = gc_max = 0.0
+    last_write = began
+    gc_started: float | None = None
+
+    def observe_gc(phase: str, _info: dict[str, Any]) -> None:
+        nonlocal gc_started, gc_max
+        if phase == "start":
+            gc_started = time.monotonic()
+        elif phase == "stop" and gc_started is not None:
+            gc_max = max(gc_max, time.monotonic() - gc_started)
+            gc_started = None
+
+    # Observe only; never collect, change thresholds or retain GC object data.
+    gc.callbacks.append(observe_gc)
     try:
         # Single-use browser ticket was consumed before any worker admission.
         if (
@@ -625,20 +641,25 @@ async def relay(
                 await asyncio.wait_for(websocket.send_bytes(data), 2)
 
         async def watchdog() -> str:
+            nonlocal watchdog_phase, check_max, gap_max, write_gap_max, last_write
             assert writer is not None
             denial = "authorization_rejected"
 
             def authorized() -> bool:
-                nonlocal denial
+                nonlocal denial, watchdog_phase
+                watchdog_phase = "auth_check"
                 if not auth_current():
                     denial = "authorization_rejected"
                     return False
+                watchdog_phase = "binding_check"
                 if viewer.binding(item.session.instance_id, item.mode) != item.binding:
                     denial = "binding_changed"
                     return False
+                watchdog_phase = "control_check"
                 if not control.valid():
                     denial = "control_lease_expired"
                     return False
+                watchdog_phase = "ownership_renew"
                 if viewer.ownership is not None and not viewer.ownership.renew(
                     item.session.instance_id, item.attempt, item.owner
                 ):
@@ -646,17 +667,30 @@ async def relay(
                     return False
                 return True
 
+            previous = time.monotonic()
             while current():
-                if not await viewer.checked(
-                    authorized, cancelled=item.session.cancelled
-                ):
+                checking = time.monotonic()
+                gap_max = max(gap_max, checking - previous)
+                previous = checking
+                try:
+                    allowed = await viewer.checked(
+                        authorized, cancelled=item.session.cancelled
+                    )
+                finally:
+                    check_max = max(check_max, time.monotonic() - checking)
+                if not allowed:
                     return denial
                 if not current():
                     return "session_ended"
                 # Browser bytes are always kind 1; only this trusted check may
                 # renew the Web lease. A frozen/lost Web expires at the broker.
+                watchdog_phase = "lease_write"
                 writer.write(struct.pack("!BI", 2, 0))
                 await asyncio.wait_for(writer.drain(), 1)
+                wrote = time.monotonic()
+                write_gap_max = max(write_gap_max, wrote - last_write)
+                last_write = wrote
+                watchdog_phase = "sleep"
                 await asyncio.sleep(0.25)
             return "session_ended"
 
@@ -691,6 +725,11 @@ async def relay(
             )
         raise
     finally:
+        # Snapshot at relay termination, before cleanup adds unrelated latency.
+        terminal_phase = watchdog_phase
+        terminal_write_gap = max(write_gap_max, time.monotonic() - last_write)
+        with suppress(ValueError):
+            gc.callbacks.remove(observe_gc)
         item.session.cancelled.set()
         for task in tasks:
             task.cancel()
@@ -718,6 +757,11 @@ async def relay(
                 close_requested_code=1000,
                 cleanup_completed=cleanup_completed,
                 elapsed_ms=int((time.monotonic() - began) * 1000),
+                watchdog_phase=terminal_phase,
+                watchdog_check_ms=int(check_max * 1000),
+                watchdog_gap_ms=int(gap_max * 1000),
+                watchdog_write_gap_ms=int(terminal_write_gap * 1000),
+                gc_pause_ms=int(gc_max * 1000),
                 **outcomes,
             )
 

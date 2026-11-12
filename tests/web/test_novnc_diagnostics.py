@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import logging
 from pathlib import Path
+from threading import Event
 from typing import Any, cast
 from uuid import uuid4
 
@@ -32,6 +34,8 @@ from .view_attempt_fixture import view_attempt
         ("ownership", "ownership_rejected"),
         ("watchdog_timeout", "timeout"),
         ("watchdog_error", "internal_error"),
+        ("slow_auth", "timeout"),
+        ("slow_binding", "timeout"),
     ],
 )
 def test_relay_terminal_evidence_preserves_cleanup(
@@ -46,6 +50,7 @@ def test_relay_terminal_evidence_preserves_cleanup(
     caplog.set_level(logging.INFO, logger=LOGGER)
 
     async def run() -> None:
+        observers = tuple(gc.callbacks)
         binding = ViewBinding("a" * 64, "image-secret", "start", (str(uuid4()), 1, 1))
         service = PrototypeViewer(
             Path("/not-used"), lambda _: binding, registry=LiveDisplaySessionRegistry()
@@ -60,6 +65,12 @@ def test_relay_terminal_evidence_preserves_cleanup(
         elif outcome == "helper_eof":
             reader.feed_eof()
         sent = asyncio.Event()
+        release_check = Event()
+
+        def auth_current() -> bool:
+            if outcome == "slow_auth":
+                assert release_check.wait(3)
+            return outcome != "auth"
 
         class Socket:
             closed = False
@@ -109,13 +120,17 @@ def test_relay_terminal_evidence_preserves_cleanup(
             return reader, writer
 
         monkeypatch.setattr(asyncio, "open_unix_connection", connect)
-        if outcome == "binding":
+        if outcome in {"binding", "slow_binding"}:
             # Initial check still succeeds; the watchdog observes a replacement.
             checks = 0
 
             def binding_check(*args: Any) -> ViewBinding:
                 nonlocal checks
                 checks += 1
+                if outcome == "slow_binding":
+                    if checks > 1:
+                        assert release_check.wait(3)
+                    return binding
                 return (
                     binding if checks == 1 else ViewBinding("replacement", "", "", ())
                 )
@@ -142,17 +157,21 @@ def test_relay_terminal_evidence_preserves_cleanup(
                 return await original(callback, **kwargs)
 
             monkeypatch.setattr(service, "checked", checked)
-        await asyncio.wait_for(
-            relay(
-                cast(WebSocket, socket),
-                service,
-                item,
-                lambda: True,
-                lambda: outcome != "auth",
-            ),
-            2,
-        )
+        try:
+            await asyncio.wait_for(
+                relay(
+                    cast(WebSocket, socket),
+                    service,
+                    item,
+                    lambda: True,
+                    auth_current,
+                ),
+                2,
+            )
+        finally:
+            release_check.set()
         assert socket.closed and writer.closed and item.session.cancelled.is_set()
+        assert tuple(gc.callbacks) == observers
         if outcome != "ownership":
             assert not service.attachments and service.registry.active_count() == 0
         events = [
@@ -173,6 +192,21 @@ def test_relay_terminal_evidence_preserves_cleanup(
             else "watchdog"
         )
         assert terminal[lane] == category
+        for name in (
+            "watchdog_check_ms",
+            "watchdog_gap_ms",
+            "watchdog_write_gap_ms",
+            "gc_pause_ms",
+        ):
+            assert type(terminal[name]) is int and terminal[name] >= 0
+        if outcome in {"auth", "slow_auth"}:
+            assert terminal["watchdog_phase"] == "auth_check"
+        elif outcome in {"binding", "slow_binding"}:
+            assert terminal["watchdog_phase"] == "binding_check"
+        elif outcome == "ownership":
+            assert terminal["watchdog_phase"] == "ownership_renew"
+        if outcome.startswith("slow_"):
+            assert terminal["watchdog_check_ms"] >= 1000
         if lane == "incoming" or outcome == "send_disconnect":
             assert terminal["ws_code"] == (1000 if outcome == "stop" else 1006)
         assert "secret" not in json.dumps(events)

@@ -137,8 +137,18 @@ class DockerViewTunnel:
         web_renewed = start
         arm_challenge = bytearray()
         phase = "helper_create"
+        validation_max = iteration_max = web_gap_max = 0.0
+
+        def valid() -> bool:
+            nonlocal validation_max
+            checking = time.monotonic()
+            try:
+                return self.valid()
+            finally:
+                validation_max = max(validation_max, time.monotonic() - checking)
+
         try:
-            if not self.valid():
+            if not valid():
                 self.result.reason = "revoked"
                 raise ValueError("view identity denied")
             created = self.client.exec_create(
@@ -180,14 +190,18 @@ class DockerViewTunnel:
             )
             phase = "helper_stream"
             last_write = time.monotonic()
+            previous_iteration = last_write
             while not stopped.is_set() and time.monotonic() - start < MAX_SESSION:
                 now = time.monotonic()
+                iteration_max = max(iteration_max, now - previous_iteration)
+                previous_iteration = now
+                web_gap_max = max(web_gap_max, now - web_renewed)
                 if now - web_renewed >= WEB_LEASE_SECONDS:
                     self.result.reason = "web_lease_expired"
                     break
                 if now - renewed >= 1:
                     # A fresh authority check, not browser traffic, renews the helper.
-                    if not self.valid():
+                    if not valid():
                         self.result.reason = "revoked"
                         break
                     if self.result.armed:
@@ -220,11 +234,14 @@ class DockerViewTunnel:
                                 if len(from_web) < 5 + size:
                                     break
                                 if kind == 2:
+                                    web_gap_max = max(
+                                        web_gap_max, time.monotonic() - web_renewed
+                                    )
                                     web_renewed = time.monotonic()
                                 else:
                                     if (
                                         self.request.mode == "interactive"
-                                        and not self.valid()
+                                        and not valid()
                                     ):
                                         self.result.reason = "input_revoked"
                                         return
@@ -269,7 +286,7 @@ class DockerViewTunnel:
                                     if len(arm_challenge) >= 40:
                                         if (
                                             arm_challenge[:8] != b"KLVNCARM"
-                                            or not self.valid()
+                                            or not valid()
                                         ):
                                             self.result.reason = "arming_denied"
                                             raise ValueError("native arming denied")
@@ -352,6 +369,9 @@ class DockerViewTunnel:
                 startup_ms=int(self.result.startup_ms),
                 teardown_ms=int(self.result.teardown_ms),
                 elapsed_ms=int((time.monotonic() - start) * 1000),
+                validation_ms=int(validation_max * 1000),
+                iteration_gap_ms=int(iteration_max * 1000),
+                web_renew_gap_ms=int(web_gap_max * 1000),
             )
 
 
