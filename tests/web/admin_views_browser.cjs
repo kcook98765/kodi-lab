@@ -15,9 +15,8 @@ const fixtures = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-routes.
 const apis = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-apis.json')));
 const installations = JSON.parse(fs.readFileSync(path.join(evidence, 'fixture-installations.json')));
 const destinations = [
-  ['Overview', '/kodi'], ['Managed Kodi', '/managed-kodi'],
-  ['External Production Kodi', '/production-targets'], ['External Development Kodi', '/external-targets'],
-  ['Development Tools', '/development'], ['Agents & Permissions', '/mcp-clients'], ['Advanced', '/settings'],
+  ['Managed Kodi', '/managed-kodi'], ['External Kodi', '/external-kodi'],
+  ['Agents', '/mcp-clients'], ['Advanced', '/settings'],
 ];
 const report = {method:'Rendered disposable controller fixtures, every browser request intercepted; no live service', layouts:[], accessibility:[], screenshots:[], mutations:[], errors:[]};
 (async () => {
@@ -67,7 +66,8 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
         const nav=page.locator('#admin-navigation'),menu=page.locator('[data-menu-toggle]');
         const links=await nav.locator('li a').evaluateAll(items=>items.map(a=>[a.textContent.trim(),a.getAttribute('href')]));
         assert.deepEqual(links,destinations);assert.equal(await page.locator('[data-admin-view-form]').count(),0);
-        for(const kind of ['managed','external_production','external_development']) assert.ok(await page.locator(`[data-environment-type="${kind}"]`).count());
+        assert.ok(await page.locator('[data-environment-type="managed"]').count());
+        for(const heading of ['external-summary-heading','agents-summary-heading']) assert.equal(await page.locator('#'+heading).count(),1);
         if(width<=960) {
           assert.equal(await nav.isVisible(),false);await menu.focus();await menu.press('Space');
           assert.equal(await nav.isVisible(),true);
@@ -86,7 +86,7 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
           await page.screenshot({path:path.join(evidence,`managed-${width}-${theme}.png`),fullPage:true});
         }
         await page.goBack();
-        await page.waitForFunction(()=>document.querySelector('#admin-navigation a[href="/kodi"]').getAttribute('aria-current')==='page');
+        await page.waitForFunction(()=>document.querySelector('.admin-brand[href="/kodi"]').getAttribute('aria-current')==='page');
         if(cookie==='missing') {
           await page.screenshot({path:path.join(evidence,`overview-${width}-${theme}.png`),fullPage:true});
           if(width<=960 && !await nav.isVisible()) await menu.click();
@@ -174,7 +174,7 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
     });
     const basic=await noJS.newPage();await basic.goto(base+'/kodi');
     assert.equal(await basic.locator('#admin-navigation').isVisible(),true);
-    assert.equal(await basic.locator('#admin-navigation li a').count(),7);await noJS.close();
+    assert.equal(await basic.locator('#admin-navigation li a').count(),4);await noJS.close();
     assert.deepEqual(report.errors,[]);assert.deepEqual(report.mutations,[]);
     if(before) {
       const embed=file=>'data:image/png;base64,'+fs.readFileSync(path.join(evidence,file)).toString('base64');
@@ -183,7 +183,7 @@ const report = {method:'Rendered disposable controller fixtures, every browser r
         const files=[`before-standard-nav-${width}-${theme}.png`,`before-development-nav-${width}-${theme}.png`,`after-nav-${width}-${theme}.png`];
         rows.push(`<section><h2>${width}px · ${theme}</h2><div class="comparison">${files.map((file,index)=>`<figure><figcaption>${['Before: Standard','Before: Development','After: unified'][index]}</figcaption><img alt="${file}" src="${embed(file)}"></figure>`).join('')}</div></section>`);
       }
-      fs.writeFileSync(path.join(evidence,'navigation-comparison.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Kodi Lab navigation comparison</title><style>body{font:16px system-ui;margin:2rem;background:#eee;color:#222}.comparison{display:flex;flex-wrap:wrap;gap:1rem}figure{margin:0}figcaption{font-weight:bold;padding:.5rem 0}img{max-width:100%;height:auto;vertical-align:top}section{border-top:1px solid #888;margin-top:2rem}</style><h1>Kodi Lab #248: unified navigation</h1><p>Before: exact PR #254 head. After: disposable rendered fixtures. All requests intercepted; no runtime or production actions. All four legacy cookie states produce the same seven links.</p>${rows.join('')}</html>`);
+      fs.writeFileSync(path.join(evidence,'navigation-comparison.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Kodi Lab navigation comparison</title><style>body{font:16px system-ui;margin:2rem;background:#eee;color:#222}.comparison{display:flex;flex-wrap:wrap;gap:1rem}figure{margin:0}figcaption{font-weight:bold;padding:.5rem 0}img{max-width:100%;height:auto;vertical-align:top}section{border-top:1px solid #888;margin-top:2rem}</style><h1>Kodi Lab #248: unified navigation</h1><p>Before: exact PR #254 head. After: disposable rendered fixtures. All requests intercepted; no runtime or production actions. All four legacy cookie states produce the same four primary links.</p>${rows.join('')}</html>`);
     }
     console.log(JSON.stringify({layouts:report.layouts.length,axeStates:report.accessibility.length,screenshots:report.screenshots.length,mutations:report.mutations.length,errors:report.errors.length}));
   } finally {

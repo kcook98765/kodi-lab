@@ -3,9 +3,10 @@
 Issue #238 phase 2 adds `managed_status`, `managed_start` and `managed_stop`.
 The ordinary agent loop is **Status → Start(version) → develop/test → Stop(version)**.
 Stop keeps the exact writable Kodi profile, settings and installed add-ons.
-Separately opted-in [clean Reset](MANAGED-CLEAN-RESET.md) completes the fourth
-agent operation. Human administrators use the [four-version Web page](MANAGED-KODI-WEB.md).
-Automatic switching remains a follow-up. Discover the installed server's tools first; publishing this
+Trusted Managed Lab includes [Reset with reviewed Bridge preparation](MANAGED-AGENT-RESET.md).
+Human administrators use the [four-version Web page](MANAGED-KODI-WEB.md).
+Agents switch installed versions through explicit Stop then Start; no running
+version is evicted automatically. Discover the installed server's tools first; publishing this
 source does not upgrade an installed Lab.
 
 ## Administrator prerequisites and authority
@@ -15,6 +16,13 @@ reviewed runtime installation workflow. No agent lifecycle action downloads,
 approves or repins an image. Piers still requires its reviewed preview approval;
 Matrix/Nexus retain the catalog's existing legacy eligibility requirements.
 
+For ordinary managed development, explicitly grant [Trusted Managed Lab](TRUSTED-MANAGED-LAB.md)
+once in **Agents**. It covers installed and subsequently prepared managed versions,
+GUI control, agent-owned projects and autonomous Reset without individual version
+grants or human workspace selection. Missing versions report `installation_required`
+and still require human installation. This grants no external Kodi authority.
+
+The following manual permission instructions apply to legacy limited clients.
 Create a custom preset cloned from **Add-on Development** or **Full Lab Control**
 and explicitly add **`managed.versions`** under Managed version slots. Assign
 that authority to the client and the exact canonical managed target's policy,
