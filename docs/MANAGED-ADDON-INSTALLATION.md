@@ -61,6 +61,14 @@ retains its independent authority model.
    tree; newly discovered eligible owned Program/video add-ons are enabled
    under the original lease. Unknown existing bytes or a conflicting ID are
    refused. A `verified_existing` receipt verifies reuse without execution.
+   On the approved Matrix/Nexus/Omega distro builds, Kodi can leave its first-copy
+   **Disabled add-ons** question open after programmatic enablement. Inspect the
+   native screen. If that startup question remains, call `managed_stop` and then
+   `managed_start` for the same version with separate saved UUIDs; wait for native
+   readiness and confirm the same retained profile before launch. This clears the
+   stale question without GUI input. Piers RC1 did not need that additional cycle.
+   Passive modules do not trigger the question. Later updates use only the normal
+   deployment lifecycle unless independent native evidence requires otherwise.
 6. Select the manifest's validated `extension_ordinal` and call `workspace_launch`
    with that generation, target and another saved request UUID. Inspect
    `inspect_ui_state`, `screenshot_capture`, `log_read` and the execution/launch

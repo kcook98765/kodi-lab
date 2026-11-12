@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +15,10 @@ from sqlalchemy import select
 
 from kodi_lab.application.agent_projects import AgentProjectService, ProjectImportInput
 from kodi_lab.application.mcp_administration import McpAdministrationService
-from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
+from kodi_lab.application.mcp_workspace_development import (
+    BoundedIntervalRateLimiter,
+    McpWorkspaceDevelopmentError,
+)
 from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
 from kodi_lab.application.project_dependencies import verify_owned_dependencies
 from kodi_lab.development.addon_zip import (
@@ -35,6 +39,55 @@ from kodi_lab.workspace import capture_workspace_deployment_tree
 from tests.application import test_mcp_workspace_development as f
 
 MODULE = "script.module.ownedhelper"
+
+
+@pytest.mark.parametrize(
+    ("release", "required"), [("19.4", "3.0.1"), ("22.0-rc.1", "3.2.0")]
+)
+def test_owned_plugin_checks_builtin_api_before_copy(
+    tmp_path: Path,
+    release: str,
+    required: str,
+) -> None:
+    env = f._environment(
+        tmp_path, kodi_release=release, dependency=("xbmc.python", required)
+    )
+    env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=f.TARGET_ID,
+    )
+    env.development._deployment_rate = BoundedIntervalRateLimiter(
+        300, clock=lambda: 2000
+    )
+    env.broker.stop_count = env.broker.sync_count = env.broker.start_count = 0
+    admin = McpAdministrationService(env.sessions)
+    admin.set_managed_lab_role(env.client_id, True)
+    admin.grant_development_source(env.client_id, f.SOURCE_ID)
+    with env.sessions.begin() as db:
+        db.add(
+            AgentProjectRow(
+                source_id=str(f.SOURCE_ID),
+                client_id=str(env.client_id),
+                request_id=str(uuid4()),
+                parameter_fingerprint="b" * 64,
+                state="seeded",
+                created_at=f.NOW_TEXT,
+            )
+        )
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="project_dependency_incompatible"
+    ):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=f.TARGET_ID,
+        )
+    assert env.broker.stop_count == env.broker.sync_count == env.broker.start_count == 0
 
 
 def module_package(
@@ -298,12 +351,13 @@ def test_consumer_requires_owned_exact_enabled_compatible_module_before_copy(
         def changed_details(observed: Any, profile: Any) -> Any:
             original = factory_details(observed, profile)
             return SimpleNamespace(
-                get_addon_details=lambda addon: original.get_addon_details(
-                    addon
-                ).model_copy(
-                    update={"kodi_type": "xbmc.service"}
-                    if defect == "native_type"
-                    else {"version": "2.0.0"}
+                get_addon_details=lambda addon: replace(
+                    original.get_addon_details(addon),
+                    **(
+                        {"kodi_type": "xbmc.service"}
+                        if defect == "native_type"
+                        else {"version": "2.0.0"}
+                    ),
                 )
             )
 
@@ -316,13 +370,21 @@ def test_consumer_requires_owned_exact_enabled_compatible_module_before_copy(
             client_id=str(env.client_id),
         )
     else:
-        with pytest.raises((McpWorkspaceDevelopmentError, ValueError)):
-            env.development.deploy(
-                client_id=env.client_id,
-                request_id=uuid4(),
-                workspace_id=env.workspace_id,
-                expected_generation=0,
-                target_id=f.TARGET_ID,
+        expected = (
+            "project_dependency_" + defect
+            if defect in {"missing", "disabled", "incompatible"}
+            else "exact installed tree changed"
+            if defect == "changed_bytes"
+            else "project_dependency_changed"
+            if defect in {"native_type", "native_version"}
+            else "project_dependency_not_deployed"
+        )
+        with pytest.raises((McpWorkspaceDevelopmentError, ValueError), match=expected):
+            verify_owned_dependencies(
+                env.development,
+                workspace_id=str(env.workspace_id),
+                target_id=str(f.TARGET_ID),
+                client_id=str(env.client_id),
             )
     assert env.broker.stop_count == env.broker.sync_count == env.broker.start_count == 0
     with env.sessions() as db:

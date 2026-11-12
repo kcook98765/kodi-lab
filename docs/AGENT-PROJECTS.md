@@ -155,7 +155,8 @@ Lab never clones a repository or reads a caller-selected server path.
    and `provenance_reference`; omit `archive_base64`. Continue with the returned
    workspace's normal capture, edit, validation and deployment workflow.
 5. `action: "cancel"` removes only that transfer's exact staged chunks and
-   retains its tombstone. It never deletes an imported project. Imports already
+   retains its tombstone. It cancels the transfer, not an import already in progress, and never deletes an
+   imported project. Imports already
    published replay after cancellation/expiry and preserve workspace edits.
 
 Staged ZIP bounds: **4 MiB compressed, 16 MiB expanded, 1,024 entries,
@@ -212,3 +213,19 @@ all separate module receipts as the evidence for the tested combination. A fresh
 plugin invocation loads updated Python code; an already running interpreter keeps
 its imports. Normal managed deployment already stops/copies/starts Kodi and
 verifies discovery/enablement. No rescan, hot reload or extra restart API is needed.
+
+On the approved Matrix/Nexus/Omega distro images, a first copied Program/video
+plugin can leave Kodi's **Disabled add-ons** startup question open even after
+Lab verifies native enablement. The question blocks GUI launch, so an accepted
+launch receipt is not native execution. Inspect the screen, then use the existing
+`managed_stop` → `managed_start` for the same version if that question remains.
+Keep both UUIDs/receipts and confirm the same profile. This clears it without
+answering a confirmation dialog or modifying Kodi's database. Piers RC1 needed no
+extra cycle in qualification. Module-only deployment and later same-ID updates
+needed no additional cycle beyond normal deployment.
+
+Before any owned source copy, declared bundled Python API compatibility is checked
+for standalone Program/plugins as well as modules and their consumers. A source
+that requires a newer API is refused before stopping/copying to that runtime.
+For example, the reviewed GitHub example's master branch declares Python 3.0.1
+and targets Nexus or later; use a reviewed Matrix-compatible revision on Matrix.

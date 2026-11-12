@@ -8186,3 +8186,20 @@ module deployment receipts and broker tree readback under the existing target
 lease. Preserve separate module/consumer receipts; do not add an atomic closure
 installer, dependency downloader, broad Bridge command or orchestration wrapper.
 Native ZIP, repository publication and external target admission remain narrower.
+
+## 2026-11-12: First-copy GUI activation uses existing lifecycle receipts (#339)
+
+Actual managed MCP qualification exposed a stale native Disabled add-ons startup
+question on the approved Matrix/Nexus/Omega distro builds after JSON-RPC had
+already enabled the exact copied plugin. Kodi's startup ConfigureAndEnableAddons
+retains that question independently of subsequent enablement. An explicit existing
+managed Stop/Start retains the profile and clears it without confirmation input;
+actual launch/import/update then succeeds. Piers RC1 did not show the question.
+Document this conditional first-copy cycle, retain separate original lifecycle
+receipts, and preserve settings and runtime pins. No dialog automation, new Bridge
+operation, direct native database mutation or new restart API is needed.
+
+The shared owned-source dependency preflight also checks bundled API declarations
+when no separate module is declared. Regression evidence shows this previously
+skipped standalone plugins. Incompatible declared Python APIs now refuse before
+native stopping/copying, using the same reviewed per-release API/ABI table.
