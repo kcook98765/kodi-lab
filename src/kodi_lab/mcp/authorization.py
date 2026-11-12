@@ -74,9 +74,11 @@ from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
     emit_screenshot_stage,
 )
+from kodi_lab.storage.managed_clean_reset import active_clean_reset
 from kodi_lab.storage.models import (
     AgentProjectRow,
     ExternalProductionPolicyRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
@@ -278,7 +280,15 @@ class McpAuthorizationService:
             client = session.get(McpClientRow, str(principal.client_id))
             if client is None or not self._managed_lab_role(session, principal, client):
                 names.difference_update(
-                    {"project_create", "project_status", "project_import"}
+                    {
+                        "project_create",
+                        "project_status",
+                        "project_import",
+                        "package_import",
+                        "package_status",
+                        "package_install",
+                        "package_install_status",
+                    }
                 )
         if (
             principal.preset_id
@@ -296,7 +306,13 @@ class McpAuthorizationService:
     def authorize_project(
         self, session: Session, principal: McpPrincipal, tool_name: str
     ) -> None:
-        if tool_name not in {"project_create", "project_status", "project_import"}:
+        if tool_name not in {
+            "project_create",
+            "project_status",
+            "project_import",
+            "package_import",
+            "package_status",
+        }:
             raise McpAuthorizationError("permission_denied")
         client = self._require_client_permission(
             session, principal, self._definition(tool_name)
@@ -711,19 +727,28 @@ class McpAuthorizationService:
         if client is None or not client.enabled:
             raise McpAuthorizationError("permission_denied")
         self._require_current_credential(session, principal, client)
+        managed_role = self._managed_lab_target(session, principal, client, target_id)
         if (
             target is None
             or target.target_type is not TargetType.MANAGED
             or instance is None
             or instance.instance_type is not InstanceType.DISPOSABLE
-            or grant is None
-            or assignment is None
+            or (not managed_role and (grant is None or assignment is None))
         ):
             raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if "addon.install" not in self._permissions(
-            session, client.preset_id
-        ).intersection(self._permissions(session, assignment.preset_id)):
+        if not managed_role and (
+            assignment is None
+            or "addon.install"
+            not in self._permissions(session, client.preset_id).intersection(
+                self._permissions(session, assignment.preset_id)
+            )
+        ):
             raise McpAuthorizationError("permission_denied")
+        if require_running and (
+            active_clean_reset(session, str(target_id)) is not None
+            or session.get(ManagedInstanceMutationLeaseRow, str(target_id)) is not None
+        ):
+            raise McpAuthorizationError("active_operation_requires_review")
         if require_running and instance.runtime_state.value != "running":
             raise McpAuthorizationError("target_not_running")
         if (
@@ -735,10 +760,11 @@ class McpAuthorizationService:
     def authorize_native_zip_installation(
         self, principal: McpPrincipal, target_id: UUID, *, require_running: bool = True
     ) -> None:
-        """HTTP native-delivery API authority; not an advertised MCP tool.
+        """Shared authority for the native-delivery API and its MCP adapter.
 
-        This opt-in permission is deliberately absent from every built-in preset.
-        The common target grant/preset/capability checks still apply.
+        Trusted Managed Lab covers approved disposable targets. Legacy clients
+        still need the explicit install permission, exact grant and target policy.
+        The permission remains absent from every built-in preset.
         """
         with self._session_factory() as session:
             self.recheck_native_zip_installation(

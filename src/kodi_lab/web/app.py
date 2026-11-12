@@ -119,6 +119,7 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
+from kodi_lab.application.agent_packages import AgentPackageService
 from kodi_lab.application.agent_workspace_cleanup import (
     AgentWorkspaceCleanupError,
     AgentWorkspaceCleanupExecutor,
@@ -2185,6 +2186,14 @@ def create_app(
         broker.managed_container_inventory,
         data_root=settings.data_root,
     )
+    native_packages = NativeZipInstallationService(
+        session_factory,
+        broker,
+        mcp_authorization,
+        data_root=settings.data_root,
+        base_url=settings.native_zip_base_url,
+        inventory_factory=addon_inventory_adapter_factory,
+    )
     mcp_transport = build_mcp_http_transport(
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
@@ -2210,6 +2219,8 @@ def create_app(
             retained_sessions=session_service,
             workspace_launch=workspace_launch,
             addon_settings=addon_settings,
+            packages=AgentPackageService(session_factory, settings.data_root),
+            native_packages=native_packages,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -9199,14 +9210,7 @@ def create_app(
 
     app.include_router(
         native_zip_router(
-            NativeZipInstallationService(
-                session_factory,
-                broker,
-                mcp_authorization,
-                data_root=settings.data_root,
-                base_url=settings.native_zip_base_url,
-                inventory_factory=addon_inventory_adapter_factory,
-            ),
+            native_packages,
             McpAuthenticationService(session_factory),
         )
     )

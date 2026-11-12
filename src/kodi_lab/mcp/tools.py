@@ -22,6 +22,13 @@ from kodi_lab.application.addon_inventory import (
     ManagedInstanceAddonInventoryService,
 )
 from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
+from kodi_lab.application.agent_packages import (
+    AgentPackageError,
+    AgentPackageService,
+    PackageImportInput,
+    PackageStatus,
+    PackageStatusInput,
+)
 from kodi_lab.application.agent_projects import (
     AgentProjectError,
     AgentProjectList,
@@ -90,6 +97,12 @@ from kodi_lab.application.mcp_workspace_mutations import (
     WorkspaceCreateResult,
 )
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
+from kodi_lab.application.native_zip_installations import (
+    NativeZipError,
+    NativeZipInstallationService,
+    NativeZipRequest,
+    NativeZipStatus,
+)
 from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_visual_state,
@@ -146,6 +159,7 @@ from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
     WorkspaceSourceCaptureService,
 )
+from kodi_lab.development.addon_zip import AddonZipValidationError
 from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.development.launch import ManifestLaunchEntry
 from kodi_lab.development.sources import (
@@ -641,6 +655,12 @@ class WorkspaceValidateInput(BaseModel):
     )
 
 
+class PackageInstallationStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation_id: UUID
+    verify: bool = False
+
+
 class WorkspaceTargetOperationInput(BaseModel):
     """The exact closed input shared by deployment and fixed execution."""
 
@@ -801,7 +821,11 @@ class McpTargetToolService:
         workspace_launch: WorkspaceLaunchService | None = None,
         addon_settings: AddonSettingsService | None = None,
         retained_sessions: DevelopmentSessionService | None = None,
+        packages: AgentPackageService | None = None,
+        native_packages: NativeZipInstallationService | None = None,
     ) -> None:
+        self._packages = packages
+        self._native_packages = native_packages
         self._session_factory = session_factory
         self._authorization = authorization
         self._status = status
@@ -1114,6 +1138,70 @@ class McpTargetToolService:
             raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result
+
+    def package_import(
+        self, principal: McpPrincipal, operation: PackageImportInput
+    ) -> PackageStatus:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(session, principal, "package_import")
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._packages is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._packages.import_package(
+                principal.client_id, operation, authorize=authorize
+            )
+        except (AgentPackageError, AddonZipValidationError) as error:
+            raise McpAuthorizationError(error.code) from error
+
+    def package_status(
+        self, principal: McpPrincipal, operation: PackageStatusInput
+    ) -> PackageStatus:
+        def authorize(session: Session) -> None:
+            self._authorization.authorize_project(session, principal, "package_status")
+
+        with self._session_factory() as session:
+            authorize(session)
+        if self._packages is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._packages.status(
+                principal.client_id, operation.artifact_id, authorize=authorize
+            )
+        except AgentPackageError as error:
+            raise McpAuthorizationError(error.code) from error
+
+    def package_install(
+        self, principal: McpPrincipal, operation: NativeZipRequest
+    ) -> NativeZipStatus:
+        # New MCP package workflow is role-only and must reference its own intake.
+        self.package_status(
+            principal, PackageStatusInput(artifact_id=operation.artifact_id)
+        )
+        if self._native_packages is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return self._native_packages.request(principal, operation)
+        except NativeZipError as error:
+            raise McpAuthorizationError(str(error)) from error
+
+    def package_install_status(
+        self, principal: McpPrincipal, operation: PackageInstallationStatusInput
+    ) -> NativeZipStatus:
+        with self._session_factory() as session:
+            self._authorization.require_managed_lab_role(session, principal)
+        if self._native_packages is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            return (
+                self._native_packages.verify
+                if operation.verify
+                else self._native_packages.get
+            )(principal, operation.operation_id)
+        except NativeZipError as error:
+            raise McpAuthorizationError(str(error)) from error
 
     def workspace_create(
         self,

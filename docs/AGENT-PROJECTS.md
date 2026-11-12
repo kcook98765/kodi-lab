@@ -50,9 +50,28 @@ publish with private read-only files and directories; workspace capture supplies
 the editable copy. Empty archive directories and executable permission bits are
 not imported as source files.
 
-Editable source import does not perform native ZIP installation. Larger packages
-and repository/native installation-for-test remain on their separately reviewed
-onboarding routes; agent MCP test-mode onboarding is still an open #305 gap.
+Editable source import does not perform native ZIP installation. For separate
+test-mode intake, use `package_import` with original ZIP bytes, SHA-256, provenance
+and a saved request UUID, then `package_status`. It accepts bounded Python video
+plugins or passive reviewed repository descriptors through the existing immutable
+artifact validator. Python test packages have the same dependency/file-type
+restrictions as editable imports; Program source import remains supported through
+`project_import`, while Program native ZIP testing is unsupported. Intake has
+four reservations per agent and 32 globally, including failed/interrupted records.
+An interrupted `reserved` package requires inspection of the original request;
+replay reports it without replacing bytes or allocating another artifact.
+
+`package_install` requests the existing native ZIP delivery for your accepted
+artifact and an installed managed target. This requires the administrator's
+explicit native delivery origin configuration; it neither starts Kodi nor performs
+installation. Kodi's GUI consumes its exact expiring `source_url` using Install
+from zip. `package_install_status` reads the owned receipt; `verify=true` checks
+exact native payload, version/type and enabled state. A URL, download or GUI
+notification alone is not installation success. See
+[native ZIP testing](NATIVE-ZIP-INSTALLATION.md) for the reviewed route and its
+operator-assisted limitations. No generic builtin or direct-path installer is
+introduced. Larger/chunked transfers remain unsupported by this bounded inline
+protocol.
 Native and browser acceptance remain tracked by #310. No host path, shell, Git
 clone, remote URL fetch, Docker operation or external Kodi authority is provided.
 

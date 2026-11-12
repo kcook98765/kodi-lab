@@ -48,6 +48,7 @@ from kodi_lab.domain import (
 from kodi_lab.kodi.addons import KodiAddonInventoryAdapter, KodiAddonInventoryResult
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.storage.models import (
+    AgentPackageRow,
     McpClientRow,
     NativeZipInstallationRow,
 )
@@ -234,6 +235,12 @@ class NativeZipInstallationService:
         self._authorization.authorize_native_zip_installation(
             principal, request.target_id
         )
+        with self._sessions() as session:
+            owned = session.get(AgentPackageRow, str(request.artifact_id))
+            if owned is not None and (
+                owned.client_id != str(principal.client_id) or owned.state != "accepted"
+            ):
+                raise McpAuthorizationError("package_not_found_or_not_authorized")
         if self._base is None:
             raise NativeZipError("native_zip_delivery_unconfigured")
         self.sweep()
@@ -284,6 +291,12 @@ class NativeZipInstallationService:
                 ):
                     raise NativeZipError("request_id_conflict")
                 return self._status(previous)
+            self._authorization.recheck_native_zip_installation(
+                session,
+                principal,
+                request.target_id,
+                runtime_revision_id=observation.runtime_revision_id,
+            )
             count = (
                 session.scalar(
                     select(func.count()).select_from(NativeZipInstallationRow)
@@ -327,10 +340,16 @@ class NativeZipInstallationService:
             import zipfile
 
             data = original_zip(self._root, artifact)
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                urls = repository_zip_urls(
-                    artifact.addon_id, archive.read(f"{artifact.addon_id}/addon.xml")
-                )
+            urls: tuple[str, ...] = ()
+            if (
+                artifact.extension_classification
+                is AddonZipExtensionClassification.KODI_REPOSITORY
+            ):
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    urls = repository_zip_urls(
+                        artifact.addon_id,
+                        archive.read(f"{artifact.addon_id}/addon.xml"),
+                    )
             for hostname in sorted({urlsplit(url).hostname or "" for url in urls}):
                 if hostname is None:
                     raise NativeZipError("native_zip_repository_url_invalid")
@@ -402,7 +421,13 @@ class NativeZipInstallationService:
             if (
                 item is not None
                 and item.version == artifact.addon_version
-                and item.kodi_type == "xbmc.addon.repository"
+                and item.kodi_type
+                == (
+                    "xbmc.addon.repository"
+                    if artifact.extension_classification
+                    is AddonZipExtensionClassification.KODI_REPOSITORY
+                    else "xbmc.python.pluginsource"
+                )
                 and item.enabled
                 and matched.matched
                 and row.zip_get_requested_at is not None
@@ -534,7 +559,10 @@ class NativeZipInstallationService:
         if (
             artifact is None
             or artifact.extension_classification
-            is not AddonZipExtensionClassification.KODI_REPOSITORY
+            not in {
+                AddonZipExtensionClassification.KODI_REPOSITORY,
+                AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN,
+            }
             or artifact.origin is not AddonZipOrigin.UPLOADED_ZIP
         ):
             raise NativeZipError("native_zip_artifact_unsupported")

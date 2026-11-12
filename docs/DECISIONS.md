@@ -8121,3 +8121,23 @@ is stopped. Explicit Bridge recovery uses the original Reset and preparation
 version; it cannot create another Reset, and completed recovery replays no child.
 Human/legacy native-only Reset consent is unchanged; #302's human composition
 remains open. See [agent Reset contract](MANAGED-AGENT-RESET.md).
+
+## D-0499: Original package testing composes reviewed native delivery
+
+Keep editable project imports distinct from immutable original ZIP artifacts.
+Trusted agents can transfer a bounded video or passive repository ZIP with digest
+and provenance through the existing strict validator. An additive owner/request
+ledger prevents cross-agent use and lost-request reallocation. Interrupted
+publication remains reserved for review; current credential and role are rechecked
+inside publication. No arbitrary source path, downloader or server shell is added.
+
+MCP package installation composes the same expiring exact-peer native delivery
+service as HTTP, with the existing Kodi GUI installer and independent byte/type/
+version/enabled verification. Video readback is admitted without widening the
+copied-video installer or its disabled postcondition. Staging is not installation.
+The managed role covers approved disposable targets; legacy and external
+permissions remain independent. Reset/native delivery are fenced in both directions;
+an unresolved consumer requires fresh stopped/absent proof before Reset, including
+after delivery expiry. Inline size/format limits, explicit delivery origin and
+operator-assisted GUI consumption remain documented qualification limits. See
+[agent intake](AGENT-PROJECTS.md) and [native ZIP testing](NATIVE-ZIP-INSTALLATION.md).

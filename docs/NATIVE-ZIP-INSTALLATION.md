@@ -1,10 +1,10 @@
-# Native repository ZIP installation
+# Native ZIP installation for testing
 
 For the separate active-development-add-on request, see the
 [one-call native ZIP feasibility audit](ONE-CALL-NATIVE-ZIP-FEASIBILITY.md).
 
-This is an operator-assisted development workflow for one explicitly granted
-disposable managed target. Kodi installs the ZIP. Lab delivers the validated
+This is an operator-assisted development workflow for one authorized disposable
+managed target. It supports Python video-plugin and passive repository artifacts. Kodi installs the ZIP. Lab delivers the validated
 original and verifies the installed result; it never extracts repository files
 into a Kodi profile. Native runtime acceptance remains a separate qualification.
 
@@ -13,8 +13,10 @@ their video-specific admission and disabled-install postcondition.
 
 ## Admission and authority
 
-Upload with the existing authenticated administrator `POST /api/addon-zips`
-workflow. Repository packages need one matching ID/root, valid bounded XML,
+Trusted Managed Lab agents use `package_import` for owner-scoped original ZIP
+intake, separately from editable `project_import`; see [agent projects](AGENT-PROJECTS.md)
+for the smaller inline limits and supported types. Administrators can still upload
+through the authenticated `POST /api/addon-zips` workflow. Repository packages need one matching ID/root, valid bounded XML,
 one passive `xbmc.addon.repository` extension with optional passive metadata,
 and explicit non-overlapping versioned `dir` blocks. Catalog/checksum/package
 URLs must be HTTPS DNS URLs without credentials, unsafe paths or local names.
@@ -26,12 +28,14 @@ fail closed. ZIP traversal, collisions, special files, format and resource limit
 are unchanged. DNS is checked at request time; this does not sandbox Kodi's later
 repository downloads or trust future catalogs.
 
-The new HTTP API uses the existing MCP bearer identity. It is **not** a new MCP
-tool and is not authenticated by Web session cookies. It requires:
+The HTTP API uses the existing MCP bearer identity and is not authenticated by
+Web session cookies. The package MCP tools compose this same service. It requires:
 
 - An enabled client and current, unrevoked credential.
-- An exact client-to-target grant, independently of permissions.
-- Explicit `addon.install` permission in both client and target presets.
+- Trusted Managed Lab on an approved installed disposable managed target, or
+  the legacy exact client-to-target grant plus explicit `addon.install` in both
+  client and target presets. Existing clients receive no new authority.
+- Another agent's private package is refused, including through the HTTP API.
 - A managed disposable target, a reconciled running/ready runtime, and pinned
   runtime/container identity. Status readback retains the same installation
   permission and grant but can be read while the target is stopped.
@@ -39,8 +43,9 @@ tool and is not authenticated by Web session cookies. It requires:
 `addon.install` is absent from all built-in presets. Administrators may explicitly
 select it in a custom preset using the existing Add-on Development or Full Lab
 Control template. Do not modify a shared preset to authorize one target.
-Inspection, visual, remote-control and managed-lifecycle permissions neither
-imply nor automatically receive installation authority. This implementation
+Inspection, visual, remote-control and managed-lifecycle permissions alone do not
+imply installation authority. The explicitly granted Trusted Managed Lab role
+includes managed package testing and still grants no external authority. This implementation
 creates no clients, credentials, presets or target grants on startup.
 
 ## Configuration and request
@@ -62,7 +67,7 @@ Authorization: Bearer <installation credential>
 Content-Type: application/json
 
 {"request_id":"<fresh UUID>","target_id":"<granted disposable UUID>",
- "artifact_id":"<accepted repository artifact UUID>"}
+ "artifact_id":"<accepted video or repository artifact UUID>"}
 ```
 
 The strict input has no path, URL, command, Docker options, or extraction switch.
@@ -114,13 +119,15 @@ GET  /api/native-zip-installations/{operation_id}
 POST /api/native-zip-installations/{operation_id}/verify
 ```
 
-Both require the owner's installation credential and exact current target scope.
+The MCP equivalents are `package_install` and `package_install_status` with
+`verify=true`. Both require the owner's current installation authority and exact
+target identity.
 States are:
 
 | State | Meaning |
 |---|---|
 | `requested` | Request recorded; delivery becomes available after preflight. Kodi has not confirmed installation. |
-| `completed` | A valid ZIP GET was requested (not proof of completed transfer), Kodi reports exact ID/version/repository type enabled, and independent broker readback matches the entire validated payload, modes and runtime owner on the same container/revision. |
+| `completed` | A valid ZIP GET was requested (not proof of completed transfer), Kodi reports exact ID/version/admitted extension type enabled, and independent broker readback matches the entire validated payload, modes and runtime owner on the same container/revision. |
 | `failed` | Preflight failed; delivery is unavailable. |
 | `unverified` | Confirmation is absent, mismatched or unavailable, or the deadline expired. Never installation success. A pre-deadline verify may be repeated as a readback, without redispatching installation. |
 
@@ -138,8 +145,13 @@ targets, launch commands, or reuse the video installation resolver.
 
 This interactive workflow does not hold a lifecycle lease while a person uses
 Kodi. Normal UI operations and lifecycle remain independently authorized.
-Changing/recreating the target causes readback/delivery to fail; do not run reset,
-restore, deployment, or concurrent installation during an acceptance run. Lab
+Delivery activation is refused during Reset or another managed mutation. Reset
+is refused while a native consumer may still be active, including an expired
+delivery with a recorded ZIP GET. An explicit Stop must prove that exact consumer
+stopped before Reset can proceed; a cached stopped database row is insufficient.
+Old delivery never names the replacement container. Changing/recreating the target
+causes readback/delivery to fail; do not run restore, deployment or another
+installation during an acceptance run. Lab
 does not provide a Kodi installation-event receipt or unattended installation.
 
 After native installation, use supported installed-add-on inventory, bounded
@@ -159,8 +171,9 @@ behavior and boundaries, not native Kodi acceptance.
 
 Use a matching Web/broker application bundle and configure the explicit delivery
 origin. Fresh initialization includes native ZIP storage in
-`0001_initial_release`; no separate prerelease migration is required. No Bridge
-or runtime image change is needed. Keep Web and broker compatible even while
+`0001_initial_release`. Agent-owned intake adds the immutable owner/request ledger
+in `0013_agent_packages`; fresh initialization includes both. No Bridge or runtime
+image change is needed. Keep Web and broker compatible even while
 delivery is disabled. For future application transitions, retain repository
 artifacts, native operation evidence and installed `addon.install` policy state.
 Use the supported stopped-service backup/restore workflow for rollback; do not

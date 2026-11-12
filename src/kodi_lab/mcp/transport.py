@@ -50,6 +50,11 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
+from kodi_lab.application.agent_packages import (
+    PackageImportInput,
+    PackageStatus,
+    PackageStatusInput,
+)
 from kodi_lab.application.agent_projects import (
     AgentProjectList,
     AgentProjectResult,
@@ -91,6 +96,10 @@ from kodi_lab.application.mcp_workspace_mutations import (
     MCP_PRESENT_WORKSPACES_PER_CLIENT,
     WORKSPACE_QUOTA_REASONS,
     WorkspaceCreateResult,
+)
+from kodi_lab.application.native_zip_installations import (
+    NativeZipRequest,
+    NativeZipStatus,
 )
 from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
@@ -137,6 +146,7 @@ from kodi_lab.mcp.tools import (
     ManagedSelectionPreviewInput,
     ManagedSelectionResult,
     McpTargetToolService,
+    PackageInstallationStatusInput,
     ScreenshotCaptureMetadata,
     ScreenshotRetrievalMetadata,
     ScreenshotToolResult,
@@ -914,6 +924,73 @@ def build_mcp_http_transport(
         idle_seconds=15 * 60,
     )
     inventory = {
+        "package_import": Tool(
+            name="package_import",
+            title="Intake an original ZIP for native testing",
+            description=(
+                "Trusted Managed Lab only: accept a reviewed original video-plugin "
+                "or passive repository ZIP, "
+                "separately from editable project_import. Base64 <=45 KiB "
+                "compressed, 256 entries, 4 MiB expanded; "
+                "SHA-256 and provenance required. No host paths or network "
+                "downloads. Save request_id. "
+                "Interrupted reserved intake requires review; replay never "
+                "overwrites uncertain bytes. "
+                "Use package_install to request existing native Kodi GUI delivery. "
+                "No add-on is installed by intake."
+            ),
+            input_schema=PackageImportInput.model_json_schema(),
+            output_schema=PackageStatus.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "package_status": Tool(
+            name="package_status",
+            title="Read your original package intake",
+            description=(
+                "Read only your own saved package status. "
+                "No native probes or installation."
+            ),
+            input_schema=PackageStatusInput.model_json_schema(),
+            output_schema=PackageStatus.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "package_install": Tool(
+            name="package_install",
+            title="Stage an owned package for native Kodi installation",
+            description=(
+                "Trusted Managed Lab only, installed managed targets only. Request "
+                "the existing expiring "
+                "exact-target native ZIP delivery for your accepted package. Save "
+                "request_id. "
+                "The returned source_url is for Kodi GUI Install from zip; staging "
+                "is NOT installation. "
+                "No arbitrary builtin, downloader or filesystem access. Use "
+                "package_install_status to verify "
+                "exact native bytes/version/enabled state after Kodi installs it. "
+                "External Kodi is refused."
+            ),
+            input_schema=NativeZipRequest.model_json_schema(),
+            output_schema=NativeZipStatus.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "package_install_status": Tool(
+            name="package_install_status",
+            title="Read or verify your native installation receipt",
+            description=(
+                "Read an owned native-delivery receipt; verify=true runs bounded "
+                "read-only native checks "
+                "and records their result. A staged URL, download request or GUI "
+                "notification alone is not success. "
+                "This does not retry an installer or start Kodi."
+            ),
+            input_schema=PackageInstallationStatusInput.model_json_schema(),
+            output_schema=NativeZipStatus.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "project_status": Tool(
             name="project_status",
             title="List owned project intake and workspaces",
@@ -1570,6 +1647,8 @@ def build_mcp_http_transport(
                 | WorkspaceTreeResult
                 | AgentProjectList
                 | AgentProjectResult
+                | PackageStatus
+                | NativeZipStatus
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
                 | WorkspaceLaunchResult
@@ -1583,6 +1662,8 @@ def build_mcp_http_transport(
             if params.name in {
                 "project_status",
                 "development_source_list",
+                "package_status",
+                "package_install_status",
                 "workspace_read",
                 "workspace_status",
                 "workspace_tree",
@@ -1597,6 +1678,8 @@ def build_mcp_http_transport(
             if params.name in {
                 "project_create",
                 "project_import",
+                "package_import",
+                "package_install",
                 "workspace_edit",
                 "workspace_capture",
                 "workspace_import",
@@ -1776,6 +1859,30 @@ def build_mcp_http_transport(
                 )
                 if workspace_id is not None and result.workspaces:
                     source_id = result.workspaces[0].source_id
+            elif params.name == "package_import":
+                result = await asyncio.to_thread(
+                    tools.package_import,
+                    principal,
+                    PackageImportInput.model_validate(arguments),
+                )
+            elif params.name == "package_status":
+                result = await asyncio.to_thread(
+                    tools.package_status,
+                    principal,
+                    PackageStatusInput.model_validate(arguments),
+                )
+            elif params.name == "package_install":
+                parsed_package_install = NativeZipRequest.model_validate(arguments)
+                target_id = parsed_package_install.target_id
+                result = await asyncio.to_thread(
+                    tools.package_install, principal, parsed_package_install
+                )
+            elif params.name == "package_install_status":
+                result = await asyncio.to_thread(
+                    tools.package_install_status,
+                    principal,
+                    PackageInstallationStatusInput.model_validate(arguments),
+                )
             elif params.name == "project_status":
                 parsed_project_status = ProjectStatusInput.model_validate(arguments)
                 result = await asyncio.to_thread(

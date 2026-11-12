@@ -75,6 +75,10 @@ _MESSAGES = {
     ),
     "active_viewer_or_input": "Close the screen and finish any control session first.",
     "playback_active": "Stop playback before stopping or resetting Kodi.",
+    "native_installation_pending": (
+        "A native package installation may be active. Verify its original receipt, "
+        "or use Stop Kodi to terminate its consumer before Reset."
+    ),
     "playback_unknown": (
         "Playback could not be checked, so Kodi Lab cannot safely stop or reset it. "
         "Check Kodi's connection, then refresh status."
