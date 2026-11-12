@@ -137,19 +137,17 @@ class Broker(FakeBroker):
         if self.mode == "no_response":
             raise OSError("response unavailable before any receipt")
         if generation == "piers":
-            from kodi_lab.runtime.install import _create_operation
+            from kodi_lab.broker.reviewed_installations import (
+                DockerReviewedInstallationWorker,
+            )
             from tests.runtime.test_ostree_installation import acknowledgement
 
             assert preview_acknowledgement == acknowledgement()
-            _create_operation(
-                self.factory, load_installation_recipe(generation), UUID(operation_id)
-            )
-            with self.factory.begin() as session:
-                row = session.get(RuntimeRecipeInstallationRow, operation_id)
-                assert row
-                row.attestation_json = admission_evidence(
-                    preview_acknowledgement, UUID(operation_id)
-                )
+            # The real privileged worker only reads application-owned admission.
+            # Creating it in this double hid a native Create failure.
+            DockerReviewedInstallationWorker(
+                session_factory=self.factory
+            )._admit_preview(UUID(operation_id), preview_acknowledgement)
         else:
             assert preview_acknowledgement is None
             create_row(self.factory, generation, UUID(operation_id))
@@ -211,6 +209,92 @@ def test_exact_planned_uuid_checkpoint_success_and_duplicate(
     assert accept(app, op.request_id) == result
     assert broker.launches == [("omega", str(original))]
     assert result.container_id is None  # No registration/provision/start integration.
+
+
+def test_piers_create_commits_exact_preview_admission_before_broker_dispatch(
+    factory: sessionmaker[Session],
+) -> None:
+    app, adapter, broker, _ = setup(factory)
+    op = accept(app, generation="piers", preview_approved=True)
+    broker.parent, broker.mode = op.id, "pending"
+    result = adapter.install(op.id, version=op.version)
+    assert result.checkpoint is CreateCheckpoint.DISPATCHED
+    assert result.installation_operation_id is not None
+    assert broker.workers == {str(result.installation_operation_id): "running"}
+    with factory() as session:
+        row = session.get(
+            RuntimeRecipeInstallationRow, str(result.installation_operation_id)
+        )
+        assert row and row.state is State.PENDING
+        assert (row.recipe_id, row.recipe_revision, row.recipe_digest) == (
+            op.recipe_id,
+            op.recipe_revision,
+            op.recipe_digest,
+        )
+        from tests.runtime.test_ostree_installation import acknowledgement
+
+        assert row.attestation_json == admission_evidence(
+            acknowledgement(), result.installation_operation_id
+        )
+    # Passive observation and original intent replay never dispatch a second worker.
+    assert adapter.resolve(result.id, version=result.version) == result
+    assert accept(app, op.request_id, "piers", preview_approved=True) == result
+    assert len(broker.launches) == 1
+
+
+def test_piers_admission_failure_rolls_back_dispatch_and_can_resume_original(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, adapter, broker, _ = setup(factory)
+    op = accept(app, generation="piers", preview_approved=True)
+    broker.parent, broker.mode = op.id, "pending"
+    prepare = adapter._prepare_preview_admission
+
+    def fail(session: Session, current: object) -> None:
+        from kodi_lab.domain.create_kodi import CreateOperation
+
+        assert isinstance(current, CreateOperation)
+        prepare(session, current)
+        raise ValueError("interrupted admission transaction")
+
+    monkeypatch.setattr(adapter, "_prepare_preview_admission", fail)
+    refused = adapter.install(op.id, version=op.version)
+    assert refused.outcome is CreateOutcome.REFUSED
+    assert refused.dispatched_at is None and broker.launches == []
+    with factory() as session:
+        assert (
+            session.get(
+                RuntimeRecipeInstallationRow, str(refused.installation_operation_id)
+            )
+            is None
+        )
+    monkeypatch.setattr(adapter, "_prepare_preview_admission", prepare)
+    resumed = adapter.resume_refused(refused.id, version=refused.version)
+    assert resumed.installation_operation_id == refused.installation_operation_id
+    assert resumed.checkpoint is CreateCheckpoint.DISPATCHED
+    assert len(broker.launches) == 1
+
+
+@pytest.mark.parametrize("mode", ["lost_response", "no_response", "wrong_reply"])
+def test_piers_dispatch_uncertainty_retains_admission_without_relaunch(
+    factory: sessionmaker[Session], mode: str
+) -> None:
+    app, adapter, broker, _ = setup(factory)
+    op = accept(app, generation="piers", preview_approved=True)
+    broker.parent, broker.mode = op.id, mode
+    result = adapter.install(op.id, version=op.version)
+    assert result.outcome is CreateOutcome.UNCERTAIN
+    child = result.installation_operation_id
+    with factory() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(child))
+        assert row and row.state is State.PENDING and row.attestation_json
+        admission = row.attestation_json
+    assert adapter.install(result.id, version=result.version) == result
+    adapter.resolve(result.id, version=result.version)
+    with factory() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(child))
+        assert row and row.attestation_json == admission
+    assert len(broker.launches) == 1
 
 
 @pytest.mark.parametrize("when", ["before_checkpoint", "after_checkpoint"])

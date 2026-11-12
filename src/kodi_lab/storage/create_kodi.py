@@ -429,7 +429,11 @@ class CreateKodiRepository:
             return _snapshot(row)
 
     def claim_dispatch(
-        self, operation_id: UUID, *, version: int
+        self,
+        operation_id: UUID,
+        *,
+        version: int,
+        prepare: Callable[[Session, CreateOperation], None] | None = None,
     ) -> CreateDispatchClaim:
         """Only the successful caller receives a fresh dispatch claim.
 
@@ -437,6 +441,10 @@ class CreateKodiRepository:
         dispatch claim. A lost command response therefore requires inspection.
         """
         with self._change(operation_id, version, CreateCheckpoint.PLANNED) as row:
+            if prepare is not None:
+                session = object_session(row)
+                assert session is not None
+                prepare(session, _snapshot(row))
             row.checkpoint = CreateCheckpoint.DISPATCHED
             row.dispatched_at = _now()
             return CreateDispatchClaim(_snapshot(row))
