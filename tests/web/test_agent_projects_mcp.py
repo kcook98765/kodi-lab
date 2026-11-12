@@ -1,5 +1,6 @@
 """Authenticated MCP creates an owned project with no operator source setup."""
 
+import logging
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -13,10 +14,32 @@ from tests.web.test_mcp import (
     _post,
     _strict_tool_result,
 )
+from tests.web.test_production_profile_mcp_inspection import _audit_payloads
+from tests.web.test_production_profile_mcp_inspection import (
+    mcp_audit_records as mcp_audit_records,
+)
+
+
+def assert_owned_audit(
+    records: list[logging.LogRecord],
+    names: set[str],
+    client_id: UUID,
+    credential_id: UUID,
+    private_values: tuple[str, ...],
+) -> list[dict[str, object]]:
+    payloads = _audit_payloads(records)
+    assert {payload["tool"] for payload in payloads} == names
+    assert all(payload["client_id"] == str(client_id) for payload in payloads)
+    assert all(payload["credential_id"] == str(credential_id) for payload in payloads)
+    assert all("tool_correlation" not in payload for payload in payloads)
+    text = "\n".join(record.getMessage() for record in records)
+    assert all(value not in text for value in private_values)
+    return payloads
 
 
 def test_wire_project_creation_schema_replay_and_role_revocation(
     client: TestClient,
+    mcp_audit_records: list[logging.LogRecord],
 ) -> None:
     context = cast(FastAPI, client.app).state.kodi_lab
     context.agent_workspaces._development_root = None
@@ -26,7 +49,8 @@ def test_wire_project_creation_schema_replay_and_role_revocation(
         preset_id=READ_ONLY_INSPECTION_PRESET_ID,
         trusted_managed_lab=True,
     )
-    token = admin.issue_credential(agent.id).token
+    issued = admin.issue_credential(agent.id)
+    token = issued.token
     catalog = {
         item["name"]: item
         for item in _post(client, token, "tools/list").json()["result"]["tools"]
@@ -86,9 +110,27 @@ def test_wire_project_creation_schema_replay_and_role_revocation(
     }
     assert "project_create" not in catalog_after
     _assert_tool_error(call(arguments), "permission_denied")
+    payloads = assert_owned_audit(
+        mcp_audit_records,
+        {"project_create", "project_status"},
+        agent.id,
+        issued.credential.id,
+        (token,),
+    )
+    assert len(payloads) == 4
+    created = [p for p in payloads if p["tool"] == "project_create"]
+    assert [p["request_id"] for p in created[:2]] == [arguments["request_id"]] * 2
+    assert all(p["source_id"] == project["project_id"] for p in created[:2])
+    assert all(
+        p["workspace_id"] == project["workspace"]["workspace_id"] for p in created[:2]
+    )
+    assert created[-1]["outcome"] == "authorization_denied"
 
 
-def test_wire_reviewed_package_import_and_owner_provenance(client: TestClient) -> None:
+def test_wire_reviewed_package_import_and_owner_provenance(
+    client: TestClient,
+    mcp_audit_records: list[logging.LogRecord],
+) -> None:
     from tests.application.test_project_package_import import package, request
 
     context = cast(FastAPI, client.app).state.kodi_lab
@@ -99,7 +141,8 @@ def test_wire_reviewed_package_import_and_owner_provenance(client: TestClient) -
         preset_id=READ_ONLY_INSPECTION_PRESET_ID,
         trusted_managed_lab=True,
     )
-    token = admin.issue_credential(agent.id).token
+    issued = admin.issue_credential(agent.id)
+    token = issued.token
     catalog = {
         item["name"]: item
         for item in _post(client, token, "tools/list").json()["result"]["tools"]
@@ -136,3 +179,17 @@ def test_wire_reviewed_package_import_and_owner_provenance(client: TestClient) -
         for item in _post(client, token, "tools/list").json()["result"]["tools"]
     }
     assert "project_import" not in names
+    payloads = assert_owned_audit(
+        mcp_audit_records,
+        {"project_import", "project_status"},
+        agent.id,
+        issued.credential.id,
+        (token, operation.archive_base64, operation.provenance_reference),
+    )
+    imported = next(p for p in payloads if p["tool"] == "project_import")
+    assert imported["request_id"] == str(operation.request_id)
+    assert imported["source_id"] == project_id
+    assert (
+        imported["workspace_id"]
+        == result["structuredContent"]["workspace"]["workspace_id"]
+    )

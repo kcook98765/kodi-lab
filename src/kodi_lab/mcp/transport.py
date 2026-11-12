@@ -215,6 +215,13 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "inspect_ui_state",
         "addon_list",
         "development_source_list",
+        "project_create",
+        "project_import",
+        "project_status",
+        "package_import",
+        "package_status",
+        "package_install",
+        "package_install_status",
         "promotion_request",
         "remote_action",
         "screenshot_capture",
@@ -1860,10 +1867,12 @@ def build_mcp_http_transport(
                 if workspace_id is not None and result.workspaces:
                     source_id = result.workspaces[0].source_id
             elif params.name == "package_import":
+                parsed_package_import = PackageImportInput.model_validate(arguments)
+                request_id = parsed_package_import.request_id
                 result = await asyncio.to_thread(
                     tools.package_import,
                     principal,
-                    PackageImportInput.model_validate(arguments),
+                    parsed_package_import,
                 )
             elif params.name == "package_status":
                 result = await asyncio.to_thread(
@@ -1873,6 +1882,7 @@ def build_mcp_http_transport(
                 )
             elif params.name == "package_install":
                 parsed_package_install = NativeZipRequest.model_validate(arguments)
+                request_id = parsed_package_install.request_id
                 target_id = parsed_package_install.target_id
                 result = await asyncio.to_thread(
                     tools.package_install, principal, parsed_package_install
@@ -1890,6 +1900,7 @@ def build_mcp_http_transport(
                 )
             elif params.name == "project_create":
                 parsed_project = ProjectCreateInput.model_validate(arguments)
+                request_id = parsed_project.request_id
                 result = await asyncio.to_thread(
                     tools.project_create, principal, parsed_project
                 )
@@ -1897,6 +1908,7 @@ def build_mcp_http_transport(
                 source_id = result.project_id
             elif params.name == "project_import":
                 parsed_project_import = ProjectImportInput.model_validate(arguments)
+                request_id = parsed_project_import.request_id
                 result = await asyncio.to_thread(
                     tools.project_import, principal, parsed_project_import
                 )
