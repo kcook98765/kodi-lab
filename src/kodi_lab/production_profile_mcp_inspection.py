@@ -39,6 +39,9 @@ _EXPECTED_TOOLS: Final = (
     "addon_list",
     "inspect_ui_state",
     "log_read",
+    "remote_action",
+    "screenshot_capture",
+    "screenshot_retrieve",
     "target_list",
     "target_status",
 )
@@ -46,7 +49,9 @@ _EXPECTED_VISUAL_TOOLS: Final = (
     "addon_list",
     "inspect_ui_state",
     "log_read",
+    "remote_action",
     "screenshot_capture",
+    "screenshot_retrieve",
     "target_list",
     "target_status",
 )

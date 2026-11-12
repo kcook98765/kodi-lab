@@ -15,6 +15,7 @@ from sqlalchemy import delete
 from kodi_lab.application.external_bridges import ExternalBridgeServiceError
 from kodi_lab.application.managed_bridge_trust import identity_json
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.mcp.authorization import McpAuthorizationError
 from kodi_lab.storage.models import (
@@ -177,7 +178,12 @@ def test_production_inspection_grant_reads_logs_and_rechecks_after_read(
         deployment_available=lambda t: False,
     )
     assert "log_read" in env.authorization.discoverable_tools(env.principal)
-    assert "remote_action" not in env.authorization.discoverable_tools(env.principal)
+    assert "remote_action" in env.authorization.discoverable_tools(env.principal)
+    # Discovery does not grant per-device navigation or dispatch native input.
+    with pytest.raises(McpAuthorizationError, match="production_mutations_blocked"):
+        env.authorization.authorize_production_navigation(
+            env.principal, env.target_id, BrowserRemoteAction.HOME
+        )
     if revoke:
         with pytest.raises(
             McpAuthorizationError, match="target_not_found_or_not_authorized"
