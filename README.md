@@ -329,7 +329,10 @@ Known prerelease concerns include the
 and the Windows managed development qualification above. Earlier
 [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical records.
 See the [agent-first qualification report](docs/AGENT-FIRST-QUALIFICATION.md)
-for current source results, native Nexus/Omega evidence and remaining viewer/ZIP limits.
+for historical native Nexus/Omega evidence, and the
+[Matrix/Piers native follow-up](docs/MATRIX-PIERS-AGENT-QUALIFICATION.md)
+for the newer application checkpoint, both remaining native development paths,
+and the retained viewer/ZIP qualification limits.
 
 ## Documentation
 

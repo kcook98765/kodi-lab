@@ -22,6 +22,12 @@ this documentation PR, and installed Claw are
 `46522b12076a0f1e7e1c6ff4226e1fcdfa38167d`, schema `0013_agent_packages`.
 This report's integration changes documentation only.
 
+Matrix's initial development/import and human-viewer slices ran on `875adfb`;
+both versions' final Reset/replay, fresh deployment and switching slices ran on
+`91ff733`. Piers native slices ran on `91ff733`. The exact source diff between
+those applications changes only Create admission and pinned support retrieval;
+the project, viewer, GUI and Reset implementations are unchanged.
+
 | Identity | Matrix 19.4 | Piers 22.0-rc.1 preview |
 | --- | --- | --- |
 | Approved recipe / revision | `ubuntu-jammy-matrix-19.4` / 4 | `piers-22.0-rc1-r3` / 3 |
@@ -51,7 +57,7 @@ stopped profile. Agent runtime acquisition remains unavailable.
 
 | Area | Matrix | Piers |
 | --- | --- | --- |
-| Source/fixture qualification | PASS focused; final full gate in progress | PASS focused; final full gate in progress |
+| Source/fixture qualification | PASS; RELEASE PASS source gate | PASS; RELEASE PASS source gate |
 | Native installation, Start/Stop and retained reuse | PASS | PASS through administrator Runtimes; corrected guided Create native acceptance PARTIAL |
 | Private project creation, nested editing, generation validation and deployment | PASS | PASS |
 | Reviewed source-ZIP import, subsequent edit/deploy and native execution | PASS | PASS |
@@ -88,7 +94,8 @@ receipt; read-only inspection remained available. A browser Enter held for
 while viewing/control was refused with `active_viewer_or_input`. Release restored
 agent input eligibility: native counters remained unchanged for the denied key,
 and a fresh Select then incremented them. Denied requests had zero receipt rows.
-Successful Select UUID replay reused the receipt without another counter change.
+Matrix successful Select UUID replay reused the receipt without another counter
+change; both versions passed Reset and capacity-refusal replay below.
 
 Each version completed a continuous 65-second view-only interval, normal Stop
 Viewing, browser closure and helper exit 0. Mobile first-frame observations
@@ -201,14 +208,24 @@ and integration counts overlap:
 | Pinned-support/worker/installation/assembly | 130 passed, Ruff/mypy passed | 12.0 s |
 | Clean Reset guards | 42 passed, Ruff/mypy passed | 63.7 s |
 | Resource/playback guards | 14 passed, Ruff/mypy passed | 7.3 s |
-| Final settled-byte integrated source gate | In progress on frozen installed tree | Pending |
+| Final settled-byte integrated source gate | **RELEASE PASS: 8,755 passed, 49 skipped, 5 warnings** | **48m41s** complete; 2,856.17 s pytest |
 
 The prior 8,739 passed / 49 skipped / 5 warnings / 48m01s source gate was reused
-as the starting baseline. One final full gate was started at 08:08:45.873 UTC on
-the clean frozen installed application tree because shared code changed. Native
-Kodi, cold acquisition and DinD acceptance were stopped before it; no repeated
-full run was used to re-prove unchanged code. Source gate and native acceptance
-remain separate claims.
+as the starting baseline. The ONE final full gate ran 08:08:45.873–08:57:27.068 UTC
+on clean frozen `91ff733`: **8,755 passed, 49 skipped, 5 warnings**, no failures
+or errors; pytest 2,856.17 s, complete script 48m41s, wrapper 2,921.180 s.
+Global Ruff, mypy (942 source files), six early guards, package build, Alembic
+history and package/config import passed. All eight stages exited 0; the qualified
+commit/tree and tracked source/test bytes stayed unchanged. Native Kodi, cold
+acquisition and DinD acceptance were stopped before it. No repeat full run was
+needed. Source RELEASE PASS and the bounded native acceptance remain separate.
+
+The post-gate preservation check reconfirmed stopped profiles, healthy services,
+zero leases, unchanged protected authority/source/secret inventories and exact
+Nexus/Omega native Bridge files. Both concurrent Reset probe UUIDs have zero
+Reset parent rows. A generated test-source `__pycache__` initially confused the
+private verifier; comparison now uses the frozen Git tree's ten tracked Bridge
+files. No native or product correction was required.
 
 ## Preservation, installation and final state
 
@@ -236,8 +253,9 @@ target were refused before external probing. No DVR backend was accessed.
 Both temporary QA roles were withdrawn through Agents. A still-valid peer
 credential was refused Start after role withdrawal; both credentials were then
 revoked and verified HTTP 401. Clients remain enabled with no managed role to
-retain private project source. Supported Web Sign out ended the campaign session;
-its authenticated API request changed from 200 to 401. Anonymous modern POST
+retain private project source. The campaign-only password copy was removed after
+comparison with the unchanged retained original. Supported Web Sign out ended the
+campaign session; its authenticated API request changed from 200 to 401. Anonymous modern POST
 `/mcp` returns 401 Bearer on loopback and 403 on the LAN listener.
 
 All 22 baseline networks, 133 volumes, 223 unrelated baseline image records and
@@ -280,6 +298,9 @@ payloads and full private evidence must not be uploaded.
 
 Native evidence manifest: `NATIVE-EVIDENCE-SHA256.json`, 440 completed files,
 SHA256 `413db1971fcf6d8a2ef13c59f58fe95c5548b5d20352a373adcf4b05e44c3469`.
-All manifest hashes and owner-read-only modes were reverified. Successful, failed,
-partial and observer-correction evidence is retained. The running full gate is
-excluded from this native manifest and receives separate completion evidence.
+All 440 hashes and owner-read-only modes were reverified after the source gate.
+Successful, failed, partial and observer-correction evidence is retained.
+Completed source-gate and final closeout evidence is separately sealed in
+`SOURCE-REGRESSION-SHA256.json`, 22 files, SHA256
+`e08f4d19c30bf12385bb7e55d5848b6e04f08279834879ff0e6eca7d39ffae3b`.
+Its actual counts/stages/timing are in `SOURCE-REGRESSION-SUMMARY.json`.
