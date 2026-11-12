@@ -24,7 +24,10 @@ def test_legacy_selection_profiles_and_evidence_survive_reversible_upgrade(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     path = Path(url.removeprefix("sqlite:///"))
+    command.upgrade(config, "head")
     env = fixture._environment(tmp_path / "legacy", database_path=path)
+    env.sessions.kw["bind"].dispose()
+    command.downgrade(config, OLD)
     engine = create_database_engine(url)
     with engine.begin() as c:
         c.execute(

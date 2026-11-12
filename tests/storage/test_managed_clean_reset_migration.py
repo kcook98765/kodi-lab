@@ -196,6 +196,7 @@ def test_reset_composes_the_actual_migrated_schema_and_keeps_version_history(
 
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     command.upgrade(config, NEW)
+    command.upgrade(config, "head")
     root = tmp_path / "private-state"
     root.mkdir(mode=0o700)
     generate_master_key(root)

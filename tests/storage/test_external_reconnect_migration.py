@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, inspect, text
 
 from kodi_lab.application.external_reconnect import ReconnectStartRequest
@@ -63,6 +64,7 @@ def upgraded_schema(
 ) -> Iterator[tuple[Any, Engine]]:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     monkeypatch.setattr(onboarding_fixtures, "create_engine", lambda _url: engine)
     monkeypatch.setattr(Base.metadata, "create_all", lambda _engine: None)
@@ -84,7 +86,7 @@ def test_real_reconnect_receipt_on_migrated_schema_preserves_history(
 ) -> None:
     from uuid import uuid4
 
-    environment, _config, engine = migrated_environment
+    environment, config, engine = migrated_environment
     target_id, code = _revoked(environment)
     service = _service(environment, tmp_path)
     operation_id = uuid4()
@@ -94,7 +96,7 @@ def test_real_reconnect_receipt_on_migrated_schema_preserves_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == REVISION
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert (
             connection.scalar(

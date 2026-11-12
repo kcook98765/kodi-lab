@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.kodi.external import ExternalEndpointPolicy
@@ -28,12 +29,13 @@ PREDECESSOR = "0001_initial_release"
 REVISION = "0001_initial_release"
 
 
-def test_upgrade_preserves_rows_triggers_and_reinitialization(
+def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
     command.upgrade(config, PREDECESSOR)
+    command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target = uuid4()
@@ -65,7 +67,8 @@ def test_upgrade_preserves_rows_triggers_and_reinitialization(
         )
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["arbitrary_execution","screenshot"]', 2)
-    assert _triggers(database) == original and _revision(database) == PREDECESSOR
+    assert _triggers(database) == original
+    assert _revision(database) == ScriptDirectory.from_config(config).get_current_head()
     command.upgrade(config, REVISION)
     assert _triggers(database) == original
     engine.dispose()

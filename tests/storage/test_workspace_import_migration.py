@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from kodi_lab.application.workspace_imports import ImportApplyInput, ImportInput
@@ -41,12 +42,13 @@ def test_import_empty_upgrade_and_downgrade_preserve_existing_schema(
     engine.dispose()
 
 
-def test_real_import_receipt_on_initial_schema_preserves_history(
+def test_real_import_receipt_on_current_migrated_schema_preserves_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     # The application fixture now uses the migrated engine. create_all is
     # disabled so current ORM metadata cannot repair a missing migration.
@@ -69,7 +71,7 @@ def test_real_import_receipt_on_initial_schema_preserves_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == REVISION
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert (
             connection.scalar(text("SELECT count(*) FROM workspace_import_operations"))
@@ -85,6 +87,7 @@ def test_reviewed_tombstone_receipt_runs_on_existing_migrated_schema(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     monkeypatch.setattr(capture_fixture, "create_engine", lambda _url: engine)
     monkeypatch.setattr(Base.metadata, "create_all", lambda _engine: None)
