@@ -154,7 +154,13 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
         )
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    assert admin.get_client(agent.id).target_grants == (ids[0],)
+    # Inspect historical columns without asking the current client ORM to run
+    # against a schema that predates the managed role column.
+    with engine.connect() as connection:
+        assert connection.scalars(
+            text("SELECT target_id FROM mcp_client_target_grants WHERE client_id=:id"),
+            {"id": str(agent.id)},
+        ).all() == [str(ids[0])]
     fresh = create_database_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
     Base.metadata.create_all(fresh)
     with fresh.connect() as connection:
@@ -195,6 +201,7 @@ def test_upgrade_preserves_state_resets_opt_in_and_matches_fresh_default(
     assert preferences.read(legacy_target.target_id).enabled  # Legacy creation rule.
     assert retained == {target_id: preferences.read(target_id) for target_id in ids}
     fresh.dispose()
+    command.upgrade(config, "head")
     assert McpAuthenticationService(sessions).authenticate(issued.token) is not None
     engine.dispose()
 

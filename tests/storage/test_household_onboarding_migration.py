@@ -285,6 +285,7 @@ def test_durable_retirement_on_migrated_schema_after_restart(
 
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     with env.sessions() as session:

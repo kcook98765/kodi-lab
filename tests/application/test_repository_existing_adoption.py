@@ -901,6 +901,8 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
     command.upgrade(config, "0001_initial_release")
+    # Seed through current services, then inspect the actual historical schema.
+    command.upgrade(config, "head")
     env, _, target = _setup(tmp_path / "current-fixture", database_path=database_path)
     generation = _version(env, 0, "1.0.1")
     pending = env.development.deploy(
@@ -945,10 +947,11 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
     historical_engine = create_database_engine(f"sqlite:///{database_path}")
     env.sessions.kw["bind"].dispose()
     historical_engine.dispose()
+    command.downgrade(config, "0001_initial_release")
     command.upgrade(config, "0001_initial_release")
     if round_trip:
         command.upgrade(config, "head")
-        command.upgrade(config, "0001_initial_release")
+        command.downgrade(config, "0001_initial_release")
     # Inspect the exact historical schema without asking the current ORM for
     # nullable columns introduced by later migrations.
     historical = MetaData()
@@ -1016,12 +1019,14 @@ def test_0060_verified_existing_record_refuses_lossy_downgrade(
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
     command.upgrade(config, "0001_initial_release")
+    command.upgrade(config, "head")
     env, _, _, publication, identity = _approved_existing(
         tmp_path / "current-fixture", database_path=database_path
     )
     result = _adopt(env, publication, identity)
     historical_engine = create_database_engine(f"sqlite:///{database_path}")
     env.sessions.kw["bind"].dispose()
+    command.downgrade(config, "0001_initial_release")
     with historical_engine.connect() as connection:
         before = connection.exec_driver_sql(
             "SELECT * FROM repository_workspace_deployments"

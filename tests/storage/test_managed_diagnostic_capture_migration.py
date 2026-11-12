@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -53,6 +54,7 @@ def test_upgraded_capture_preserves_pending_provision_and_preserves_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    command.upgrade(config, "head")
     case = tmp_path / "case"
     env = fixtures._environment(
         case, database_path=Path(url.removeprefix("sqlite:///"))
@@ -131,7 +133,8 @@ def test_upgraded_capture_preserves_pending_provision_and_preserves_history(
         )
     with env.sessions() as session:
         assert (
-            session.scalar(text("SELECT version_num FROM alembic_version")) == REVISION
+            session.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
         )
     assert (
         service.read(result.capture_id).capture.payload_sha256 == result.payload_sha256

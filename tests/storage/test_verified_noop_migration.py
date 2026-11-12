@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from kodi_lab.application.mcp_workspace_development import (
@@ -25,9 +26,12 @@ def test_populated_upgrade_preserves_old_receipts_and_reverses_without_proof(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
+    command.upgrade(config, "head")
     env = fixture._environment(
         tmp_path / "legacy", database_path=Path(url.removeprefix("sqlite:///"))
     )
+    env.sessions.kw["bind"].dispose()
+    command.downgrade(config, OLD)
     engine = create_database_engine(url)
     request, operation = uuid4(), uuid4()
     legacy = dict(
@@ -104,7 +108,7 @@ def test_populated_upgrade_preserves_old_receipts_and_reverses_without_proof(
             table: connection.execute(text(f'SELECT * FROM "{table}"')).all()
             for table in columns
         }
-    command.upgrade(config, NEW)
+    command.upgrade(config, "head")
     replay = env.development.deploy(
         client_id=env.client_id,
         request_id=request,
@@ -135,7 +139,7 @@ def test_populated_upgrade_preserves_old_receipts_and_reverses_without_proof(
             )
             == 0
         )
-    command.upgrade(config, NEW)
+    command.downgrade(config, NEW)
     engine.dispose()
 
 
@@ -144,6 +148,7 @@ def test_noop_proof_works_on_migrated_schema_and_and_preserves_history(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
     command.upgrade(config, NEW)
+    command.upgrade(config, "head")
     env = environment(
         tmp_path / "live", database_path=Path(url.removeprefix("sqlite:///"))
     )
@@ -151,7 +156,10 @@ def test_noop_proof_works_on_migrated_schema_and_and_preserves_history(
     assert deploy(env).deployment_work_skipped
     engine = create_database_engine(url)
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == NEW
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == ScriptDirectory.from_config(config).get_current_head()
+        )
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert (
             connection.scalar(
@@ -170,7 +178,7 @@ def test_missing_current_proof_storage_cannot_admit_native_deployment(
 ) -> None:
     from sqlalchemy.exc import SQLAlchemyError
 
-    _config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
+    _config, url = migration_setup(monkeypatch, tmp_path, start_revision="head")
     engine = create_database_engine(url)
     # Corrupt only this isolated fixture: a current stamp cannot substitute
     # for the actual required proof storage. Historical observers remain
