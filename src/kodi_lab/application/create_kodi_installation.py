@@ -1,7 +1,10 @@
 """Explicit, bounded installation handoff; never executes the next Create stage."""
 
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
+
+from sqlalchemy.orm import Session
 
 from kodi_lab.application.runtime_installations import (
     CreateInstallationObservation,
@@ -16,9 +19,11 @@ from kodi_lab.domain.create_kodi import (
     CreateStage,
     CreateTransitionError,
 )
-from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
 from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 from kodi_lab.storage.create_kodi import CreateKodiRepository
+from kodi_lab.storage.models import RuntimeRecipeInstallationRow
+from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 
 class CreateKodiInstallationService:
@@ -106,7 +111,12 @@ class CreateKodiInstallationService:
             nonlocal claimed
             if child_id != op.installation_operation_id:
                 raise CreateTransitionError("child_identity_mismatch")
-            self._repository.claim_dispatch(op.id, version=op.version)
+            if op.generation == "piers":
+                self._repository.claim_dispatch(
+                    op.id, version=op.version, prepare=self._prepare_preview_admission
+                )
+            else:
+                self._repository.claim_dispatch(op.id, version=op.version)
             claimed = True
 
         try:
@@ -152,6 +162,40 @@ class CreateKodiInstallationService:
                 raise
             return latest
         return self.resolve(op.id, version=self._get(op.id).version)
+
+    @staticmethod
+    def _prepare_preview_admission(session: Session, op: CreateOperation) -> None:
+        """Commit application-owned consent with the exact dispatch checkpoint."""
+        if (
+            op.generation != "piers"
+            or not op.preview_approved
+            or op.stage is not CreateStage.INSTALLATION
+            or op.installation_operation_id is None
+            or session.get(
+                RuntimeRecipeInstallationRow, str(op.installation_operation_id)
+            )
+            is not None
+        ):
+            raise CreateTransitionError("preview_admission_not_available")
+        consent = PreviewAcknowledgement.model_validate(
+            {
+                "recipe_id": op.recipe_id,
+                "recipe_revision": op.recipe_revision,
+                "recipe_digest": op.recipe_digest,
+                "release": "22.0-rc.1",
+                "support_tier": "preview",
+                "acknowledgement": "development-only-prerelease",
+            }
+        )
+        row = RuntimeRecipeInstallationRepository(session).create(
+            operation_id=op.installation_operation_id,
+            recipe_id=op.recipe_id,
+            recipe_revision=op.recipe_revision,
+            recipe_digest=op.recipe_digest,
+            generation=op.generation,
+            now=datetime.now(UTC),
+        )
+        row.attestation_json = admission_evidence(consent, op.installation_operation_id)
 
     def resume_refused(self, operation_id: UUID, *, version: int) -> CreateOperation:
         """Explicit continuation only; no automatic reset after refusal/failure."""
