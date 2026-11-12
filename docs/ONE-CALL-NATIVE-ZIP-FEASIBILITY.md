@@ -4,6 +4,10 @@ Audit baseline: main `11ccb777598b754ad73cb691e6ac8489c052ff11`,
 2026-10-29 UTC. This is a source/API feasibility finding. No installation,
 runtime execution, prompt acceptance or new authority was exercised.
 
+For the separate investigation of repository `InstallAddon(id)`, see the
+[managed agent installation decision](MANAGED-ADDON-INSTALLATION.md). All four
+approved versions require confirmation and lack an exact-package builtin input.
+
 **Defer an unattended one-call installer.** The reviewed public interfaces do
 not establish a small supported way to install an exact ZIP and return a native
 completion receipt. Opening a chooser, extracting an archive, or observing an
