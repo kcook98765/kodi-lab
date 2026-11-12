@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Literal
 from uuid import UUID
 
-from kodi_lab.development.launch import manifest_launch_entries
+from kodi_lab.development.launch import manifest_launch_entries, python_module_library
 from kodi_lab.development.repository_zip import repository_zip_urls
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
@@ -133,7 +133,7 @@ class EditableAddonZip:
 
 
 def read_editable_addon_zip(
-    payload: bytes, *, staged: bool = False
+    payload: bytes, *, staged: bool = False, source_modules: bool = False
 ) -> EditableAddonZip:
     """Reuse strict ZIP structure/CRC validation for a small editable project.
 
@@ -230,23 +230,46 @@ def read_editable_addon_zip(
     executable = [
         entry for entry in entries if entry.extension_point != "xbmc.addon.metadata"
     ]
+    module_library = python_module_library(observed)
+    module = (
+        source_modules
+        and module_library is not None
+        and any(
+            path.startswith(module_library + "/") and path.endswith(".py")
+            for path in files
+        )
+    )
     if (
-        len(executable) != 1
-        or not executable[0].eligible
-        or executable[0].library not in files
-        or any(extension.has_platform_library for extension in observed.extensions)
-    ):
+        not module
+        and (
+            len(executable) != 1
+            or not executable[0].eligible
+            or executable[0].library not in files
+        )
+    ) or any(extension.has_platform_library for extension in observed.extensions):
         raise AddonZipValidationError(
             "project_addon_type_unsupported",
-            "One Python Program or plugin entry is required.",
+            "One Python Program/plugin or passive script.module is required.",
         )
-    if any(
+    if sum(
         dependency.dependency_id != "xbmc.python"
+        for dependency in observed.dependencies
+    ) > 3 or any(
+        dependency.dependency_id != "xbmc.python"
+        and (
+            not source_modules
+            or module
+            or not dependency.dependency_id.startswith("script.module.")
+            or dependency.dependency_id == observed.addon_id
+            or dependency.version is None
+            or dependency.minversion is not None
+            or dependency.optional
+        )
         for dependency in observed.dependencies
     ):
         raise AddonZipValidationError(
             "project_dependencies_unsupported",
-            "Inline source intake does not install dependencies.",
+            "Only separately deployed required Python modules are supported.",
         )
     return EditableAddonZip(observed, files, hashlib.sha256(payload).hexdigest())
 

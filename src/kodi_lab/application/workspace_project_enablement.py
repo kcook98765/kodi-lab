@@ -13,7 +13,7 @@ from kodi_lab.application.addon_dependencies import (
     evaluate_dependencies,
     first_blocking_dependency,
 )
-from kodi_lab.development.launch import manifest_launch_entries
+from kodi_lab.development.launch import manifest_launch_entries, python_module_library
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     ManagedInstanceMutationKind,
@@ -49,16 +49,18 @@ def enable_owned_project(
     """
     descriptor = service._workspace_descriptor(UUID(operation.workspace_id))
     entries = [entry for entry in manifest_launch_entries(descriptor) if entry.eligible]
+    module = python_module_library(descriptor) is not None
     if (
         operation.target_class != "internal_lab"
         or recheck_authority is None
         or descriptor.has_auto_start_behavior
-        or len(entries) != 1
+        or (not module and len(entries) != 1)
         or any(
             entry.point
             not in {
                 "xbmc.python.script",
                 "xbmc.python.pluginsource",
+                "xbmc.python.module",
                 "xbmc.addon.metadata",
             }
             for entry in descriptor.extensions
@@ -96,7 +98,9 @@ def enable_owned_project(
         (item for item in inventory.items if item.addon_id == operation.addon_id), None
     )
     expected_type = (
-        "xbmc.python.script"
+        "xbmc.python.module"
+        if module
+        else "xbmc.python.script"
         if entries[0].kind == "script"
         else "xbmc.python.pluginsource"
     )

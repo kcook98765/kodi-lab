@@ -2935,7 +2935,15 @@ class McpWorkspaceDevelopmentService:
         recheck_authority: Callable[[Session], object] | None = None,
     ) -> WorkspaceDeploymentResult:
         operation_id = UUID(operation.id)
+        from kodi_lab.application.project_dependencies import verify_owned_dependencies
         from kodi_lab.application.workspace_noop import try_verified_noop
+
+        verify_owned_dependencies(
+            self,
+            workspace_id=operation.workspace_id,
+            target_id=operation.target_id,
+            client_id=operation.client_id,
+        )
 
         reused = try_verified_noop(
             self, operation, digest, measurement, recheck_authority
@@ -4295,6 +4303,15 @@ class McpWorkspaceDevelopmentService:
     def _verify_workspace_destination(
         self, operation: McpWorkspaceExecutionOperationRow, container_id: str
     ) -> VerifyAttachedDevelopmentSourceDestinationResult:
+        from kodi_lab.application.project_dependencies import verify_owned_dependencies
+
+        verify_owned_dependencies(
+            self,
+            workspace_id=operation.workspace_id,
+            target_id=operation.target_id,
+            client_id=operation.client_id,
+            container_id=container_id,
+        )
         try:
             result = self._broker.verify_mcp_workspace_destination(
                 deployment_operation_id=operation.deployment_id,

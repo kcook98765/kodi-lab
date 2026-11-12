@@ -170,19 +170,20 @@ No second publication service or generic Narrow Bridge interface is justified.
 
 ## Dependency and package limits
 
-The supported source intake accepts one eligible Python Program/plugin with
-resources and its bundled Python API requirement. Extra modules, services,
-repositories, binary/native extensions, unsafe archive members and invalid
-manifests are explicitly refused by that route. Unknown/incompatible system API
-versions remain unverified/refused by native dependency checks; a newer Kodi
-label alone does not establish compatibility.
+Editable source intake accepts an eligible Python Program/plugin or a passive
+reviewed `script.module.*` project with resources. Consumers can require up to
+three separately imported, validated and deployed modules owned by the same agent.
+Modules themselves may require only the compatible bundled Python API; recursive
+graphs/cycles, optional modules, native binaries, services, skins and repository
+downloads are outside this slice. See the [module workflow](AGENT-PROJECTS.md#separately-reviewed-python-module-dependencies).
 
-Registered-source deployment retains its existing independent dependency
-preflight. Missing, disabled, incompatible or unverifiable required dependencies
-block successful deployment/enablement; it does not silently acquire them or
-modify a repository. Installing a separately reviewed dependency closure would
-need its own bounded design. Existing repository publication remains narrower
-than direct source deployment.
+Deploy the modules first, then the main add-on. Existing deployment, launch and
+smoke operations check native dependency state and exact module deployment evidence.
+Each module retains its independent generation/digest/target/container receipt;
+this is explicit composition, not an atomic dependency installer. Unknown installed
+files or modules, incompatible/disabled dependencies, ownership conflicts and
+uncertain receipts are refused. Registered-source/external policy is unchanged.
+Repository publication and original-ZIP testing retain their narrower admission.
 
 `package_import` / `package_install` retain the separate original-ZIP testing
 workflow: owner-scoped immutable intake, expiring exact-target delivery and

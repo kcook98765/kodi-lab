@@ -268,6 +268,15 @@ class WorkspaceLaunchService:
         ):
             raise WorkspaceLaunchError("launch_runtime_changed")
         descriptor = self._development._workspace_descriptor(UUID(row.workspace_id))
+        from kodi_lab.application.project_dependencies import verify_owned_dependencies
+
+        verify_owned_dependencies(
+            self._development,
+            workspace_id=row.workspace_id,
+            target_id=row.target_id,
+            client_id=row.client_id,
+            container_id=row.container_id,
+        )
         entries = manifest_launch_entries(descriptor)
         if row.ordinal >= len(entries):
             raise WorkspaceLaunchError("launch_entry_not_declared")
