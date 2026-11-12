@@ -133,4 +133,20 @@ class ManagedAgentResetService:
         current = self.reset._result(
             str(result.operation_id), authorize, result.replayed
         )
-        return current.model_copy(update={"bridge_preparation": summary})
+        recovery = current.recovery
+        if current.phase == "complete" and current.replacement_current:
+            recovery = (
+                "Reviewed Bridge preparation is complete. Start this managed version "
+                "when stopped, then deploy your owned workspace generation to this "
+                "target. No Web project selection is required. Inspect live "
+                "readiness separately."
+                if summary.checkpoint == "complete" and summary.stored_trust == "active"
+                else "Clean replacement is confirmed; reviewed Bridge preparation "
+                "is incomplete. Inspect the saved Reset and Bridge evidence. "
+                "Continue only the original Reset request; supply its saved Bridge "
+                "version when explicit Bridge recovery is required. "
+                "No Web project selection is required."
+            )
+        return current.model_copy(
+            update={"bridge_preparation": summary, "recovery": recovery}
+        )
