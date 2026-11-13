@@ -21,6 +21,9 @@ catalog/development-session binding, claiming broker incarnation and native exec
 sets it to the existing `absolute_expires_at`; neither field changes on a live
 heartbeat. Handoffs inherit the original absolute deadline (at most 600 seconds).
 The broker's `valid()` observes durable authority, not connection liveness.
+Both claim writers acquire SQLite's writer lock before sampling admission time:
+a ticket that expires during a storage wait cannot be promoted to the absolute
+deadline. Expiry during a later commit still fails subsequent live checks.
 
 The Web watchdog retains its 250 ms cadence and 1.5 s check bound. Before emitting
 a private heartbeat it checks current administrator authentication, catalog/runtime
@@ -129,6 +132,7 @@ claim of zero total database writes.
 | 9–10: Web loss, broker restart, expired controller | Real socket Web-loss check, blocked recovery with exact old exec proof, expired-fence concurrent-admission rejection |
 | 11: Stop/Reset/runtime identity | Existing Stop recovery, managed lifecycle claims, clean Reset, catalog authority and same-instance selected-session tests |
 | PR #360 preservation | Unmodified broker FIFO/fairness, cancellation, authorization, first-byte heartbeat freshness, fragmentation, backlog and lookup-capacity regressions |
+| Claim expiry during storage wait | `test_novnc_state.py` holds a real independent SQLite writer lock across pending/absolute expiry for both ORM and actual state-writer SQL; all four cases failed before the source-review correction |
 
 **INTEGRATION PASS:** 39 focused cases (each changed test file run individually),
 then 175 additional integration cases passed; one opt-in Chromium case skipped.

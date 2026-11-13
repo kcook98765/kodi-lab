@@ -114,6 +114,9 @@ class HumanViewerOwnership:
         broker: str,
     ) -> None:
         with self.sessions.begin() as db:
+            # Sample admission time only after any writer-lock wait. Claim must
+            # not promote a ticket that expired while storage was busy.
+            db.execute(text("BEGIN IMMEDIATE"))
             result = db.execute(
                 update(NovncSessionRow)
                 .where(

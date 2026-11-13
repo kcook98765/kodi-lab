@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application import novnc_control
 from kodi_lab.application.novnc_control import HumanViewerOwnership, timestamp
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import NovncSessionRow
 
 from .conftest import INSTANCE_ID
@@ -219,7 +220,12 @@ def test_live_connection_loss_or_cross_process_revocation_retains_input_fence(
     from tests.broker.test_novnc_transport import DockerDouble
 
     ownership = HumanViewerOwnership(database)
-    broker_owner = HumanViewerOwnership(sessionmaker(bind=database.kw["bind"]))
+    # Match the separate privileged broker's read-only connection pool. Its
+    # finish transition below still uses the state owner's writable connection.
+    reader = create_database_engine(
+        "sqlite:///file:" + str(database.kw["bind"].url.database) + "?mode=ro&uri=true"
+    )
+    broker_owner = HumanViewerOwnership(create_session_factory(reader))
     attempt, broker_id = view_attempt(), str(uuid4())
     ownership.create(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker_id)
@@ -241,9 +247,7 @@ def test_live_connection_loss_or_cross_process_revocation_retains_input_fence(
         except Exception as error:
             errors.append(error)
         finally:
-            broker_owner.finish(
-                INSTANCE_ID, attempt, broker_id, tunnel.result.terminated
-            )
+            ownership.finish(INSTANCE_ID, attempt, broker_id, tunnel.result.terminated)
 
     worker = Thread(target=run)
     worker.start()
@@ -282,4 +286,5 @@ def test_live_connection_loss_or_cross_process_revocation_retains_input_fence(
         web.close()
         worker.join(3)
         broker.close()
+        reader.dispose()
     assert not worker.is_alive()
