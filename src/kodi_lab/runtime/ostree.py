@@ -977,8 +977,6 @@ class OstreeAcquirer:
         _validate_key_listing(listing)
         ostree = ("/usr/bin/ostree", f"--repo={repo}")
         run((*ostree, "init", "--mode=archive"))
-        run((*ostree, "config", "set", "core.min-free-space-percent", "0"))
-        run((*ostree, "config", "set", "core.min-free-space-size", "2GB"))
         for remote, url in (
             ("flathub-beta", "https://dl.flathub.org/beta-repo/"),
             ("flathub", "https://dl.flathub.org/repo/"),

@@ -38,10 +38,11 @@ reconciliation, and an explicitly authorized supported removal/recreation plan.
 Original uncertain receipts must remain fenced. This source campaign does not
 authorize deleting the retained Claw RC1 profile.
 
-The native acquisition repository uses an absolute 2 GB OSTree free-space reserve
-with the existing 8 GiB admission check and 6 GiB staging bound. This avoids
-OSTree's default 3% reserve exceeding available space on a large, nearly full
-filesystem; application storage protections remain enforced.
+Acquisition retains the existing 8 GiB admission check, 6 GiB staging bound and
+OSTree's default storage reserve. Disk capacity must also accommodate Docker's
+unpacked build context, intermediate snapshots and compressed image layers.
+The isolated QA configuration may use a bounded tmpfs acquisition/socket volume;
+application data, profiles and receipts remain on separate persistent storage.
 
 Private campaign evidence and recovery:
 `/home/kyle/kodi-lab-deployment/piers-rc2-core-20261112/`.

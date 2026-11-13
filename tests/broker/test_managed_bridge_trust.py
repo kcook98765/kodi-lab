@@ -362,6 +362,11 @@ def test_partial_publication_removes_private_staging_material(tmp_path: Path) ->
             "22.0-rc.1",
             "931f79b961146b93de2b79cc440af9851848e9655eba3f2b8319329e77213b04",
         ),
+        (
+            "1.1.30",
+            "22.0-rc.2",
+            "931f79b961146b93de2b79cc440af9851848e9655eba3f2b8319329e77213b04",
+        ),
     ],
 )
 def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
@@ -393,7 +398,7 @@ def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
         }
     sources = (
         packaged_rc1_bridge_sources()
-        if release == "22.0-rc.1"
+        if release in {"22.0-rc.1", "22.0-rc.2"}
         else packaged_stable_bridge_sources()
     )
     value["approved"] = approved_bridge_build(release)
