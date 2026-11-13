@@ -98,7 +98,9 @@ def worker_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def mocked_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     # These substitutions are explicitly flow-test doubles. Crypto has its own
     # real upstream tests; complete payload verification has an opt-in live gate.
-    monkeypatch.setattr(ostree, "_application_release", lambda _path: None)
+    monkeypatch.setattr(
+        ostree, "_application_release", lambda _path, _release="22.0-rc.1": None
+    )
     monkeypatch.setattr(
         ostree, "_inventory", lambda _path, _component: ("a" * 64, 3, 100)
     )

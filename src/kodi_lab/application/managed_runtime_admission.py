@@ -49,9 +49,10 @@ def require_managed_runtime(
     from kodi_lab.domain import TargetType
     from kodi_lab.runtime.recipes import (
         PIERS_DISPLAY_INSTALLATION_DIGEST,
+        PIERS_RC2_INSTALLATION_DIGEST,
         load_display_candidate_recipe,
-        load_installation_recipe,
         load_novnc_phase1_recipe,
+        load_recorded_reviewed_recipe,
         recipe_target_id,
     )
     from kodi_lab.storage.retained_development import retained_targets
@@ -88,12 +89,21 @@ def require_managed_runtime(
         ):
             raise DevelopmentSessionConflict("development_session_runtime_ineligible")
     preview_digest = (
-        load_installation_recipe("piers").digest
-        if retained and target.kodi_version == "22.0-rc.1"
+        revision.manifest_digest
+        if retained and target.kodi_version in {"22.0-rc.1", "22.0-rc.2"}
         else None
     )
-    if revision.manifest_digest == PIERS_DISPLAY_INSTALLATION_DIGEST:
-        candidate = load_display_candidate_recipe("piers")
+    if revision.manifest_digest in {
+        PIERS_DISPLAY_INSTALLATION_DIGEST,
+        PIERS_RC2_INSTALLATION_DIGEST,
+    }:
+        candidate = (
+            load_display_candidate_recipe("piers")
+            if revision.manifest_digest == PIERS_RC2_INSTALLATION_DIGEST
+            else load_recorded_reviewed_recipe(
+                "piers", "piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST
+            )
+        )
         if (
             target_id == recipe_target_id(candidate)
             and definition.id == candidate.recipe.definition_id

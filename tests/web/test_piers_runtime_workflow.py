@@ -26,7 +26,7 @@ def test_preview_status_is_visible_without_mutation_consent(
     login(client)
     client.cookies.set(ADMIN_VIEW_COOKIE, mode)
     page = client.get("/runtimes").text
-    assert "Kodi 22 Piers RC1" in page
+    assert "Kodi 22 Piers RC2" in page
     assert "Preview / Prerelease" in page
     assert "Verified upstream Flathub binary" in page
     assert "prerelease development software" in page
@@ -39,7 +39,7 @@ def test_preview_status_is_visible_without_mutation_consent(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("release", "22.0-rc.2"),
+        ("release", "22.0-rc.1"),
         ("release", "22.0"),
         ("recipe_revision", 1),
         ("recipe_revision", True),
@@ -192,6 +192,7 @@ def test_complete_historical_consent_cannot_authorize_current_revision(
         **preview_acknowledgement(),
         "recipe_id": "piers-22.0-rc1-r1",
         "recipe_revision": 1,
+        "release": "22.0-rc.1",
         "recipe_digest": HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
     }
     result = client.post(

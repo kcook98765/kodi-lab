@@ -638,7 +638,7 @@ class DockerReviewedInstallationWorker:
                 image_id = row.image_id
                 digest = row.recipe_digest
                 try:
-                    load_recorded_reviewed_recipe(
+                    reviewed = load_recorded_reviewed_recipe(
                         row.generation,
                         row.recipe_id,
                         row.recipe_revision,
@@ -659,7 +659,7 @@ class DockerReviewedInstallationWorker:
                     and image.get("Architecture") == "amd64"
                     and labels.get("io.kodi-lab.recipe-digest")
                     == (
-                        load_inactive_ostree_recipe().digest
+                        load_inactive_ostree_recipe(reviewed.recipe.kodi_version).digest
                         if row.generation == "piers"
                         else digest
                     )

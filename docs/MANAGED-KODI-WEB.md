@@ -3,7 +3,9 @@
 After signing in, open **Overview** (`/kodi`), then **Managed Kodi**
 (`/managed-kodi`). The four entries are **Matrix**, **Nexus**,
 **Omega** and **Piers (preview)**. Start and screen viewing do not require a
-workspace, Bridge pairing or an agent.
+workspace, Bridge pairing or an agent. Fresh Piers installation uses the
+[reviewed RC2 preview](PIERS-RC2-QUALIFICATION.md); an existing RC1 profile keeps
+its original runtime. Reset recreates that same version and does not upgrade it.
 
 1. Choose a version. If installation is needed, select **Create Managed Kodi for
    this version…**, then **Install and prepare**. Setup leaves Kodi stopped by

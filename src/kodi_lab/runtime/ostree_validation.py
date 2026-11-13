@@ -20,7 +20,7 @@ from kodi_lab.runtime.display_validation import (
     display_validation_command,
     parse_display_validation,
 )
-from kodi_lab.runtime.recipes import ReviewedRecipe
+from kodi_lab.runtime.recipes import ReviewedRecipe, load_inactive_ostree_recipe
 from kodi_lab.runtime.temporary_networks import (
     create_temporary_network,
     remove_exact_temporary_network,
@@ -87,10 +87,13 @@ def _file(container: Any, path: str, maximum: int = 2 * 1024**2) -> bytes:
         return stream.read()
 
 
-def native_identity(value: object) -> dict[str, object]:
+def native_identity(value: object, release: str = "22.0-rc.1") -> dict[str, object]:
     from kodi_lab.domain import KodiReleaseIdentity
     from kodi_lab.kodi.readiness import KodiApplicationIdentity
 
+    definition = load_inactive_ostree_recipe(release)
+    ordinal = 2 if release == "22.0-rc.2" else 1
+    revision = definition.recipe.kodi_source_revision[:8]
     if not isinstance(value, dict) or value.get("name") != "Kodi":
         raise RecipeValidationError("RC1 identity differs")
     v = value.get("version")
@@ -104,26 +107,27 @@ def native_identity(value: object) -> dict[str, object]:
                 "major": 22,
                 "minor": 0,
                 "tag": "releasecandidate",
-                "tagversion": "1",
+                "tagversion": str(ordinal),
             }.items()
         )
-        or "28ea2eac" not in str(v.get("revision"))
+        or revision not in str(v.get("revision"))
     ):
         raise RecipeValidationError("RC1 upstream identity differs")
-    identity = KodiApplicationIdentity("Kodi", 22, 0, "releasecandidate", 1)
-    if identity.kodi_release != KodiReleaseIdentity.parse("22.0-rc.1"):
+    identity = KodiApplicationIdentity("Kodi", 22, 0, "releasecandidate", ordinal)
+    if identity.kodi_release != KodiReleaseIdentity.parse(release):
         raise RecipeValidationError("RC1 canonical identity differs")
     return v
 
 
-def validation_matches(report: object) -> bool:
+def validation_matches(report: object, release: str = "22.0-rc.1") -> bool:
     if not isinstance(report, dict):
         return False
     try:
-        native_identity(report["native_identity"])
+        native_identity(report["native_identity"], release)
         return (
             report.get("python") == "3.14.7"
-            and report.get("python_api") == "3.1.0"
+            and report.get("python_api")
+            == ("3.1.1" if release == "22.0-rc.2" else "3.1.0")
             and report.get("ffmpeg") == "9.0.2"
             and report.get("renderer") == "llvmpipe"
             and report.get("windowing") == "x11"
@@ -232,12 +236,22 @@ def validate_ostree_image(
                     container,
                     "Application.GetProperties",
                     {"properties": ["name", "version"]},
-                )
+                ),
+                reviewed.recipe.kodi_version,
             )
             executable = _exec(
                 container, ["/usr/local/bin/kodi-lab-launcher", "--version"], limit=4096
             )
-            if b"22.0-RC1" not in executable or b"28ea2eac" not in executable:
+            source = load_inactive_ostree_recipe(reviewed.recipe.kodi_version).recipe
+            expected = (
+                b"22.0-RC2"
+                if reviewed.recipe.kodi_version == "22.0-rc.2"
+                else b"22.0-RC1"
+            )
+            if (
+                expected not in executable
+                or source.kodi_source_revision[:8].encode() not in executable
+            ):
                 raise RecipeValidationError("RC1 executable differs")
             _exec(container, ["/usr/bin/xdpyinfo", "-display", ":99"])
             _exec(
@@ -331,7 +345,9 @@ def validate_ostree_image(
                         time.sleep(0.1)
                 if python != {
                     "python": "3.14.7",
-                    "python_api": "3.1.0",
+                    "python_api": "3.1.1"
+                    if reviewed.recipe.kodi_version == "22.0-rc.2"
+                    else "3.1.0",
                     "prefix": "/opt/fdo",
                 }:
                     raise RecipeValidationError("RC1 Python differs")
@@ -403,7 +419,7 @@ def validate_ostree_image(
             schema=reviewed.recipe.validation_contract,
             result="passed",
             recipe_digest=reviewed.digest,
-            release="22.0-rc.1",
+            release=reviewed.recipe.kodi_version,
             image_id=image_id,
             network_mode="isolated_internal_bridge",
             non_root_uid=1000,

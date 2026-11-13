@@ -141,6 +141,13 @@ _DISPLAY_RECIPES = (
     NEXUS_DISPLAY_CANDIDATE,
     MATRIX_DISPLAY_CANDIDATE,
     PIERS_DISPLAY_CANDIDATE,
+    replace(
+        PIERS_DISPLAY_CANDIDATE,
+        recipe_id="piers-22.0-rc2-r4",
+        recipe_revision=4,
+        recipe_digest="sha256:16b275718524e6dafef27691677d07ac4bffb7af97e5960d227c0ae54bfa8527",
+        expected_prerelease_ordinal=2,
+    ),
 )
 
 

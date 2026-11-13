@@ -162,7 +162,7 @@ def _reviewed_validation_matches(
     if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
         from kodi_lab.runtime.ostree_validation import validation_matches
 
-        if not validation_matches(validation):
+        if not validation_matches(validation, reviewed.recipe.kodi_version):
             return False
     from kodi_lab.runtime.display_capabilities import reviewed_display_capability
     from kodi_lab.runtime.display_validation import display_validation_matches
@@ -241,7 +241,7 @@ class RuntimeRevisionEligibilityPolicy:
     ) -> RuntimeEligibility:
         """Evaluate a new pin against one trusted exact release requirement."""
 
-        if required_release.canonical == "22.0-rc.1" and (
+        if required_release.canonical in {"22.0-rc.1", "22.0-rc.2"} and (
             revision.source_kind != REVIEWED_OSTREE_SOURCE_KIND
             or definition.support_tier is not RuntimeSupportTier.PREVIEW
         ):

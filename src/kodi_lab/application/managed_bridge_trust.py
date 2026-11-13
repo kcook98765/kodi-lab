@@ -531,6 +531,7 @@ class ManagedBridgeTrustService:
                 "20.5",
                 "21.3",
                 "22.0-rc.1",
+                "22.0-rc.2",
             }:
                 raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
             row = session.get(ManagedBridgeTrustRow, str(target_id))
@@ -565,6 +566,7 @@ class ManagedBridgeTrustService:
             "20.5",
             "21.3",
             "22.0-rc.1",
+            "22.0-rc.2",
         }:
             raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
         with self.sessions() as session:
@@ -661,7 +663,7 @@ class ManagedBridgeTrustService:
                     row
                     and row.state == "prepared"
                     and (
-                        profile.kodi_release.canonical == "22.0-rc.1"
+                        profile.kodi_release.canonical in {"22.0-rc.1", "22.0-rc.2"}
                         or row.reviewed_installation
                     )
                 )

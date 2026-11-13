@@ -200,7 +200,7 @@ def verified_context(
     The public assembly entrypoint derives every entry from fixed configuration.
     """
     acquired.assert_handoff(operation_id)
-    definition = load_inactive_ostree_recipe()
+    definition = load_inactive_ostree_recipe(acquired.evidence.kodi_release)
     expected = definition.recipe.provider.components
     if tuple((x.role, x.ref, x.commit) for x in acquired.evidence.components) != tuple(
         (x.role, x.ref, x.commit) for x in expected

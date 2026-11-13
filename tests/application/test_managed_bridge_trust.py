@@ -209,7 +209,7 @@ def test_noop_identity_verifier_consumes_current_trust_without_establishment(
 
 
 @pytest.mark.parametrize("tier", ["previous", "predecessor", "settings_predecessor"])
-@pytest.mark.parametrize("release", ["21.3", "22.0-rc.1"])
+@pytest.mark.parametrize("release", ["21.3", "22.0-rc.1", "22.0-rc.2"])
 def test_existing_previous_bridge_keeps_its_credential_and_generation(
     setup: Any,
     tier: str,
@@ -217,7 +217,7 @@ def test_existing_previous_bridge_keeps_its_credential_and_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner, broker, client, secrets = setup
-    if release == "22.0-rc.1":
+    if release in {"22.0-rc.1", "22.0-rc.2"}:
         from tests.application.test_reviewed_bridge_recovery import rc
 
         rc(owner, broker, client, monkeypatch).missing = False

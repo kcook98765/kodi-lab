@@ -28,6 +28,7 @@ from kodi_lab.runtime.ostree_assembly import (
 from kodi_lab.runtime.ostree_installation import OstreeInstallationAssembly
 from kodi_lab.runtime.preview import PreviewAcknowledgement, recorded_acknowledgement
 from kodi_lab.runtime.recipes import (
+    PIERS_DISPLAY_INSTALLATION_DIGEST,
     PREVIEW_INSTALLATION_DIGEST,
     ReviewedRecipe,
     load_display_candidate_recipe,
@@ -50,7 +51,9 @@ def test_exact_r3_preserves_rc1_and_all_97_support_pins() -> None:
         load_recorded_reviewed_recipe(
             "piers", "piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST
         ),
-        load_display_candidate_recipe("piers"),
+        load_recorded_reviewed_recipe(
+            "piers", "piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST
+        ),
     )
     assert old.recipe.recipe_revision == 2 and new.recipe.recipe_revision == 3
     assert old.recipe.provider == new.recipe.provider
@@ -81,16 +84,17 @@ def test_exact_r3_preserves_rc1_and_all_97_support_pins() -> None:
     assert reviewed_display_capability(replace(new, recipe=old.recipe)) is None
 
 
-def test_r3_is_default_but_historical_consent_cannot_authorize_install(
+def test_rc2_is_default_but_historical_consent_cannot_authorize_install(
     factory: sessionmaker[Session],
 ) -> None:
     service = RuntimeInstallationService(factory, broker())
     ack = PreviewAcknowledgement.model_validate(preview_acknowledgement())
-    assert ack.recipe_revision == 3
+    assert ack.recipe_revision == 4
     old = ack.model_copy(
         update={
             "recipe_id": "piers-22.0-rc1-r2",
             "recipe_revision": 2,
+            "release": "22.0-rc.1",
             "recipe_digest": PREVIEW_INSTALLATION_DIGEST,
         }
     )
@@ -109,7 +113,7 @@ def test_r3_is_default_but_historical_consent_cannot_authorize_install(
     assert recorded_acknowledgement(factory, operation) == ack
     with factory.begin() as db:
         row = RuntimeRecipeInstallationRepository(db).get(operation)
-        assert row is not None and row.recipe_revision == 3
+        assert row is not None and row.recipe_revision == 4
         row.recipe_revision = 2
     with pytest.raises(ValueError, match="operation recipe differs"):
         recorded_acknowledgement(factory, operation)
@@ -122,14 +126,14 @@ def ready_display(
     operation = uuid4()
     _create_operation(factory, reviewed, operation)
     original = fixture.assembly(operation)
-    assets = load_assembly_assets(revision=3)
+    assets = load_assembly_assets(revision=4)
     built = replace(
         original,
         assembly=replace(
             original.assembly,
-            recipe_revision=3,
-            supporting_closure_digest=load_support_closure(revision=3).digest,
-            assembly_assets_digest="sha256:" + assembly_assets_digest(revision=3),
+            recipe_revision=4,
+            supporting_closure_digest=load_support_closure(revision=4).digest,
+            assembly_assets_digest="sha256:" + assembly_assets_digest(revision=4),
             asset_hashes=tuple(
                 sorted(
                     (name, hashlib.sha256(data).hexdigest())
@@ -243,6 +247,7 @@ def test_cli_candidate_cannot_borrow_ordinary_preview_consent(
         **preview_acknowledgement(),
         "recipe_id": "piers-22.0-rc1-r2",
         "recipe_revision": 2,
+        "release": "22.0-rc.1",
         "recipe_digest": PREVIEW_INSTALLATION_DIGEST,
     }
     monkeypatch.setattr(

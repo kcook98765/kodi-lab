@@ -193,8 +193,9 @@ DISPLAY_SUPPORT_SHA256 = (
 
 
 def load_support_closure(*, revision: int = 2) -> SupportClosure:
-    if type(revision) is not int or revision not in (1, 2, 3):
+    if type(revision) is not int or revision not in (1, 2, 3, 4):
         raise SupportError("unsupported_support_revision")
+    revision = 3 if revision == 4 else revision
     directory = f"assembly_assets/piers-22.0-rc1-r{revision}"
     expected = {
         1: HISTORICAL_SUPPORT_SHA256,
@@ -251,7 +252,7 @@ def fetch_support_packages(*, revision: int = 2) -> dict[str, bytes]:
             except urllib.error.HTTPError as error:
                 fallback = (
                     _R3_ARCHIVE_FALLBACKS.get((p.url, p.sha256))
-                    if revision == 3 and error.code == 404
+                    if revision in (3, 4) and error.code == 404
                     else None
                 )
                 if fallback is None:

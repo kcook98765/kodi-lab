@@ -22,7 +22,10 @@ from kodi_lab.broker.reviewed_installations import (
     worker_name,
 )
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.runtime.recipes import load_reviewed_recipe
+from kodi_lab.runtime.recipes import (
+    load_inactive_ostree_recipe,
+    load_installation_recipe,
+)
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 IMAGE = "sha256:" + "a" * 64
@@ -319,19 +322,27 @@ def test_protocol_is_closed_to_three_generations_and_semantic_fields(
     assert raised.value.code == "invalid_params"
 
 
+@pytest.mark.parametrize("generation", ["omega", "piers"])
 def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
     monkeypatch: pytest.MonkeyPatch,
+    generation: str,
 ) -> None:
     worker, _ = backend
     operation_id = uuid4()
-    digest = load_reviewed_recipe("omega").digest
+    reviewed = load_installation_recipe(generation)
+    digest = reviewed.digest
+    image_digest = (
+        load_inactive_ostree_recipe(reviewed.recipe.kodi_version).digest
+        if generation == "piers"
+        else digest
+    )
     row = SimpleNamespace(
         state=RuntimeRecipeInstallationState.READY,
         image_id=IMAGE,
-        generation="omega",
-        recipe_id=load_reviewed_recipe("omega").recipe.recipe_id,
-        recipe_revision=load_reviewed_recipe("omega").recipe.recipe_revision,
+        generation=generation,
+        recipe_id=reviewed.recipe.recipe_id,
+        recipe_revision=reviewed.recipe.recipe_revision,
         recipe_digest=digest,
     )
     monkeypatch.setattr(
@@ -345,7 +356,7 @@ def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
         "Id": IMAGE,
         "Os": "linux",
         "Architecture": "amd64",
-        "Config": {"Labels": {"io.kodi-lab.recipe-digest": digest}},
+        "Config": {"Labels": {"io.kodi-lab.recipe-digest": image_digest}},
     }
     assert worker.image_present(operation_id)
     row.recipe_digest = "sha256:" + "b" * 64

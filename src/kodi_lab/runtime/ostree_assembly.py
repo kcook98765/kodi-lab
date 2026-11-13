@@ -81,14 +81,23 @@ class OstreeAssemblyEvidence:
     def canonical_bytes(self) -> bytes:
         from dataclasses import asdict
 
-        if type(self.recipe_revision) is not int or self.recipe_revision not in (2, 3):
+        if type(self.recipe_revision) is not int or self.recipe_revision not in (
+            2,
+            3,
+            4,
+        ):
             raise OstreeAssemblyError("unsupported_assembly_revision")
         data = {
             "schema_version": "flathub-ostree-assembly-v1",
-            "recipe_id": f"piers-22.0-rc1-r{self.recipe_revision}",
+            "recipe_id": (
+                f"piers-22.0-rc{2 if self.recipe_revision == 4 else 1}"
+                f"-r{self.recipe_revision}"
+            ),
             "recipe_revision": self.recipe_revision,
-            "kodi_release": "22.0-rc.1",
-            "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+            "kodi_release": "22.0-rc.2" if self.recipe_revision == 4 else "22.0-rc.1",
+            "kodi_source_revision": "d686683a55d50e576dd282f53fb2bf9914931b38"
+            if self.recipe_revision == 4
+            else "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
             "platform": "linux/amd64",
             "installation_status": "inactive",
             "production_approval": False,
@@ -109,23 +118,26 @@ class OstreeAssemblyEvidence:
 
 
 def assembly_assets_digest(*, revision: int = 2) -> str:
-    if type(revision) is not int or revision not in (1, 2, 3):
+    if type(revision) is not int or revision not in (1, 2, 3, 4):
         raise OstreeAssemblyError("unsupported_assembly_revision")
-    return {1: HISTORICAL_ASSETS_SHA256, 2: ASSETS_SHA256, 3: DISPLAY_ASSETS_SHA256}[
-        revision
-    ]
+    return {
+        1: HISTORICAL_ASSETS_SHA256,
+        2: ASSETS_SHA256,
+        3: DISPLAY_ASSETS_SHA256,
+        4: "fbbe31c3717ea65a9822bd030b539069a38d7ce982cc54e23715dc397b700869",
+    }[revision]
 
 
 def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
     expected = assembly_assets_digest(revision=revision)
-    directory = f"assembly_assets/piers-22.0-rc1-r{revision}"
+    directory = f"assembly_assets/piers-22.0-rc{2 if revision == 4 else 1}-r{revision}"
     root = resources.files("kodi_lab.runtime").joinpath(directory)
     raw = root.joinpath("assembly-assets.json").read_bytes()
     if len(raw) > 8192 or hashlib.sha256(raw).hexdigest() != expected:
         raise OstreeAssemblyError("assembly_manifest_mismatch")
     manifest = json.loads(raw)
     if set(manifest) != _ASSET_NAMES | (
-        {"novnc_view_helper.py"} if revision == 3 else set()
+        {"novnc_view_helper.py"} if revision in (3, 4) else set()
     ):
         raise OstreeAssemblyError("unexpected_assembly_asset")
     entries = {}
@@ -141,6 +153,12 @@ def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
             and not (revision == 3 and name == "supervisor.py")
             else root
         )
+        if revision == 4 and name not in {"Dockerfile", "healthcheck.py"}:
+            source = resources.files("kodi_lab.runtime").joinpath(
+                "assembly_assets/piers-22.0-rc1-r1"
+                if name in _SHARED_PYTHON_ASSETS and name != "supervisor.py"
+                else "assembly_assets/piers-22.0-rc1-r3"
+            )
         payload = source.joinpath(name).read_bytes()
         if len(payload) > 64 * 1024 or hashlib.sha256(payload).hexdigest() != expected:
             raise OstreeAssemblyError("assembly_asset_mismatch")
@@ -296,6 +314,10 @@ def assemble_ostree_image(
 ) -> OstreeAssemblyEvidence:
     """Local, offline Docker assembly only. Acquirer owns staging until return."""
     assets_digest = assembly_assets_digest(revision=support_revision)
+    if acquired.evidence.kodi_release != (
+        "22.0-rc.2" if support_revision == 4 else "22.0-rc.1"
+    ):
+        raise OstreeAssemblyError("assembly_release_mismatch")
     acquired.claim_assembly(operation_id)
     owned = client is None
     client = client or docker.from_env(timeout=600)
@@ -374,7 +396,7 @@ def assemble_ostree_image(
                 "org.opencontainers.image.revision": (
                     acquired.evidence.kodi_source_revision
                 ),
-                "org.opencontainers.image.version": "22.0-rc.1",
+                "org.opencontainers.image.version": acquired.evidence.kodi_release,
             }
             validate_image_config(inspected, operation_id, labels)
             inventory = _image_file(

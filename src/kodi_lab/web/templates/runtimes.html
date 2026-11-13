@@ -51,7 +51,7 @@
             <dt>Recipe</dt><dd data-preview-recipe>{{ item.preview_acknowledgement.recipe_id }} · revision {{ item.preview_acknowledgement.recipe_revision }}</dd>
             <dt>Recipe digest</dt><dd data-preview-digest>{{ item.preview_acknowledgement.recipe_digest }}</dd>
           </dl></details>
-          <label><input type="checkbox" autocomplete="off" data-preview-acknowledgement data-scope='{{ item.preview_acknowledgement|tojson }}'> I understand Kodi 22 RC1 is prerelease development software. I approve only the action under review for this exact release and recipe.</label>
+          <label><input type="checkbox" autocomplete="off" data-preview-acknowledgement data-scope='{{ item.preview_acknowledgement|tojson }}'> I understand {{ item.display_name }} is prerelease development software. I approve only the action under review for this exact release and recipe.</label>
           <p class="secondary">Open the action review, then check this box. Each Install, Retry, Reacquire or Create action needs a fresh confirmation. Status and history do not grant approval.</p>
           {% endif %}
           <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>

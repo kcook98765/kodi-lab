@@ -569,13 +569,14 @@ class OstreeVerificationEvidence(BaseModel):
         "flathub-ostree-verification-v1"
     )
     provider: Literal["flathub_ostree"] = "flathub_ostree"
-    recipe_id: Literal["piers-22.0-rc1-r1"] = "piers-22.0-rc1-r1"
+    recipe_id: Literal["piers-22.0-rc1-r1", "piers-22.0-rc2-r1"] = "piers-22.0-rc1-r1"
     recipe_revision: Literal[1] = 1
     recipe_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    kodi_release: Literal["22.0-rc.1"] = "22.0-rc.1"
-    kodi_source_revision: Literal["28ea2eac1eb7af8fdcbd2672d933ce87f594be79"] = (
-        KODI_RC1_SOURCE_REVISION
-    )
+    kodi_release: Literal["22.0-rc.1", "22.0-rc.2"] = "22.0-rc.1"
+    kodi_source_revision: Literal[
+        "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+        "d686683a55d50e576dd282f53fb2bf9914931b38",
+    ] = KODI_RC1_SOURCE_REVISION
     platform: Literal["linux/amd64"] = "linux/amd64"
     installation_status: Literal["inactive"] = "inactive"
     scope: Literal["three-reviewed-ostree-components"] = (
@@ -725,7 +726,24 @@ def _inventory(root: Path, component: OstreeComponent) -> tuple[str, int, int]:
         walk(fd, "")
     finally:
         os.close(fd)
-    for path, expected in _CRITICAL_FILES[component.role].items():
+    critical = _CRITICAL_FILES[component.role]
+    if (
+        component.role == "app"
+        and component.commit
+        == "83b803ab50c19471377943f35bed0d96247a425834580a420d5842912ce7cbdd"
+    ):
+        critical = {
+            "files/lib/kodi/kodi.bin": (
+                "922eaf80a2885f3681a42f6acbb8d2032a4aa703edc4956294a1913735a5b672"
+            ),
+            "files/manifest.json": (
+                "05e96f0f7991045e5c4544a90634db1644dc4dd98abc32fc6da0e825bdb685ad"
+            ),
+            "files/share/metainfo/tv.kodi.Kodi.metainfo.xml": (
+                "ead43aa15613d981f93295273eeff7c77e1f1adfd5871a39222755a0684028f6"
+            ),
+        }
+    for path, expected in critical.items():
         if found.get(path) != expected:
             raise OstreeAcquisitionError("critical_content_mismatch")
     if found.get("metadata") != component.metadata_sha256:
@@ -733,7 +751,8 @@ def _inventory(root: Path, component: OstreeComponent) -> tuple[str, int, int]:
     return digest.hexdigest(), count, size
 
 
-def _application_release(root: Path) -> None:
+def _application_release(root: Path, release: str = "22.0-rc.1") -> None:
+    definition = load_inactive_ostree_recipe(release)
     manifest = json.loads(
         _read_file(root / "files/manifest.json", maximum=MAX_OUTPUT_BYTES)
     )
@@ -757,7 +776,7 @@ def _application_release(root: Path) -> None:
     if (
         len(sources) != 1
         or sources[0].get("url") != "https://github.com/xbmc/xbmc.git"
-        or sources[0].get("commit") != KODI_RC1_SOURCE_REVISION
+        or sources[0].get("commit") != definition.recipe.kodi_source_revision
     ):
         raise OstreeAcquisitionError("kodi_source_revision_mismatch")
     xml = _read_file(
@@ -771,7 +790,8 @@ def _application_release(root: Path) -> None:
     if (
         tree.findtext("id") != "tv.kodi.Kodi"
         or not releases
-        or releases[0].get("version") != "22.0~rc1-Piers"
+        or releases[0].get("version")
+        != ("22.0~rc2-Piers" if release == "22.0-rc.2" else "22.0~rc1-Piers")
         or releases[0].get("type") != "development"
     ):
         raise OstreeAcquisitionError("kodi_release_metadata_mismatch")
@@ -816,7 +836,8 @@ class AcquiredOstree:
             or lease.operation_id != operation_id
             or self.stage.name != f"ostree-{operation_id.hex}"
             or lease.evidence_digest != _digest(self.evidence.canonical_bytes())
-            or self.evidence.recipe_digest != load_inactive_ostree_recipe().digest
+            or self.evidence.recipe_digest
+            != load_inactive_ostree_recipe(self.evidence.kodi_release).digest
         ):
             raise OstreeAcquisitionError("invalid_acquisition_handoff")
         fd = _directory(self.stage)
@@ -841,11 +862,15 @@ class OstreeAcquirer:
     """One fixed recipe, one private operation directory, one acquisition lock."""
 
     def __init__(
-        self, worker_root: Path, *, runner: CommandRunner | None = None
+        self,
+        worker_root: Path,
+        *,
+        runner: CommandRunner | None = None,
+        release: str = "22.0-rc.1",
     ) -> None:
         self._root = worker_root
         self._runner = runner or BoundedCommandRunner()
-        self._definition = load_inactive_ostree_recipe()
+        self._definition = load_inactive_ostree_recipe(release)
 
     @contextmanager
     def acquire(self, operation_id: UUID) -> Iterator[AcquiredOstree]:
@@ -1020,7 +1045,7 @@ class OstreeAcquirer:
                 )
             )
             if component.role == "app":
-                _application_release(checkout)
+                _application_release(checkout, definition.recipe.kodi_version)
             inventory, count, size = _inventory(checkout, component)
             evidence.append(
                 ComponentEvidence(
@@ -1038,6 +1063,9 @@ class OstreeAcquirer:
         if len(evidence) != 3:
             raise OstreeAcquisitionError("artifact_closure_incomplete")
         proof = OstreeVerificationEvidence(
+            recipe_id=definition.recipe.recipe_id,
+            kodi_release=definition.recipe.kodi_version,
+            kodi_source_revision=definition.recipe.kodi_source_revision,
             recipe_digest=definition.digest,
             components=(evidence[0], evidence[1], evidence[2]),
         )

@@ -113,7 +113,7 @@
           <dt>Fixture</dt><dd>{% if detail.fixture %}{{ detail.fixture.slug }} v{{ detail.fixture.fixture_version }} ({{ detail.fixture.size_category }}, {{ detail.fixture.content_category }}){% else %}None{% endif %}</dd>
         </dl>
       </details>
-      {% if detail.runtime.kodi_version in ['19.4', '20.5', '21.3', '22.0-rc.1'] %}
+      {% if detail.runtime.kodi_version in ['19.4', '20.5', '21.3', '22.0-rc.1', '22.0-rc.2'] %}
       <section id="bridge-preparation" data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}" data-bridge-preparation="{{ detail.runtime.managed_instance_id }}" aria-busy="false">
         <h2>Reviewed Bridge</h2>
         <p>Prepare or repair the compatible reviewed Narrow Bridge on this exact Kodi. Setup may start and restart Kodi. New repairs return stopped; continuing a saved setup keeps its requested final state. Your selected development project, add-ons and settings are kept. Agent permissions remain separate.</p>

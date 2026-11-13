@@ -41,14 +41,14 @@ recipe descriptions in `runtime-recipes/`, license and notices, and recovery
 documents. It also contains `bridge/service.kodi_lab_bridge-1.1.31.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
-both installed images. Kodi 22 Piers RC1 is an additional Development-only
+both installed images. Kodi 22 Piers RC2 is an additional Development-only
 Preview runtime; its exact OSTree recipe, public trust key, support closure and
 assembly assets are embedded in the application wheel, not supplied as binaries
 in `runtime-recipes/`.
 No Kodi binary, runtime image export, `.deb`, or package cache is distributed.
 
 Kodi Lab itself installs from the bundle. First Kodi acquisition needs network
-access to the reviewed Ubuntu package provider, Flathub for RC1, and pinned
+access to the reviewed Ubuntu package provider, Flathub for Piers, and pinned
 container base images unless
 the required Docker/package cache is already present. If exact reviewed inputs
 are unavailable, installation stops. There is no alternate Kodi version,
@@ -144,7 +144,7 @@ Fresh local HTTP needs no certificate or proxy. For private-LAN HTTP or a
 user-managed HTTPS proxy, see [advanced networking](https://github.com/kcook98765/kodi-lab/blob/main/docs/WEB-NETWORKING.md).
 Web has no Docker
 socket. Its remote-target functions need no managed Kodi image. The runtime
-matrix lists stable Matrix, Nexus and Omega plus Development-only Piers RC1
+matrix lists stable Matrix, Nexus and Omega plus Development-only Piers RC2
 Preview; none is acquired by installing Kodi Lab.
 
 After signing in, **Overview** (`/kodi`) links to **Managed Kodi** (`/managed-kodi`)

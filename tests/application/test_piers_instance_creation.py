@@ -98,6 +98,7 @@ def test_historical_consent_cannot_create_qualified_current_instance(
         **acknowledgement().model_dump(),
         "recipe_id": "piers-22.0-rc1-r1",
         "recipe_revision": 1,
+        "release": "22.0-rc.1",
         "recipe_digest": HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
     }
     with pytest.raises(

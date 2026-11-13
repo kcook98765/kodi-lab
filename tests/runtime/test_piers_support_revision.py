@@ -13,7 +13,7 @@ from kodi_lab.runtime.ostree_assembly import load_assembly_assets
 from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
 from kodi_lab.runtime.recipes import (
     HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
-    load_installation_recipe,
+    PIERS_DISPLAY_INSTALLATION_DIGEST,
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.runtime.ubuntu_support import (
@@ -73,7 +73,9 @@ def test_historical_recipe_and_acknowledgement_do_not_authorize_new_install() ->
     old = load_recorded_reviewed_recipe(
         "piers", "piers-22.0-rc1-r1", 1, HISTORICAL_PREVIEW_INSTALLATION_DIGEST
     )
-    new = load_installation_recipe("piers")
+    new = load_recorded_reviewed_recipe(
+        "piers", "piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST
+    )
     assert (old.recipe.recipe_revision, new.recipe.recipe_revision) == (1, 3)
     assert old.recipe.recipe_id == "piers-22.0-rc1-r1"
     assert new.recipe.recipe_id == "piers-22.0-rc1-r3"
@@ -99,7 +101,7 @@ def test_historical_recipe_and_acknowledgement_do_not_authorize_new_install() ->
             PreviewAcknowledgement.model_validate(data)
 
 
-@pytest.mark.parametrize("revision", [0, 4, True])
+@pytest.mark.parametrize("revision", [0, 5, True])
 def test_support_and_assembly_revision_selection_remains_closed(revision: int) -> None:
     from kodi_lab.runtime.ostree_assembly import OstreeAssemblyError
 
@@ -144,7 +146,9 @@ def test_original_attestation_remains_historical_and_cannot_be_relabelled() -> N
         "assembly": raw,
     }
     assert ostree_attestation_matches(value, old, raw["image_id"])
-    new = load_installation_recipe("piers")
+    new = load_recorded_reviewed_recipe(
+        "piers", "piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST
+    )
     assert not ostree_attestation_matches(value, new, raw["image_id"])
     value.update(
         recipe_id=new.recipe.recipe_id,
