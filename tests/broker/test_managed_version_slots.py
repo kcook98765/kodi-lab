@@ -77,7 +77,7 @@ def test_four_logical_slots_have_distinct_canonical_identities() -> None:
     assert [slot.generation for slot in slots] == ["matrix", "nexus", "omega", "piers"]
     assert [slot.major for slot in slots] == [19, 20, 21, 22]
     assert len({slot.canonical_target_id for slot in slots}) == 4
-    assert slots[-1].kodi_version == "22.0-rc.1"
+    assert slots[-1].kodi_version == "22.0-rc.2"
 
 
 def test_second_profile_is_refused_without_touching_existing_inventory(

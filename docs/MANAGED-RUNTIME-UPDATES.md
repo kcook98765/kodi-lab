@@ -208,6 +208,37 @@ Use [application upgrade/rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
    then service health/stopped profiles/leases and preservation. An old backup
    restore alone does not establish current Bridge readiness or source equivalence.
 
+### Historical installation uncertainty and independent profile retirement
+
+An installation-stage Create receipt without a confirmed runtime/container binding
+is distinct from a separately installed profile. A missing child row/worker and a
+free lock do **not** establish that child's terminal outcome. Preserve the original
+Create, request UUID, recipe, child UUID and uncertain outcome; do not insert a
+failed child, adopt another installation's result or delete the parent.
+
+For a separately installed disposable profile, supported exact scoped
+`ManagedRuntimeLifecycleService.deprovision()` can publish its own typed retirement
+receipt while preserving the historical Create unchanged. This is current-profile
+retirement, not terminal reconciliation of the installation. The receipt explicitly
+reports `settles_uncertain_create=false`. Registration/history without a writable
+container consumes no version slot. A newer reviewed release with a different
+canonical target may then use its own approved Create intent.
+
+Before using this distinction, establish that the original workflow is fenced at
+installation (no provision/start child or profile binding), that its originating
+Web/broker processes have ended, and that no worker, acquisition lock, live request,
+reservation or other operation can still mutate the profile. Review the existing
+guards and exact target/runtime/image/container, protections and owner authority.
+Retain a verified application backup, stopped native archive and recovery rehearsal.
+Acquire/validate the new runtime before retiring the old profile when possible.
+Require a positively confirmed scoped retirement; absence after a lost response is
+insufficient. Keep the original uncertain Create visible in the recovery record.
+
+This does not authorize retirement across unresolved profile-bound dispatch,
+running workers, ambiguous identity, retained protection or pending lifecycle work.
+If those conditions cannot be excluded, keep the old profile and review the original
+operation. No terminal child result is inferred by this procedure.
+
 ## Copyable Codex campaign prompt
 
 ```text
