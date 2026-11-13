@@ -35,7 +35,7 @@ def test_upgrade_preserves_policies_and_supports_empty_downgrade(
     command.upgrade(config, NEW)
     assert {
         c["name"] for c in inspect(engine).get_columns("managed_web_intents")
-    } == set(ManagedWebIntentRow.__table__.columns.keys())
+    } == set(ManagedWebIntentRow.__table__.columns.keys()) - {"prepare_bridge"}
     with engine.connect() as connection:
         assert before == {
             t: connection.execute(text(f"SELECT * FROM {t}")).all() for t in tables

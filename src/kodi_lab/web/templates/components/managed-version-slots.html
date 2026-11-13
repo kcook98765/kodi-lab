@@ -67,6 +67,9 @@
       <p id="slot-confirm-description">Reset permanently discards this version’s Kodi settings, installed add-ons and profile data. Independent development source, workspaces, Git history and retained Lab evidence are preserved.</p>
       <p>The replacement will be clean and stopped. Previous Bridge trust and deployment baselines will need fresh setup.</p>
       <label class="check-label"><input type="checkbox" required data-slot-confirm-check> I understand that this Kodi profile will be discarded.</label>
+      <p>Reset only creates a clean, stopped profile without starting Kodi.</p>
+      <label class="check-label"><input type="checkbox" data-slot-prepare-bridge aria-describedby="slot-bridge-consent"> Reset and prepare Bridge</label>
+      <p id="slot-bridge-consent">Optional: also allow Kodi to start, install and authenticate the reviewed Narrow Bridge, restart if required, and return to stopped. This needs available running capacity. Replacement and preparation have separate saved results.</p>
       <div class="actions"><button type="button" data-slot-cancel>Cancel</button><button type="submit" data-slot-confirm-submit>Reset Kodi</button></div>
     </form>
   </dialog>

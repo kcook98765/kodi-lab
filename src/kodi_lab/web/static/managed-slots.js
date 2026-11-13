@@ -105,7 +105,9 @@
   function valid(value) {
     return value && versions.has(value.version) && ["start", "stop", "reset"].includes(value.action) &&
       uuid(value.request_id) && /^[0-9a-f]{64}$/.test(value.expected_snapshot) &&
-      typeof value.confirm_reset === "boolean" && (value.action !== "reset" || value.confirm_reset);
+      typeof value.confirm_reset === "boolean" && (value.action !== "reset" || value.confirm_reset) &&
+      (value.prepare_bridge === undefined || typeof value.prepare_bridge === "boolean") &&
+      (!value.prepare_bridge || value.action === "reset");
   }
   function error(message, details = {result:"failed"}) {
     node("slots-error").textContent = message; node("slots-error").hidden = !message;
@@ -167,18 +169,18 @@
       const result = await json(`${api}/requests/${intent.request_id}`);
       // Another poll may finish this request, or storage may select a new one.
       if (saved !== intent) return;
-      if (result.version !== intent.version || result.action !== intent.action || result.request.request_id !== intent.request_id || result.request.expected_snapshot !== intent.expected_snapshot || result.request.confirm_reset !== intent.confirm_reset) throw new Error("The saved request has different details. Review recovery.");
+      if (result.version !== intent.version || result.action !== intent.action || result.request.request_id !== intent.request_id || result.request.expected_snapshot !== intent.expected_snapshot || result.request.confirm_reset !== intent.confirm_reset || !!result.request.prepare_bridge !== !!intent.prepare_bridge) throw new Error("The saved request has different details. Review recovery.");
       receipt = result;
       errorProblem(null);
       showRequestProblem(result.phase === "complete" ? null : {
         version:intent.version, action:intent.action, reference:intent.request_id, code:result.code,
-        result:["blocked", "uncertain"].includes(result.phase) ? result.phase :
-          ["not_dispatched", "accepted", "prepared", "provisioning", "starting", "stopping", "stopped", "removing", "retired"].includes(result.phase) ? "pending" : "unknown",
+        result:result.phase === "bridge_blocked" ? "blocked" : ["blocked", "uncertain"].includes(result.phase) ? result.phase :
+          ["bridge_pending", "not_dispatched", "accepted", "prepared", "provisioning", "starting", "stopping", "stopped", "removing", "retired"].includes(result.phase) ? "pending" : "unknown",
       });
       requestNotice(result.message);
       node("slot-receipt").textContent = JSON.stringify(result, null, 2);
       node("slot-request-recovery").href = result.recovery_url;
-      node("slot-request-recovery").hidden = !["blocked", "uncertain"].includes(result.phase);
+      node("slot-request-recovery").hidden = !["bridge_blocked", "blocked", "uncertain"].includes(result.phase);
       if (result.done) { localStorage.removeItem(key); saved = null; }
     } catch (failure) {
       if (saved !== intent) return;
@@ -215,7 +217,7 @@
       await checkReceipt(); render();
     } catch (failure) { error(failure.message, {result:"status", code:failure.code}); }
   }
-  async function submit(intent) {
+  async function submit(intent, bridgeVersion) {
     if (busy) return;
     try {
       if (!valid(intent)) throw new Error("The request details need review.");
@@ -226,7 +228,7 @@
       rejected = null;
       requestNotice(`${intent.action === "reset" ? "Resetting" : intent.action === "stop" ? "Stopping" : "Starting"} ${intent.version}… Waiting for the actual saved outcome.`);
       await json(`${api}/${intent.version}/${intent.action}`, {method:"POST", headers:{"Content-Type":"application/json", "X-Kodi-Lab-CSRF":csrf},
-        body:JSON.stringify({request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset})});
+        body:JSON.stringify({request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset, prepare_bridge:!!intent.prepare_bridge, ...(Number.isInteger(bridgeVersion) ? {resume_bridge_version:bridgeVersion} : {})})});
     } catch (failure) {
       if (failure.status === 409 && failure.code === "stale_browser") rejected = intent.request_id;
       error(failure.message || "The response was lost. Check the original saved request; do not start a new one.", {
@@ -238,6 +240,7 @@
   }
   function closeConfirmation() {
     confirmation = null; node("slot-confirm-check").checked = false;
+    node("slot-prepare-bridge").checked = false;
     if (dialog.open) dialog.close();
     render();
     (returnFocus?.disabled ? node("slots-refresh") : returnFocus)?.focus();
@@ -247,6 +250,8 @@
     confirmation = intent; returnFocus = button;
     document.querySelector("#slot-confirm-title").textContent = `Reset ${intent.version} Kodi?`;
     node("slot-confirm-check").checked = false; dialog.showModal(); render();
+    node("slot-prepare-bridge").checked = !!intent.prepare_bridge;
+    node("slot-prepare-bridge").disabled = !!saved;
   }
   for (const card of cards) for (const button of card.querySelectorAll("[data-slot-action]")) button.addEventListener("click", () => {
     if (busy || saved || button.disabled) return;
@@ -259,13 +264,13 @@
   node("slot-confirm-form").addEventListener("submit", event => {
     event.preventDefault();
     if (!confirmation || !node("slot-confirm-check").checked || busy) return;
-    const intent = confirmation; closeConfirmation(); submit(intent);
+    const intent = {...confirmation, prepare_bridge:node("slot-prepare-bridge").checked}; closeConfirmation(); submit(intent);
   });
   node("slot-cancel").addEventListener("click", closeConfirmation);
   dialog.addEventListener("cancel", event => { event.preventDefault(); closeConfirmation(); });
   node("slot-resume").addEventListener("click", () => {
     if (!saved || busy) return;
-    if (saved.action === "reset" && !receipt) confirm(saved, node("slot-resume")); else submit(saved);
+    if (saved.action === "reset" && !receipt) confirm(saved, node("slot-resume")); else submit(saved, receipt?.resume_bridge_version);
   });
   node("slots-refresh").addEventListener("click", refresh);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });

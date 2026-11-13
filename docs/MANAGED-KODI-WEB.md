@@ -38,10 +38,22 @@ not apply a test fixture or restore the disposed profile. Independent registered
 source, workspaces, Git history, grants, retained diagnostics and audit records
 are preserved under their existing retention rules.
 
+The default is **Reset only**: Kodi does not start. Optionally select **Reset and
+prepare Bridge** in the confirmation dialog. This separately consents to native
+Start, installation/authentication of the reviewed Narrow Bridge, any required
+restart, and graceful Stop at completion. Preparation needs running capacity and
+retains the same playback, viewer, human-input and current-authority safeguards.
+The replacement and Bridge preparation have separate durable receipts. A failed
+preparation does not undo or repeat a successful replacement. Refresh reads the
+saved results; **Resume saved request** explicitly continues the original UUID
+and, when safe, its typed Bridge recovery. Review recovery when the original
+child is uncertain. The current card remains authoritative about running state.
+
 Old Bridge pairing/trust, installed-add-on assumptions, deployment baselines,
 readiness, viewing tickets and cached observations cannot prove anything about
-the replacement. After human Web Reset, follow **Set up for add-on testing** to
-prepare Bridge again. Trusted Managed Lab agents can deploy their own projects
+the replacement. After **Reset only**, follow **Prepare/Repair Bridge for this
+Kodi** if preparation is wanted later. An ordinary Reset never schedules that
+work in the background. Trusted Managed Lab agents can deploy their own projects
 without human workspace selection. Their MCP Reset composes reviewed Bridge
 preparation automatically, with separate durable evidence; see
 [agent Reset](MANAGED-AGENT-RESET.md). Legacy selected-project clients explicitly
@@ -95,6 +107,9 @@ Managed Lab. That role includes managed Reset and grants no external authority.
 Migration `0005_managed_web` adds only the immutable browser-intent ledger. It
 changes no runtime/profile data, grants, presets or resource policy. Historical
 receipts remain inspectable. Downgrade refuses to erase saved human confirmations.
+Migration `0014_human_reset_bridge` adds immutable optional preparation consent;
+all existing saved requests remain native-only. Downgrade refuses to discard any
+opted-in consent. It changes no grants, runtime pins or autonomous agent Reset.
 The ledger has a fail-closed limit of 4,096 requests, requiring administrator
 review if full; no age-based deletion or UUID reuse is provided.
 
