@@ -69,6 +69,8 @@ def test_contradictory_declaration_remains_unknown(
         ("22.0-rc.1", "3.0.0"),
         ("22.0-rc.1", "3.0.1"),
         ("22.0-rc.1", "3.1.0"),
+        ("22.0-rc.2", "3.1.0"),
+        ("22.0-rc.2", "3.1.1"),
     ],
 )
 def test_reviewed_system_python_api_satisfies_compatible_minimum(
@@ -92,9 +94,10 @@ def test_reviewed_system_python_api_satisfies_compatible_minimum(
         ("21.3", "3.bad", None, {}, DependencyStatus.VERSION_UNVERIFIED),
         ("21.3", "3.0.0", "3.0.0", {}, DependencyStatus.VERSION_UNVERIFIED),
         ("22.0", "3.0.0", None, {}, DependencyStatus.VERSION_UNVERIFIED),
-        ("22.0-rc.2", "3.0.0", None, {}, DependencyStatus.VERSION_UNVERIFIED),
+        ("22.0-rc.3", "3.0.0", None, {}, DependencyStatus.VERSION_UNVERIFIED),
         ("22.0-beta.2", "3.0.0", None, {}, DependencyStatus.VERSION_UNVERIFIED),
         ("22.0-rc.1", "3.1.1", None, {}, DependencyStatus.INCOMPATIBLE),
+        ("22.0-rc.2", "3.1.2", None, {}, DependencyStatus.INCOMPATIBLE),
         ("22.0-rc.1", "2.26.0", None, {}, DependencyStatus.INCOMPATIBLE),
         ("22.0-rc.1", "3.0.0", "3.0.0", {}, DependencyStatus.VERSION_UNVERIFIED),
         (

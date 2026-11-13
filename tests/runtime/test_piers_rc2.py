@@ -210,3 +210,49 @@ def test_rc2_reuses_reviewed_bridge_but_requires_exact_live_release() -> None:
     identity.kodi_release = "22.0-rc.1"
     with pytest.raises(RuntimeError, match="managed_bridge_identity_mismatch"):
         require_approved_identity(identity, "22.0-rc.2")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("old_app", [False, True])
+def test_context_binds_the_acquired_release_instead_of_the_old_default(
+    monkeypatch: pytest.MonkeyPatch, old_app: bool
+) -> None:
+    from uuid import uuid4
+
+    from kodi_lab.runtime import ostree_context
+    from kodi_lab.runtime.ostree_context import ContextError, verified_context
+    from tests.runtime.test_ostree_installation import assembly
+
+    operation = uuid4()
+    evidence = assembly(operation).acquisition
+    if old_app:
+        old = load_inactive_ostree_recipe().recipe.provider.components[0]
+        app = evidence.components[0].model_copy(update={"commit": old.commit})
+        evidence = evidence.model_copy(
+            update={"components": (app, *evidence.components[1:])}
+        )
+    # Isolate the release/closure boundary; descriptor, payload-race and sealing
+    # checks are exercised with actual files in test_ostree_context.
+    acquired = SimpleNamespace(evidence=evidence, assert_handoff=lambda _: None)
+
+    def capture(
+        _archive: object, _acquired: object, role: str, _deadline: float
+    ) -> tuple[str, int, int]:
+        component = next(c for c in evidence.components if c.role == role)
+        return (
+            component.inventory_sha256,
+            component.entry_count,
+            component.content_bytes,
+        )
+
+    monkeypatch.setattr(ostree_context, "_capture_tree", capture)
+    if old_app:
+        with (
+            pytest.raises(ContextError, match="component_identity_mismatch"),
+            verified_context(acquired, operation, entries={}),  # type: ignore[arg-type]
+        ):
+            pytest.fail("RC1 app entered RC2 assembly")
+    else:
+        with verified_context(acquired, operation, entries={}) as context:  # type: ignore[arg-type]
+            assert (
+                context.recipe_digest == load_inactive_ostree_recipe("22.0-rc.2").digest
+            )

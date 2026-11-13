@@ -45,7 +45,9 @@ class PayloadRunner(FakeRunner):
 def acquirer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> OstreeAcquirer:
     tmp_path.chmod(0o700)
     monkeypatch.setattr(ostree, "MIN_FREE_BYTES", 1)
-    monkeypatch.setattr(ostree, "_application_release", lambda _: None)
+    monkeypatch.setattr(
+        ostree, "_application_release", lambda _, _release="22.0-rc.1": None
+    )
     monkeypatch.setattr(
         ostree, "_CRITICAL_FILES", {role: {} for role in ("app", "platform", "gl")}
     )
