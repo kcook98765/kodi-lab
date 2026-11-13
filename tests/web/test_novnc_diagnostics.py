@@ -139,7 +139,7 @@ def test_relay_terminal_evidence_preserves_cleanup(
         if outcome == "ownership":
             from types import SimpleNamespace
 
-            service.ownership = cast(Any, SimpleNamespace(renew=lambda *_: False))
+            service.ownership = cast(Any, SimpleNamespace(authorized=lambda *_: False))
             # Cleanup is observed separately from ownership's own tested DB release.
             monkeypatch.setattr(service, "end", lambda _: None)
         if outcome.startswith("watchdog_"):
@@ -204,7 +204,7 @@ def test_relay_terminal_evidence_preserves_cleanup(
         elif outcome in {"binding", "slow_binding"}:
             assert terminal["watchdog_phase"] == "binding_check"
         elif outcome == "ownership":
-            assert terminal["watchdog_phase"] == "ownership_renew"
+            assert terminal["watchdog_phase"] == "ownership_check"
         if outcome.startswith("slow_"):
             assert terminal["watchdog_check_ms"] >= 1000
         if lane == "incoming" or outcome == "send_disconnect":

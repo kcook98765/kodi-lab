@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import case, delete, select, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.broker.novnc import ViewBinding
@@ -22,7 +22,6 @@ from kodi_lab.storage.models import (
     ManagedRemoteGuardRow,
     NovncSessionRow,
 )
-from kodi_lab.viewer_diagnostics import diagnostic
 
 MAX_SESSION_SECONDS = 600
 
@@ -127,7 +126,14 @@ class HumanViewerOwnership:
                     NovncSessionRow.broker_id.is_(None),
                     NovncSessionRow.expires_at > timestamp(),
                 )
-                .values(state="active", broker_id=broker)
+                # Admission expiry bounds only the unclaimed ticket. Once claimed,
+                # this is a durable fence with a fixed absolute lifetime; live
+                # permission is bounded independently by the broker connection.
+                .values(
+                    state="active",
+                    broker_id=broker,
+                    expires_at=NovncSessionRow.absolute_expires_at,
+                )
             )
             if int(getattr(result, "rowcount", 0)) != 1:
                 raise ValueError("human viewer ownership unavailable")
@@ -148,6 +154,7 @@ class HumanViewerOwnership:
                 raise ValueError("worker ownership revoked")
 
     def valid(self, instance: UUID, attempt: UUID, broker: str) -> bool:
+        """Observe this broker's durable claim; the tunnel also requires liveness."""
         with self.sessions() as db:
             row = db.get(NovncSessionRow, str(instance))
             return bool(
@@ -158,64 +165,33 @@ class HumanViewerOwnership:
                 and timestamp() < row.expires_at <= row.absolute_expires_at
             )
 
-    def renew(self, instance: UUID, attempt: UUID, owner: str) -> bool:
-        began = time.monotonic()
-        locked = updated = 0.0
-        completed = matched = False
-        phase = "ownership_lock"
-        try:
-            with self.sessions.begin() as db:
-                # A late check must not write through to a replacement attempt.
-                # Take the writer lock before sampling time, so a lock wait cannot
-                # revive a lease that expired while this renewal was waiting.
-                db.execute(text("BEGIN IMMEDIATE"))
-                locked = time.monotonic()
-                phase = "ownership_update"
-                now = datetime.now(UTC)
-                expires = timestamp(now + timedelta(seconds=2))
-                result = db.execute(
-                    update(NovncSessionRow)
-                    .where(
-                        NovncSessionRow.instance_id == str(instance),
-                        NovncSessionRow.attempt == str(attempt),
-                        NovncSessionRow.owner == owner,
-                        NovncSessionRow.state == "active",
-                        NovncSessionRow.expires_at > timestamp(now),
-                        NovncSessionRow.absolute_expires_at > timestamp(now),
-                    )
-                    .values(
-                        expires_at=case(
-                            (
-                                NovncSessionRow.absolute_expires_at < expires,
-                                NovncSessionRow.absolute_expires_at,
-                            ),
-                            else_=expires,
-                        )
-                    )
-                )
-                matched = int(getattr(result, "rowcount", 0)) == 1
-                updated = time.monotonic()
-                phase = "ownership_commit"
-            completed = True
-            return matched
-        finally:
-            ended = time.monotonic()
-            if ended - began >= 0.1:
-                # Slow checks only; no SQL, owner secret, exception or row data.
-                diagnostic(
-                    "ownership_renewed",
-                    instance=instance,
-                    attempt=attempt,
-                    phase=phase,
-                    reason="task_completed" if completed else "failed",
-                    accepted=completed and matched,
-                    elapsed_ms=int((ended - began) * 1000),
-                    lock_ms=int(((locked or ended) - began) * 1000),
-                    update_ms=int(((updated or ended) - locked) * 1000)
-                    if locked
-                    else 0,
-                    commit_ms=int((ended - updated) * 1000) if updated else 0,
-                )
+    def authorized(
+        self,
+        instance: UUID,
+        attempt: UUID,
+        owner: str,
+        binding: ViewBinding,
+        mode: str,
+    ) -> bool:
+        """Observe existing authority; never grant, renew or revive ownership.
+
+        The Web watchdog calls this before emitting a trusted heartbeat on the
+        exact claimed connection. Broker receipt time bounds that connection's
+        live permission; a retained row alone never establishes liveness.
+        Fresh sessions observe cross-process revocation without an ORM cache.
+        """
+        with self.sessions() as db:
+            row = db.get(NovncSessionRow, str(instance))
+            return bool(
+                row
+                and row.attempt == str(attempt)
+                and row.owner == owner
+                and row.identity_json == binding_json(binding)
+                and row.mode == mode
+                and row.broker_id is not None
+                and row.state == "active"
+                and timestamp() < row.expires_at <= row.absolute_expires_at
+            )
 
     def revoke(
         self, instance: UUID, attempt: UUID | None = None, owner: str | None = None
@@ -239,6 +215,19 @@ class HumanViewerOwnership:
             )
 
     def expire_pending(self) -> None:
+        # The ordinary reconciliation tick must also remain read-only when
+        # there is no expired admission to retire. Recheck in conditional SQL.
+        with self.sessions() as db:
+            pending = db.scalar(
+                select(NovncSessionRow.instance_id)
+                .where(
+                    NovncSessionRow.broker_id.is_(None),
+                    NovncSessionRow.expires_at <= timestamp(),
+                )
+                .limit(1)
+            )
+        if pending is None:
+            return
         with self.sessions.begin() as db:
             db.execute(
                 delete(NovncSessionRow).where(

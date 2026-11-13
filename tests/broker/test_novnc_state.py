@@ -13,6 +13,7 @@ from kodi_lab.broker.novnc_state import StateOwnerOwnership, main
 from kodi_lab.config import Settings
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import NovncSessionRow
 from tests.web.conftest import INSTANCE_ID, REVISION_ID, seed_instance
 
 
@@ -56,6 +57,9 @@ def test_state_owner_transactions_claim_and_release_exact_pending_authority(
     main()
     assert capsys.readouterr().out == '{"ok":true}\n'
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     monkeypatch.setattr(
         "sys.stdin",
         io.StringIO(
@@ -125,7 +129,7 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
 ) -> None:
     from sqlalchemy.exc import IntegrityError
 
-    from kodi_lab.storage.models import ManagedRemoteGuardRow, NovncSessionRow
+    from kodi_lab.storage.models import ManagedRemoteGuardRow
 
     root = tmp_path / "state"
     (root / "database").mkdir(parents=True)
@@ -174,6 +178,9 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
         ],
     )
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     with pytest.raises(IntegrityError), sessions.begin() as db:
         db.add(
             ManagedRemoteGuardRow(
@@ -187,6 +194,9 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
     write("started", [str(INSTANCE_ID), str(attempt), broker, "a" * 64])
     write("revoke", [str(INSTANCE_ID), str(attempt), "d" * 64])
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     write("revoke", [str(INSTANCE_ID), str(attempt), "c" * 64])
     assert authority.status(INSTANCE_ID).state == "revoking"  # type: ignore[union-attr]
     write("expire_pending", [])

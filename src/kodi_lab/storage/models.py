@@ -8922,7 +8922,11 @@ class McpAddonSettingsOperationRow(Base):
 
 
 class NovncSessionRow(Base):
-    """Durable worker ownership; input fences survive expiry and process loss."""
+    """Durable worker fence, independent of connection heartbeat liveness.
+
+    expires_at bounds pending admission; claim fixes it to absolute_expires_at.
+    Neither deadline frees claimed ownership without native termination proof.
+    """
 
     __tablename__ = "novnc_sessions"
     __table_args__ = (

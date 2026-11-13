@@ -49,7 +49,7 @@ The Web terminal summary records each task completed when `FIRST_COMPLETED`
 returns. Pending tasks are cancelled exactly as before and are labelled `pending`,
 not treated as initiators. If multiple tasks completed together, their categories
 are all retained without claiming causal order. Watchdog evidence distinguishes
-authorization rejection, binding replacement and ownership renewal rejection;
+authorization rejection, binding replacement and ownership authorization rejection;
 exceptions retain only timeout/transport/internal-error categories. The server's
 normal cleanup close request of 1000 is separate from an observed peer close
 code and must not be used to infer a clean initiating disconnect.
@@ -72,3 +72,8 @@ rendering functions. Helper-internal cause, lost records, simultaneous failures,
 and transport errors without a peer close frame can still require further evidence.
 The existing redundant cleanup call on an already disconnected RFB object is
 preserved; a subsequent noVNC state warning is not evidence of the initiator.
+
+The current heartbeat contract uses read-only `ownership_check`, replacing the
+historical `ownership_renew` phase and its slow-commit records. Ordinary viewing
+no longer emits `ownership_renewed` events or performs durable renewal. Historical
+records retain their original meaning. See [viewer ownership](VIEWER-OWNERSHIP.md).

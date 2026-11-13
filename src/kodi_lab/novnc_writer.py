@@ -58,7 +58,8 @@ def main() -> None:
                     separators=(",", ":"),
                 )
                 result = connection.execute(
-                    "UPDATE novnc_sessions SET state='active',broker_id=? "
+                    "UPDATE novnc_sessions SET state='active',broker_id=?, "
+                    "expires_at=absolute_expires_at "
                     "WHERE instance_id=? AND attempt=? AND owner=? AND mode=? "
                     "AND identity_json=? AND state='pending' AND broker_id IS NULL "
                     "AND expires_at>?",
