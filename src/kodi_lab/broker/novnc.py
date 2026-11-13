@@ -207,6 +207,29 @@ class DockerViewTunnel:
                     if self.result.armed:
                         to_exec.extend(struct.pack("!BI", 2, 0))
                     renewed = time.monotonic()
+                # A single read can coalesce many separately authorized input
+                # envelopes. Service at most one per turn so repeated authority
+                # checks cannot starve helper I/O, leases or cancellation. Keep
+                # the fresh check for every interactive envelope, in wire order.
+                if len(from_web) >= 5:
+                    kind, size = struct.unpack("!BI", from_web[:5])
+                    if kind not in (1, 2) or size > CHUNK or (kind == 2 and size):
+                        self.result.reason = "invalid_envelope"
+                        raise ValueError("invalid private view envelope")
+                    if len(from_web) >= 5 + size:
+                        if kind == 2:
+                            web_gap_max = max(
+                                web_gap_max, time.monotonic() - web_renewed
+                            )
+                            web_renewed = time.monotonic()
+                        else:
+                            if self.request.mode == "interactive" and not valid():
+                                self.result.reason = "input_revoked"
+                                return
+                            self.result.bytes_up += size
+                            to_exec.extend(struct.pack("!BI", 1, size))
+                            to_exec.extend(from_web[5 : 5 + size])
+                        del from_web[: 5 + size]
                 selector.modify(
                     web, selectors.EVENT_READ | (selectors.EVENT_WRITE if output else 0)
                 )
@@ -222,33 +245,6 @@ class DockerViewTunnel:
                                 self.result.reason = "disconnect"
                                 return
                             from_web.extend(payload)
-                            while len(from_web) >= 5:
-                                kind, size = struct.unpack("!BI", from_web[:5])
-                                if (
-                                    kind not in (1, 2)
-                                    or size > CHUNK
-                                    or (kind == 2 and size)
-                                ):
-                                    self.result.reason = "invalid_envelope"
-                                    raise ValueError("invalid private view envelope")
-                                if len(from_web) < 5 + size:
-                                    break
-                                if kind == 2:
-                                    web_gap_max = max(
-                                        web_gap_max, time.monotonic() - web_renewed
-                                    )
-                                    web_renewed = time.monotonic()
-                                else:
-                                    if (
-                                        self.request.mode == "interactive"
-                                        and not valid()
-                                    ):
-                                        self.result.reason = "input_revoked"
-                                        return
-                                    self.result.bytes_up += size
-                                    to_exec.extend(struct.pack("!BI", 1, size))
-                                    to_exec.extend(from_web[5 : 5 + size])
-                                del from_web[: 5 + size]
                         if mask & selectors.EVENT_WRITE and output:
                             size = web.send(output[:CHUNK])
                             del output[:size]

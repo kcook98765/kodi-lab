@@ -1,5 +1,10 @@
 # Standard managed Kodi viewing
 
+The [November 13 input scheduling correction](VIEWER-INPUT-SCHEDULING.md)
+addresses confirmed broker starvation during coalesced interactive input.
+It has bounded native transport evidence; installed deployment and the distinct
+binding-check/startup failures under #214 remain separate acceptance claims.
+
 The [November 12 viewer/Piers qualification](VIEWER-PIERS-QUALIFICATION.md)
 records atomic ownership-renewal and periodic-check corrections, actual
 five-minute Omega/Nexus observations, native human-priority checks and distinct
