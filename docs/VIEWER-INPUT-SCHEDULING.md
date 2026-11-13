@@ -1,6 +1,6 @@
 # Viewer input scheduling — 2026-11-13
 
-**One confirmed broker defect corrected; overall reliability remains PARTIAL.**
+**Broker scheduling corrected; overall reliability remains PARTIAL.**
 Issue [#214](https://github.com/kcook98765/kodi-lab/issues/214) retains the separate
 Web binding-check, helper startup and historical Nexus acceptance gaps. This work
 does not repeat the adopted [Piers RC2 qualification](PIERS-RC2-QUALIFICATION.md).
@@ -34,6 +34,10 @@ checks and excess queued traffic can still exhaust existing leases or backlog
 bounds and must fail closed. This change does not guarantee arbitrary input rates.
 
 ## Two bounded native sessions
+
+This native comparison used source head
+`859a8579969b6446c5ac6425efd0e9f665224b3c`. The buffered-heartbeat follow-up below
+has socket-level validation only; these native results are not a rerun on it.
 
 One independently owned, network-none disposable Omega 21.3 container reused
 cached approved image
@@ -82,11 +86,50 @@ categories, including incomplete/truncated status. Do not persist raw stderr,
 paths or exception messages, forward further input, or renew a failed helper to
 collect evidence. A helper correction requires a separately reviewed immutable
 runtime identity and qualification; the fixture race alone does not attribute
-the original incident. No additional correction is justified by this campaign.
+the original incident. No binding-check or helper-startup correction is justified
+by this campaign.
+
+## Final review: buffered heartbeat freshness
+
+The Web watchdog writes a trusted heartbeat only after authorization and durable
+ownership renewal, then sleeps 250 ms. Browser RFB bytes cannot create that
+envelope. This producer cadence does not make processing time equivalent to
+receipt time: a coalesced read can contain several earlier heartbeats. Independent
+durable ownership validation remains enforced; no authorization bypass is claimed.
+
+Review of `859a857` confirmed a transport liveness defect. Eight buffered
+heartbeats on otherwise quiet real socket pairs expired after 2.35 seconds of
+controlled-clock time from receipt, beyond the unchanged two-second lease and
+one 50 ms detection tick. Removing the selector wait fixed quiet-buffer progress
+but still allowed 3.6 seconds when input checks delayed heartbeat processing.
+These are deterministic socket regressions, not native timing observations.
+
+Use a nonblocking selector turn while a complete buffered envelope remains, still
+servicing helper I/O and one separately authorized input per turn. Record receipt
+times and end offsets for pending read segments; retire metadata with consumed
+bytes. A heartbeat renews from its first-byte receipt time, including across
+fragmented reads. Unrelated later input cannot freshen old heartbeats, while an
+actual newer heartbeat retains its own receipt time behind older queued input.
+Partial envelopes keep the normal blocking wait. The protocol, backlog bounds,
+lease durations, FIFO, cancellation and ownership/cleanup fences are unchanged.
+These are broker receipt timestamps, not inferred sender-generation timestamps.
+An overloaded stream can still expire if fresh trusted heartbeats cannot be
+processed before their existing deadline. The earlier 6,499 ms native stress
+observation cannot be credited as final-head acceptance under this tighter
+accounting policy.
+
+Nine real-socket cases cover quiet progress, silent peer expiry, delayed input,
+unrelated later reads, genuinely fresh heartbeats, split heartbeats, disconnect,
+cancellation and backlog refusal. Original PR head: six fail, three pass.
+Nonblocking-wait-only candidate: four fail, five pass. Final correction: all nine
+pass. **FOCUSED PASS: 28 cases; INTEGRATION PASS: 103 additional cases**, with
+affected Ruff/strict mypy. No new native sessions, runtime changes, binding-check
+instrumentation, stderr diagnostics, deployment or complete suite were needed.
 
 ## Validation and release boundary
 
-**FOCUSED PASS:** 19 cases, affected Ruff format/lint and strict mypy.
+Initial scheduling validation: **FOCUSED PASS:** 19 cases, affected Ruff
+format/lint and strict mypy.
 **INTEGRATION PASS:** 98 additional distinct cases covering real Unix sockets,
 lookup capacity, state-owner transactions, ownership/recovery fences, Web
 authentication/Origin/CSRF/tickets, human priority and catalog/mutation interaction.

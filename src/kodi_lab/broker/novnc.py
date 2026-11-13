@@ -12,6 +12,7 @@ import selectors
 import socket
 import struct
 import time
+from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -133,6 +134,10 @@ class DockerViewTunnel:
         from_exec = bytearray()
         to_exec = bytearray()
         from_web = bytearray()
+        # End offsets and receipt times for pending Web read segments. Metadata
+        # is retired with the bounded byte buffer, including partial envelopes.
+        web_receipts: deque[tuple[int, float]] = deque()
+        web_received = web_consumed = 0
         renewed = 0.0
         web_renewed = start
         arm_challenge = bytearray()
@@ -221,7 +226,10 @@ class DockerViewTunnel:
                             web_gap_max = max(
                                 web_gap_max, time.monotonic() - web_renewed
                             )
-                            web_renewed = time.monotonic()
+                            # Processing old buffered bytes is not fresh Web
+                            # liveness. Use the envelope's first-byte receipt;
+                            # a later read or suffix cannot refresh that prefix.
+                            web_renewed = web_receipts[0][1]
                         else:
                             if self.request.mode == "interactive" and not valid():
                                 self.result.reason = "input_revoked"
@@ -230,6 +238,9 @@ class DockerViewTunnel:
                             to_exec.extend(struct.pack("!BI", 1, size))
                             to_exec.extend(from_web[5 : 5 + size])
                         del from_web[: 5 + size]
+                        web_consumed += 5 + size
+                        while web_receipts and web_receipts[0][0] <= web_consumed:
+                            web_receipts.popleft()
                 selector.modify(
                     web, selectors.EVENT_READ | (selectors.EVENT_WRITE if output else 0)
                 )
@@ -237,7 +248,10 @@ class DockerViewTunnel:
                     wire,
                     selectors.EVENT_READ | (selectors.EVENT_WRITE if to_exec else 0),
                 )
-                for key, mask in selector.select(0.05):
+                buffered = len(from_web) >= 5 and len(from_web) >= (
+                    5 + int.from_bytes(from_web[1:5], "big")
+                )
+                for key, mask in selector.select(0 if buffered else 0.05):
                     if key.fileobj is web:
                         if mask & selectors.EVENT_READ:
                             payload = web.recv(CHUNK)
@@ -245,6 +259,8 @@ class DockerViewTunnel:
                                 self.result.reason = "disconnect"
                                 return
                             from_web.extend(payload)
+                            web_received += len(payload)
+                            web_receipts.append((web_received, time.monotonic()))
                         if mask & selectors.EVENT_WRITE and output:
                             size = web.send(output[:CHUNK])
                             del output[:size]
