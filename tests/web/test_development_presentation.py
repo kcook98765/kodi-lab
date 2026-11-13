@@ -39,6 +39,7 @@ CASES = (
     "registered-disabled",
     "enabled-unverified",
     "verified-unpaired",
+    "native-only",
     "pairing-pending",
     "paired-limited",
     "capable-no-grants",
@@ -79,6 +80,10 @@ def development_case(
             target.pending_observation_id = str(uuid4())
         if case == "enabled-unverified":
             target.verification_state = ExternalVerificationState.UNVERIFIED
+        if case == "verified-unpaired":
+            target.configured_capabilities_json = json.dumps(
+                ["target_inspect", "addon_inventory", "screenshot"]
+            )
         if case == "native-mismatch":
             target.verification_state = ExternalVerificationState.IDENTITY_MISMATCH
             target.pending_observation_id = str(uuid4())
@@ -118,6 +123,7 @@ def development_case(
             "registered-observed",
             "enabled-unverified",
             "verified-unpaired",
+            "native-only",
         }:
             capabilities = (
                 ["screenshot"]
@@ -227,6 +233,7 @@ def test_development_review_states(client: TestClient, development_case: str) ->
                 "capable-no-grants",
                 "unreachable-native",
                 "unreachable-bridge",
+                "native-only",
             }
         ]
         assert structure.privileged_in_advanced
@@ -249,6 +256,14 @@ def test_development_review_states(client: TestClient, development_case: str) ->
                 "does not establish deployment readiness or agent authority"
                 in response.text
             )
+        if development_case == "native-only":
+            assert 'data-development-status="native_only"' in response.text
+            assert "Keep this connection for native inspection" in response.text
+            assert "retire this connection" in response.text
+            assert "initial maximum" in response.text
+            assert "<form data-bridge-otp>" not in response.text
+        if development_case == "verified-unpaired":
+            assert "<form data-bridge-otp>" in response.text
         if development_case in {"cleanup-failure", "active-cleanup"}:
             assert "Credential cleanup is unfinished" in response.text
         if development_case == "active-cleanup":
@@ -273,6 +288,7 @@ def test_development_review_states(client: TestClient, development_case: str) ->
                 "registered-disabled",
                 "registered-observed",
                 "enabled-unverified",
+                "native-only",
                 "pairing-pending",
                 "native-mismatch",
                 "retired",
