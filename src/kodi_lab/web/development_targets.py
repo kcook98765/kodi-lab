@@ -57,6 +57,9 @@ def development_target_view(
     native = target.verification_state
     pairing = bridge.pairing_state
     reachability = bridge.reachability_state
+    native_only = not {"screenshot", "workspace_deployment"}.intersection(
+        target.configured_capabilities
+    )
     warnings: list[str] = []
     if native == "identity_mismatch":
         warnings.append("Kodi identity does not match the recorded connection.")
@@ -112,6 +115,8 @@ def development_target_view(
         reconnect_note = "confirm Kodi identity and enable this registration first"
     elif native != "verified":
         reconnect_note = "review and confirm Kodi identity in Advanced options first"
+    elif native_only and pairing in {"unpaired", "revoked"}:
+        reconnect_note = "this registration's maximum permits native inspection only"
     elif (
         pairing == "pairing_pending" or bridge.pairing_token_pending
     ) and not reconnect_stage:
@@ -158,6 +163,18 @@ def development_target_view(
         next_step = (
             "Review the recorded identity and enable this registration in "
             "Advanced options to continue."
+        )
+    elif native_only and pairing in {"unpaired", "revoked"}:
+        status, label, note = (
+            "native_only",
+            "Native inspection only",
+            "Bridge pairing is outside this connection's configured maximum.",
+        )
+        next_step = (
+            "Keep this connection for native inspection. If Bridge features are "
+            "needed, retire this connection in Advanced options, then connect it "
+            "again with screenshot or add-on transfer in its initial maximum. "
+            "The retired connection's history is preserved."
         )
     elif pairing in {"unpaired", "revoked"}:
         status, label, note = (

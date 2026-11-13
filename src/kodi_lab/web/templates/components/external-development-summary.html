@@ -19,6 +19,7 @@
   <div class="actions">
     {% if view.reconnect_available %}<a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect Kodi</a>
     {% else %}<p>Reconnect unavailable: {{ view.reconnect_note }}.</p>{% endif %}
+    {% if view.status == 'native_only' %}<a href="/add-kodi?mode=development">Connect a development device</a>{% endif %}
     <a href="#advanced-{{ target.target_id }}" aria-label="Review Advanced options for {{ target.logical_name }}">Review Advanced options</a>
   </div>
   <section aria-labelledby="support-{{ target.target_id }}">
