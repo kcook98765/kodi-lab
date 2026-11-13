@@ -99,11 +99,14 @@ def test_relay_terminal_evidence_preserves_cleanup(
                 assert kwargs == {"code": 1000}
                 self.closed = True
 
+        heartbeats = []
+
         class Writer:
             closed = False
 
             def write(self, data: bytes) -> None:
-                pass
+                if data == b"\x02\x00\x00\x00\x00":
+                    heartbeats.append(data)
 
             async def drain(self) -> None:
                 pass
@@ -170,6 +173,10 @@ def test_relay_terminal_evidence_preserves_cleanup(
             )
         finally:
             release_check.set()
+        if outcome.startswith("slow_"):
+            # Flush the actual late thread before reading its slow-check record.
+            await asyncio.get_running_loop().shutdown_default_executor()
+            assert heartbeats == []
         assert socket.closed and writer.closed and item.session.cancelled.is_set()
         assert tuple(gc.callbacks) == observers
         if outcome != "ownership":
@@ -179,8 +186,18 @@ def test_relay_terminal_evidence_preserves_cleanup(
             for record in caplog.records
             if record.name == LOGGER
         ]
-        assert [event["event"] for event in events] == ["web_accepted", "web_ended"]
-        terminal = events[-1]
+        lifecycle = [e for e in events if e["event"] != "binding_checked"]
+        assert [event["event"] for event in lifecycle] == ["web_accepted", "web_ended"]
+        terminal = lifecycle[-1]
+        if outcome.startswith("slow_"):
+            assert events[-1]["event"] == "binding_checked"
+            assert events[-1]["worker_ms"] >= 1000
+            assert (
+                events[-1]["phase_calls"][
+                    "auth" if outcome == "slow_auth" else "binding"
+                ]
+                == 1
+            )
         assert terminal["attempt"] == str(item.attempt)
         assert terminal["instance"] == str(INSTANCE_ID)
         assert terminal["accepted"] is True and terminal["phase"] == "streaming"

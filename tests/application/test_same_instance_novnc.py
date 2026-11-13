@@ -242,6 +242,11 @@ def test_unproven_operation_never_preserves_authority(
                 lease.operation_id = str(uuid4())
         with pytest.raises(ValueError, match="view operation"):
             authority.resolve(fixture.TARGET_ID)
+        # The recurring interactive preflight no longer projects reconciliation;
+        # the subsequent real catalog check must still reject these records,
+        # including an orphaned pending operation without a mutation lease.
+        with pytest.raises(ValueError):
+            viewer.binding(fixture.TARGET_ID, "interactive")
         raise RuntimeError("stop after verifying fail-closed authority")
 
     service._failure = inspect

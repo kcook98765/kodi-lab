@@ -36,6 +36,7 @@ from kodi_lab.storage.repositories import (
     RuntimeContainerArtifactRepository,
     RuntimeExecutionProfileRepository,
 )
+from kodi_lab.viewer_diagnostics import binding_phase
 
 
 class CatalogViewAuthority:
@@ -60,60 +61,67 @@ class CatalogViewAuthority:
             raise ValueError("view mode unavailable")
         pin = self.pins[instance_id]
         with self.sessions() as db:
-            instance = db.get(ManagedInstanceRow, str(instance_id))
-            projection = ManagedRuntimeProjectionRepository(db)
-            if (
-                instance is None
-                or instance.instance_type is not InstanceType.DISPOSABLE
-                or projection.has_blocking_runtime_reconciliation(instance_id)
-            ):
-                raise ValueError("view runtime unavailable")
-            require_resolved_view_work(db, instance_id, self.sessions)
-            revision = UUID(instance.runtime_revision_id)
-            artifact = RuntimeContainerArtifactRepository(db).get(revision)
-            profile = RuntimeExecutionProfileRepository(db).get(revision)
-            capability = self.capability
-            if (
-                artifact is None
-                or artifact.image_id != pin.image
-                or profile is None
-                or profile.expected_application_name
-                != capability.expected_application_name
-                or profile.expected_kodi_version != capability.expected_kodi_version
-                or profile.expected_version_tag != capability.expected_version_tag
-                or profile.expected_prerelease_ordinal
-                != capability.expected_prerelease_ordinal
-                or profile.runtime_uid != capability.runtime_uid
-                or profile.runtime_gid != capability.runtime_gid
-            ):
-                raise ValueError("view runtime not admitted")
-            current = active_session(db)
-            selected: tuple[object, ...] = (None,)
-            if current is not None and current.target_id == str(instance_id):
-                workspace = db.get(AgentWorkspaceRow, current.workspace_id)
+            with binding_phase("catalog_instance"):
+                instance = db.get(ManagedInstanceRow, str(instance_id))
+                projection = ManagedRuntimeProjectionRepository(db)
                 if (
-                    current.phase != "bound"
-                    or current.runtime_revision_id != str(revision)
-                    or current.container_id != pin.container
-                    or workspace is None
-                    or workspace.development_source_id != current.source_id
+                    instance is None
+                    or instance.instance_type is not InstanceType.DISPOSABLE
                 ):
-                    raise ValueError("view session identity changed")
-                selected = (
-                    current.generation,
-                    current.workspace_id,
-                    current.source_id,
-                    workspace.generation,
-                )
-            identity = (str(revision), instance.runtime_state_revision, *selected)
-            lease = ManagedInstanceMutationLeaseRepository(db).current(instance_id)
-            if lease is not None and (
-                mode != "view-only"
-                or current is None
-                or current.target_id != str(instance_id)
-                or not self._compatible_operation(db, lease, current, instance, pin)
-            ):
-                raise ValueError("view operation conflict")
+                    raise ValueError("view runtime unavailable")
+            with binding_phase("runtime_reconciliation"):
+                if projection.has_blocking_runtime_reconciliation(instance_id):
+                    raise ValueError("view runtime unavailable")
+            with binding_phase("operation_reconciliation"):
+                require_resolved_view_work(db, instance_id, self.sessions)
+            with binding_phase("runtime_profile"):
+                revision = UUID(instance.runtime_revision_id)
+                artifact = RuntimeContainerArtifactRepository(db).get(revision)
+                profile = RuntimeExecutionProfileRepository(db).get(revision)
+                capability = self.capability
+                if (
+                    artifact is None
+                    or artifact.image_id != pin.image
+                    or profile is None
+                    or profile.expected_application_name
+                    != capability.expected_application_name
+                    or profile.expected_kodi_version != capability.expected_kodi_version
+                    or profile.expected_version_tag != capability.expected_version_tag
+                    or profile.expected_prerelease_ordinal
+                    != capability.expected_prerelease_ordinal
+                    or profile.runtime_uid != capability.runtime_uid
+                    or profile.runtime_gid != capability.runtime_gid
+                ):
+                    raise ValueError("view runtime not admitted")
+            with binding_phase("development_binding"):
+                current = active_session(db)
+                selected: tuple[object, ...] = (None,)
+                if current is not None and current.target_id == str(instance_id):
+                    workspace = db.get(AgentWorkspaceRow, current.workspace_id)
+                    if (
+                        current.phase != "bound"
+                        or current.runtime_revision_id != str(revision)
+                        or current.container_id != pin.container
+                        or workspace is None
+                        or workspace.development_source_id != current.source_id
+                    ):
+                        raise ValueError("view session identity changed")
+                    selected = (
+                        current.generation,
+                        current.workspace_id,
+                        current.source_id,
+                        workspace.generation,
+                    )
+                identity = (str(revision), instance.runtime_state_revision, *selected)
+            with binding_phase("mutation_exclusion"):
+                lease = ManagedInstanceMutationLeaseRepository(db).current(instance_id)
+                if lease is not None and (
+                    mode != "view-only"
+                    or current is None
+                    or current.target_id != str(instance_id)
+                    or not self._compatible_operation(db, lease, current, instance, pin)
+                ):
+                    raise ValueError("view operation conflict")
             value = replace(pin, identity=identity)
             if pin.identity and pin.identity != identity:
                 raise ValueError("view catalog identity changed")

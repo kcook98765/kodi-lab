@@ -121,6 +121,7 @@ def test_control_handoff_cannot_follow_a_replacement_profile() -> None:
     current = [binding]
     ownership = SimpleNamespace(
         require_control_available=lambda _: None,
+        require_input_available=lambda _: None,
         create=lambda *_: "2026-10-29T12:00:00+00:00",
         revoke=lambda *_: None,
         wait_released=lambda _: current.__setitem__(

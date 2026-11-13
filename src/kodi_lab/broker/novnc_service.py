@@ -32,6 +32,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeRevisionRepository,
 )
+from kodi_lab.viewer_diagnostics import binding_phase, binding_timing
 
 
 class HumanDisplayService:
@@ -73,30 +74,41 @@ class HumanDisplayService:
             return capability
 
     def resolve(self, instance: UUID) -> ViewBinding:
-        capability = self.qualified(instance)
-        spec = self.provisioning.resolve(str(instance))
-        client = docker.APIClient(version="auto", timeout=1)
+        with binding_timing("broker_lookup", instance):
+            return self._resolve(instance)
+
+    def _resolve(self, instance: UUID) -> ViewBinding:
+        with binding_phase("capability"):
+            capability = self.qualified(instance)
+        with binding_phase("provisioning"):
+            spec = self.provisioning.resolve(str(instance))
+        with binding_phase("docker_client"):
+            client = docker.APIClient(version="auto", timeout=1)
         try:
-            containers = client.containers(
-                all=True,
-                filters={"label": ["io.kodi-lab.instance-id=" + str(instance)]},
-            )
+            with binding_phase("docker_inventory"):
+                containers = client.containers(
+                    all=True,
+                    filters={"label": ["io.kodi-lab.instance-id=" + str(instance)]},
+                )
             if len(containers) != 1:
                 raise ValueError("experimental runtime identity unavailable")
-            actual = client.inspect_container(containers[0]["Id"])
-            image = client.inspect_image(actual["Image"])
-            DockerManagedContainerAdapter._validate_provisioned_container(
-                actual,
-                expected_container_id=containers[0]["Id"],
-                spec=spec,
-                image_config=image["Config"],
-            )
-            if (
-                not actual["State"]["Running"]
-                or actual["State"].get("Paused")
-                or actual["State"].get("Health", {}).get("Status") != "healthy"
-            ):
-                raise ValueError("experimental runtime is not healthy")
+            with binding_phase("docker_container"):
+                actual = client.inspect_container(containers[0]["Id"])
+            with binding_phase("docker_image"):
+                image = client.inspect_image(actual["Image"])
+            with binding_phase("docker_validation"):
+                DockerManagedContainerAdapter._validate_provisioned_container(
+                    actual,
+                    expected_container_id=containers[0]["Id"],
+                    spec=spec,
+                    image_config=image["Config"],
+                )
+                if (
+                    not actual["State"]["Running"]
+                    or actual["State"].get("Paused")
+                    or actual["State"].get("Health", {}).get("Status") != "healthy"
+                ):
+                    raise ValueError("experimental runtime is not healthy")
             binding = ViewBinding(
                 actual["Id"], actual["Image"], actual["State"]["StartedAt"], ()
             )
@@ -169,8 +181,13 @@ class HumanDisplayService:
             raise
 
         def valid() -> bool:
+            with binding_timing("broker_validation", request.instance, attempt=attempt):
+                return validate()
+
+        def validate() -> bool:
             try:
-                capability = self.qualified(request.instance)
+                with binding_phase("capability"):
+                    capability = self.qualified(request.instance)
                 if (
                     not self.ownership.valid(request.instance, attempt, self.broker_id)
                     or CatalogViewAuthority(
@@ -181,7 +198,8 @@ class HumanDisplayService:
                     != selected
                 ):
                     return False
-                actual = client.inspect_container(selected.container)
+                with binding_phase("docker_container"):
+                    actual = client.inspect_container(selected.container)
                 DockerManagedContainerAdapter._validate_provisioned_container(
                     actual,
                     expected_container_id=selected.container,

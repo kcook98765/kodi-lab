@@ -5,6 +5,7 @@ import logging
 import stat
 import subprocess
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from uuid import uuid4
 
@@ -111,6 +112,78 @@ def test_unavailable_diagnostic_storage_does_not_break_viewing(
     diagnostics.configure_diagnostics()
     assert isinstance(logger.handlers[0], logging.NullHandler)
     diagnostics.diagnostic("helper_ended", reason="exec_eof")
+
+
+@pytest.mark.parametrize("failure", ["write", "rotation"])
+def test_handler_failure_never_exposes_exception_details_or_changes_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    logger = logging.getLogger(diagnostics.LOGGER)
+    monkeypatch.setattr(logger, "disabled", False)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(logger, "propagate", False)
+    monkeypatch.setattr(logger, "level", logging.INFO)
+    # Exercise the handler's own error path even with Python's debugging enabled.
+    monkeypatch.setattr(logging, "raiseExceptions", True)
+    monkeypatch.setattr(diagnostics, "SLOW_BINDING_SECONDS", 0)
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700)
+    monkeypatch.setattr(
+        "kodi_lab.viewer_diagnostics.tempfile.mkdtemp", lambda **_: str(directory)
+    )
+    diagnostics.configure_diagnostics()
+    handler = logger.handlers[0]
+    assert isinstance(handler, RotatingFileHandler)
+    failures = 0
+
+    def broken(*args: object, **kwargs: object) -> None:
+        nonlocal failures
+        failures += 1
+        raise OSError("handler-secret-private-path")
+
+    def check(rejected: bool) -> bool:
+        with (
+            diagnostics.binding_timing("web_watchdog", uuid4()),
+            diagnostics.binding_phase("ownership"),
+        ):
+            if rejected:
+                raise ValueError("worker-secret")
+            return True
+
+    try:
+        diagnostics.diagnostic("helper_started")
+        handler.flush()
+        before = (directory / "events.jsonl").read_text()
+        with monkeypatch.context() as patch:
+            if failure == "rotation":
+                patch.setattr(handler, "maxBytes", 1)
+                patch.setattr(handler, "rotate", broken)
+            else:
+                assert handler.stream is not None
+                patch.setattr(handler.stream, "write", broken)
+            assert check(False) is True
+            with pytest.raises(ValueError, match="worker-secret"):
+                check(True)
+        assert failures == 2
+        assert capsys.readouterr() == ("", "")
+        assert (directory / "events.jsonl").read_text() == before
+        assert check(False) is True
+        handler.flush()
+        entries = [
+            json.loads(line)
+            for line in (directory / "events.jsonl").read_text().splitlines()
+        ]
+        assert [entry["event"] for entry in entries] == [
+            "helper_started",
+            "binding_checked",
+        ]
+        assert entries[-1]["phase_calls"] == {"ownership": 1}
+        assert "secret" not in json.dumps(entries)
+    finally:
+        handler.close()
 
 
 def test_web_log_configuration_preserves_private_diagnostic_handler(

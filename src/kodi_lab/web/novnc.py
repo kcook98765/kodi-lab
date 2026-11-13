@@ -41,7 +41,7 @@ from kodi_lab.application.novnc_control import (
 )
 from kodi_lab.auth.service import AuthenticatedWebSession, WebAuthenticationService
 from kodi_lab.broker.novnc import ViewBinding
-from kodi_lab.viewer_diagnostics import diagnostic
+from kodi_lab.viewer_diagnostics import binding_phase, binding_timing, diagnostic
 from kodi_lab.web.view_attempts import FutureViewCancellation, ViewAttempts
 
 
@@ -481,7 +481,8 @@ class PrototypeViewer:
         if mode == "interactive":
             if self.ownership is None:
                 raise ValueError("interactive ownership unavailable")
-            self.ownership.require_control_available(instance)
+            with binding_phase("input_exclusion"):
+                self.ownership.require_input_available(instance)
         return self.authority(instance)
 
     def page_binding(self, instance: UUID) -> ViewBinding:
@@ -647,29 +648,45 @@ async def relay(
 
             def authorized() -> bool:
                 nonlocal denial, watchdog_phase
-                watchdog_phase = "auth_check"
-                if not auth_current():
-                    denial = "authorization_rejected"
-                    return False
-                watchdog_phase = "binding_check"
-                if viewer.binding(item.session.instance_id, item.mode) != item.binding:
-                    denial = "binding_changed"
-                    return False
-                watchdog_phase = "control_check"
-                if not control.valid():
-                    denial = "control_lease_expired"
-                    return False
-                watchdog_phase = "ownership_check"
-                if viewer.ownership is not None and not viewer.ownership.authorized(
+                with binding_timing(
+                    "web_watchdog",
                     item.session.instance_id,
-                    item.attempt,
-                    item.owner,
-                    item.binding,
-                    item.mode,
+                    attempt=item.attempt,
+                    queued_at=checking,
                 ):
-                    denial = "ownership_rejected"
-                    return False
-                return True
+                    watchdog_phase = "auth_check"
+                    with binding_phase("auth"):
+                        if not auth_current():
+                            denial = "authorization_rejected"
+                            return False
+                    watchdog_phase = "binding_check"
+                    with binding_phase("binding"):
+                        if (
+                            viewer.binding(item.session.instance_id, item.mode)
+                            != item.binding
+                        ):
+                            denial = "binding_changed"
+                            return False
+                    watchdog_phase = "control_check"
+                    with binding_phase("foreground"):
+                        if not control.valid():
+                            denial = "control_lease_expired"
+                            return False
+                    watchdog_phase = "ownership_check"
+                    with binding_phase("ownership"):
+                        if (
+                            viewer.ownership is not None
+                            and not viewer.ownership.authorized(
+                                item.session.instance_id,
+                                item.attempt,
+                                item.owner,
+                                item.binding,
+                                item.mode,
+                            )
+                        ):
+                            denial = "ownership_rejected"
+                            return False
+                    return True
 
             previous = time.monotonic()
             while current():
@@ -677,6 +694,7 @@ async def relay(
                 gap_max = max(gap_max, checking - previous)
                 previous = checking
                 try:
+                    watchdog_phase = "check_queue"
                     allowed = await viewer.checked(
                         authorized,
                         cancelled=item.session.cancelled,
