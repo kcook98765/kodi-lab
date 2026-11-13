@@ -75,49 +75,49 @@ def approved_bridge_build(
         raise ValueError("ambiguous Bridge build selection")
     resource = (
         "managed_bridge_preview_build.json"
-        if kodi_release == "22.0-rc.1"
+        if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
         else "managed_bridge_build.json"
     )
     if previous:
         resource = (
             "managed_bridge_previous_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_previous_build.json"
         )
     if retained:
         resource = (
             "managed_bridge_retained_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_retained_build.json"
         )
     if legacy:
         resource = (
             "managed_bridge_legacy_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_legacy_build.json"
         )
     if historical:
         resource = (
             "managed_bridge_historical_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_historical_build.json"
         )
     if predecessor:
         resource = (
             "managed_bridge_predecessor_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_predecessor_build.json"
         )
     if recent:
         resource = (
             "managed_bridge_recent_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_recent_build.json"
         )
     if settings_predecessor:
         resource = (
             "managed_bridge_settings_predecessor_preview_build.json"
-            if kodi_release == "22.0-rc.1"
+            if kodi_release in {"22.0-rc.1", "22.0-rc.2"}
             else "managed_bridge_settings_predecessor_build.json"
         )
     return cast(
@@ -225,7 +225,13 @@ class SqliteManagedBridgeTrustResolver:
                 UUID(target_id), UUID(row.secret_reference), "request_authentication"
             )
             if install_reviewed:
-                if target.kodi_version not in {"19.4", "20.5", "21.3", "22.0-rc.1"}:
+                if target.kodi_version not in {
+                    "19.4",
+                    "20.5",
+                    "21.3",
+                    "22.0-rc.1",
+                    "22.0-rc.2",
+                }:
                     raise ManagedBridgeProvisionError(
                         "managed_bridge_identity_mismatch"
                     )
@@ -587,7 +593,7 @@ class DockerManagedBridgeTrustProvider:
     def establish(self, spec: ManagedBridgeProvisionSpec) -> str:
         inventory = None
         sources = None
-        if spec.kodi_release == "22.0-rc.1" or spec.install_reviewed:
+        if spec.kodi_release in {"22.0-rc.1", "22.0-rc.2"} or spec.install_reviewed:
             import hashlib
 
             from kodi_lab.kodi.rc1_bridge import (
@@ -597,7 +603,7 @@ class DockerManagedBridgeTrustProvider:
 
             reviewed = (
                 packaged_rc1_bridge_sources()
-                if spec.kodi_release == "22.0-rc.1"
+                if spec.kodi_release in {"22.0-rc.1", "22.0-rc.2"}
                 else packaged_stable_bridge_sources()
             )
             inventory = {

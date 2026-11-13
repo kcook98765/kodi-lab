@@ -425,7 +425,7 @@ def _commit_ready(
                 else REVIEWED_SIGNED_DISTRO_SOURCE_KIND
             ),
             source_reference=(
-                "Flathub signed immutable RC1 closure"
+                "Flathub signed immutable Piers closure"
                 if isinstance(recipe.provider, FlathubOstreeProvider)
                 else (
                     f"{recipe.provider.distribution} "
@@ -673,7 +673,7 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
             and isinstance(labels, dict)
             and labels.get("io.kodi-lab.recipe-digest")
             == (
-                load_inactive_ostree_recipe().digest
+                load_inactive_ostree_recipe(reviewed.recipe.kodi_version).digest
                 if reviewed.recipe.generation == "piers"
                 else reviewed.digest
             )
@@ -730,7 +730,7 @@ def install_reviewed_runtime(
         if display_candidate and admitted.digest != reviewed.digest:
             raise RecipeInstallationError("Preview display candidate consent differs")
         # The fixed broker command consumes its exact operation-owned consent.
-        # Fresh installs select r3; recorded operations retain their exact consent.
+        # Fresh installs select RC2 r4; recorded operations retain their exact consent.
         reviewed = admitted
     with (
         _record_worker_start_failure(settings, reviewed, operation_id),
@@ -820,8 +820,8 @@ def install_reviewed_runtime(
                     settings,
                     on_base_ready,
                     **(
-                        {"support_revision": 3}
-                        if reviewed.recipe.recipe_revision == 3
+                        {"support_revision": reviewed.recipe.recipe_revision}
+                        if reviewed.recipe.recipe_revision in (3, 4)
                         else {}
                     ),
                 )

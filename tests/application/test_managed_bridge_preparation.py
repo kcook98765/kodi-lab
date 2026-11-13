@@ -141,7 +141,7 @@ class Setup:
             "matrix": "19.4",
             "nexus": "20.5",
             "omega": "21.3",
-            "piers": "22.0-rc.1",
+            "piers": "22.0-rc.2",
         }[generation]
         major, minor = (int(x) for x in release.split("-")[0].split("."))
         self.env.transport.native_version = {
@@ -305,11 +305,11 @@ def test_fresh_create_prepares_exact_reviewed_bridge_and_requested_final_state(
 
 
 def test_actual_packaged_builds_match_each_reviewed_inventory() -> None:
-    for release in ("19.4", "20.5", "21.3", "22.0-rc.1"):
+    for release in ("19.4", "20.5", "21.3", "22.0-rc.1", "22.0-rc.2"):
         build = approved_bridge_build(release)
         sources = (
             packaged_rc1_bridge_sources()
-            if release == "22.0-rc.1"
+            if release in {"22.0-rc.1", "22.0-rc.2"}
             else packaged_stable_bridge_sources()
         )
         assert all(

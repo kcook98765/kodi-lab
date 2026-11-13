@@ -317,10 +317,12 @@ and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).
 | Kodi 19 Matrix **19.4** | Stable runtime |
 | Kodi 20 Nexus **20.5** | Stable runtime |
 | Kodi 21 Omega **21.3** | Stable runtime |
-| Kodi 22 Piers **22.0 RC1** | **Preview / Prerelease — Development only** |
+| Kodi 22 Piers **22.0 RC2** | **Preview / Prerelease — Development only** |
 
 These are the reviewed Linux amd64 runtime options; Kodi executables are acquired
-on demand, not included in Kodi Lab. Piers RC1 is not a stable Home recommendation.
+on demand, not included in Kodi Lab. Piers RC2 is prerelease development software.
+Retained RC1 profiles keep their original version and provenance; selecting RC2
+does not replace an occupied Piers slot. See the [RC2 qualification](docs/PIERS-RC2-QUALIFICATION.md).
 Standard noVNC viewing is qualified only for
 [exact reviewed recipe revisions](docs/STANDARD-NOVNC.md), not automatically for
 older profiles. Kodi Lab remains a prerelease development/testing project.

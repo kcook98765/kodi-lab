@@ -169,7 +169,9 @@ class CreateKodiRegistrationService:
                                     "recipe_id": op.recipe_id,
                                     "recipe_revision": op.recipe_revision,
                                     "recipe_digest": op.recipe_digest,
-                                    "release": "22.0-rc.1",
+                                    "release": "22.0-rc.2"
+                                    if op.recipe_id == "piers-22.0-rc2-r4"
+                                    else "22.0-rc.1",
                                     "support_tier": "preview",
                                     "acknowledgement": "development-only-prerelease",
                                 }

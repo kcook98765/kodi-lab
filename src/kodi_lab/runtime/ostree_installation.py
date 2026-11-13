@@ -71,7 +71,7 @@ def ostree_attestation_matches(
             "recipe_id": reviewed.recipe.recipe_id,
             "recipe_revision": reviewed.recipe.recipe_revision,
             "recipe_digest": reviewed.digest,
-            "release": "22.0-rc.1",
+            "release": reviewed.recipe.kodi_version,
             "support_tier": "preview",
             "provider": reviewed.recipe.provider.model_dump(mode="json"),
             "image_id": image_id,
@@ -85,8 +85,18 @@ def ostree_attestation_matches(
         acquired = OstreeVerificationEvidence.model_validate(value["acquisition"])
         if value["acquisition"] != acquired.model_dump(mode="json"):
             return False
-        inputs = load_inactive_ostree_recipe()
-        if acquired.recipe_digest != inputs.digest:
+        inputs = load_inactive_ostree_recipe(reviewed.recipe.kodi_version)
+        if (
+            acquired.recipe_id,
+            acquired.recipe_digest,
+            acquired.kodi_release,
+            acquired.kodi_source_revision,
+        ) != (
+            inputs.recipe.recipe_id,
+            inputs.digest,
+            inputs.recipe.kodi_version,
+            inputs.recipe.kodi_source_revision,
+        ):
             return False
         for actual, pinned in zip(
             acquired.components, inputs.recipe.provider.components, strict=True
@@ -116,7 +126,7 @@ def ostree_attestation_matches(
             "recipe_digest": inputs.digest,
             "image_id": image_id,
             "operation_id": value["operation_id"],
-            "kodi_release": "22.0-rc.1",
+            "kodi_release": reviewed.recipe.kodi_version,
             "platform": "linux/amd64",
             "kodi_source_revision": inputs.recipe.kodi_source_revision,
             "acquisition_digest": "sha256:"

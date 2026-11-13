@@ -174,6 +174,13 @@ class SignedDistroAptProvider(_ClosedModel):
 FLATHUB_PRIMARY_KEY: Final = "6E5C05D979C76DAF93C081354184DD4D907A7CAE"
 FLATHUB_SIGNING_SUBKEY: Final = "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8"
 FLATHUB_KEY_SHA256 = "8bdc20abc4e19c0796460beb5bfe0e7aa4138716999e19c6f2dbdd78cc41aeaa"
+KODI_RC2_SOURCE_REVISION: Final = "d686683a55d50e576dd282f53fb2bf9914931b38"
+PIERS_RC2_INSTALLATION_DIGEST: Final = (
+    "sha256:16b275718524e6dafef27691677d07ac4bffb7af97e5960d227c0ae54bfa8527"
+)
+_RC2_OSTREE_DIGEST = (
+    "sha256:4f5dd5942456563175f2f6bca1c0bfb192172792376d4c6c62d5ec633b7532bd"
+)
 KODI_RC1_SOURCE_REVISION: Final = "28ea2eac1eb7af8fdcbd2672d933ce87f594be79"
 _INACTIVE_OSTREE_DIGEST = (
     "sha256:f1abc5dc6f04d143881b3da58fe745da0409273f7b0823c4121a18ebd017cd28"
@@ -204,6 +211,15 @@ _OSTREE_COMPONENTS = {
 }
 
 
+_RC2_APP = (
+    "https://dl.flathub.org/beta-repo/",
+    "app/tv.kodi.Kodi/x86_64/beta",
+    "83b803ab50c19471377943f35bed0d96247a425834580a420d5842912ce7cbdd",
+    "org.flathub.Beta",
+    "c7ce238252232f77761e73142ef79aa3118ae564274f67b226e6159b6cd43c8f",
+)
+
+
 class OstreeComponent(_ClosedModel):
     role: Literal["app", "platform", "gl"]
     repository_url: str = Field(max_length=64)
@@ -220,8 +236,12 @@ class OstreeComponent(_ClosedModel):
             self.commit,
             self.collection,
             self.metadata_sha256,
-        ) != _OSTREE_COMPONENTS[self.role]:
-            raise ValueError("OSTree component differs from reviewed RC1 identity")
+        ) not in (
+            (_OSTREE_COMPONENTS[self.role], _RC2_APP)
+            if self.role == "app"
+            else (_OSTREE_COMPONENTS[self.role],)
+        ):
+            raise ValueError("OSTree component differs from reviewed Piers identity")
         return self
 
 
@@ -254,11 +274,14 @@ AcquisitionProvider = Annotated[
 
 class InactiveOstreeRecipe(_ClosedModel):
     schema_version: Literal[2]
-    recipe_id: Literal["piers-22.0-rc1-r1"]
+    recipe_id: Literal["piers-22.0-rc1-r1", "piers-22.0-rc2-r1"]
     recipe_revision: Literal[1]
     generation: Literal["piers"]
-    kodi_version: Literal["22.0-rc.1"]
-    kodi_source_revision: Literal["28ea2eac1eb7af8fdcbd2672d933ce87f594be79"]
+    kodi_version: Literal["22.0-rc.1", "22.0-rc.2"]
+    kodi_source_revision: Literal[
+        "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+        "d686683a55d50e576dd282f53fb2bf9914931b38",
+    ]
     platform: Literal["linux/amd64"]
     support_tier: Literal["preview"]
     development_only: Literal[True]
@@ -268,6 +291,21 @@ class InactiveOstreeRecipe(_ClosedModel):
     image_assets_status: Literal["unqualified"]
     validation_status: Literal["unqualified"]
     provider: FlathubOstreeProvider
+
+    @model_validator(mode="after")
+    def _release_binding(self) -> InactiveOstreeRecipe:
+        rc2 = self.kodi_version == "22.0-rc.2"
+        if (
+            self.recipe_id,
+            self.kodi_source_revision,
+            self.provider.components[0].commit,
+        ) != (
+            "piers-22.0-rc2-r1" if rc2 else "piers-22.0-rc1-r1",
+            KODI_RC2_SOURCE_REVISION if rc2 else KODI_RC1_SOURCE_REVISION,
+            _RC2_APP[2] if rc2 else _OSTREE_COMPONENTS["app"][2],
+        ):
+            raise ValueError("Piers source and release differ")
+        return self
 
 
 def parse_acquisition_provider(value: object) -> AcquisitionProvider:
@@ -318,9 +356,13 @@ class RuntimeRecipe(_ClosedModel):
                     ("piers-22.0-rc1-r1", 1),
                     ("piers-22.0-rc1-r2", 2),
                     ("piers-22.0-rc1-r3", 3),
+                    ("piers-22.0-rc2-r4", 4),
                 }
                 or self.generation != "piers"
-                or self.kodi_version != "22.0-rc.1"
+                or self.kodi_version
+                != ("22.0-rc.2" if self.recipe_revision == 4 else "22.0-rc.1")
+                or self.provider
+                != load_inactive_ostree_recipe(self.kodi_version).recipe.provider
                 or self.base_image_reference != BASE_IMAGE
                 or self.base_image_digest != BASE_IMAGE.split("@")[1]
                 or self.critical_packages
@@ -332,7 +374,8 @@ class RuntimeRecipe(_ClosedModel):
                 }
                 or self.execution_profile.expected_kodi_version != "22.0"
                 or self.execution_profile.expected_version_tag != "rc"
-                or self.execution_profile.expected_prerelease_ordinal != 1
+                or self.execution_profile.expected_prerelease_ordinal
+                != (2 if self.recipe_revision == 4 else 1)
                 or self.execution_profile.runtime_uid != 1000
                 or self.execution_profile.runtime_gid != 1000
             ):
@@ -451,6 +494,11 @@ def load_recorded_reviewed_recipe(
                 "piers-22.0-rc1-installation-r2.json",
                 PREVIEW_INSTALLATION_DIGEST,
             ),
+            _load_recipe_file(
+                "piers",
+                "piers-22.0-rc1-installation-r3.json",
+                PIERS_DISPLAY_INSTALLATION_DIGEST,
+            ),
             load_installation_recipe(generation),
         )
         if generation == "piers"
@@ -475,7 +523,7 @@ PIERS_DISPLAY_INSTALLATION_DIGEST: Final = (
 )
 
 _DISPLAY_CANDIDATES = {
-    "piers": ("piers-22.0-rc1-installation-r3.json", PIERS_DISPLAY_INSTALLATION_DIGEST),
+    "piers": ("piers-22.0-rc2-installation-r4.json", PIERS_RC2_INSTALLATION_DIGEST),
     "matrix": (
         "matrix-19.4-graceful-r4.json",
         "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
@@ -520,8 +568,8 @@ def load_installation_recipe(generation: str) -> ReviewedRecipe:
         return load_reviewed_recipe(generation)
     return _load_recipe_file(
         generation,
-        "piers-22.0-rc1-installation-r3.json",
-        PIERS_DISPLAY_INSTALLATION_DIGEST,
+        "piers-22.0-rc2-installation-r4.json",
+        PIERS_RC2_INSTALLATION_DIGEST,
     )
 
 
@@ -619,16 +667,25 @@ class InactiveOstreeDefinition:
     digest: str
 
 
-def load_inactive_ostree_recipe() -> InactiveOstreeDefinition:
+def load_inactive_ostree_recipe(release: str = "22.0-rc.1") -> InactiveOstreeDefinition:
     """Acquisition-only RC1 input; intentionally absent from _RECIPES."""
 
+    if release not in {"22.0-rc.1", "22.0-rc.2"}:
+        raise ValueError("unreviewed Piers release")
     raw = (
         resources.files("kodi_lab.runtime")
-        .joinpath("recipes", "piers-22.0-rc1-r1.json")
+        .joinpath(
+            "recipes",
+            "piers-22.0-rc2-r1.json"
+            if release == "22.0-rc.2"
+            else "piers-22.0-rc1-r1.json",
+        )
         .read_bytes()
     )
     digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    if digest != _INACTIVE_OSTREE_DIGEST:
+    if digest != (
+        _RC2_OSTREE_DIGEST if release == "22.0-rc.2" else _INACTIVE_OSTREE_DIGEST
+    ):
         raise ValueError("inactive OSTree recipe differs from pinned digest")
     return InactiveOstreeDefinition(
         InactiveOstreeRecipe.model_validate_json(raw), digest

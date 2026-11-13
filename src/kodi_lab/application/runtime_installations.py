@@ -457,7 +457,9 @@ class RuntimeInstallationService:
                 targets.create(
                     Target(
                         id=target_id,
-                        name="Kodi 22 Piers RC1",
+                        name=reviewed.recipe.display_generation.removesuffix(
+                            " (Development Preview)"
+                        ),
                         target_type=TargetType.MANAGED,
                         kodi_version=reviewed.recipe.kodi_version,
                         availability=TargetAvailability.UNAVAILABLE,
@@ -636,16 +638,18 @@ class RuntimeInstallationService:
         recipe = reviewed.recipe
         development_variant = reviewed.digest == NOVNC_PHASE1_DIGEST
         major, stable_version = (
-            ("22", "22.0 RC1") if generation == "piers" else STABLE_RELEASES[generation]
+            ("22", "22.0 RC2" if recipe.kodi_version == "22.0-rc.2" else "22.0 RC1")
+            if generation == "piers"
+            else STABLE_RELEASES[generation]
         )
         base = RuntimeInstallationView(
             generation=generation,
-            display_name="Kodi 22 Piers RC1"
+            display_name=f"Kodi 22 Piers {stable_version.split()[-1]}"
             if generation == "piers"
             else f"Kodi {major} — {generation.capitalize()}",
             version=stable_version,
             managed_instance_name=(
-                "Kodi 22 Piers RC1"
+                f"Kodi 22 Piers {stable_version.split()[-1]}"
                 if generation == "piers"
                 else f"{recipe.display_generation} Lab"
                 + (" · experimental noVNC" if development_variant else "")

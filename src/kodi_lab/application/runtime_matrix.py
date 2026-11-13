@@ -25,8 +25,8 @@ from kodi_lab.domain import (
     effective_validation_state,
 )
 from kodi_lab.runtime.recipes import (
-    PREVIEW_INSTALLATION_DIGEST,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+    load_installation_recipe,
     load_reviewed_recipe,
     supported_generations,
 )
@@ -350,7 +350,7 @@ class RuntimeMatrixService:
         return RuntimeSelectionPolicy(
             include_legacy=include_legacy,
             include_prerelease=include_prerelease,
-            preview_recipe_digest=PREVIEW_INSTALLATION_DIGEST
+            preview_recipe_digest=load_installation_recipe("piers").digest
             if include_prerelease
             else None,
             trusted_custom_builds_enabled=self._trusted_custom_builds_enabled,
