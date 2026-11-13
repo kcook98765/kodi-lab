@@ -2,7 +2,7 @@
 <div data-development-summary="{{ target.target_id }}">
   <p><span class="kodi-status" data-development-status="{{ view.status }}">{{ view.label }}</span></p>
   <p>{{ view.note }}</p>
-  <p><strong>Ready to inspect:</strong> review the recorded Kodi and Bridge checks below for the support you need. An agent also needs <a href="/mcp-clients">explicit inspection permissions</a>; pairing alone does not grant access. Screenshots require separate support and capture settings.</p>
+  <p><strong>Ready to inspect:</strong> Recorded checks are not live inspection; recheck this Kodi and Bridge before acting. An agent needs <a href="/mcp-clients">explicit inspection permissions</a>; pairing alone does not grant access. Screenshots require separate support and capture settings.</p>
   {% for warning in view.warnings %}<p class="error" role="alert">{{ warning }}</p>{% endfor %}
   {% if target.http_password_warning %}<p class="notice"><strong>Password authentication over HTTP is not confidential.</strong></p>{% endif %}
   <dl>
