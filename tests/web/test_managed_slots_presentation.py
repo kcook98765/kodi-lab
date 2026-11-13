@@ -45,6 +45,11 @@ def test_export_managed_card_review_states(
         assert response.status_code == 200
         status = client.get("/api/managed-kodi/slots").json()
         assert "Ready to view:" in response.text
+        assert (
+            "Stored Bridge trust on stopped Kodi is not a live inspection check"
+            in response.text
+        )
+        assert "agent authorization" in response.text
         assert "grant Trusted Managed Lab once" in response.text
         assert "agent GUI input is blocked" in response.text
         for item in status["slots"]:

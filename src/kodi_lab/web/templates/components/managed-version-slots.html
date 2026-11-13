@@ -9,6 +9,7 @@
   <p>Only one managed Kodi can run at a time. If a version needs installation, use its Create Managed Kodi link first.</p>
   <p>Connect a coding agent in <a href="/mcp-clients">Agents</a> and grant Trusted Managed Lab once. The agent manages its projects and tests installed versions.</p>
   <p class="secondary"><strong>Ready to view:</strong> use View Screen when available below. The viewer checks its screen connection when opened; Kodi running alone does not confirm that connection.</p>
+  <p>Native readiness confirms Kodi’s connection. Agent access requires <a href="/mcp-clients">agent authorization</a>. Stored Bridge trust on stopped Kodi is not a live inspection check.</p>
   <p>Viewing starts view-only. Choose <strong>Take Control</strong> in the viewer for human input priority; agent GUI input is blocked while you control Kodi.</p>
   <p data-slots-running>{% if managed_slots.running %}Running or starting: {{ managed_slots.running|join(', ') }}. Stop it before starting a different version.{% endif %}</p>
   <div class="slot-request" data-slot-request hidden>

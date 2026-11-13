@@ -196,6 +196,7 @@ def test_development_review_states(client: TestClient, development_case: str) ->
     else:
         assert structure.targets == [str(EXTERNAL_TARGET_ID)]
         assert "Ready to inspect:" in response.text
+        assert "Recorded checks are not live inspection" in response.text
         assert "explicit inspection permissions" in response.text
         assert "Ready for add-on testing:" in response.text
         assert "Deployed files do not prove" in response.text
