@@ -33,6 +33,10 @@ host integration changes, read [the specification](docs/V1-SPEC.md), relevant
 [decision records](docs/DECISIONS.md) and the
 [legacy lab boundary](docs/LEGACY-LAB-BOUNDARY.md).
 
+For managed Kodi recipe or Narrow Bridge upgrades, use the
+[runtime update procedure](docs/MANAGED-RUNTIME-UPDATES.md) for provenance,
+compatibility, focused testing, native qualification and production boundaries.
+
 ## Testing changes
 
 Install the locked development environment:

@@ -353,6 +353,7 @@ and the retained viewer/ZIP qualification limits.
   [backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md),
   and [optional repository HTTPS](docs/REPOSITORY-NETWORKING.md).
 - **Project:** [Contributing](CONTRIBUTING.md),
+  [managed runtime updates](docs/MANAGED-RUNTIME-UPDATES.md),
   [Code of Conduct](CODE_OF_CONDUCT.md), [security reporting](SECURITY.md),
   and [accessibility](ACCESSIBILITY.md).
 
