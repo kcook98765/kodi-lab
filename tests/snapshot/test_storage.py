@@ -335,6 +335,24 @@ def test_exact_runtime_logs_are_excluded_without_broad_log_ignore() -> None:
     assert captured.value.code == "unknown_snapshot_profile_state"
 
 
+def test_supervisor_cycle_diagnostic_is_excluded_only_at_profile_root() -> None:
+    payload = source_tar(
+        [
+            ("supervisor-cycles.jsonl", b'{"forced_kill":false}\n', tarfile.REGTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+            ("userdata/supervisor-cycles.jsonl", b"user state", tarfile.REGTYPE),
+        ]
+    )
+    assert {m.path for m in enumerate_snapshot_source([payload])} == {
+        "userdata",
+        "userdata/supervisor-cycles.jsonl",
+    }
+    unknown = source_tar([("other-cycles.jsonl", b"state", tarfile.REGTYPE)])
+    with pytest.raises(SnapshotStorageError) as captured:
+        enumerate_snapshot_source([unknown])
+    assert captured.value.code == "unknown_snapshot_profile_state"
+
+
 def test_exact_exclusions_are_not_manifested(tmp_path: Path) -> None:
     payload = source_tar(
         [
