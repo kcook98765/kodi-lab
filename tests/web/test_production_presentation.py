@@ -138,6 +138,7 @@ def test_export_production_review_states(
     for path, html in pages.items():
         assert "Ready to inspect:" in html
         assert "Connected does not grant access" in html
+        assert "Trusted Managed Lab does not authorize external Kodi" in html
         assert "Ready to view:" not in html
         assert "Ready for add-on testing:" not in html
         assert "authenticated inspection access to this exact Kodi" in html
