@@ -60,11 +60,25 @@ class HumanViewerOwnership:
             from kodi_lab.application.novnc import require_resolved_view_work
 
             require_resolved_view_work(db, instance, self.sessions)
-            if (
-                db.get(ManagedInstanceMutationLeaseRow, str(instance)) is not None
-                or db.get(ManagedRemoteGuardRow, str(instance)) is not None
-            ):
-                raise HumanControlBusyError("agent operation active")
+            self._require_input_available(db, instance)
+
+    def require_input_available(self, instance: UUID) -> None:
+        """Check current input exclusion before a full catalog binding lookup.
+
+        CatalogViewAuthority still checks unresolved work on every lookup. The
+        transition preflight above also needs that check before retiring a
+        view-only attachment; repeating it here adds no later observation.
+        """
+        with self.sessions() as db:
+            self._require_input_available(db, instance)
+
+    @staticmethod
+    def _require_input_available(db: Session, instance: UUID) -> None:
+        if (
+            db.get(ManagedInstanceMutationLeaseRow, str(instance)) is not None
+            or db.get(ManagedRemoteGuardRow, str(instance)) is not None
+        ):
+            raise HumanControlBusyError("agent operation active")
 
     def create(
         self,

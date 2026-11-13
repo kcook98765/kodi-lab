@@ -41,9 +41,10 @@ bounded numeric/boolean fields:
 | `web_rejected` | Pre-attachment authorization/protocol refusal or ticket refusal; requested close code 4403. No untrusted ticket or attempt is recovered for correlation. |
 | `web_accepted` | Broker admission and WebSocket acceptance completed; admission duration. |
 | `web_ended` | Admission stage, accepted flag, terminal task outcomes, observed peer close code if received, requested cleanup close code, cleanup completion and elapsed duration. |
-| `helper_rejected` | Validated request refused by admission or existing capacity limits. Authority lookup traffic is not logged. |
+| `helper_rejected` | Validated request refused by admission or existing capacity limits. |
 | `helper_started` | Existing Docker exec attach completed; startup duration. This does not assert RFB or graphics readiness. |
 | `helper_ended` | Terminal category, arming state, existing native termination proof, wrapper exec exit code when available, aggregate byte counts, startup/teardown/total durations. |
+| `binding_checked` | Only checks taking at least 250 ms, including slow successes. Fixed Web watchdog, broker lookup or broker validation origin; elapsed/worker/thread CPU/queue durations and allowlisted phase totals/counts. No lookup request contents or binding values. |
 
 The Web terminal summary records each task completed when `FIRST_COMPLETED`
 returns. Pending tasks are cancelled exactly as before and are labelled `pending`,
@@ -60,8 +61,8 @@ stall, lease expiry and revocation. Exit status is read from the existing bounde
 `exec_inspect` teardown loop; no additional Docker request is made. It describes
 the Python wrapper, not the individual X0tigervnc child. Native termination proof
 does not assert durable ownership-release completion. No per-frame, per-packet,
-per-watchdog-tick or periodic success records are emitted: a normal connection
-adds two Web records and two broker records.
+per-watchdog-tick or periodic success records are emitted. A connection without
+slow checks adds two Web records and two broker records.
 
 These events would have separated the broad failure paths missing from Nexus
 issue #214, if collected at the time. They cannot reconstruct that incident or
@@ -77,3 +78,20 @@ The current heartbeat contract uses read-only `ownership_check`, replacing the
 historical `ownership_renew` phase and its slow-commit records. Ordinary viewing
 no longer emits `ownership_renewed` events or performs durable renewal. Historical
 records retain their original meaning. See [viewer ownership](VIEWER-OWNERSHIP.md).
+
+Slow binding summaries finish in the synchronous worker's `finally`, so a Web
+timeout can precede its complete summary. The worker retains its capacity slot
+until actual completion and cannot send a heartbeat after its caller has ended.
+`check_queue` denotes a watchdog waiting for its worker to start. `queue_ms`
+separates that delay from `worker_ms`; `worker_cpu_ms` and `phase_cpu_ms` measure
+only the current thread. Phase elapsed times include scheduling, I/O and lock
+waits. They do not identify a competing database writer. Web `broker_lookup`
+includes socket/handshake/server work; the broker has its own process-local
+summary. Lookup summaries have an instance UUID but no attempt UUID, since the
+existing lookup protocol carries none. Timestamp overlap alone is not exact
+request correlation. Nested phase durations are inclusive; do not add them.
+
+Collection is bounded by the existing rotating sink, and successful fast checks
+emit nothing. No SQL statements/parameters, database busy handlers, process
+environments, tokens, paths or framebuffer contents are traced. See
+[binding-check analysis and limits](VIEWER-BINDING-CHECKS.md).

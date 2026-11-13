@@ -20,6 +20,7 @@ from kodi_lab.runtime.display_capabilities import (
     admitted_display_capability,
 )
 from kodi_lab.storage.repositories import ManagedInstanceRepository
+from kodi_lab.viewer_diagnostics import binding_phase
 from kodi_lab.web.novnc import PrototypeViewer
 
 
@@ -98,14 +99,17 @@ def build_viewer(
             return capability
 
     def authority(instance: UUID) -> ViewBinding:
-        capability = capability_for(instance)
-        try:
-            binding = resolve_binding(path, instance)
-        except OSError as error:
-            raise ValueError("display binding unavailable") from error
+        with binding_phase("capability_before"):
+            capability = capability_for(instance)
+        with binding_phase("broker_lookup"):
+            try:
+                binding = resolve_binding(path, instance)
+            except OSError as error:
+                raise ValueError("display binding unavailable") from error
         # Resolve again on the unprivileged side to fence concurrent catalog writes.
-        if capability_for(instance) != capability:
-            raise ValueError("view capability changed")
+        with binding_phase("capability_after"):
+            if capability_for(instance) != capability:
+                raise ValueError("view capability changed")
         return CatalogViewAuthority(
             sessions, {instance: binding}, capability=capability
         ).resolve(instance)
