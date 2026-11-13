@@ -408,6 +408,7 @@ def _is_log_or_runtime_artifact(path: PurePosixPath) -> bool:
             "kodi.old.log",
             "kodi-stdout.log",
             "xvfb.log",
+            "supervisor-cycles.jsonl",
             "kodi.pid",
             "kodi.lock",
             "core",
