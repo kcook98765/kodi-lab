@@ -6,17 +6,20 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from kodi_lab.application.managed_agent_reset import ManagedAgentResetService
 from kodi_lab.application.managed_clean_reset import (
     ManagedCleanResetService,
+    ManagedResetBridgeResult,
     ManagedResetInput,
 )
 from kodi_lab.application.managed_versions import (
+    ManagedProfileIdentity,
     ManagedVersionError,
     ManagedVersionLifecycleService,
     Version,
@@ -27,6 +30,7 @@ from kodi_lab.storage.managed_activity import read_resource_policy, timestamp
 from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER
 from kodi_lab.storage.managed_version_slots import managed_version_slots
 from kodi_lab.storage.models import (
+    ManagedBridgePreparationRow,
     ManagedBridgeTrustRow,
     ManagedCleanResetRow,
     ManagedInstanceMutationLeaseRow,
@@ -49,6 +53,8 @@ class WebSlotRequest(BaseModel):
     request_id: UUID = Field(strict=False)
     expected_snapshot: str = Field(pattern=r"^[0-9a-f]{64}$")
     confirm_reset: bool = False
+    prepare_bridge: bool = False
+    resume_bridge_version: int | None = Field(default=None, ge=0)
 
 
 _MESSAGES = {
@@ -126,6 +132,7 @@ class ManagedSlotsWeb:
         screen_supported: Callable[[UUID], bool],
     ) -> None:
         self.v, self.reset = versions, ManagedCleanResetService(versions)
+        self.prepared_reset = ManagedAgentResetService(versions)
         self.sessions = versions._sessions
         self.screen_supported = screen_supported
 
@@ -229,15 +236,26 @@ class ManagedSlotsWeb:
                 action,
                 operation.expected_snapshot,
                 operation.confirm_reset,
+                operation.prepare_bridge,
             )
             if action == "reset" and operation.confirm_reset is not True:
                 raise ManagedVersionError("reset_confirmation_required")
+            if (operation.prepare_bridge and action != "reset") or (
+                operation.resume_bridge_version is not None
+                and not (action == "reset" and operation.prepare_bridge)
+            ):
+                raise ManagedVersionError("request_conflict")
+            if operation.resume_bridge_version is not None:
+                original = self._parent(session, operation.request_id, action)
+                if prior is None or original is None or original.phase != "complete":
+                    raise ManagedVersionError("managed_reset_original_request_required")
             if prior is not None:
                 if (
                     prior.generation,
                     prior.action,
                     prior.snapshot_sha256,
                     prior.reset_confirmed,
+                    prior.prepare_bridge,
                 ) != binding:
                     raise ManagedVersionError("request_conflict")
             else:
@@ -263,6 +281,7 @@ class ManagedSlotsWeb:
                         action=action,
                         snapshot_sha256=operation.expected_snapshot,
                         reset_confirmed=operation.confirm_reset,
+                        prepare_bridge=operation.prepare_bridge,
                         created_at=timestamp(self.v._clock()),
                     )
                 )
@@ -271,13 +290,33 @@ class ManagedSlotsWeb:
             self._authority(session, target, operation.request_id, admin)
 
         if action == "reset":
-            self.reset.invoke(
+            result = self.reset.invoke(
                 WEB_ADMIN_OWNER,
                 ManagedResetInput(
                     version=version, request_id=operation.request_id, restart=False
                 ),
                 authorize,
             )
+            if operation.prepare_bridge and result.phase == "complete":
+                with self.sessions() as session:
+                    parent = session.get(ManagedCleanResetRow, str(result.operation_id))
+                    assert parent is not None and parent.old_container_id is not None
+                    expected = ManagedProfileIdentity(
+                        container_id=parent.old_container_id,
+                        runtime_revision_id=UUID(parent.runtime_revision_id),
+                        image_id=parent.image_id,
+                    )
+                self.prepared_reset.invoke(
+                    WEB_ADMIN_OWNER,
+                    ManagedResetInput(
+                        version=version,
+                        request_id=operation.request_id,
+                        expected_profile=expected,
+                        restart=False,
+                        resume_bridge_version=operation.resume_bridge_version,
+                    ),
+                    authorize,
+                )
         else:
             self.v.invoke(
                 client_id=WEB_ADMIN_OWNER,
@@ -310,6 +349,7 @@ class ManagedSlotsWeb:
                 request_id=str(request),
                 expected_snapshot=intent.snapshot_sha256,
                 confirm_reset=intent.reset_confirmed,
+                prepare_bridge=intent.prepare_bridge,
             )
         # Reading receipts never invokes or advances a child operation.
         evidence = None
@@ -323,6 +363,51 @@ class ManagedSlotsWeb:
                 if action == "reset"
                 else self.v._result(parent.id, WEB_ADMIN_OWNER, authority, True)
             ).model_dump(mode="json")
+        bridge = None
+        resume_bridge_version = None
+        can_resume_bridge = True
+        if action == "reset" and binding["prepare_bridge"] and phase == "complete":
+            # Status reads never advance replacement or preparation. The same
+            # deterministic child identity is owned by the shared coordinator.
+            with self.sessions() as session:
+                self.authorize(session, self.v.slot(version).canonical_target_id, admin)
+                saved = session.scalar(
+                    select(ManagedBridgePreparationRow).where(
+                        ManagedBridgePreparationRow.request_id
+                        == str(uuid5(UUID(parent.id), "trusted-managed-bridge:v1"))
+                    )
+                )
+                bridge = ManagedResetBridgeResult(
+                    operation_id=UUID(saved.id) if saved else None,
+                    checkpoint=saved.checkpoint if saved else "not_started",
+                    version=saved.version if saved else None,
+                    reason=saved.reason if saved else None,
+                    stored_trust=self.prepared_reset.bridge.stored_trust(saved)
+                    if saved
+                    else None,
+                ).model_dump(mode="json")
+                if saved and saved.checkpoint == "needs_attention":
+                    can_resume_bridge = (
+                        self.prepared_reset.bridge.recovery_action(saved)
+                        == "resume_original"
+                    )
+                    if can_resume_bridge:
+                        resume_bridge_version = saved.version
+            assert evidence is not None
+            evidence["bridge_preparation"] = bridge
+            if not evidence["replacement_current"]:
+                phase, code = "blocked", "runtime_changed_since_request"
+            elif not saved or saved.checkpoint != "complete":
+                phase = (
+                    "bridge_pending"
+                    if not saved or saved.checkpoint == "pending"
+                    else "bridge_blocked"
+                )
+                code = (
+                    saved.reason
+                    if saved and saved.reason
+                    else "bridge_preparation_required"
+                )
         if parent is None:
             with self.sessions() as session:
                 try:
@@ -335,7 +420,13 @@ class ManagedSlotsWeb:
                     phase, code = "blocked", "stale_browser"
         done = phase in {"complete", "blocked"}
         message = (
-            "Reset completed and prepared a stopped profile. Check current status "
+            "Reset and reviewed Bridge preparation completed. The replacement was "
+            "left stopped. Check current status before starting Kodi."
+            if phase == "complete" and action == "reset" and binding["prepare_bridge"]
+            else "Reset completed; Bridge preparation is incomplete. Resume the saved "
+            "request to continue, or review its original Bridge operation."
+            if phase in {"bridge_pending", "bridge_blocked"}
+            else "Reset completed and prepared a stopped profile. Check current status "
             "below; development setup needs a fresh review."
             if phase == "complete" and action == "reset"
             else "Request completed. Check Kodi's current status below."
@@ -353,7 +444,8 @@ class ManagedSlotsWeb:
             phase=phase,
             message=message,
             done=done,
-            can_resume=not done and phase != "uncertain",
+            can_resume=not done and phase != "uncertain" and can_resume_bridge,
+            resume_bridge_version=resume_bridge_version,
             request=binding,
             recovery_url=f"/instances/{self.v.slot(version).canonical_target_id}/history"
             if registered
@@ -491,6 +583,22 @@ class ManagedSlotsWeb:
                     if value.request_id
                     else None
                 )
+                pending_request = str(value.request_id) if intent else None
+                if latest and latest.client_id == str(WEB_ADMIN_OWNER):
+                    prepared_intent = session.get(
+                        ManagedWebIntentRow, latest.request_id
+                    )
+                    if prepared_intent and prepared_intent.prepare_bridge:
+                        preparation = session.scalar(
+                            select(ManagedBridgePreparationRow).where(
+                                ManagedBridgePreparationRow.request_id
+                                == str(
+                                    uuid5(UUID(latest.id), "trusted-managed-bridge:v1")
+                                )
+                            )
+                        )
+                        if not preparation or preparation.checkpoint != "complete":
+                            pending_request = latest.request_id
             cached = self.v._installer.observe_create(version)
             cache_ok = cached.status == "ready" and not cached.busy
             other = next((name for name in running if name.lower() != version), None)
@@ -638,7 +746,7 @@ class ManagedSlotsWeb:
                     advanced_url=f"/instances/{target}" if instance else "/runtimes",
                     reset_note=reset_note,
                     needs_review=bool(state_reason or protections["start"]),
-                    pending_request=str(value.request_id) if intent else None,
+                    pending_request=pending_request,
                     technical=value.model_dump(mode="json"),
                 )
             )

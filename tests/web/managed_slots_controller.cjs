@@ -6,7 +6,7 @@ const versions = ["matrix", "nexus", "omega", "piers"];
 const stopGuidance = "Finish playback in Kodi first. Kodi Lab checks playback and active use before stopping, and may refuse the request. Your settings and add-ons are kept.";
 const resetGuidance = "If Kodi is running, finish playback first. Reset checks for playback and active use when you confirm, and may be refused.";
 const status = (extra = {}) => ({running:[], slots:versions.map(version => ({version, state:"stopped", state_label:"Stopped", preparation:"Profile prepared", native:"Not running", message:"Ready to start", start:true, stop:false, reset:true, snapshot, technical:{}, ...extra}))});
-const receipt = (intent, extra = {}) => ({version:intent.version, action:intent.action, phase:"prepared", can_resume:true, done:false, request:{request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset}, message:"Original request is saved", recovery_url:"/recovery", ...extra});
+const receipt = (intent, extra = {}) => ({version:intent.version, action:intent.action, phase:"prepared", can_resume:true, done:false, request:{request_id:intent.request_id, expected_snapshot:intent.expected_snapshot, confirm_reset:intent.confirm_reset, prepare_bridge:!!intent.prepare_bridge}, message:"Original request is saved", recovery_url:"/recovery", ...extra});
 // Anonymized real completed Stop receipt from Claw native acceptance.
 const completedStop = JSON.parse(fs.readFileSync(`${__dirname}/fixtures/managed_slot_stop_complete.json`, "utf8"));
 class Element {
@@ -27,7 +27,7 @@ class Element {
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function boot({storage = new Map(), denied = false, lanHttp = false, clipboard} = {}) {
   const root = new Element(), document = new Element(), window = new Element();
-  const names = ["slot-confirm", "slots-error", "slots-running", "slots-refresh", "slot-request", "slot-request-message", "slot-resume", "slot-receipt", "slot-request-recovery", "slot-confirm-check", "slot-confirm-form", "slot-cancel"];
+  const names = ["slot-confirm", "slots-error", "slots-running", "slots-refresh", "slot-request", "slot-request-message", "slot-resume", "slot-receipt", "slot-request-recovery", "slot-confirm-check", "slot-prepare-bridge", "slot-confirm-form", "slot-cancel"];
   const nodes = Object.fromEntries(names.map(n => [n, new Element()]));
   for (const name of ["managed-request", "managed-error"]) nodes[name] = Object.assign(new Element(), {hidden:true});
   const cards = versions.map(version => {
@@ -106,6 +106,24 @@ if (require.main === module) (async () => {
   reset.nodes["slot-confirm-form"].dispatch("submit");
   assert.equal(posts(reset).length, 1);
   assert.equal(JSON.parse(posts(reset)[0].options.body).confirm_reset, true);
+
+  assert.equal(JSON.parse(posts(reset)[0].options.body).prepare_bridge, false, "ordinary Reset never grants native Start");
+  const preparation = boot(); await reply(preparation.requests[0]); preparation.click("reset");
+  assert.equal(preparation.nodes["slot-prepare-bridge"].checked, false);
+  preparation.nodes["slot-confirm-check"].checked = true;
+  preparation.nodes["slot-prepare-bridge"].checked = true;
+  preparation.nodes["slot-confirm-form"].dispatch("submit");
+  const preparedIntent = JSON.parse(preparation.storage.get(key));
+  assert.equal(preparedIntent.prepare_bridge, true);
+  assert.equal(JSON.parse(posts(preparation)[0].options.body).prepare_bridge, true);
+  const refreshed = boot({storage:new Map([[key, JSON.stringify(preparedIntent)]])});
+  await reply(refreshed.requests[0]);
+  await reply(refreshed.requests.at(-1), receipt(preparedIntent, {phase:"bridge_blocked", resume_bridge_version:7}));
+  assert.equal(posts(refreshed).length, 0, "refresh cannot resume Bridge work");
+  refreshed.nodes["slot-resume"].dispatch("click");
+  assert.equal(JSON.parse(posts(refreshed)[0].options.body).request_id, preparedIntent.request_id);
+  assert.equal(JSON.parse(posts(refreshed)[0].options.body).prepare_bridge, true);
+  assert.equal(JSON.parse(posts(refreshed)[0].options.body).resume_bridge_version, 7);
 
   const stale = boot(); await reply(stale.requests[0]); stale.click("reset");
   stale.timers[0](); await reply(stale.requests.at(-1), status({snapshot:"b".repeat(64)}));

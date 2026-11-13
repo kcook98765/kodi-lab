@@ -9139,6 +9139,17 @@ class ManagedWebIntentRow(Base):
     snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     reset_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    prepare_bridge: Mapped[bool] = mapped_column(
+        Boolean,
+        CheckConstraint(
+            "prepare_bridge IN (0,1) AND "
+            "(prepare_bridge=0 OR (action='reset' AND reset_confirmed=1))",
+            name="managed_web_bridge_consent",
+        ),
+        nullable=False,
+        default=False,
+        server_default=text("0"),
+    )
 
 
 _WEB_INTENT_IMMUTABLE = """
