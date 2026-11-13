@@ -13,6 +13,7 @@ from kodi_lab.broker.novnc_state import StateOwnerOwnership, main
 from kodi_lab.config import Settings
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import NovncSessionRow
 from tests.web.conftest import INSTANCE_ID, REVISION_ID, seed_instance
 
 
@@ -56,6 +57,9 @@ def test_state_owner_transactions_claim_and_release_exact_pending_authority(
     main()
     assert capsys.readouterr().out == '{"ok":true}\n'
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     monkeypatch.setattr(
         "sys.stdin",
         io.StringIO(
@@ -125,7 +129,7 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
 ) -> None:
     from sqlalchemy.exc import IntegrityError
 
-    from kodi_lab.storage.models import ManagedRemoteGuardRow, NovncSessionRow
+    from kodi_lab.storage.models import ManagedRemoteGuardRow
 
     root = tmp_path / "state"
     (root / "database").mkdir(parents=True)
@@ -174,6 +178,9 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
         ],
     )
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     with pytest.raises(IntegrityError), sessions.begin() as db:
         db.add(
             ManagedRemoteGuardRow(
@@ -187,6 +194,9 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
     write("started", [str(INSTANCE_ID), str(attempt), broker, "a" * 64])
     write("revoke", [str(INSTANCE_ID), str(attempt), "d" * 64])
     assert authority.valid(INSTANCE_ID, attempt, broker)
+    with sessions() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row and row.expires_at == row.absolute_expires_at
     write("revoke", [str(INSTANCE_ID), str(attempt), "c" * 64])
     assert authority.status(INSTANCE_ID).state == "revoking"  # type: ignore[union-attr]
     write("expire_pending", [])
@@ -200,3 +210,127 @@ def test_closed_sqlite_writer_preserves_scope_and_claimed_recovery_fence(
     with sessions() as db:
         assert db.get(NovncSessionRow, str(INSTANCE_ID)) is None
     engine.dispose()
+
+
+@pytest.mark.parametrize("writer", ["orm", "state-writer"])
+@pytest.mark.parametrize("boundary", ["pending", "absolute"])
+def test_claim_waiting_for_sqlite_lock_cannot_promote_expired_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    writer: str,
+    boundary: str,
+) -> None:
+    import sqlite3
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import UTC, datetime, timedelta
+    from threading import Event
+    from typing import Any, cast
+
+    from sqlalchemy import event
+
+    from kodi_lab import novnc_writer
+    from kodi_lab.application import novnc_control
+
+    root = tmp_path / "state"
+    (root / "database").mkdir(parents=True)
+    root.chmod(0o700)
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(root))
+    settings = Settings()
+    engine = create_database_engine(settings.database_url)
+    metadata.create_all(engine)
+    sessions = create_session_factory(engine)
+    seed_instance(sessions)
+    authority = HumanViewerOwnership(sessions)
+    attempt, broker = uuid4(), str(uuid4())
+    binding = ViewBinding(
+        "a" * 64, "sha256:" + "b" * 64, "current-start", (str(REVISION_ID), 0, None)
+    )
+    authority.create(INSTANCE_ID, attempt, "c" * 64, binding, "interactive")
+    clock = [datetime.now(UTC)]
+    stamp = novnc_control.timestamp
+    expiry = clock[0] + timedelta(seconds=1)
+    with sessions.begin() as db:
+        row = db.get(NovncSessionRow, str(INSTANCE_ID))
+        assert row
+        row.expires_at = stamp(expiry)
+        if boundary == "absolute":
+            row.absolute_expires_at = stamp(expiry)
+
+    class Clock:
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            return clock[0]
+
+    monkeypatch.setattr(novnc_writer, "datetime", Clock)
+    monkeypatch.setattr(
+        novnc_control, "timestamp", lambda value=None: stamp(value or clock[0])
+    )
+    attempting = Event()
+
+    def trace(statement: str) -> None:
+        if statement == "BEGIN IMMEDIATE" or statement.startswith(
+            "UPDATE novnc_sessions"
+        ):
+            attempting.set()
+
+    def before_sql(conn: Any, cursor: Any, statement: str, *args: Any) -> None:
+        trace(statement)
+
+    connect = sqlite3.connect
+
+    def traced_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+        connection = cast(sqlite3.Connection, connect(*args, **kwargs))
+        connection.set_trace_callback(trace)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    event.listen(engine, "before_cursor_execute", before_sql)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "method": "claim",
+                    "args": [
+                        str(INSTANCE_ID),
+                        str(attempt),
+                        "c" * 64,
+                        binding.__dict__,
+                        "interactive",
+                        broker,
+                    ],
+                }
+            )
+        ),
+    )
+
+    def claim() -> None:
+        if writer == "state-writer":
+            main()  # Executes the privileged writer's actual raw SQL.
+        else:
+            authority.claim(
+                INSTANCE_ID, attempt, "c" * 64, binding, "interactive", broker
+            )
+
+    blocker = connect(root / "database/kodi-lab.db")
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(claim)
+            try:
+                assert attempting.wait(2)
+                assert not future.done()
+                # Advance to the exact boundary while another connection owns
+                # SQLite's real writer lock. No timeout or production lease changes.
+                clock[0] = expiry
+            finally:
+                blocker.rollback()
+            with pytest.raises(ValueError, match="ownership unavailable"):
+                future.result(timeout=3)
+        with sessions() as db:
+            row = db.get(NovncSessionRow, str(INSTANCE_ID))
+            assert row and row.state == "pending" and row.broker_id is None
+    finally:
+        blocker.close()
+        event.remove(engine, "before_cursor_execute", before_sql)
+        engine.dispose()

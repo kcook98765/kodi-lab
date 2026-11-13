@@ -8203,3 +8203,16 @@ The shared owned-source dependency preflight also checks bundled API declaration
 when no separate module is declared. Regression evidence shows this previously
 skipped standalone plugins. Incompatible declared Python APIs now refuse before
 native stopping/copying, using the same reviewed per-release API/ABI table.
+
+## D-0501: Durable viewer fences use existing connection heartbeats for liveness
+
+The owner selected separation of persistent worker/input ownership from live
+viewer permission for #214. Keep the existing row, SQL exclusion triggers,
+independent broker/helper/foreground deadlines and native termination proof.
+At exact broker claim, fix active expiry to the original absolute deadline;
+replace periodic durable renewal with exact read-only Web authorization before
+sending the existing private heartbeat. Admission, claim, exec registration,
+revocation and proven retirement remain durable. Expiry or disconnect never
+frees an unproven controller. No schema, SQLite durability/journal, timeout,
+helper/runtime or general leasing-system change. See
+[the ownership contract and regression evidence](VIEWER-OWNERSHIP.md).

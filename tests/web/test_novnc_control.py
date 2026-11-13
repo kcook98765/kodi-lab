@@ -139,7 +139,7 @@ def test_view_only_allows_remote_and_cancellation_cannot_be_claimed(
     mutation(database)
 
 
-def test_expiry_and_wrong_owner_never_renew_or_free_claimed_fence(
+def test_expiry_and_wrong_owner_never_authorize_or_free_claimed_fence(
     database: sessionmaker[Session],
 ) -> None:
     ownership = HumanViewerOwnership(database)
@@ -158,13 +158,15 @@ def test_expiry_and_wrong_owner_never_renew_or_free_claimed_fence(
         with pytest.raises(ValueError):
             ownership.claim(INSTANCE_ID, attempt, owner, binding, mode, broker)
     ownership.claim(INSTANCE_ID, attempt, OWNER, BINDING, "interactive", broker)
-    assert not ownership.renew(INSTANCE_ID, attempt, "d" * 64)
+    assert not ownership.authorized(
+        INSTANCE_ID, attempt, "d" * 64, BINDING, "interactive"
+    )
     with database.begin() as db:
         row = db.get(NovncSessionRow, str(INSTANCE_ID))
         assert row
         row.expires_at = timestamp(datetime.now(UTC) - timedelta(seconds=1))
     assert not ownership.valid(INSTANCE_ID, attempt, broker)
-    assert not ownership.renew(INSTANCE_ID, attempt, OWNER)
+    assert not ownership.authorized(INSTANCE_ID, attempt, OWNER, BINDING, "interactive")
     ownership.revoke(INSTANCE_ID, attempt, "d" * 64)
     assert ownership.status(INSTANCE_ID).deadline == deadline  # type: ignore[union-attr]
     with pytest.raises(IntegrityError):

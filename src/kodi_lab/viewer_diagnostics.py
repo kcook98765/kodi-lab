@@ -101,7 +101,7 @@ WATCHDOG_PHASES = frozenset(
         "auth_check",
         "binding_check",
         "control_check",
-        "ownership_renew",
+        "ownership_check",
         "lease_write",
         "sleep",
     }

@@ -659,9 +659,13 @@ async def relay(
                 if not control.valid():
                     denial = "control_lease_expired"
                     return False
-                watchdog_phase = "ownership_renew"
-                if viewer.ownership is not None and not viewer.ownership.renew(
-                    item.session.instance_id, item.attempt, item.owner
+                watchdog_phase = "ownership_check"
+                if viewer.ownership is not None and not viewer.ownership.authorized(
+                    item.session.instance_id,
+                    item.attempt,
+                    item.owner,
+                    item.binding,
+                    item.mode,
                 ):
                     denial = "ownership_rejected"
                     return False
@@ -676,11 +680,9 @@ async def relay(
                     allowed = await viewer.checked(
                         authorized,
                         cancelled=item.session.cancelled,
-                        # This check includes the durable ownership commit. Claw
-                        # traced 924 ms in renewal alone, including two syncs of
-                        # 450/322 ms. Leave 250 ms scheduling margin after the
-                        # 250 ms tick within the independent 2 s broker lease.
-                        # Admission and every lease/deadline remain unchanged.
+                        # Read-only authorization; live permission uses the
+                        # existing connection heartbeat, never a durable renewal.
+                        # Preserve the established check and broker deadlines.
                         timeout=1.5,
                     )
                 finally:

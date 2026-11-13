@@ -57,8 +57,13 @@ def main() -> None:
                     ],
                     separators=(",", ":"),
                 )
+                # Match ORM admission: time before a lock wait cannot authorize
+                # promotion to the absolute session deadline after ticket expiry.
+                connection.execute("BEGIN IMMEDIATE")
+                now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                 result = connection.execute(
-                    "UPDATE novnc_sessions SET state='active',broker_id=? "
+                    "UPDATE novnc_sessions SET state='active',broker_id=?, "
+                    "expires_at=absolute_expires_at "
                     "WHERE instance_id=? AND attempt=? AND owner=? AND mode=? "
                     "AND identity_json=? AND state='pending' AND broker_id IS NULL "
                     "AND expires_at>?",

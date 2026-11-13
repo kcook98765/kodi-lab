@@ -1,8 +1,10 @@
 # Standard managed noVNC implementation status
 
 Current activation and owner-approved fresh-profile/resource policy are documented
-in [Standard managed Kodi viewing](STANDARD-NOVNC.md). The observations below
-retain their original campaign dates, limits and determinations.
+in [Standard managed Kodi viewing](STANDARD-NOVNC.md). The source correction for
+[durable ownership and live heartbeats](VIEWER-OWNERSHIP.md) replaces periodic
+ownership commits while retaining the existing native recovery fences. The
+observations below retain their original campaign dates, limits and determinations.
 
 ## Historical packaging campaign through PR #175
 
