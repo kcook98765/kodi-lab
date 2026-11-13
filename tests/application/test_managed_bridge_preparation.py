@@ -148,7 +148,7 @@ class Setup:
             "major": major,
             "minor": minor,
             "tag": "releasecandidate" if generation == "piers" else "stable",
-            **({"tagversion": "1"} if generation == "piers" else {}),
+            **({"tagversion": "2"} if generation == "piers" else {}),
         }
         self.client = Client()
         build = approved_bridge_build(release)
@@ -229,7 +229,10 @@ class Setup:
         for _ in range(24):
             if self.env.op.checkpoint is CP.COMPLETE:
                 return
-            assert self.env.op.checkpoint is not CP.NEEDS_ATTENTION
+            assert self.env.op.checkpoint is not CP.NEEDS_ATTENTION, (
+                self.env.op.stage,
+                self.env.op.reason,
+            )
             self.env.step()
             if (
                 self.env.op.stage.value == "installation"
