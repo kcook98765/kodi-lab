@@ -92,6 +92,8 @@ existing lookup protocol carries none. Timestamp overlap alone is not exact
 request correlation. Nested phase durations are inclusive; do not add them.
 
 Collection is bounded by the existing rotating sink, and successful fast checks
-emit nothing. No SQL statements/parameters, database busy handlers, process
+emit nothing. Failed writes or rotation may lose records; the private handler
+suppresses Python's stderr fallback so storage exceptions and paths cannot escape.
+No SQL statements/parameters, database busy handlers, process
 environments, tokens, paths or framebuffer contents are traced. See
 [binding-check analysis and limits](VIEWER-BINDING-CHECKS.md).

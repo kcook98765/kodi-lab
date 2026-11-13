@@ -283,6 +283,14 @@ def diagnostic(
         )
 
 
+class _PrivateDiagnosticHandler(RotatingFileHandler):
+    def handleError(self, record: logging.LogRecord) -> None:
+        # FileHandler catches write/rotation errors internally. Its default
+        # fallback prints exception details and paths to stderr before the
+        # caller can suppress them. Failed diagnostics remain best effort.
+        pass
+
+
 def configure_diagnostics() -> None:
     """Keep at most two 64 KiB files in a private ephemeral directory per process.
 
@@ -297,7 +305,7 @@ def configure_diagnostics() -> None:
         return
     try:
         directory = Path(tempfile.mkdtemp(prefix="kodi-lab-viewer-"))
-        handler = RotatingFileHandler(
+        handler = _PrivateDiagnosticHandler(
             directory / "events.jsonl", maxBytes=MAX_BYTES, backupCount=1
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
