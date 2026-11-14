@@ -346,8 +346,9 @@ material within the selected host root, even where Web's UID lacks access.
 Place only intended development material there. Repository and managed Kodi
 containers do not receive this mount. Kodi Lab does not automatically relabel
 host files for SELinux or AppArmor. This feature is qualified for Linux amd64
-V1; current Windows Docker/Desktop source sharing and managed development remain
-[separately tracked in #275](https://github.com/kcook98765/kodi-lab/issues/275).
+V1. The [accepted Windows managed development workflow](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
+uses agent-owned projects without this host mount; arbitrary Windows directory
+sharing is a separate qualification claim.
 
 For a managed Lab with local development, include the overlay after the network
 overlay: `docker compose -f compose.release.yaml -f compose.lab.yaml -f

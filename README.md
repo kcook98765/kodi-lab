@@ -74,20 +74,19 @@ device; see [external setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-
 - **Python 3.12, Git, Bash, iproute2, sha256sum and [uv](https://docs.astral.sh/uv/getting-started/installation/)**.
   The Ubuntu download example also uses `curl`; a browser download works too.
 - Internet access for Python packages, container images and upstream Kodi downloads.
-- Capacity for application images and each Kodi instance. RC1 requires at least
-  **8 GiB free staging space**, plus space for Docker images and profiles. There
+- Capacity for application images and each Kodi instance. Piers acquisition
+  requires at least **8 GiB free staging space**, plus space for Docker images and profiles. There
   is no qualified universal RAM minimum; begin with one running instance.
 
 Setup installs Python build/test packages automatically; editors and AI clients
 are optional.
 
-Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has an owner-accepted
-installation and native Omega result using the maintained
-[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md). The
-[password-prompt](https://github.com/kcook98765/kodi-lab/issues/222) and
-[Firefox setup](https://github.com/kcook98765/kodi-lab/issues/226) checks are also
-accepted and closed. The current Windows managed development workflow remains
-under [separate qualification in #275](https://github.com/kcook98765/kodi-lab/issues/275).
+**Windows 11 with Ubuntu 24.04 WSL2 and Docker Desktop's Linux engine** is also
+qualified within its tested scope: fresh installation, cold Omega acquisition,
+native viewing/control, agent-owned project development and backup/recovery.
+Follow the [Windows installation path](docs/WINDOWS-WSL2-INSTALL.md).
+[Acceptance #275 is complete](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793);
+new or changed workflows require their own validation.
 macOS and ARM64/Raspberry Pi hosts are not qualified. An existing Kodi target can
 be on another computer; these requirements apply to the Kodi Lab server.
 
@@ -244,8 +243,9 @@ See [agent-owned projects](docs/AGENT-PROJECTS.md),
 [Trusted Managed Lab](docs/TRUSTED-MANAGED-LAB.md) and
 [agent Reset](docs/MANAGED-AGENT-RESET.md) for supported inputs, exact operation
 identity and recovery. Source implementation and fixture success are distinct
-from the integrated native qualification tracked in
-[#310](https://github.com/kcook98765/kodi-lab/issues/310).
+from the [completed core native qualification](docs/PIERS-RC2-QUALIFICATION.md).
+Original-ZIP GUI consumer installation and unattended repository install-by-ID
+remain [deferred](https://github.com/kcook98765/kodi-lab/issues/303#issuecomment-6867724644).
 
 The existing manually selected workflow remains under **Advanced → Development
 tools → Current Managed Kodi**. Its [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development),
@@ -444,7 +444,9 @@ list its add-ons. Native managed status and add-on inspection need no Bridge
 setup. Screenshots use ordinary inspection permission; external Kodi also needs
 Allow screenshots set to On and verified Bridge support. Richer UI/log inspection
 can require optional Bridge setup. Each tool uses the selected target's ID.
-Configuration syntax and compatibility vary by client.
+Configuration syntax and compatibility vary by client. Tested **Codex CLI
+0.169.0** connected only with explicit `--enable mcp_2026_07_28`; default Codex
+compatibility is not qualified. See the [accepted Windows client evidence](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793).
 See [OpenCode's MCP instructions](https://opencode.ai/docs/mcp-servers/),
 the [client compatibility notes](docs/PHASE11-MCP.md#final-client-and-conformance-matrix)
 and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).
@@ -465,15 +467,17 @@ does not replace an occupied Piers slot. See the [RC2 qualification](docs/PIERS-
 Standard noVNC viewing is qualified only for
 [exact reviewed recipe revisions](docs/STANDARD-NOVNC.md), not automatically for
 older profiles. Kodi Lab remains a prerelease development/testing project.
-Known prerelease concerns include the
-[Nexus first-viewer disconnect](docs/STANDARD-NOVNC.md#known-first-connection-limitation)
-and the Windows managed development qualification above. Earlier
+The owner accepted the documented
+[viewer reliability risk](docs/STANDARD-NOVNC.md#known-first-connection-limitation)
+for release; new reproducible failures still require investigation.
+[Windows successor image retention](https://github.com/kcook98765/kodi-lab/issues/365)
+remains a separate upgrade-safety follow-up. Earlier
 [RC1 test checkpoints](docs/RC1-TESTING-CHECKPOINT.md) are historical records.
 See the [agent-first qualification report](docs/AGENT-FIRST-QUALIFICATION.md)
 for historical native Nexus/Omega evidence, and the
 [Matrix/Piers native follow-up](docs/MATRIX-PIERS-AGENT-QUALIFICATION.md)
-for the newer application checkpoint, both remaining native development paths,
-and the retained viewer/ZIP qualification limits.
+for the Matrix r4 and historical Piers RC1 native development paths. The
+[RC2 report](docs/PIERS-RC2-QUALIFICATION.md) records the newer preview and its limits.
 
 ## Documentation
 

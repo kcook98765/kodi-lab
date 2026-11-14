@@ -1,5 +1,11 @@
 # Phase 11 MCP transports and security
 
+Current client evidence: [Windows acceptance #275](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
+verified Codex CLI **0.169.0** only with explicit `--enable mcp_2026_07_28`.
+Default Codex compatibility is not qualified. The dated closeout matrices below
+retain their original client versions and tool counts; the [README tool matrix](../README.md)
+is the current complete tool inventory.
+
 The phase/slice counts and client matrix below are historical checkpoints.
 Discover the installed toolset through an authenticated client; available tools
 depend on current permissions and exact grants. See the

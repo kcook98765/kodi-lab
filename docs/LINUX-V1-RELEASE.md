@@ -31,31 +31,37 @@ Nexus 20.5 revision 4 and Omega 21.3 revision 6. Recipe selection does not estab
 native qualification for these exact images. Historical standard-viewer acceptance
 covers Matrix r3, Nexus r3 and Omega r5. More recent accepted Claw native evidence
 covers Omega r6 development, retained Omega r6 ↔ Nexus r4 switching and scoped
-installed viewer checks. Current Matrix r4 native qualification remains incomplete.
+installed viewer checks. [Matrix r4 native core](https://github.com/kcook98765/kodi-lab/blob/main/docs/MATRIX-PIERS-AGENT-QUALIFICATION.md)
+also passed development, GUI, Reset and switching within its recorded scope.
 Acceptance is limited to the exact tested environments and workflows; no evidence
 establishes universal browser, platform or runtime qualification. Historical
 resources remain in the wheel for exact pins and provenance; acquiring a recipe does not change a
 registered instance's image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
 
-The stable runtime recipes include the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
+The stable runtime recipes include the [graceful shutdown correction](https://github.com/kcook98765/kodi-lab/blob/main/docs/MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
 
 The stable set is Matrix on Ubuntu Jammy, Nexus on Ubuntu Noble and Omega on
-Ubuntu Resolute. Piers 22 RC1 is an additional Development-only Preview option.
+Ubuntu Resolute. Piers 22 RC2 is an additional Development-only Preview option;
+its [qualification report](https://github.com/kcook98765/kodi-lab/blob/main/docs/PIERS-RC2-QUALIFICATION.md)
+records exact recipe and native limits. Retained RC1 profiles preserve their pins.
 Its reviewed OSTree recipe, trust key, support closure and assembly assets are
 wheel resources rather than loose `runtime-recipes/` files. No Kodi executable
 or managed runtime image is bundled.
 
 Native Ubuntu 24.04 amd64 is the qualified baseline. Windows 11 uses the
-maintained WSL2/Ubuntu/Docker Desktop installation path, with an owner-accepted
-installation/Omega result and separate remaining native acceptance checks.
+maintained Ubuntu 24.04 WSL2/Docker Desktop Linux-engine installation path.
+[Windows acceptance #275](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
+passed fresh installation, Omega lifecycle/viewing/control, agent-owned development,
+experimental-opt-in Codex MCP and backup/recovery at `23dd1d63dfd49362a9925df470f0f5406f08c6e1`.
+A changed successor-upgrade path needs its own Windows verification (#365).
 macOS and ARM64 hosts are not qualified. Historical private archive bootstrap
 resources are not release prerequisites.
 
 `0001_initial_release` is the initial database baseline. The supported forward
-chain is `0001_initial_release → 0002_managed_setup → 0003_managed_versions →
-0004_clean_reset → 0005_managed_web → 0006_external_screenshots →
-0007_production_navigation`, the current head. Both sdist and wheel include this
-migration tree. Supported upgrades use the explicit administrator upgrade flow;
+chain runs from `0001_initial_release` through `0014_human_reset_bridge`, the
+current head. Both sdist and wheel include this same migration tree; the
+[migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md)
+describes each intermediate revision. Supported upgrades use the explicit administrator upgrade flow;
 ordinary Web startup requires the installed head and never migrates. Unsupported
 prerelease databases are refused; there is no conversion or stamping path.
 See the [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md).
@@ -67,7 +73,7 @@ stopped container from an exact pinned runtime revision; stopping retains that
 container and its writable layer. Deprovisioning removes the container and
 layer while retaining the managed record and durable Kodi Lab state.
 **Reset permanently discards that version's writable Kodi profile**, settings and
-installed add-ons. Supported [clean Reset](MANAGED-CLEAN-RESET.md) recreates a
+installed add-ons. Supported [clean Reset](https://github.com/kcook98765/kodi-lab/blob/main/docs/MANAGED-CLEAN-RESET.md) recreates a
 profile from the same approved cached image without applying a fixture. The older
 Advanced fixture-reset flow instead reapplies an assigned deterministic fixture.
 Snapshots provide bounded preservation, including the existing confirmed
@@ -126,8 +132,10 @@ within the administrator-selected root. Use a dedicated root containing only
 intended material. Repository and Kodi containers receive no external source
 mount; missing or incorrect broker wiring fails closed. No broker protocol or
 schema change is involved. Remote-only and uploaded ZIP paths need no source
-mount. Linux amd64 V1 is qualified; Windows Docker/Desktop remains unqualified
-for this feature. Host SELinux/AppArmor labels are not changed automatically.
+mount. Linux amd64 source sharing has its recorded qualification. The accepted
+Windows agent-owned project workflow needs no host source mount and does not
+qualify arbitrary Windows directory sharing. Host SELinux/AppArmor labels are
+not changed automatically.
 
 Application backup contains SQLite, keys, recipe installation records,
 revisions, and HMAC evidence. Docker image bytes and broker snapshot artifacts
@@ -136,8 +144,9 @@ Explicit reacquisition creates a new exact revision; an existing instance is
 reassigned only through the stopped-Web `kodi-lab-lab repin` administrator
 command. Read `MANAGED-STATE-RECOVERY.md` for the snapshot dependency contract.
 
-No earlier public V1 exists. Future publication requires separate approval,
+Public distribution requires separate owner approval,
 an authenticated channel for the accepted manifest digest, and verification of
 downloaded bytes. No independent signature or GitHub attestation is claimed
 for this local candidate.
-This candidate is for extended real server testing before any RC decision.
+Source regression, bundle integrity and native platform acceptance are separate
+release-readiness claims.

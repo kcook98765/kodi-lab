@@ -336,15 +336,16 @@ def test_recipe_staging_rejects_substituted_source(tmp_path: Path) -> None:
 
 def test_piers_stays_in_exact_wheel_preview_path(bundle: Path) -> None:
     recipe = load_installation_recipe("piers")
-    assert recipe.recipe.recipe_revision == 3
+    assert recipe.recipe.recipe_id == "piers-22.0-rc2-r4"
+    assert recipe.recipe.recipe_revision == 4
     assert (
         recipe.digest
-        == "sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8"
+        == "sha256:16b275718524e6dafef27691677d07ac4bffb7af97e5960d227c0ae54bfa8527"
     )
     assert isinstance(recipe.recipe.provider, FlathubOstreeProvider)
     acknowledgement = preview_acknowledgement()
     assert acknowledgement["recipe_digest"] == recipe.digest
-    assert acknowledgement["recipe_revision"] == 3
+    assert acknowledgement["recipe_revision"] == 4
     assert acknowledgement["support_tier"] == "preview"
     assert acknowledgement["acknowledgement"] == "development-only-prerelease"
     assert "piers" not in bundle_tool["RECIPES"]

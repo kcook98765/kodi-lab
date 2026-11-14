@@ -1,5 +1,10 @@
 # Agent-first redesign qualification — 2026-11-11/12
 
+> **Historical checkpoint.** Later [RC2 qualification](PIERS-RC2-QUALIFICATION.md)
+> and [Windows acceptance](WINDOWS-WSL2-INSTALL.md#accepted-windows-workflow--2026-11-13)
+> supersede pending claims below. The owner closed #214 with accepted viewer risk
+> and deferred #305/#339; their original evidence and limits remain recorded.
+
 The subsequent [Matrix/Piers native campaign](MATRIX-PIERS-AGENT-QUALIFICATION.md)
 records both remaining versions' actual native development, GUI, Reset/Bridge,
 switching and isolation evidence, plus the newer installed application checkpoint.

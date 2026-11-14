@@ -28,8 +28,9 @@ Matrix 19.4 r4, Nexus 20.5 r4 and Omega 21.3 r6; existing profiles keep their
 exact pins. Historical standard-viewer acceptance covers Matrix r3, Nexus r3,
 Omega r5 and the separate Piers 22 RC1 r3 Preview recipe. More recent accepted
 Claw native evidence covers Omega r6 development, retained Omega r6 ↔ Nexus r4
-switching and scoped viewer checks. Current Matrix r4 native qualification remains
-incomplete. Acceptance applies only to the exact tested environments and
+switching and scoped viewer checks. [Matrix r4 native core](MATRIX-PIERS-AGENT-QUALIFICATION.md)
+and [Piers RC2 preview](PIERS-RC2-QUALIFICATION.md) subsequently passed their
+recorded native workflows. Acceptance applies only to the exact tested environments and
 workflows; it establishes no universal browser, platform or runtime qualification.
 Other experimental recipes gain no qualification. See the
 [version-specific qualification limits](STANDARD-NOVNC.md) and

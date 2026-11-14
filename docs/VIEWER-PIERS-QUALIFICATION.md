@@ -1,5 +1,10 @@
 # Sustained viewing and fresh Piers guided Create — 2026-11-12
 
+> **Historical checkpoint.** Later [RC2 qualification](PIERS-RC2-QUALIFICATION.md)
+> and [Windows acceptance](WINDOWS-WSL2-INSTALL.md#accepted-windows-workflow--2026-11-13)
+> supersede pending claims below. The owner closed #214 with accepted viewer risk
+> and deferred #305/#339; their original evidence and limits remain recorded.
+
 Campaign [#307](https://github.com/kcook98765/kodi-lab/issues/307) and
 [#336](https://github.com/kcook98765/kodi-lab/issues/336) follow the
 [Nexus/Omega](AGENT-FIRST-QUALIFICATION.md) and

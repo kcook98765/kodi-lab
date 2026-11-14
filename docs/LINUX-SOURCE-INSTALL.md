@@ -15,9 +15,9 @@ validation of new installer revisions is separate from host-platform operation.
 
 The qualified baseline is Ubuntu 24.04, Linux x86_64/amd64, Python
 3.12, native rootful Docker Engine and Compose V2 (2.24.4 or newer).
-Windows uses the maintained WSL2/Docker Desktop path linked above; broader
-native qualification remains separate. macOS, ARM64 and rootless Docker are
-not qualified for this managed-runtime path. Install
+Windows uses the [accepted WSL2/Docker Desktop workflow](WINDOWS-WSL2-INSTALL.md#accepted-windows-workflow--2026-11-13)
+within its recorded scope; changed paths require their own verification.
+macOS, ARM64 and rootless Docker are not qualified for this managed-runtime path. Install
 Git, uv, Python 3.12, `sha256sum`, Docker Engine and the Compose plugin using
 their upstream installation instructions. Run development commands as your
 ordinary user, with separately configured Docker-administrator access. Docker
@@ -35,8 +35,8 @@ ip -4 route show table all
 docker network ls
 ```
 
-The application requires `>=3.12,<3.13`; Kodi RC1's Python 3.14 is inside the
-managed image. There is no qualified universal host RAM/disk minimum. RC1
+The application requires `>=3.12,<3.13`; Kodi Piers' Python 3.14 is inside the
+managed image. There is no qualified universal host RAM/disk minimum. Piers
 acquisition checks for at least **8 GiB free staging space** and bounds its
 staging data to 6 GiB, but Docker base images, image layers, build contexts and
 application/test environments require additional space. Reserve capacity for
@@ -45,9 +45,10 @@ also consume RAM/CPU; start with one instance and measure your host. The source
 build and runtime installation should run without competing heavy workloads.
 
 Network access is required to GitHub, the locked Python package sources,
-container registries, signed Ubuntu archives and, for RC1, `dl.flathub.org`.
+container registries, signed Ubuntu archives and, for Piers, `dl.flathub.org`.
 Unavailable exact upstream inputs fail installation; Kodi Lab never substitutes
-a newer beta, RC2 or final. No host Flatpak setup or Kodi compilation is needed.
+a different beta, release candidate or final. No host Flatpak setup or Kodi
+compilation is needed.
 
 Web defaults to **127.0.0.1:18100**. Choose an unused private-LAN bind, port and
 durable URL for the add-on repository. Check these ports and the managed subnet
@@ -152,37 +153,30 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   up -d --wait --no-build web broker
 ```
 Open **Managed Kodi → Advanced managed administration → Runtime approval and
-installation**. Stable Matrix
-19.4, Nexus 20.5 and Omega 21.3 remain available. Kodi **22 Piers RC1** is
-**Preview / Prerelease**, Development-only, Linux amd64, and is not the default
-Home/stable recommendation.
+installation**. Stable Matrix 19.4, Nexus 20.5 and Omega 21.3 are available.
+Kodi **22 Piers RC2** is **Preview / Prerelease**, Development-only, Linux amd64;
+it requires acknowledgement of the exact recipe and revision. Retained RC1
+profiles keep their existing pins; a new recipe does not replace an occupied slot.
 
-Select **Install** on the chosen runtime. RC1 requires acknowledgement of that
-exact prerelease recipe/revision. The worker acquires and verifies pinned
-upstream artifacts, assembles the local image and validates it before Ready.
-RC1 has a provisional **5–15 minute** estimate, supported by two cold runs of
-**8m10.45s** and **9m3.02s**, not a guaranteed range. Progress updates
-automatically; browser refresh, navigation or closure does not cancel the
-installation. Return to the runtime page later. A failure displays a bounded
-reason and offers retry only when the operation state permits it.
+Select **Install** on the chosen runtime. The worker verifies pinned upstream
+artifacts, assembles the local image and validates it before Ready. Progress
+updates automatically; navigation or closure does not cancel installation.
+Return to the same runtime operation later. A failure displays a bounded reason
+and offers retry only when its operation state permits it. The
+[RC2 qualification](PIERS-RC2-QUALIFICATION.md) records measured timings and capacity
+limits; these are observations, not guaranteed installation times.
 
-Once Ready, return to **Managed Kodi** and select **Start Kodi** for that version.
-Starting an empty slot uses the approved cached runtime; a stopped profile is
-reused. Only one managed Kodi runs at a time. Check native readiness and use
-**View Screen → Start Viewing**; viewing and inspection have separate requirements. For RC1,
-**Install reviewed Bridge** installs the exact reviewed development build
-for that Kodi version (currently Bridge 1.1.32 for Piers).
-Native health/screenshots remain available independently of rich Bridge trust.
-Stock TagLib 2.3.1 has the documented Matroska fast-scan limitation; it is not
-claimed equivalent to Kodi's patched library.
+After acquisition, use **Create Managed Kodi for this version… → Install and
+prepare** on an empty slot to create its stopped profile and compatible reviewed
+Bridge. A stopped installed profile can be started directly. Only one managed
+Kodi runs at a time. Check native readiness, then use **View Screen → Start
+Viewing**; viewing and inspection retain their separate prerequisites.
 
-Stop/restart use the ordinary managed lifecycle. RC1 supports reviewed
-clean-profile reset; unqualified historical Beta fixtures are not inherited.
-Reset retires old Bridge trust. Start the clean instance and select **Install
-reviewed Bridge** again to establish fresh trust. Remove/deprovision only your
-disposable test instance after deciding what profile/snapshot state to preserve.
-See [RC1 workflow](RC1-WEB-WORKFLOW.md) and [managed state
-recovery](MANAGED-STATE-RECOVERY.md) for the precise preservation boundaries.
+Stop preserves the profile. **Reset Kodi** deliberately replaces it and retires
+old container-bound trust. Follow the [managed walkthrough](MANAGED-KODI-WEB.md)
+for setup after Reset, and [managed state recovery](MANAGED-STATE-RECOVERY.md)
+before removing or replacing any profile. The [historical RC1 workflow](RC1-WEB-WORKFLOW.md)
+records that older preview's checks and limits.
 
 ## Configure an MCP client
 

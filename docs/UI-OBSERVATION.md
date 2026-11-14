@@ -28,7 +28,7 @@ wrapper classification, and GUI-dispatched curated InfoLabels/conditions. Generi
 direct Python ListItem reads are prohibited. The same collector profile supports
 qualified Kodi 19.4, 20.5 and 21.3, without Kodi-major branches. Screensaver uses
 the fixed `System.ScreenSaverActive` condition.
-The separately reviewed Bridge 1.1.32 provides this collection on Kodi 22 RC1.
+The separately reviewed Bridge 1.1.32 provides this collection on the Piers RC2 preview and retained RC1.
 
 Managed observation consumes lifecycle-owned trust in `managed_bridge_trust`.
 The runtime start/readiness lifecycle prepares an installed, enabled approved

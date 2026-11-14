@@ -1,14 +1,34 @@
 # Windows host installation through WSL2 and Docker Desktop
 
-Kodi Lab has owner-accepted Windows 11 installation results through Ubuntu 24.04
-under WSL2 and Docker Desktop's Linux engine. The installer below uses that
-configuration. Native Ubuntu 24.04 amd64 remains the qualified baseline; the
-current managed development workflow is tracked separately in
-[#275](https://github.com/kcook98765/kodi-lab/issues/275). New revisions and
-untested workflows need their own acceptance checks. This guide covers
-Windows-hosted Linux containers, not native Windows server execution.
+Windows 11 through Ubuntu 24.04 WSL2 and Docker Desktop's Linux engine is a
+qualified initial-release platform alongside Ubuntu 24.04 amd64. This guide
+covers Windows-hosted Linux containers. Native Windows server execution,
+macOS and ARM64 are not qualified.
 
-## Observed working configuration
+## Accepted Windows workflow — 2026-11-13
+
+[Owner-accepted #275](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
+records application `23dd1d63dfd49362a9925df470f0f5406f08c6e1`, tree
+`58ab41b3c0a857935caacce6419abf34ca75df9d`, schema `0014_human_reset_bridge`:
+
+- Fresh installation, cold Omega 21.3 acquisition/Bridge preparation, native Ready,
+  retained Stop/Start, actual viewing and Take/Release Control passed.
+- Agent-owned project create/edit/validate, deployment/enablement and two observed
+  execution generations passed. Human priority, role withdrawal and revoked
+  bearer denial passed.
+- Exact old-image recovery from the retained original bundle, supported backup,
+  isolated recovery proof, repository transition and same-schema successor
+  adoption passed; retained-project preflight passed without Web attach/copy advice.
+- Actual Codex CLI **0.169.0** MCP inspection passed only with explicit
+  `--enable mcp_2026_07_28`. Default Codex compatibility is not qualified.
+
+A native external-device denial fixture was unavailable; source/integration
+negative checks passed. This does not qualify every Kodi runtime, browser or
+optional HTTPS configuration. [Image-retention #365](https://github.com/kcook98765/kodi-lab/issues/365)
+is a separate successor-safety follow-up, with original disappearance cause
+unproven. Changed upgrade paths require their own Windows verification.
+
+## Earlier observed configurations (historical)
 
 [Issue #8](https://github.com/kcook98765/kodi-lab/issues/8) records this workstation
 on **2026-10-17**, followed by owner-accepted maintained-installer operation
@@ -41,9 +61,9 @@ subsequent native acceptance on **2026-11-05**, at
 and [Firefox Create continuation #226](https://github.com/kcook98765/kodi-lab/issues/226).
 Those results cover hidden-input retry in the same install run, Windows Firefox
 login, and real Omega acquisition/readiness with foreground and tab-return
-continuation. They do not qualify the newer managed development workflow in
-#275 or broader backup/restore and clean-account scenarios. Linux fixtures do
-not establish native Windows results.
+continuation. Those earlier results alone did not qualify the newer workflow;
+the November 13 acceptance above supersedes that pending status. Linux fixtures
+do not establish native Windows results.
 
 ## Prepare Windows and Ubuntu
 
@@ -157,8 +177,8 @@ for your computer; review the script rather than disabling policy globally.
 For a fresh default installation, open **http://127.0.0.1:18100/login** in
 Windows and sign in. Local HTTP and standard noVNC/WS need no certificate or
 proxy. HTTPS mode requires trusted HTTPS/WSS and Secure cookies. Native
-Windows local HTTP operation is covered by the owner-accepted result above;
-current-revision qualification remains separate. The optional Caddy path
+Windows local HTTP operation is covered by the accepted workflow above;
+untested revisions and access modes require separate validation. The optional Caddy path
 below selects HTTPS and keeps direct HTTP login disabled, including matching
 HTTP Origin requests. Readiness checks do not replace authenticated browser
 acceptance. MCP inspection still requires a client and target grant.
@@ -425,11 +445,12 @@ agent, workspace or Bridge pairing. **Stop Kodi** retains that version's profile
 **Reset Kodi** under **Advanced options** deliberately discards its settings and
 installed add-ons. See [retention and recovery](MANAGED-KODI-WEB.md#stop-and-reset).
 
-For add-on work, [Development Tools → Current Managed Kodi](DEVELOPMENT-SESSION.md)
-adds a selected development environment and persistent workspace. Qualification
-of that current Windows/WSL2 workflow remains open in #275. To connect Kodi on
-another device, use **External Production Kodi** or **External Development Kodi**
-from Overview. The Lab host platform and external device platform are separate.
+For add-on work, grant an agent **Trusted Managed Lab** in **Agents** and follow
+[agent-owned projects](AGENT-PROJECTS.md); this accepted workflow needs no Web
+workspace selection. **Advanced → Development tools → Current Managed Kodi**
+retains the [manually selected workflow](DEVELOPMENT-SESSION.md). To connect Kodi
+on another device, use **External Kodi** and choose **External Production Kodi**
+or **External Development Kodi**. The Lab host and external device are separate.
 
 Agent access is optional and separately configured in **Agents & Permissions**
 (`/mcp-clients`). Follow the
@@ -463,7 +484,7 @@ Configure a delay/retry for Docker readiness. Do not use SYSTEM, store the Web
 password in a task, or rerun the installer at sign-in. No startup task is created
 by the project installer.
 
-## Troubleshooting and pending qualification
+## Troubleshooting and future qualification
 
 - **Docker missing/wrong engine:** start Desktop, select Linux containers, enable
   integration for the exact distribution, then check its local Unix endpoint.
@@ -483,16 +504,14 @@ by the project installer.
   Copying a live Docker Desktop virtual disk or deleting volumes is not a
   consistent application backup.
 
-Before claiming Windows qualification, record a fresh-user/clean-host run with
-exact Windows/WSL/Ubuntu/Desktop/Engine/Compose versions, source commit, bundle
-and image identities. Verify initialization, Windows login, repository LAN
-reachability, one cold managed runtime acquisition, lifecycle/screenshots,
-authorized and denied MCP inspection, stop/start, backup/restore and optional
-startup if enabled. The owner-accepted installer result above covers only its
-recorded revision and tested steps; it does not replace this broader
-qualification. Native Windows Kodi targets have their own
-[Bridge portability evidence](WINDOWS-DIRECT-INSTALL.md).
+Keep the accepted #275 evidence for unchanged workflows. For a changed path,
+record exact Windows/WSL/Ubuntu/Desktop/Engine/Compose versions, source commit,
+bundle/image identities and the affected checks. A changed successor-upgrade
+path needs focused Windows backup/recovery and image-availability verification;
+it does not require repeating Omega acquisition or the accepted development campaign.
+Optional HTTPS and sign-in startup require their own acceptance when selected.
+Native Windows Kodi targets have separate [Bridge portability evidence](WINDOWS-DIRECT-INSTALL.md).
 
-Use the [fresh-install acceptance receipt](qualification/windows-wsl2/ACCEPTANCE-TEMPLATE.md)
-to record those results consistently. Its blank fields are NOT RUN and do not
-change the current qualification status.
+Use the [acceptance receipt](qualification/windows-wsl2/ACCEPTANCE-TEMPLATE.md)
+to record new results consistently. Blank template fields are NOT RUN; they do
+not invalidate completed acceptance.

@@ -2,8 +2,10 @@
 
 The [November 13 input scheduling correction](VIEWER-INPUT-SCHEDULING.md)
 addresses confirmed broker starvation during coalesced interactive input.
-It has bounded native transport evidence; installed deployment and the distinct
-binding-check/startup failures under #214 remain separate acceptance claims.
+It has bounded native transport evidence. The owner subsequently
+[closed #214 with accepted release risk](https://github.com/kcook98765/kodi-lab/issues/214),
+including the distinct historical binding-check/startup failures; a newly reproduced
+failure can reopen it. This is not an indefinite reliability guarantee.
 
 The [November 12 viewer/Piers qualification](VIEWER-PIERS-QUALIFICATION.md)
 records atomic ownership-renewal and periodic-check corrections, actual
@@ -41,15 +43,18 @@ Recent [installed viewer acceptance](https://github.com/kcook98765/kodi-lab/issu
 on Claw's retained Omega r6 covers actual graphics, explicit viewing/recovery,
 Take/Release Control and native cleanup proofs in Chromium 156.0.8078.4.
 Visibility/blur events were simulated; actual Firefox and physical tab-switch acceptance remain
-separate. Current Matrix r4 native qualification remains incomplete. These
-results cover only the exact tested environments and workflows, not universal
+separate. [Matrix r4 native core](MATRIX-PIERS-AGENT-QUALIFICATION.md) later passed
+bounded viewing, development, Reset and switching. These results cover only the
+exact tested environments and workflows, not universal
 browser, platform or runtime qualification. Native refusals for competing users,
 active leases and uncertain outcomes were not verified by #273. Each exact image still
 requires its installation validation; existing profiles retain their exact pins.
 
-Piers 22 RC1 (`piers-22.0-rc1-r3`, revision 3) remains a separate Preview recipe
-and requires exact prerelease consent. Its historical acceptance below applies
-only to that exact recipe; other Piers or experimental recipes gain no qualification.
+Piers 22 RC2 (`piers-22.0-rc2-r4`, revision 4) is the current Development-only
+Preview and requires exact prerelease consent. Its [RC2 qualification](PIERS-RC2-QUALIFICATION.md)
+includes isolated native core and bounded Claw adoption. Retained RC1
+(`piers-22.0-rc1-r3`, revision 3) keeps its exact pins and historical acceptance;
+other Piers or experimental recipes gain no qualification.
 Version names, package presence and screenshots alone never confer viewer
 eligibility. Admission
 checks the exact packaged recipe and helper/package integrity, sealed installation
