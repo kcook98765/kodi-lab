@@ -274,6 +274,145 @@ Issue a token and save it in the agent's private environment. A token does not
 replace the role or independent external Kodi policy and grant. Keep a suitable client and
 unexpired credential rather than creating another for each connection.
 
+### MCP tools and permissions
+
+Tools are listed according to the client's permissions; a listed tool still needs
+permission for the exact Kodi, source or workspace on each call. The complete
+reference below covers both modern and legacy MCP transports. **Yes** means
+supported with the stated role and prerequisites; **Conditional** needs per-Kodi
+policy and grants; **Off** needs explicit administrator enablement; **No** is a
+technical prohibition; **N/A** means the tool does not act on a Kodi target.
+
+<details><summary>MCP tools and permissions — complete reference</summary>
+
+<!-- mcp-tool-matrix:start -->
+
+**Read the columns with these authority rules:**
+
+- **Client and credential:** create a client in **Agents**, choose its preset,
+  and issue an unexpired credential. No connection or preset grants access to
+  every Kodi. Disablement, revocation and permission changes are rechecked.
+- **Managed:** **Yes** assumes the explicit **Trusted Managed Lab — Full
+  Development** role, covering installed, approved disposable managed versions,
+  including versions installed later. It does not install missing versions,
+  bypass active-use/resource guards, or authorize external Kodi. Limited managed
+  inspection instead needs `target.inspect` in the client and exact Kodi policy,
+  plus a target grant. Other legacy/custom clients need the relevant permissions
+  in both policies and exact grants; additional opt-ins are shown below.
+- **External Production:** the normal **Production Inspection** starting point
+  allows inspection only after the exact target grant and **Grant current inspect
+  scope**, bound to the confirmed connection. Native identity, production
+  designation, enabled/verified state and consent remain required. Add-on
+  inventory is an inspection read; screenshots and navigation are independently
+  Off. Production built-in presets have fixed permissions; custom presets cannot
+  expand production eligibility. No development or managed lifecycle permission
+  can override a **No**.
+- **External Development:** connecting/pairing grants no agent authority. The
+  simple connection flow starts with inspection and screenshot capability only;
+  **Allow screenshots** remains Off. Choose a suitable client preset, assign the
+  exact Kodi policy and grant that Kodi separately. **Advanced → Amend development
+  capability maximum** can enable inventory, semantic remote control, deployment
+  and fixed execution only with matching native/Bridge support. The label
+  “Development” does not grant write access.
+- **Sources and workspaces:** **N/A** tools use project ownership, workspace
+  ownership and exact source grants, not an external Kodi grant. Owned-project
+  intake establishes the owner's private source/workspace; manually registered
+  sources need explicit grants in **Agents → Advanced**. Deployment later binds
+  an exact target and adds its independent policy, grant and runtime checks.
+- **Runtime and Web controls:** capabilities, reconciled state, readiness,
+  reviewed runtime support and current native/Bridge identity can still deny an
+  authorized call. **Allow screenshots** on each external Kodi defaults Off;
+  HTTP pixels also need transport-risk consent. Managed capture has no such
+  toggle. Production **Allow remote navigation** defaults Off; it is separate
+  from External Development's semantic-remote capability maximum. Web toggles
+  cannot manufacture support or bypass global/per-target production vetoes.
+
+#### Inspect and interact with Kodi
+
+| MCP tool | Purpose | Managed | External Production | External Development | Permission / Web override |
+| --- | --- | --- | --- | --- | --- |
+| `target_list` | List accessible Kodi targets | Yes | Conditional | Conditional | `target.inspect`; filters by current access, not all registered Kodi. |
+| `target_status` | Read target health and identity | Yes | Conditional | Conditional | `target.inspect`; exact target access; status can describe unavailable Kodi. |
+| `addon_list` | Read installed add-on inventory | Yes | Conditional | Off | `target.inspect`; production inspection includes this read; development needs verified `addon_inventory` maximum. |
+| `inspect_ui_state` | Read supported GUI state | Yes | Conditional | Conditional | `target.inspect`; reviewed Bridge enriches observations; bounded native fallback for external Kodi. |
+| `log_read` | Read bounded Kodi log output | Yes | Conditional | Conditional | `target.inspect`; supported managed collector or trusted external Bridge log capability; no caller-selected file. |
+| `screenshot_capture` | Capture current GUI image | Yes | Off | Off | `target.inspect`; external **Allow screenshots**, verified capture capability, paired/reviewed Bridge and transport consent. No separate visual preset required. |
+| `screenshot_retrieve` | Retrieve an exact recent capture | Yes | No | No | `target.inspect`; only the existing managed capture returned by an observed remote action; never recaptures. |
+| `remote_action` | Send a closed semantic GUI action | Yes | Off | Off | Managed/development: `target.control`; development needs verified `semantic_remote` maximum. Production uses the action rules below. |
+
+For production `remote_action`, **Allow remote navigation** permits only Up,
+Down, Left, Right, Back, Home and Info with inspection access and a trusted
+Bridge; no control preset or navigation scope is required. Playback/volume need
+**Production Remote Kodi**, `request_transient_control` scope, exact one-shot
+Web approval and native-control HTTP consent when applicable. Global emergency
+blocking and target suspension override both paths. **Select and Context menu
+are always prohibited on External Production Kodi.** A listed `remote_action`
+does not imply those actions are authorized.
+
+#### Managed lifecycle and target-bound development
+
+| MCP tool | Purpose | Managed | External Production | External Development | Permission / Web override |
+| --- | --- | --- | --- | --- | --- |
+| `managed_status` | Summarize installed managed versions | N/A | N/A | N/A | `managed.versions`; managed-only inventory, no target argument. Role or explicit custom-preset opt-in. |
+| `managed_start` | Start an installed version | Yes | No | No | `managed.versions`; role or explicit client/Kodi opt-in and target grant; missing installation needs a human. |
+| `managed_stop` | Stop an installed version | Yes | No | No | `managed.versions`; same authority and active-use guards. |
+| `managed_reset` | Reset an idle disposable profile | Yes | No | No | `managed.versions` + `managed.reset`; role or explicit opt-ins; durable Reset guards and reviewed Bridge preparation. |
+| `managed_ensure_ready` | Acquire readiness for managed work | Yes | No | No | `managed.lifecycle`; role or explicit custom-preset opt-in; installed target and lifecycle guards. |
+| `managed_release` | Release managed lifecycle ownership | Yes | No | No | `managed.lifecycle`; releases only eligible agent-owned lifecycle state. |
+| `managed_selection_preview` | Preview workspace/version binding | Yes | No | No | `managed.lifecycle` + `workspace.inspect`; exact owned workspace; no implicit switch. |
+| `managed_select` | Bind a workspace and managed version | Yes | No | No | `managed.lifecycle` + `workspace.inspect`; exact ownership and selection/lifecycle guards. |
+| `workspace_deploy_preflight` | Explain exact deployment readiness | Yes | No | Conditional | `workspace.deploy`; workspace/source ownership plus target policies/grants; reports blockers without deploying. |
+| `workspace_deploy` | Deploy an exact workspace generation | Yes | No | Off | `workspace.deploy`; ready target; development needs reviewed `workspace_deployment` maximum and Bridge. |
+| `workspace_execute` | Run a fixed development workflow | Yes | No | Off | `development.execute`; exact deployment; development needs `fixed_execution` maximum and reviewed Bridge support. |
+| `workspace_launch` | Launch workspace with durable receipt | Yes | No | No | `development.execute` + `target.control`; exact managed workspace/deployment and ownership. |
+| `development_launch` | Launch the declared development entry | Yes | No | No | `development.launch` + `workspace.inspect`; role or explicit opt-in; owned project or exact selected session. |
+| `workspace_execution_recover` | Recover uncertain managed execution | Yes | No | No | `development.execute` + `target.control`; exact retained operation and supported recovery guards. |
+| `addon_settings_set` | Apply declared add-on settings | Yes | No | No | `development.settings.write` + `workspace.inspect`; role or explicit opt-in; owned project or selected managed session. |
+| `addon_settings_result` | Read exact settings receipt | Yes | No | No | Same settings/workspace permissions; exact operation ownership. |
+| `promotion_request` | Prepare evidence for human review | Conditional | No | Off | `development.request_promotion`; eligible deployed workspace, target execution/deployment support; agent-owned projects excluded. Never publishes. |
+| `package_install` | Deliver a retained original ZIP | Conditional | No | No | Trusted managed role (includes `addon.install`), owned package and target checks; delivery/status do not prove native GUI consumption. |
+| `package_install_status` | Read or verify a ZIP-delivery receipt | Conditional | No | No | `workspace.inspect` + Trusted Managed Lab; exact owned operation binds its managed target; optional verification inspects that Kodi. |
+
+#### Target-independent projects, packages and workspaces
+
+All three target columns are **N/A** here: these tools manipulate or inspect Lab
+project state, not the filesystem or runtime of an external Kodi. Source grants
+and ownership still apply; “N/A” is not unrestricted authority.
+
+| MCP tool | Purpose | Managed | External Production | External Development | Permission / Web override |
+| --- | --- | --- | --- | --- | --- |
+| `project_create` | Create a private add-on project | N/A | N/A | N/A | `workspace.edit` + Trusted Managed Lab; owner-bound intake. |
+| `project_transfer` | Transfer bounded source-package chunks | N/A | N/A | N/A | `workspace.edit` + Trusted Managed Lab; exact transfer identity and checksum. |
+| `project_import` | Import reviewed source into a project | N/A | N/A | N/A | `workspace.edit` + Trusted Managed Lab; supported bounded package and provenance. |
+| `project_status` | Inspect an owned project | N/A | N/A | N/A | `workspace.inspect` + Trusted Managed Lab; exact owner. |
+| `package_import` | Retain an original installable ZIP | N/A | N/A | N/A | `workspace.edit` + Trusted Managed Lab; package intake checks; no installation. |
+| `package_status` | Inspect a retained original ZIP | N/A | N/A | N/A | `workspace.inspect` + Trusted Managed Lab; owned package only. |
+| `development_source_list` | List accessible source registrations | N/A | N/A | N/A | `workspace.inspect`; exact source grants; no host directory browsing. |
+| `workspace_create` | Create a workspace from a source | N/A | N/A | N/A | `workspace.edit`; granted registered source; isolated agent ownership. |
+| `workspace_import_preview` | Preview source import differences | N/A | N/A | N/A | `workspace.edit` + `development_source.inspect`; owned workspace and source grant. |
+| `workspace_import` | Import a reviewed source generation | N/A | N/A | N/A | Same import permissions; exact preview/generation and ownership. |
+| `workspace_source_scan` | Scan bounded registered source state | N/A | N/A | N/A | `development_source.inspect`; role or explicit opt-in; source grant and workspace ownership. |
+| `workspace_capture` | Capture source into a workspace | N/A | N/A | N/A | `workspace.capture`; role or explicit opt-in; exact source/generation; no target capture. |
+| `workspace_status` | Read workspace state and receipts | N/A | N/A | N/A | `workspace.inspect`; owned workspace and source grant. |
+| `workspace_tree` | List bounded workspace files | N/A | N/A | N/A | `workspace.inspect`; present, ready workspace; no arbitrary host path. |
+| `workspace_read` | Read a bounded workspace file | N/A | N/A | N/A | `workspace.inspect`; present, ready workspace and safe relative path. |
+| `workspace_edit` | Edit an exact workspace generation | N/A | N/A | N/A | `workspace.edit`; present, ready workspace; generation and path checks. |
+| `workspace_validate` | Run fixed structural validation | N/A | N/A | N/A | `workspace.inspect`; present, ready workspace; no arbitrary shell/test command. |
+
+The [offline matrix check](tests/web/test_readme_mcp_matrix.py) compares these
+rows with the registry and authenticated modern/legacy `tools/list` catalogs.
+It detects missing, renamed or duplicate tools; it does not replace the deeper
+[permission reference](docs/PHASE11-MCP.md),
+[development contracts](docs/PHASE12-MCP-DEVELOPMENT.md),
+[Trusted Managed Lab](docs/TRUSTED-MANAGED-LAB.md) or
+[production safeguards](docs/PRODUCTION-OPERATIONS.md).
+Tool results retain their typed success, denial, blocked, pending and uncertain
+outcomes; receipt creation is not proof of execution or native GUI acceptance.
+
+<!-- mcp-tool-matrix:end -->
+
+</details>
+
 For **OpenCode on the same computer**, add this to
 `~/.config/opencode/opencode.json`, merging it with any existing settings:
 
