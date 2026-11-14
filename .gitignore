@@ -49,3 +49,6 @@ htmlcov/
 /agent-test*/
 /practical-regression*/
 /kodi-lab-practical-regression*/
+
+# Checkout-local operational campaign ledgers.
+/.campaign/
