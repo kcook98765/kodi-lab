@@ -249,9 +249,9 @@ def test_preflight_retains_exact_scope_and_rechecks_authority(
     service = WorkspaceDeploymentPreflightService.inspect
     reads = []
 
-    def inspect(self: Any, op: Any) -> Any:
+    def inspect(self: Any, op: Any, **kwargs: Any) -> Any:
         reads.append(op)
-        result = service(self, op)
+        result = service(self, op, **kwargs)
         if denied == "revoked_after_read":
             admin.remove_development_source_grant(env.client_id, fixture.SOURCE_ID)
         return result
