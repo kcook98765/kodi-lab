@@ -320,8 +320,24 @@ repository origin and runtime configuration. This procedure applies only to
 compatible baseline state; it cannot adopt a retired prerelease database. See
 the [schema applicability restriction](LINUX-V1-UPGRADE-ROLLBACK.md#applicability-before-the-first-public-release).
 
-After owner release authorization, stage and verify the approved successor in a
-new private directory containing only `bundle/`. Load its reviewed images and
+Before building or loading a successor, run the approved successor source's
+image-retention preflight against the current installation while its services
+are still running:
+
+```sh
+python3 /path/to/approved-source/scripts/install.py retain-images \
+  --directory "$HOME/kodi-lab-install"
+```
+
+Keep the original verified bundle/archive and private receipts. Check physical
+Windows storage and Docker Desktop disk headroom separately from WSL free space.
+Follow [exact-image retention and recovery](LINUX-V1-UPGRADE-ROLLBACK.md#keep-exact-application-images-before-successor-staging)
+if a pinned old image is missing; never pull a bare `sha256:` ID or substitute a
+new image for the old administrator. This preflight adds local retention
+references and changes no application state or service.
+
+Stage and verify the approved successor in a new private directory containing
+only `bundle/`. Load its reviewed images and
 configure its `.env` using the supported bundle tool, carrying **all** old site
 and runtime settings; only application image identities and BUNDLE identity
 change. The bundle's files remain verified and untouched by ingress generation.
@@ -344,6 +360,13 @@ volume names and exact topology. Volume names derive from that
 same recorded project. It performs no initialization, credential reset,
 repository transition, database upgrade or service activation. Failure preserves
 partial site files for diagnosis; do not overwrite them blindly.
+
+Before any site files are written, `configure-successor` repeats the old bundle,
+image availability and retention checks. Repeat `retain-images` against the old
+installation immediately before stopping services. These checks do not replace
+the required old-administrator backup and isolated recovery proof. The changed
+preflight requires focused Windows/WSL2 verification; earlier Windows native
+acceptance does not qualify this new upgrade path.
 
 Follow [the supported upgrade sequence](LINUX-V1-UPGRADE-ROLLBACK.md#windows-successor-site-configuration):
 stop the old application services/proxy, obtain a fresh supported backup and

@@ -30,6 +30,78 @@ state volumes. Do not change Kodi runtime images or the managed network during
 an application-only upgrade. Read `MANAGED-STATE-RECOVERY.md` for snapshot
 dependencies and clean-volume recovery.
 
+### Keep exact application images before successor staging
+
+Before **building or loading** successor images, preserve the old verified bundle,
+its application archive, private configuration and installation receipt. Bundle
+archives use version-based tag hints, which can be reused by prerelease candidates;
+tags are not image identity. In the Windows incident tracked by
+[#365](https://github.com/kcook98765/kodi-lab/issues/365), old pinned images became
+unavailable after staging. The deleting/unreferencing mechanism remains unproven;
+tag reassignment alone is not established as its cause.
+
+For a host-installer installation, use the **approved successor source's** installer
+while the old services are still running:
+
+```sh
+python3 /path/to/approved-source/scripts/install.py retain-images \
+  --directory /absolute/path/to/old-installation
+```
+
+This verifies the original receipt, Docker Engine, configured bundle and complete
+archive, then checks exact old Web/administrator and broker image IDs, platform and
+source/schema/version labels. It creates local, per-project, digest-named retention
+references after checking both images and any reference collisions. It never
+changes immutable pins, receipts, volumes or services. Existing retained references
+must still resolve to the same ID. A missing image or archive is a stop before
+staging or service interruption. Run it again immediately before stopping old
+services; Windows `configure-successor` also repeats this check before writing
+site files. Older installed helpers lack this action; use the new source command.
+
+The command requires at least 8 GiB free on the installation filesystem. This is
+a minimum preflight, not a guarantee of sufficient Docker recovery capacity.
+Separately check space for the retained archive, both image generations, backup
+and isolated recovery. On Windows, check physical Windows storage and Docker
+Desktop's disk allocation as well as WSL filesystem space. Retention references
+do not protect against explicit image deletion, `prune -a`, factory reset or a
+lost Docker data disk. Keep an independently retained verified archive; do not
+clean unrelated Docker resources to make room.
+
+For a bundle managed without a host installation receipt, verify the old bundle
+with its own `linux-v1-bundle verify`, inspect the exact old Web and broker IDs
+from its verified configuration, and retain unique local references to those IDs
+before staging. Verify the separately selected `OLD_ADMIN_IMAGE` too when the
+lock-compatibility procedure below requires an amended administrator image.
+
+### Recover a missing old application image
+
+Keep services running when possible and stop the upgrade before backup or
+transition. Preserve the failure and existing receipts/configuration. Verify the
+**original retained bundle**, including its original `BUNDLE.json` identity and
+archive checksum; a successor archive cannot substitute for it. First inspect
+and retain unique references to any successor IDs already loaded, because the
+old archive may reuse their tag hints. After checking recovery headroom, load
+only the verified original archive:
+
+```sh
+python3 /absolute/path/to/old-installation/bundle/linux-v1-bundle verify \
+  /absolute/path/to/old-installation/bundle
+docker image load --input \
+  /absolute/path/to/old-installation/bundle/kodi-lab-application-images.tar
+python3 /path/to/approved-source/scripts/install.py retain-images \
+  --directory /absolute/path/to/old-installation
+```
+
+Loading restores archive tag hints and may reassign hints shared with a successor.
+Retain both generations' exact IDs before any further load, and re-inspect the
+successor's configured immutable IDs afterward. If either required ID is still
+unavailable or differs, stop and retain evidence. Never pull a bare `sha256:` ID
+from a registry, rebuild an approximation, rewrite `.env` pins, edit receipts or
+remove application data. Once exact old-image checks pass, use the normal old
+administrator backup, independent recovery proof, repository transition and
+explicit upgrade sequence. Image loading alone does not complete recovery or
+prove backup validity.
+
 Stop managed runtimes when a quiescent lab is desired, and always stop Web and
 broker before a lifecycle operation. Select and retain the administrator that
 can validate the **old** state before stopping services. Set `OLD_ADMIN_IMAGE`
@@ -39,6 +111,11 @@ locks exist, this administrator must contain the lock patch described under
 historical image is insufficient. Keep the old BUNDLE identity and existing
 volumes/configuration for this first backup. The image override below applies
 only to the one-shot administrator, not the running services.
+
+Before stopping Web/broker, verify this exact `OLD_ADMIN_IMAGE` is locally
+resolvable for `linux/amd64` with `docker image inspect`; do not let Compose try a
+registry pull for a missing digest. The backup command below uses `--pull never`
+to fail locally if that prerequisite changes.
 
 Keep the repository service read-only during backup; stop it as well before
 restore:
@@ -51,7 +128,7 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
 # If the exact reviewed legacy A pointer defect is present, complete the
 # separately documented compatibility repair below before this backup.
 KODI_LAB_REMOTE_IMAGE="${OLD_ADMIN_IMAGE:?set the verified old-state admin image}" \
-  docker compose -f compose.release.yaml run --rm --no-deps \
+  docker compose -f compose.release.yaml run --rm --no-deps --pull never \
   --entrypoint kodi-lab-admin web backup
 ```
 

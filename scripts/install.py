@@ -867,6 +867,84 @@ def listener_preflight(root: Path, data: dict[str, Any]) -> None:
     )
 
 
+def retain_images(root: Path, data: dict[str, Any]) -> None:
+    """Retain verified local image IDs; tags never replace immutable authority."""
+    if data["completed_stage"] not in {"ready", "successor_site_configured"}:
+        raise ValueError("image retention requires a completed installation")
+    if shutil.disk_usage(root).free < MIN_FREE_BYTES:
+        raise ValueError(
+            "need at least 8 GiB free on the installation filesystem for recovery; "
+            "also check Docker Engine/Desktop storage before successor staging"
+        )
+    manifest = json.loads((root / "bundle/BUNDLE.json").read_text())
+    values = dict(
+        line.split("=", 1)
+        for line in (root / "bundle/.env").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    pending = []
+    for role, key in (
+        ("web", "KODI_LAB_REMOTE_IMAGE"),
+        ("broker", "KODI_LAB_BROKER_IMAGE"),
+    ):
+        image = values[key]
+        image_format = (
+            "{{.Id}} {{.Os}}/{{.Architecture}} "
+            '{{index .Config.Labels "org.opencontainers.image.revision"}} '
+            '{{index .Config.Labels "io.kodi-lab.migration-head"}} '
+            '{{index .Config.Labels "org.opencontainers.image.version"}}'
+        )
+        try:
+            identity = run(
+                ["docker", "image", "inspect", "--format", image_format, image],
+                root,
+                capture=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise ValueError(
+                f"required old {role} image {image} is unavailable; do not stop "
+                "services or run backup. Verify the original retained bundle and "
+                "load its exact application archive, then repeat retain-images. "
+                "Do not pull the sha256 ID, rebuild or rewrite image pins."
+            ) from error
+        expected = (
+            f"{image} linux/amd64 {manifest['source_tree']} "
+            f"{manifest['repository']['migration_head']} {manifest['version']}"
+        )
+        if identity != expected:
+            raise ValueError(f"required old {role} image identity differs")
+        reference = f"kodi-lab-retained/{data['project']}/{role}:{image[7:]}"
+        try:
+            existing = run(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                root,
+                capture=True,
+            )
+        except subprocess.CalledProcessError:
+            existing = ""
+        if existing and existing != image:
+            raise ValueError(f"retention reference for {role} already differs")
+        pending.append((image, reference, bool(existing)))
+    # Check both roles and all collisions before creating any reference.
+    for image, reference, exists in pending:
+        if not exists:
+            run(["docker", "image", "tag", image, reference], root)
+        if (
+            run(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                root,
+                capture=True,
+            )
+            != image
+        ):
+            raise ValueError("retained image reference changed; stop and inspect")
+    print(
+        "Exact old Web/administrator and broker images retained locally. "
+        "Keep the verified original bundle/archive; separately check Docker "
+        "Engine/Desktop recovery headroom. No services or application state changed."
+    )
+
+
 def successor_preflight(root: Path, data: dict[str, Any]) -> None:
     if data.get("schema") != SITE_SCHEMA:
         return
@@ -1338,6 +1416,7 @@ def configure_successor(args: argparse.Namespace) -> None:
         if key not in changed_images
     }:
         raise ValueError("successor must preserve all site and runtime configuration")
+    retain_images(previous, old)
     previous_receipt = previous / (
         "SITE.json" if old["schema"] == SITE_SCHEMA else "INSTALLATION.json"
     )
@@ -1386,6 +1465,7 @@ def main() -> int:
             "bootstrap",
             "install",
             "configure-successor",
+            "retain-images",
             "start",
             "stop",
             "status",
@@ -1474,6 +1554,9 @@ def main() -> int:
             install(args)
         elif args.action == "configure-successor":
             configure_successor(args)
+        elif args.action == "retain-images":
+            root = installation_path(args.directory)
+            retain_images(root, load(root))
         else:
             root = installation_path(args.directory)
             data = load(root)

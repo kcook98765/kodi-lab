@@ -407,6 +407,7 @@ def test_successor_record_preserves_old_receipt_project_and_bundle_bytes(
     }
     monkeypatch.setattr(install, "host_kind", lambda: "windows-wsl2")
     monkeypatch.setattr(install, "engine", lambda *_: "engine-one")
+    monkeypatch.setattr(install, "retain_images", MagicMock())
     monkeypatch.setattr(install, "check_ingress_network", lambda *_: None)
     args = argparse.Namespace(
         directory=str(successor),
@@ -609,6 +610,7 @@ def test_successor_omission_preserves_caddy_and_http_downgrade_is_rejected(
     shutil.copytree(old / "bundle", successor / "bundle")
     monkeypatch.setattr(install, "host_kind", lambda: "windows-wsl2")
     monkeypatch.setattr(install, "engine", lambda *_: "engine-one")
+    monkeypatch.setattr(install, "retain_images", MagicMock())
     monkeypatch.setattr(install, "check_ingress_network", lambda *_: None)
     prepare = MagicMock()
     monkeypatch.setattr(install, "prepare_caddy", prepare)
