@@ -76,51 +76,98 @@ def test_ordinary_piers_r2_does_not_gain_disposable_selection(
     factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import hashlib
-    from dataclasses import replace
+    import json
+    from dataclasses import fields, replace
     from uuid import UUID
 
+    from kodi_lab.runtime.ostree import OstreeVerificationEvidence
     from kodi_lab.runtime.ostree_assembly import (
+        OstreeAssemblyEvidence,
         assembly_assets_digest,
         load_assembly_assets,
     )
     from kodi_lab.runtime.ostree_installation import OstreeInstallationAssembly
+    from kodi_lab.runtime.preview import PreviewAcknowledgement
     from kodi_lab.runtime.recipes import (
         PREVIEW_INSTALLATION_DIGEST,
         load_recorded_reviewed_recipe,
     )
     from kodi_lab.runtime.ubuntu_support import load_support_closure
+    from kodi_lab.runtime.validation import ValidationResult
     from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
     from tests.runtime import test_ostree_installation as fixture
 
     reviewed = load_recorded_reviewed_recipe(
         "piers", "piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST
     )
-    acknowledgement = fixture.acknowledgement().model_copy(
-        update={
+    acknowledgement = PreviewAcknowledgement.model_validate(
+        {
             "recipe_id": reviewed.recipe.recipe_id,
             "recipe_revision": 2,
             "recipe_digest": reviewed.digest,
+            "release": "22.0-rc.1",
+            "support_tier": "preview",
+            "acknowledgement": "development-only-prerelease",
         }
     )
-    current_assembly = fixture.assembly
 
     def historical_assembly(operation: UUID) -> OstreeInstallationAssembly:
-        original = current_assembly(operation)
-        return replace(
-            original,
-            assembly=replace(
-                original.assembly,
-                recipe_revision=2,
-                supporting_closure_digest=load_support_closure(revision=2).digest,
-                assembly_assets_digest="sha256:" + assembly_assets_digest(revision=2),
-                asset_hashes=tuple(
-                    sorted(
-                        (name, hashlib.sha256(data).hexdigest())
-                        for name, data in load_assembly_assets(revision=2).items()
-                    )
-                ),
+        # Start with retained RC1 acquisition, never the current RC2 assembly.
+        data = json.loads(
+            (
+                Path(fixture.__file__).parent
+                / "fixtures/rc1-installation-evidence.json"
+            ).read_text()
+        )
+        acquired = OstreeVerificationEvidence.model_validate(data["acquisition"])
+        raw = data["assembly"]
+        raw.update(
+            operation_id=operation.hex,
+            recipe_revision=2,
+            acquisition_digest="sha256:"
+            + hashlib.sha256(acquired.canonical_bytes()).hexdigest(),
+            supporting_closure_digest=load_support_closure(revision=2).digest,
+            assembly_assets_digest="sha256:" + assembly_assets_digest(revision=2),
+            asset_hashes=tuple(
+                sorted(
+                    (name, hashlib.sha256(payload).hexdigest())
+                    for name, payload in load_assembly_assets(revision=2).items()
+                )
             ),
-            acknowledgement=acknowledgement,
+            input_components=tuple(
+                (c.role, c.ref, c.commit, c.inventory_sha256)
+                for c in acquired.components
+            ),
+        )
+        names = {field.name for field in fields(OstreeAssemblyEvidence)}
+        return OstreeInstallationAssembly(
+            OstreeAssemblyEvidence(**{k: v for k, v in raw.items() if k in names}),
+            acquired,
+            acknowledgement,
+        )
+
+    current_validation = fixture.validation
+
+    def historical_validation(image_id: str) -> ValidationResult:
+        result = current_validation(image_id)
+        return replace(
+            result,
+            report={
+                **result.report,
+                "recipe_digest": reviewed.digest,
+                "release": "22.0-rc.1",
+                "python_api": "3.1.0",
+                "native_identity": {
+                    "name": "Kodi",
+                    "version": {
+                        "major": 22,
+                        "minor": 0,
+                        "tag": "releasecandidate",
+                        "tagversion": "1",
+                        "revision": "28ea2eac",
+                    },
+                },
+            },
         )
 
     # Reconstruct only the test's historical installation/registration. Restore
@@ -128,6 +175,7 @@ def test_ordinary_piers_r2_does_not_gain_disposable_selection(
     with monkeypatch.context() as historical:
         historical.setattr(fixture, "load_installation_recipe", lambda _: reviewed)
         historical.setattr(fixture, "assembly", historical_assembly)
+        historical.setattr(fixture, "validation", historical_validation)
         historical.setattr(
             "kodi_lab.application.runtime_installations.load_installation_recipe",
             lambda _: reviewed,

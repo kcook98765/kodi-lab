@@ -121,7 +121,7 @@ def test_install_api_auth_origin_csrf_body_and_polling(
         ("matrix", "19.4"),
         ("nexus", "20.5"),
         ("omega", "21.3"),
-        ("piers", "22.0 RC1"),
+        ("piers", "22.0 RC2"),
     ]
     assert client.post(url, headers=ORIGIN).status_code == 403
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}

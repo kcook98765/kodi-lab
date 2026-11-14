@@ -72,6 +72,7 @@ def preview_flow(broker: FakeBroker) -> Flow:
         "revision",
         "unsupported_recipe",
         "old_recipe",
+        "mixed_release",
         "tier",
         "nested_extra",
         "wrong_action",
@@ -116,13 +117,18 @@ def test_invalid_or_reused_action_consent_is_denied(
         body["acknowledgement"]["authorize_all_actions"] = True
     elif case == "unknown_action":
         body["action"] = "enable"
-    elif case == "old_recipe":
+    elif case in {"old_recipe", "mixed_release"}:
         body["acknowledgement"].update(
             recipe_id="piers-22.0-rc1-r2",
             recipe_revision=2,
             recipe_digest=PREVIEW_INSTALLATION_DIGEST,
         )
-        expected = 409
+        if case == "old_recipe":
+            body["acknowledgement"]["release"] = "22.0-rc.1"
+            # Valid historical consent reaches semantic current-action refusal.
+            PreviewAcknowledgement.model_validate(body["acknowledgement"])
+            expected = 409
+        # Mixed RC1 recipe/RC2 release remains malformed (422), never dispatched.
     elif case == "wrong_action":
         body["action"] = "install" if action == "create" else "create"
         expected = 409

@@ -23,6 +23,7 @@ from kodi_lab.application.mcp_workspace_development import BoundedIntervalRateLi
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.broker.managed_capacity import ManagedCapacityError
 from kodi_lab.domain.create_kodi import CreateAcceptance, CreateCheckpoint
+from kodi_lab.kodi.readiness import ReadinessFailureReason
 from kodi_lab.storage.create_kodi import CreateKodiRepository
 from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.managed_activity import resource_policy
@@ -264,22 +265,34 @@ def test_setup_replay_cannot_change_start_or_preview_approval(
         submit(preview_approved=False)
 
 
+@pytest.mark.parametrize("ordinal", ["1", "2"])
 def test_piers_explicit_start_finishes_with_its_own_native_identity(
     factory: sessionmaker[Session],
+    ordinal: str,
 ) -> None:
     env = Environment(factory, generation="piers", preview_approved=True)
     env.transport.native_version = {
         "major": 22,
         "minor": 0,
         "tag": "releasecandidate",
-        "tagversion": "1",
+        "tagversion": ordinal,
     }
     try:
         for _ in range(24):
             if env.op.checkpoint is CreateCheckpoint.COMPLETE:
                 break
             env.step()
-        assert env.op.checkpoint is CreateCheckpoint.COMPLETE, env.op
+        if ordinal == "2":
+            assert env.op.checkpoint is CreateCheckpoint.COMPLETE, env.op
+        else:
+            inspection = env.native.inspect(env.op.id, version=env.op.version)
+            assert inspection.operation.checkpoint is CreateCheckpoint.DISPATCHED
+            assert inspection.result is not None
+            assert inspection.result.failure_reason is (
+                ReadinessFailureReason.UNEXPECTED_KODI_VERSION
+            )
+            assert inspection.result.identity is not None
+            assert inspection.result.identity.tag_version == 1
         assert env.op.stage == "readiness" and env.op.start_after_setup
         assert env.broker.starts == 1
         assert "Application.GetProperties" in env.transport.methods
