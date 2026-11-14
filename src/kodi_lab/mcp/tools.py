@@ -1417,7 +1417,7 @@ class McpTargetToolService:
 
         authorize()
         result = WorkspaceDeploymentPreflightService(self._session_factory).inspect(
-            operation
+            operation, client_id=principal.client_id
         )
         authorize()
         self._require_development_bounded(result)

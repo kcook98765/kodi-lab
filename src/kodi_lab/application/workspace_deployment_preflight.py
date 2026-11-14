@@ -27,6 +27,7 @@ from kodi_lab.domain import (
     InstanceType,
     TargetType,
 )
+from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.development_sessions import (
     DevelopmentSessionConflict,
     require_workspace_session_admission,
@@ -110,6 +111,8 @@ class PrerequisiteCheck(BaseModel):
         "source_identity_changed",
         "source_attached",
         "source_not_attached",
+        "owned_project_attachment_not_required",
+        "owned_project_baseline_not_required",
         "source_baseline_missing",
         "source_baseline_stale",
         "source_baseline_unknown",
@@ -179,6 +182,7 @@ class WorkspaceDeploymentPreflightService:
         operation: DeploymentPreflightInput,
         *,
         read_session: Session | None = None,
+        client_id: UUID | None = None,
     ) -> DeploymentPreflightResult:
         checks: list[PrerequisiteCheck] = []
         actions: list[PreflightNextAction] = []
@@ -336,6 +340,14 @@ class WorkspaceDeploymentPreflightService:
             )
             if managed:
                 assert instance is not None
+                # Match deployment's positive owner/binding/grant/current-role
+                # proof. MCP supplies its authenticated principal's client ID.
+                project = source is not None and owned_project_workspace(
+                    session,
+                    workspace_id=str(operation.workspace_id),
+                    source_id=str(source.id),
+                    client_id=None if client_id is None else str(client_id),
+                )
                 attached = (
                     source is not None
                     and ManagedInstanceDevelopmentSourceRepository(session).get(
@@ -345,10 +357,18 @@ class WorkspaceDeploymentPreflightService:
                 )
                 check(
                     "attachment",
-                    "satisfied" if attached else "blocked",
-                    "source_attached" if attached else "source_not_attached",
+                    "not_required"
+                    if project
+                    else "satisfied"
+                    if attached
+                    else "blocked",
+                    "owned_project_attachment_not_required"
+                    if project
+                    else "source_attached"
+                    if attached
+                    else "source_not_attached",
                 )
-                if not attached:
+                if not attached and not project:
                     action("attach_source", "web_administrator")
                 baseline = (
                     None
@@ -466,25 +486,34 @@ class WorkspaceDeploymentPreflightService:
                         ),
                     )
                     action("review_history", "web_administrator")
-                # A prior workspace copy may satisfy mutation admission even when
-                # source confidence is stale. Without fresh container/tree proof
-                # this durable-only assessment must not declare it deployable.
+                # Owned projects do not consume the legacy source baseline.
+                # Keep copy-history uncertainty separate: neither a prior copy
+                # nor this exemption proves current container/tree readiness.
                 check(
                     "source_baseline",
-                    "unknown"
+                    "not_required"
+                    if project
+                    else "unknown"
                     if baseline_reason
                     in {
                         "source_baseline_requires_container_proof",
                         "prior_workspace_requires_container_proof",
                     }
                     else "blocked",
-                    baseline_reason,
-                    None if baseline is None else baseline.verified_at,
+                    "owned_project_baseline_not_required"
+                    if project
+                    else baseline_reason,
+                    None if project or baseline is None else baseline.verified_at,
                 )
-                if not provenance_review and baseline_reason not in {
-                    "source_baseline_requires_container_proof",
-                    "prior_workspace_requires_container_proof",
-                }:
+                if (
+                    not project
+                    and not provenance_review
+                    and baseline_reason
+                    not in {
+                        "source_baseline_requires_container_proof",
+                        "prior_workspace_requires_container_proof",
+                    }
+                ):
                     action("copy_source", "web_administrator", "stopped")
                 lease = ManagedInstanceMutationLeaseRepository(session).current(
                     operation.target_id
