@@ -6,10 +6,12 @@ initialization commands as the manual installation. It does not install Docker,
 change firewall rules, download Kodi automatically, create agent credentials or
 enable Windows sign-in startup.
 
-Native Ubuntu 24.04 amd64 remains the qualified baseline. Windows has prior
-owner-accepted installation results through the
-[WSL2/Docker Desktop path](WINDOWS-WSL2-INSTALL.md); the current managed development
-workflow has [separate qualification in #275](https://github.com/kcook98765/kodi-lab/issues/275).
+Ubuntu 24.04 amd64 and Windows 11 through Ubuntu 24.04 WSL2 with Docker Desktop's
+Linux engine are qualified within their tested scopes. The
+[WSL2/Docker Desktop guide](WINDOWS-WSL2-INSTALL.md) records the
+[accepted Windows workflow](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793),
+including agent-owned development and backup/recovery. Changed upgrade paths
+require separate verification; see [image retention #365](https://github.com/kcook98765/kodi-lab/issues/365).
 Native Windows server execution, macOS, ARM64, WSL1, rootless and remote Docker
 engines are outside this installer path.
 

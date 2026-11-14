@@ -2,8 +2,8 @@
 
 **RC2 source, focused validation and isolated native core: PASS.**
 Issue [#349](https://github.com/kcook98765/kodi-lab/issues/349) adds a separately
-pinned Linux amd64 development preview. The retained Claw RC1 profile is unchanged.
-The earlier [RC1 qualification](VIEWER-PIERS-QUALIFICATION.md) remains historical.
+pinned Linux amd64 development preview. The initial isolated campaign preserved
+Claw RC1; the later supported Claw adoption is recorded below. The earlier [RC1 qualification](VIEWER-PIERS-QUALIFICATION.md) remains historical.
 
 ## Verified Linux provenance
 
@@ -173,7 +173,8 @@ Fresh empty Piers slots select RC2 after this application update. Retained RC1 k
 its exact runtime/image, label, trust and receipt history. Start/Stop and Reset use
 that recorded runtime; Reset is not an upgrade. An occupied slot is not replaced.
 
-Installed Claw remains `a92d9229ea61c7c24008e6db3757fe526c301f7a`, schema
+At that isolated campaign's close, installed Claw remained
+`a92d9229ea61c7c24008e6db3757fe526c301f7a`, schema
 `0013_agent_packages`; the production application and four stopped profiles were
 not deployed, reset or replaced. A future transition needs adequate disk headroom,
 a separately reviewed application update/backup plan, a verified stopped native
@@ -188,3 +189,19 @@ temporary roles/credentials were revoked (actual MCP 401), administrator session
 invalidated by supported hidden-input password rotation, and plaintext agent inputs
 removed. All original production authority, credentials, external state, source,
 profiles, containers, images, volumes, networks and NAS mount remain preserved.
+
+## Later actual Claw adoption — 2026-11-13
+
+[Supported Claw adoption](https://github.com/kcook98765/kodi-lab/issues/303#issuecomment-6863214072)
+passed at application `a8ac577cc5b11209dd3447b41f48c1ebf5fd1682`, schema
+`0014_human_reset_bridge`. Separately verified RC1 native preservation and supported
+exact-profile retirement preceded independent RC2 Create on the unchanged
+`piers-22.0-rc2-r4`. The original uncertain RC1 Create receipt was preserved;
+retirement did not resolve its historical terminal outcome.
+
+Actual Kodi 22.0 RC ordinal 2, reviewed Bridge 1.1.32 authentication, same-container
+Start–Stop–Start, first narrow native pixels, direct inert-project execution,
+Select/Back and bounded human Take Control/release passed. This adds no original-ZIP
+GUI, repository installation, physical-input or indefinite viewer acceptance.
+The owner later accepted #214's remaining historical viewer risk and deferred
+#305/#339; the direct agent-owned source/deploy workflow remains supported.

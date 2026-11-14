@@ -1,5 +1,10 @@
 # Matrix/Piers native agent-first qualification — 2026-11-12
 
+> **Historical checkpoint.** Later [RC2 qualification](PIERS-RC2-QUALIFICATION.md)
+> and [Windows acceptance](WINDOWS-WSL2-INSTALL.md#accepted-windows-workflow--2026-11-13)
+> supersede pending claims below. The owner closed #214 with accepted viewer risk
+> and deferred #305/#339; their original evidence and limits remain recorded.
+
 Later on November 12, the [viewer/Piers follow-up](VIEWER-PIERS-QUALIFICATION.md)
 accepted genuinely fresh guided Piers Create, its first native viewer and retained
 reuse. It also records measured viewer corrections and five-minute Omega/Nexus
