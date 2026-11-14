@@ -13,33 +13,54 @@ from kodi_lab.mcp.registry import build_mcp_tool_registry
 
 from .test_mcp import _administration, _legacy_post, _post
 
-README = Path(__file__).resolve().parents[2] / "README.md"
+REPOSITORY = Path(__file__).resolve().parents[2]
+README = REPOSITORY / "README.md"
+REFERENCE = REPOSITORY / "docs/MCP-TOOLS-AND-PERMISSIONS.md"
 
 
 def _matrix_names() -> list[str]:
-    readme = README.read_text()
+    reference = REFERENCE.read_text()
     start = "<!-- mcp-tool-matrix:start -->"
     end = "<!-- mcp-tool-matrix:end -->"
-    assert readme.count(start) == readme.count(end) == 1
-    matrix = readme.split(start, 1)[1].split(end, 1)[0]
+    assert reference.count(start) == reference.count(end) == 1
+    matrix = reference.split(start, 1)[1].split(end, 1)[0]
     rows = re.findall(r"^\| `([a-z_]+)` \| (.+) \|$", matrix, re.MULTILINE)
-    assert rows, "README must contain MCP matrix rows"
+    assert rows, "Canonical reference must contain MCP matrix rows"
     for name, cells in rows:
         columns = cells.split(" | ")
         assert len(columns) == 5, f"{name}: expected purpose, three classes, authority"
         assert all(columns), f"{name}: empty matrix cell"
-        assert set(columns[1:4]) <= {"Yes", "Conditional", "Off", "No", "N/A"}
+        assert set(columns[1:4]) <= {
+            "Role",
+            "Conditional",
+            "Opt-in",
+            "Prohibited",
+            "N/A",
+        }
     return [name for name, _ in rows]
 
 
-def test_readme_matrix_covers_each_registered_tool_exactly_once() -> None:
+def test_readme_links_to_canonical_reference_without_duplicating_inventory() -> None:
+    readme = README.read_text()
+    section = readme.split("### MCP tools and permissions\n", 1)[1].split(
+        "For **OpenCode on the same computer**", 1
+    )[0]
+    assert "(docs/MCP-TOOLS-AND-PERMISSIONS.md)" in section
+    assert "Managed Kodi" in section
+    assert "External Production" in section
+    assert "External Development" in section
+    assert "mcp-tool-matrix:start" not in readme
+    assert not re.search(r"^\| `[a-z_]+` \|", section, re.MULTILINE)
+
+
+def test_reference_covers_each_registered_tool_exactly_once() -> None:
     names = _matrix_names()
     assert len(names) == len(set(names)), "duplicate MCP tool row"
     assert set(names) == set(build_mcp_tool_registry().names())
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["modern", "legacy"])
-def test_readme_matrix_matches_complete_authenticated_wire_catalog(
+def test_reference_matches_complete_authenticated_wire_catalog(
     client: TestClient, legacy: bool
 ) -> None:
     administration = _administration(client)
