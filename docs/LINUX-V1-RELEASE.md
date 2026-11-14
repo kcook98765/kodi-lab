@@ -38,7 +38,7 @@ establishes universal browser, platform or runtime qualification. Historical
 resources remain in the wheel for exact pins and provenance; acquiring a recipe does not change a
 registered instance's image or profile. See the [standard viewer guide](https://github.com/kcook98765/kodi-lab/blob/main/docs/STANDARD-NOVNC.md).
 
-The stable runtime recipes include the [graceful shutdown correction](MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
+The stable runtime recipes include the [graceful shutdown correction](https://github.com/kcook98765/kodi-lab/blob/main/docs/MANAGED-GRACEFUL-STOP.md). New image installation and native qualification remain separate from application deployment; existing profile pins are preserved.
 
 The stable set is Matrix on Ubuntu Jammy, Nexus on Ubuntu Noble and Omega on
 Ubuntu Resolute. Piers 22 RC2 is an additional Development-only Preview option;
@@ -73,7 +73,7 @@ stopped container from an exact pinned runtime revision; stopping retains that
 container and its writable layer. Deprovisioning removes the container and
 layer while retaining the managed record and durable Kodi Lab state.
 **Reset permanently discards that version's writable Kodi profile**, settings and
-installed add-ons. Supported [clean Reset](MANAGED-CLEAN-RESET.md) recreates a
+installed add-ons. Supported [clean Reset](https://github.com/kcook98765/kodi-lab/blob/main/docs/MANAGED-CLEAN-RESET.md) recreates a
 profile from the same approved cached image without applying a fixture. The older
 Advanced fixture-reset flow instead reapplies an assigned deterministic fixture.
 Snapshots provide bounded preservation, including the existing confirmed
