@@ -114,9 +114,55 @@ Screenshots and the seven navigation actions use inspection authority plus their
 individual per-Kodi settings. Both settings default Off. Playback and volume
 retain their separate permission and approval protections.
 
+## Trust reviewed updates installed by the owner
+
+On the connection page, **Trust updates from Kodi Lab's reviewed Bridge releases**
+is Off for existing and newly registered targets. Enable it once for a currently
+paired, approved External Production Kodi. This authorizes trusting eligible
+installed software; it never installs, refreshes repositories, restarts Kodi,
+changes settings, pairs a device or grants an agent a tool.
+
+After you install a reviewed successor through Kodi, an authorized `log_read` or
+`log_scan` request, or **Reverify bridge**, can recognize it. Lab requires the same
+Bridge UUID and HMAC credential, native identity, unchanged network/transport
+binding and exact current compiled reviewed release. The immutable review must
+be active and support the native Kodi version. Only read-only observation additions
+(`log_read`, `log_scan`, `ui_observation`) can extend the declared capability set;
+configured maxima, client/target permissions and production protections still
+apply independently. A matching add-on version alone is insufficient.
+
+Each adoption advances the software trust revision and records previous/new
+reviewed build IDs (which retain exact version, fingerprint and ZIP digest),
+persistent identity/transport binding, policy revision, actor, time and original
+HTTP acknowledgement. The page shows the last accepted version and receipt ID.
+Unchanged HTTP consent and navigation preference remain valid through this receipt;
+stale in-flight operations, captures and transient-control approvals do not.
+Existing revision-specific transient-control scopes can become stale; no new scope
+or permission is issued. Emergency Block, target suspension and inspection grants
+remain unchanged. Viewing the page performs no Kodi probe.
+
+Turn the setting Off to stop future adoption. Already accepted builds and valid
+retained consent remain. Off is available even if the Bridge becomes unreachable,
+revoked or needs manual verification. For changed identity/credentials/endpoints,
+unknown or retired builds, incompatible versions, downgrades or security capability
+changes, leave the target blocked, turn this policy Off and follow **Manual upgrade**
+below. Re-pair only if actual UUID/credential continuity was lost. Never lower a
+revision or edit stored trust/acknowledgement history to force acceptance.
+
+The fingerprint is an authenticated Bridge self-report checked against pinned
+reviewed artifacts, not a remote checksum of every installed byte. Updating Lab's
+compiled release pins/provenance is a separate qualified release process; an older
+Lab does not automatically trust a future advertised version.
+
+Migration `0016_reviewed_bridge_updates` preserves existing registrations, secrets,
+grants, policies, reviewed builds and acknowledgement rows without opting anyone
+in. Once policy/receipt history exists, a lossy schema downgrade is refused. Use
+supported retained-state backup/recovery procedures instead of deleting history.
+
 ## Manual upgrade
 
-There is no automatic updater.
+This remains the fallback when reviewed-update trust is Off or admission fails.
+There is no automatic software installer.
 
 1. Independently review and Web-register the exact new build before use.
 2. Block global production mutations.

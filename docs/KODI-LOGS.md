@@ -224,3 +224,14 @@ Managed Matrix 19.4 supports the exact reviewed stable Bridge 1.1.31 after
 explicit administrator installation and fresh target-specific authentication.
 Native JSON-RPC readiness or readable log files cannot satisfy resident trust.
 See [Matrix compatibility and installed acceptance](MATRIX-BRIDGE-COMPATIBILITY.md).
+
+### Reviewed production Bridge updates
+
+A production target still pinned to an older build can refuse `log_read` with
+`bridge_identity_mismatch` or `log_scan` with `bridge_capability_unavailable` even
+after the owner installs the new Bridge. With the explicit per-target
+**Trust updates from Kodi Lab's reviewed Bridge releases** setting On, the next
+authorized log observation may adopt an exact eligible reviewed successor while
+preserving pairing and unchanged HTTP consent. Tool grants and production
+protections remain independent. Otherwise use the existing manual verification
+flow. See [production operations](PRODUCTION-OPERATIONS.md#trust-reviewed-updates-installed-by-the-owner).

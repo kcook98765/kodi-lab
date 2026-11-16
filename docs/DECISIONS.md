@@ -8243,3 +8243,36 @@ limits and semantics are in [KODI-LOGS.md](KODI-LOGS.md).
 Publish new reviewed stable/overlay identities 1.1.33/1.1.34 and retain all old
 artifact identities and inventories, including 1.1.31/1.1.32. The schema capability
 extension grants no authority and performs no target installation or pairing.
+
+## D-0503: Reviewed production Bridge updates retain persistent authority by receipt
+
+Issue #378 adds an explicit per-production-target owner opt-in, Off by default.
+Lab never installs software. An existing authorized log observation or explicit
+Bridge verification may adopt only the compiled current stable release's exact
+fingerprint/version/protocol/ZIP digest and active immutable reviewed record.
+Both old and new reviewed identities must validate. Signed identity and separate
+capabilities must agree; UUID, secret reference, native generation, endpoint,
+configured maximum and transport policy must remain continuous. Only closed
+read-only observation capability additions are eligible automatically.
+
+Perform network observations outside the writer transaction. Reserve the writer,
+compare the original pairing/policy/consent/grant state, recheck active provenance,
+and atomically advance software trust plus an immutable adoption receipt. Every
+in-flight operation keeps the current software revision fence. Repeated completed
+probes do not create another transition; racing probes can return state-changed
+and safely retry from current status. No data or mutation is replayed automatically.
+
+Do not rewrite historical HTTP consent. The current receipt retains the original
+exact acknowledgement and persistent navigation authorization anchor; reuse
+requires the same device/secret/endpoint/risk binding and currently pinned reviewed
+build. A manual trust transition has no matching receipt and retains existing
+consent rules. Turning the opt-in Off stops future adoption without undoing an
+already accepted release or its valid consent. Disabling remains available even
+when trust is broken. Inspection grants/preferences remain untouched; old transient
+control approvals/scopes and screenshots are never promoted to a new revision.
+
+This is authenticated software self-report matched to pinned reviewed artifacts,
+not remote byte attestation. Unknown, retired, incompatible, downgraded or expanded
+security-capability builds require the existing manual procedure. Migration 0016
+adds only policy/receipt storage, preserves all existing rows, and refuses lossy
+schema rollback once policy/history exists. No managed/development trust change.

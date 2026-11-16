@@ -281,6 +281,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "external_production_policy_revision_guards",
         "production_capability_amendments",
         "production_bridge_http_acknowledgements",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
         "production_native_control_http_acknowledgements",
         "global_heavy_operation_lease",
         "managed_instances",

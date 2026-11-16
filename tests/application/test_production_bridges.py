@@ -137,15 +137,16 @@ def _production_target(
     factory: sessionmaker[Session], tmp_path: Path
 ) -> tuple[UUID, ExternalCredentialStore]:
     with factory.begin() as session:
-        session.add(
-            ProductionMutationControlRow(
-                id=1,
-                production_mutations_blocked=True,
-                policy_epoch=1,
-                updated_by="system",
-                updated_at="2026-09-21T12:00:00.000000Z",
+        if session.get(ProductionMutationControlRow, 1) is None:
+            session.add(
+                ProductionMutationControlRow(
+                    id=1,
+                    production_mutations_blocked=True,
+                    policy_epoch=1,
+                    updated_by="system",
+                    updated_at="2026-09-21T12:00:00.000000Z",
+                )
             )
-        )
     credentials = ExternalCredentialStore(
         tmp_path / "native-secrets", master_key=None, key_version=1
     )

@@ -49,6 +49,8 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
         "managed_version_operations",
         "managed_clean_resets",
         "managed_web_intents",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
         "novnc_sessions",
         "managed_remote_guards",
     }
@@ -71,7 +73,7 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0015_log_scan_capability"
+            == "0016_reviewed_bridge_updates"
         )
         assert connection.scalar(text("SELECT count(*) FROM novnc_sessions")) == 1
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
@@ -85,6 +87,8 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
         "managed_version_operations",
         "managed_clean_resets",
         "managed_web_intents",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
     }
     command.upgrade(config, "head")
     engine.dispose()

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.bridge_update_continuity import persistent_navigation_anchor
 from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_bridge_anchor_state,
@@ -25,6 +26,7 @@ from kodi_lab.application.production_policy import advance_production_policy
 from kodi_lab.domain import ExternalProtocolKind, TargetType
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.storage.models import (
+    ExternalBridgePairingRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpSecurityEventRow,
@@ -105,14 +107,19 @@ def navigation_binding_digest(session: Session, target_id: UUID) -> str:
     external = session.get(ExternalKodiTargetRow, str(target_id))
     policy = session.get(ExternalProductionPolicyRow, str(target_id))
     assert external is not None and policy is not None
+    pairing = session.get(ExternalBridgePairingRow, str(target_id))
+    assert pairing is not None
+    authority_revision, authority_build = persistent_navigation_anchor(
+        session, external, pairing
+    )
     return hashlib.sha256(
         json.dumps(
             {
                 "observation": policy.confirmed_observation_digest,
                 "identity_generation": native.identity_generation,
                 "bridge_id": str(bridge.bridge_id),
-                "bridge_trust_revision": bridge.bridge_trust_revision,
-                "reviewed_build": str(bridge.reviewed_build_id),
+                "bridge_trust_revision": authority_revision,
+                "reviewed_build": authority_build,
                 "native_credential": external.secret_reference,
                 "transport_policy_revision": (
                     PRODUCTION_NATIVE_CONTROL_TRANSPORT_POLICY_REVISION

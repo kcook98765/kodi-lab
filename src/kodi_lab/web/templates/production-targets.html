@@ -40,6 +40,15 @@
         {% set kodi = production_views[target.target_id] %}
         <article class="kodi-panel" id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
+          {% if target.administrative_state.value != 'deactivated' %}
+          <section data-reviewed-updates>
+            <label><input type="checkbox" data-reviewed-updates-enabled disabled> Trust updates from Kodi Lab's reviewed Bridge releases</label>
+            <p>Off by default. On lets Lab trust an exact reviewed update you install on this same paired device. Lab never installs an update. Existing permissions and production safeguards still apply. Changed devices, credentials or connections require manual review.</p>
+            <button type="button" data-reviewed-updates-save disabled>Save reviewed-update trust</button>
+            <p data-reviewed-updates-status role="status">Loading saved policy…</p>
+            <a data-reviewed-updates-receipt hidden>Inspect last automatic adoption receipt</a>
+          </section>
+          {% endif %}
           {{ production_summary(kodi) }}
           <p><a href="/kodi/{{ target.target_id }}">Connection details</a></p>
           <details class="production-advanced" data-production-advanced id="advanced-{{ target.target_id }}"{% if kodi.needs_review or target.administrative_state.value == 'deactivated' %} open{% endif %}>

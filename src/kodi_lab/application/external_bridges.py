@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -17,10 +18,16 @@ from typing import overload
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.bridge_update_continuity import (
+    continuity_binding,
+    persistent_navigation_anchor,
+    transport_acknowledgement,
+)
+from kodi_lab.application.official_bridge_builds import SUPPORTED_KODI_VERSIONS
 from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_inspection_state,
@@ -67,6 +74,7 @@ from kodi_lab.kodi.logs import (
     KodiLogScanResult,
 )
 from kodi_lab.kodi.ui_state import UiCollection
+from kodi_lab.repository import stable
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
     emit_screenshot_observation,
@@ -79,7 +87,14 @@ from kodi_lab.storage.models import (
     ExternalBridgeRequestReceiptRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    ExternalScreenshotPreferenceRow,
+    McpClientTargetGrantRow,
+    McpProductionTargetScopeRow,
+    McpSecurityEventRow,
+    ProductionBridgeAdoptionRow,
     ProductionBridgeHttpAcknowledgementRow,
+    ProductionBridgeUpdatePolicyRow,
+    ProductionMutationControlRow,
     ReviewedBridgeBuildRow,
     TargetRow,
 )
@@ -163,6 +178,34 @@ class ReviewedBridgeBuildRead(BaseModel):
     state: str
     retired_by: str | None = None
     retired_at: datetime | None = None
+
+
+class ReviewedBridgeAdoptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    receipt_id: UUID
+    target_id: UUID
+    bridge_id: UUID
+    from_revision: int
+    to_revision: int
+    previous_build: ReviewedBridgeBuildRead
+    accepted_build: ReviewedBridgeBuildRead
+    http_acknowledgement_id: UUID | None
+    continuity_binding_digest: str
+    policy_revision: int
+    actor: str
+    occurred_at: str
+
+
+class ReviewedBridgeUpdatePolicyRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target_id: UUID
+    enabled: bool
+    revision: int
+    last_adoption_id: UUID | None = None
+    last_adopted_version: str | None = None
+    last_adopted_at: str | None = None
 
 
 class ProductionHttpAcknowledgementRead(BaseModel):
@@ -1430,9 +1473,343 @@ class ExternalBridgeService:
             self._event(session, target_id, "bridge_reverification_required", now)
         return self.status(target_id)
 
+    def reviewed_adoption(
+        self, target_id: UUID, receipt_id: UUID
+    ) -> ReviewedBridgeAdoptionRead:
+        self.reviewed_update_policy(target_id)
+        with self._sessions() as session:
+            receipt = session.get(ProductionBridgeAdoptionRow, str(receipt_id))
+            if receipt is None or receipt.target_id != str(target_id):
+                raise ExternalBridgeServiceError("target_not_found")
+            previous = session.get(ReviewedBridgeBuildRow, receipt.from_build_id)
+            accepted = session.get(ReviewedBridgeBuildRow, receipt.to_build_id)
+            assert previous is not None and accepted is not None
+            return ReviewedBridgeAdoptionRead(
+                receipt_id=receipt_id,
+                target_id=target_id,
+                bridge_id=UUID(receipt.bridge_id),
+                from_revision=receipt.from_revision,
+                to_revision=receipt.to_revision,
+                previous_build=self._reviewed_build_read(previous),
+                accepted_build=self._reviewed_build_read(accepted),
+                http_acknowledgement_id=UUID(receipt.http_acknowledgement_id)
+                if receipt.http_acknowledgement_id
+                else None,
+                continuity_binding_digest=receipt.binding_digest,
+                policy_revision=receipt.policy_revision,
+                actor=receipt.actor,
+                occurred_at=receipt.occurred_at,
+            )
+
+    def reviewed_update_policy(self, target_id: UUID) -> ReviewedBridgeUpdatePolicyRead:
+        with self._sessions() as session:
+            target = session.get(TargetRow, str(target_id))
+            if (
+                target is None
+                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
+            ):
+                raise ExternalBridgeServiceError("target_not_found")
+            row = session.get(ProductionBridgeUpdatePolicyRow, str(target_id))
+            receipt = session.scalar(
+                select(ProductionBridgeAdoptionRow)
+                .where(ProductionBridgeAdoptionRow.target_id == str(target_id))
+                .order_by(ProductionBridgeAdoptionRow.to_revision.desc())
+                .limit(1)
+            )
+            build = (
+                session.get(ReviewedBridgeBuildRow, receipt.to_build_id)
+                if receipt
+                else None
+            )
+            return ReviewedBridgeUpdatePolicyRead(
+                target_id=target_id,
+                enabled=bool(row and row.enabled),
+                revision=row.revision if row else 0,
+                last_adoption_id=UUID(receipt.id) if receipt else None,
+                last_adopted_version=build.addon_version if build else None,
+                last_adopted_at=receipt.occurred_at if receipt else None,
+            )
+
+    def set_reviewed_update_policy(
+        self, target_id: UUID, *, enabled: bool, expected_revision: int
+    ) -> ReviewedBridgeUpdatePolicyRead:
+        # Owner-only, explicit policy choice; no remote discovery or installation.
+        snapshot = (
+            self._active_snapshot(target_id, allow_no_configured_bridge_capability=True)
+            if enabled
+            else None
+        )
+        if (
+            snapshot is not None
+            and snapshot.target_type is not TargetType.EXTERNAL_PRODUCTION
+        ):
+            raise ExternalBridgeServiceError("target_not_found")
+        with self._sessions() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            if snapshot is not None and (
+                self._active_snapshot(
+                    target_id, allow_no_configured_bridge_capability=True
+                )
+                != snapshot
+            ):
+                raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            external = session.get(ExternalKodiTargetRow, str(target_id))
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            target = session.get(TargetRow, str(target_id))
+            if (
+                external is None
+                or policy is None
+                or target is None
+                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
+            ):
+                raise ExternalBridgeServiceError("target_not_found")
+            row = session.get(ProductionBridgeUpdatePolicyRow, str(target_id))
+            if (row.revision if row else 0) != expected_revision:
+                raise ExternalBridgeServiceError("reviewed_update_policy_changed")
+            now = self._text(self._clock())
+            binding = (
+                continuity_binding(external, pairing, policy)
+                if pairing is not None
+                else "0" * 64
+            )
+            if row is None:
+                row = ProductionBridgeUpdatePolicyRow(
+                    target_id=str(target_id),
+                    enabled=enabled,
+                    revision=1,
+                    binding_digest=binding,
+                    updated_by="local_administrator",
+                    updated_at=now,
+                )
+                session.add(row)
+            else:
+                row.enabled = enabled
+                row.revision += 1
+                row.binding_digest = binding
+                row.updated_at = now
+            session.add(
+                McpSecurityEventRow(
+                    id=str(uuid4()),
+                    event_kind="reviewed_bridge_updates_enabled"
+                    if enabled
+                    else "reviewed_bridge_updates_disabled",
+                    actor="web_admin",
+                    target_id=str(target_id),
+                    occurred_at=now,
+                )
+            )
+            session.commit()
+        return self.reviewed_update_policy(target_id)
+
+    @staticmethod
+    def _reviewed_update_guard(session: Session, target_id: UUID) -> str:
+        # Include revocable policy/grants and all pairing/native material. A
+        # writer reservation later compares this BEFORE publishing new trust.
+        rows: list[object] = []
+        for model in (
+            ExternalKodiTargetRow,
+            ExternalBridgePairingRow,
+            ExternalProductionPolicyRow,
+            ProductionBridgeUpdatePolicyRow,
+            ExternalScreenshotPreferenceRow,
+        ):
+            row = session.get(model, str(target_id))
+            rows.append(
+                None
+                if row is None
+                else {
+                    column.name: getattr(row, column.name)
+                    for column in model.__table__.columns
+                }
+            )
+        for grant_model in (McpClientTargetGrantRow, McpProductionTargetScopeRow):
+            rows.append(
+                sorted(
+                    [
+                        {
+                            c.name: getattr(row, c.name)
+                            for c in grant_model.__table__.columns
+                        }
+                        for row in session.scalars(
+                            select(grant_model).where(
+                                grant_model.target_id == str(target_id)
+                            )
+                        )
+                    ],
+                    key=lambda x: json.dumps(x, sort_keys=True),
+                )
+            )
+        mutation = session.get(ProductionMutationControlRow, 1)
+        rows.append(
+            None
+            if mutation is None
+            else (mutation.production_mutations_blocked, mutation.policy_epoch)
+        )
+        return hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+
+    def _adopt_reviewed_update(self, target_id: UUID, snapshot: _Snapshot) -> _Snapshot:
+        if snapshot.target_type is not TargetType.EXTERNAL_PRODUCTION:
+            return snapshot
+        with self._sessions() as session:
+            opt_in = session.get(ProductionBridgeUpdatePolicyRow, str(target_id))
+            if opt_in is None or not opt_in.enabled:
+                return snapshot
+            external = session.get(ExternalKodiTargetRow, str(target_id))
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            assert external and pairing and policy
+            if opt_in.binding_digest != continuity_binding(external, pairing, policy):
+                raise ExternalBridgeServiceError("reviewed_update_continuity_changed")
+            if (
+                snapshot.addon_version == stable.CURRENT_BRIDGE.version
+                and snapshot.build_fingerprint == stable.CURRENT_BRIDGE.fingerprint
+            ):
+                return snapshot
+            guard = self._reviewed_update_guard(session, target_id)
+        # A policy cannot resurrect revoked, staged or unconfirmed authority.
+        if (
+            self._active_snapshot(target_id, allow_no_configured_bridge_capability=True)
+            != snapshot
+        ):
+            raise ExternalBridgeServiceError("reviewed_update_state_changed")
+        identity, capabilities = self._observe_authenticated(snapshot)
+        if identity.bridge_id != snapshot.bridge_id:
+            raise ExternalBridgeServiceError("bridge_identity_mismatch")
+        self._require_native_identity(identity, snapshot.kodi_version)
+        if identity.kodi_version != snapshot.kodi_version or set(
+            identity.capabilities
+        ) != set(capabilities):
+            raise ExternalBridgeServiceError("bridge_identity_mismatch")
+        if (
+            identity.build_fingerprint == snapshot.build_fingerprint
+            and identity.addon_version == snapshot.addon_version
+        ):
+            return snapshot
+        release = stable.CURRENT_BRIDGE
+        if (
+            identity.addon_version != release.version
+            or identity.build_fingerprint != release.fingerprint
+            or identity.kodi_version not in SUPPORTED_KODI_VERSIONS
+        ):
+            raise ExternalBridgeServiceError("reviewed_update_not_current_release")
+        if not all(
+            re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", v)
+            for v in (snapshot.addon_version, identity.addon_version)
+        ) or tuple(map(int, identity.addon_version.split("."))) <= tuple(
+            map(int, snapshot.addon_version.split("."))
+        ):
+            raise ExternalBridgeServiceError("reviewed_update_not_successor")
+        now = self._clock()
+        with self._sessions() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            # No remote I/O in this transaction. Changed/revoked state never
+            # inherits an observation taken under another policy or credential.
+            if self._reviewed_update_guard(session, target_id) != guard:
+                # A duplicate committed adoption may safely converge only on
+                # an independently valid current snapshot; this call publishes
+                # no old observation/result.
+                raise ExternalBridgeServiceError("reviewed_update_state_changed")
+            if (
+                self._active_snapshot(
+                    target_id, allow_no_configured_bridge_capability=True
+                )
+                != snapshot
+            ):
+                raise ExternalBridgeServiceError("reviewed_update_state_changed")
+            external = session.get(ExternalKodiTargetRow, str(target_id))
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            opt_in = session.get(ProductionBridgeUpdatePolicyRow, str(target_id))
+            assert (
+                external and pairing and policy and opt_in and pairing.reviewed_build_id
+            )
+            previous = session.get(ReviewedBridgeBuildRow, pairing.reviewed_build_id)
+            reviewed = self._require_reviewed_identity(session, identity, capabilities)
+            if (
+                reviewed.zip_sha256 != release.sha256
+                or set(capabilities) != BRIDGE_CAPABILITIES
+            ):
+                raise ExternalBridgeServiceError("bridge_build_not_reviewed")
+            if (
+                previous is None
+                or previous.state != "active"
+                or previous.semantic_fingerprint != snapshot.build_fingerprint
+                or previous.addon_id != snapshot.addon_id
+                or previous.addon_version != snapshot.addon_version
+                or previous.protocol_version != snapshot.protocol_version
+                or snapshot.kodi_version
+                not in self._parse_closed(previous.supported_kodi_versions_json)
+                or self._parse_closed(previous.capabilities_json)
+                != self._parse_closed(pairing.observed_capabilities_json)
+            ):
+                raise ExternalBridgeServiceError("bridge_build_not_reviewed")
+            # Only closed observation capabilities can be newly advertised.
+            old_caps = self._parse_closed(previous.capabilities_json)
+            if not old_caps <= set(capabilities) or not set(
+                capabilities
+            ) <= old_caps | {"log_read", "log_scan", "ui_observation"}:
+                raise ExternalBridgeServiceError("reviewed_update_capability_expansion")
+            revision = pairing.production_bridge_trust_revision
+            assert revision is not None
+            ack = transport_acknowledgement(
+                session,
+                external,
+                pairing,
+                identity_generation=policy.identity_generation,
+                bridge_revision=revision,
+                endpoint_digest=self._endpoint_digest(external, snapshot.bridge_port),
+                transport_policy_revision=PRODUCTION_TRANSPORT_POLICY_REVISION,
+            )
+            if external.protocol_kind.value == "jsonrpc_http" and ack is None:
+                raise ExternalBridgeServiceError("transport_acknowledgement_required")
+            anchor_revision, anchor_build = persistent_navigation_anchor(
+                session, external, pairing
+            )
+            assert anchor_revision is not None and anchor_build is not None
+            receipt = ProductionBridgeAdoptionRow(
+                id=str(uuid4()),
+                target_id=str(target_id),
+                bridge_id=str(identity.bridge_id),
+                from_revision=revision,
+                to_revision=revision + 1,
+                from_build_id=previous.id,
+                to_build_id=reviewed.id,
+                authority_revision=anchor_revision,
+                authority_build_id=anchor_build,
+                http_acknowledgement_id=ack.id if ack else None,
+                binding_digest=continuity_binding(external, pairing, policy),
+                policy_revision=opt_in.revision,
+                actor="automatic_reviewed_update",
+                occurred_at=self._text(now),
+            )
+            session.add(receipt)
+            self._set_observed(pairing, identity, capabilities)
+            pairing.pinned_addon_version = identity.addon_version
+            pairing.pinned_build_fingerprint = identity.build_fingerprint
+            pairing.reviewed_build_id = reviewed.id
+            pairing.production_bridge_trust_revision = revision + 1
+            pairing.verified_at = self._text(now)
+            self._event(
+                session,
+                target_id,
+                "production_bridge_revision_advanced",
+                now,
+                bridge_id=identity.bridge_id,
+                classification="automatic_reviewed_update",
+                request_id=UUID(receipt.id),
+            )
+            session.commit()
+        return self._active_snapshot(
+            target_id, allow_no_configured_bridge_capability=True
+        )
+
     def reverify(self, target_id: UUID) -> ExternalBridgeStatus:
         with self._pairing_gate.enter(target_id):
             snapshot = self._active_snapshot(target_id, allow_needs_reverification=True)
+            adopted = self._adopt_reviewed_update(target_id, snapshot)
+            if adopted != snapshot:
+                return self.status(target_id)
             identity, capabilities = self._observe_authenticated(snapshot)
             upgrade = False
             if (
@@ -1585,6 +1962,7 @@ class ExternalBridgeService:
         snapshot = self._active_snapshot(
             target_id, allow_no_configured_bridge_capability=True
         )
+        snapshot = self._adopt_reviewed_update(target_id, snapshot)
         with self._sessions() as session:
             pairing = session.get(ExternalBridgePairingRow, str(target_id))
             if pairing is None or capability not in self._parse_closed(
@@ -3020,22 +3398,16 @@ class ExternalBridgeService:
         if external.protocol_kind.value == "jsonrpc_https":
             return
         endpoint_digest = cls._endpoint_digest(external, bridge_port)
-        acknowledgement = session.scalar(
-            select(ProductionBridgeHttpAcknowledgementRow).where(
-                ProductionBridgeHttpAcknowledgementRow.target_id == str(target_id),
-                ProductionBridgeHttpAcknowledgementRow.identity_generation
-                == identity_generation,
-                ProductionBridgeHttpAcknowledgementRow.bridge_trust_revision
-                == bridge_revision,
-                ProductionBridgeHttpAcknowledgementRow.protocol == "jsonrpc_http",
-                ProductionBridgeHttpAcknowledgementRow.ip_literal == external.host,
-                ProductionBridgeHttpAcknowledgementRow.native_port == external.port,
-                ProductionBridgeHttpAcknowledgementRow.bridge_port == bridge_port,
-                ProductionBridgeHttpAcknowledgementRow.endpoint_digest
-                == endpoint_digest,
-                ProductionBridgeHttpAcknowledgementRow.transport_policy_revision
-                == PRODUCTION_TRANSPORT_POLICY_REVISION,
-            )
+        pairing = session.get(ExternalBridgePairingRow, str(target_id))
+        acknowledgement = transport_acknowledgement(
+            session,
+            external,
+            pairing,
+            bridge_port=bridge_port,
+            identity_generation=identity_generation,
+            bridge_revision=bridge_revision,
+            endpoint_digest=endpoint_digest,
+            transport_policy_revision=PRODUCTION_TRANSPORT_POLICY_REVISION,
         )
         if acknowledgement is None:
             raise ExternalBridgeServiceError("transport_acknowledgement_required")

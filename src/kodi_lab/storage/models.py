@@ -2944,6 +2944,128 @@ class ExternalBridgeDeploymentReceiptRow(Base):
     reconciled_at: Mapped[str | None] = mapped_column(String(27))
 
 
+class ProductionBridgeUpdatePolicyRow(Base):
+    """Owner opt-in bound to one existing device/pairing/security configuration."""
+
+    __tablename__ = "production_bridge_update_policies"
+    __table_args__ = (
+        CheckConstraint(
+            "enabled IN (0,1) AND revision>=1", name="bridge_update_policy_valid"
+        ),
+        CheckConstraint(
+            "length(binding_digest)=64 AND binding_digest NOT GLOB '*[^0-9a-f]*'",
+            name="bridge_update_policy_binding",
+        ),
+        CheckConstraint(
+            "length(updated_at)=27 AND length(updated_by) BETWEEN 1 AND 64",
+            name="bridge_update_policy_actor",
+        ),
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ProductionBridgeAdoptionRow(Base):
+    """Immutable evidence carrying consent across one admitted software update."""
+
+    __tablename__ = "production_bridge_adoptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_id", "to_revision", name="bridge_adoption_revision_unique"
+        ),
+        CheckConstraint(
+            "from_revision>=1 AND to_revision=from_revision+1 AND "
+            "authority_revision>=1 AND authority_revision<=from_revision AND "
+            "policy_revision>=1",
+            name="bridge_adoption_revisions",
+        ),
+        CheckConstraint(
+            "length(binding_digest)=64 AND binding_digest NOT GLOB '*[^0-9a-f]*'",
+            name="bridge_adoption_binding",
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(bridge_id)=36 AND length(occurred_at)=27 "
+            "AND actor='automatic_reviewed_update'",
+            name="bridge_adoption_audit",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    from_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_build_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("reviewed_bridge_builds.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    to_build_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("reviewed_bridge_builds.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    authority_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    authority_build_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("reviewed_bridge_builds.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    http_acknowledgement_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("production_bridge_http_acknowledgements.id", ondelete="RESTRICT"),
+    )
+    binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+# ORM fixtures preserve the same guards as migration 0016.
+for _trigger_sql in (
+    "CREATE TRIGGER trg_bridge_update_policy_no_replace BEFORE INSERT ON "
+    "production_bridge_update_policies WHEN EXISTS(SELECT 1 FROM "
+    "production_bridge_update_policies WHERE target_id=NEW.target_id) BEGIN "
+    "SELECT RAISE(ABORT, 'bridge_update_policy_history'); END",
+    "CREATE TRIGGER trg_bridge_adoption_no_replace BEFORE INSERT ON "
+    "production_bridge_adoptions WHEN EXISTS(SELECT 1 FROM "
+    "production_bridge_adoptions WHERE id=NEW.id OR (target_id=NEW.target_id "
+    "AND to_revision=NEW.to_revision)) BEGIN SELECT RAISE(ABORT, "
+    "'bridge_adoption_immutable'); END",
+    "CREATE TRIGGER trg_bridge_update_policy_revision BEFORE UPDATE ON "
+    "production_bridge_update_policies WHEN NEW.target_id<>OLD.target_id OR "
+    "NEW.revision<>OLD.revision+1 BEGIN SELECT RAISE(ABORT, "
+    "'bridge_update_policy_revision'); END",
+    "CREATE TRIGGER trg_bridge_update_policy_no_delete BEFORE DELETE ON "
+    "production_bridge_update_policies BEGIN SELECT RAISE(ABORT, "
+    "'bridge_update_policy_history'); END",
+    "CREATE TRIGGER trg_bridge_adoption_no_update BEFORE UPDATE ON "
+    "production_bridge_adoptions BEGIN SELECT RAISE(ABORT, "
+    "'bridge_adoption_immutable'); END",
+    "CREATE TRIGGER trg_bridge_adoption_no_delete BEFORE DELETE ON "
+    "production_bridge_adoptions BEGIN SELECT RAISE(ABORT, "
+    "'bridge_adoption_immutable'); END",
+):
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+
 class ExternalBridgeEventRow(Base):
     """Content-free semantic bridge administration and capture audit."""
 
