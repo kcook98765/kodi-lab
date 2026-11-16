@@ -22,6 +22,7 @@ def test_source_allowlist_does_not_reinclude_python_caches(tmp_path: Path) -> No
         "bridge/service.kodi_lab_bridge/README.md",
         "bridge/service.kodi_lab_bridge/addon.xml",
         "bridge/service.kodi_lab_bridge/narrow_bridge.py",
+        "bridge/service.kodi_lab_bridge/log_scan.py",
         "bridge/service.kodi_lab_bridge/ui_observation.py",
         "bridge/service.kodi_lab_bridge/onboarding.py",
         "bridge/service.kodi_lab_bridge/pairing_ui.py",
