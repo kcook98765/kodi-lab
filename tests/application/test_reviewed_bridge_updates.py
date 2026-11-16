@@ -704,3 +704,56 @@ def test_existing_on_navigation_preference_survives_without_promoting_old_action
     with e.factory() as session:
         require_navigation_preference(session, e.target)
     assert e.service.status(e.target).production_bridge_trust_revision == 2
+
+
+def test_failed_authenticated_observation_never_commits_adoption(
+    updated: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.kodi.bridge import ExternalBridgeError
+
+    e = updated
+    enable(e)
+
+    def unavailable(*args: Any, **kwargs: Any) -> Any:
+        raise ExternalBridgeError("bridge_unreachable")
+
+    monkeypatch.setattr(e.service._client, "capabilities", unavailable)
+    with pytest.raises(ExternalBridgeServiceError, match="bridge_unreachable"):
+        scan(e)
+    assert e.service.status(e.target).addon_version == "1.1.31"
+    with e.factory() as session:
+        assert not list(session.scalars(select(ProductionBridgeAdoptionRow)))
+    # Removing the standing opt-in still works after the failed network proof.
+    assert not e.service.set_reviewed_update_policy(
+        e.target, enabled=False, expected_revision=1
+    ).enabled
+
+
+def test_lost_commit_response_and_service_restart_preserve_single_adoption(
+    updated: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.application.external_bridges import ExternalBridgeService
+
+    e = updated
+    enable(e)
+    snapshot = e.service._active_snapshot
+    lost = [False]
+
+    def observe(*args: Any, **kwargs: Any) -> Any:
+        result = snapshot(*args, **kwargs)
+        if result.addon_version == "1.1.33" and not lost[0]:
+            lost[0] = True
+            raise ExternalBridgeServiceError("bridge_unreachable")
+        return result
+
+    monkeypatch.setattr(e.service, "_active_snapshot", observe)
+    with pytest.raises(ExternalBridgeServiceError, match="bridge_unreachable"):
+        scan(e)
+    assert e.service.status(e.target).addon_version == "1.1.33"
+    restarted = ExternalBridgeService(
+        e.factory, endpoint_policy=e.service._endpoint_policy, secret_store=e.store
+    )
+    e.service = restarted
+    assert scan(e).counts_exact
+    with e.factory() as session:
+        assert len(list(session.scalars(select(ProductionBridgeAdoptionRow)))) == 1
