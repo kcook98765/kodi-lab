@@ -91,3 +91,9 @@ roles or role audit history, preserving evidence even after revocation.
 `0010_agent_projects` adds only private project source/owner/request identities.
 Existing sources, workspaces and authority remain unchanged. Used project history
 prevents downgrade; immutable owner/request triggers preserve replay evidence.
+
+`0016_reviewed_bridge_updates` adds owner-controlled, default-OFF production Bridge
+update policy and immutable automatic-adoption receipts. It changes no existing
+rows or consent bindings. Policy revisions are monotonic; receipts and policy
+history resist update/delete and SQLite replacement. Downgrade refuses once a
+policy or adoption row exists. See [production operations](../docs/PRODUCTION-OPERATIONS.md#trust-reviewed-updates-installed-by-the-owner).

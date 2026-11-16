@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
-from alembic.script import ScriptDirectory
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.kodi.external import ExternalEndpointPolicy
@@ -107,7 +106,7 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["arbitrary_execution","screenshot"]', 2)
     assert _triggers(database) == original
-    assert _revision(database) == ScriptDirectory.from_config(config).get_current_head()
+    assert _revision(database) == REVISION
     command.upgrade(config, REVISION)
     assert _triggers(database) == original
     engine.dispose()

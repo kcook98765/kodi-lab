@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from kodi_lab.application.bridge_update_continuity import transport_acknowledgement
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ExternalAdministrativeState,
@@ -26,7 +27,6 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     HouseholdOnboardingRow,
-    ProductionBridgeHttpAcknowledgementRow,
     ReviewedBridgeBuildRow,
     TargetRow,
 )
@@ -227,23 +227,14 @@ def evaluate_production_visual_state(
         raise ProductionInspectionError("bridge_build_not_reviewed")
     endpoint_digest = _production_bridge_endpoint_digest(external, pairing.bridge_port)
     if external.protocol_kind.value == "jsonrpc_http":
-        acknowledgement = session.scalar(
-            select(ProductionBridgeHttpAcknowledgementRow).where(
-                ProductionBridgeHttpAcknowledgementRow.target_id == str(target_id),
-                ProductionBridgeHttpAcknowledgementRow.identity_generation
-                == anchor.identity_generation,
-                ProductionBridgeHttpAcknowledgementRow.bridge_trust_revision
-                == anchor.bridge_trust_revision,
-                ProductionBridgeHttpAcknowledgementRow.protocol == "jsonrpc_http",
-                ProductionBridgeHttpAcknowledgementRow.ip_literal == external.host,
-                ProductionBridgeHttpAcknowledgementRow.native_port == external.port,
-                ProductionBridgeHttpAcknowledgementRow.bridge_port
-                == pairing.bridge_port,
-                ProductionBridgeHttpAcknowledgementRow.endpoint_digest
-                == endpoint_digest,
-                ProductionBridgeHttpAcknowledgementRow.transport_policy_revision
-                == PRODUCTION_TRANSPORT_POLICY_REVISION,
-            )
+        acknowledgement = transport_acknowledgement(
+            session,
+            external,
+            pairing,
+            identity_generation=anchor.identity_generation,
+            bridge_revision=anchor.bridge_trust_revision,
+            endpoint_digest=endpoint_digest,
+            transport_policy_revision=PRODUCTION_TRANSPORT_POLICY_REVISION,
         )
         if acknowledgement is None:
             raise ProductionInspectionError("transport_acknowledgement_required")

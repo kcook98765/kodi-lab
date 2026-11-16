@@ -239,7 +239,9 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeServiceError,
     ExternalBridgeStatus,
     ProductionHttpAcknowledgementRead,
+    ReviewedBridgeAdoptionRead,
     ReviewedBridgeBuildRead,
+    ReviewedBridgeUpdatePolicyRead,
 )
 from kodi_lab.application.external_onboarding import (
     ExternalKodiOnboardingError,
@@ -1276,6 +1278,14 @@ class ProductionBridgeHttpAcknowledgementRequest(BaseModel):
         "I acknowledge that private-LAN HTTP protects authenticity and integrity "
         "but does not provide screenshot confidentiality."
     ]
+
+
+class ReviewedBridgeUpdatePolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    enabled: StrictBool
+    expected_revision: int = Field(ge=0)
 
 
 class ProductionNativeControlHttpAcknowledgementRequest(BaseModel):
@@ -3391,6 +3401,30 @@ def create_app(
                 "this Kodi and Bridge port, then enter a current pairing code. "
                 "Revoking a pairing invalidates its previous acknowledgement. "
                 "The code was not sent."
+            ),
+            "reviewed_update_policy_changed": (
+                "Reload this page before changing reviewed-update trust."
+            ),
+            "reviewed_update_state_changed": (
+                "State changed during verification. Check current status "
+                "before retrying."
+            ),
+            "reviewed_update_continuity_changed": (
+                "Device, pairing or connection changed. Turn reviewed-update "
+                "trust Off and use Reverify bridge for manual review."
+            ),
+            "reviewed_update_not_current_release": (
+                "This is not the exact current reviewed release. Turn "
+                "reviewed-update trust Off to review the installed build "
+                "manually."
+            ),
+            "reviewed_update_not_successor": (
+                "Automatic trust does not admit downgrades. Turn reviewed- "
+                "update trust Off and review the rollback manually."
+            ),
+            "reviewed_update_capability_expansion": (
+                "This update adds capabilities requiring manual review. Turn "
+                "reviewed-update trust Off and use Reverify bridge."
             ),
             "bridge_build_not_reviewed": (
                 "Install the compatible official Bridge from the Kodi Lab "
@@ -7125,6 +7159,33 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
         return context.external_bridges.commit_otp_pairing(target_id)
+
+    @app.get("/api/production-targets/{target_id}/bridge/adoptions/{receipt_id}")
+    def get_reviewed_bridge_adoption(
+        target_id: UUID,
+        receipt_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReviewedBridgeAdoptionRead:
+        return context.external_bridges.reviewed_adoption(target_id, receipt_id)
+
+    @app.get("/api/production-targets/{target_id}/bridge/reviewed-updates")
+    def get_reviewed_bridge_update_policy(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReviewedBridgeUpdatePolicyRead:
+        return context.external_bridges.reviewed_update_policy(target_id)
+
+    @app.post("/api/production-targets/{target_id}/bridge/reviewed-updates")
+    def set_reviewed_bridge_update_policy(
+        target_id: UUID,
+        payload: ReviewedBridgeUpdatePolicyRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReviewedBridgeUpdatePolicyRead:
+        return context.external_bridges.set_reviewed_update_policy(
+            target_id,
+            enabled=payload.enabled,
+            expected_revision=payload.expected_revision,
+        )
 
     @app.post(
         "/api/production-targets/{target_id}/bridge/reverify",

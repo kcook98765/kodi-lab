@@ -6,7 +6,7 @@
   const diagnostics = root.querySelector("[data-error-diagnostics]");
   const errorCode = root.querySelector("[data-error-code]");
   const request = async (url, method, body) => {
-    const response = await fetch(url, {method, credentials: "same-origin", headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": root.dataset.csrfToken}, body: JSON.stringify(body ?? {})});
+    const response = await fetch(url, {method, credentials: "same-origin", headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": root.dataset.csrfToken}, body: method === "GET" ? undefined : JSON.stringify(body ?? {})});
     const payload = await response.json();
     if (!response.ok) {
       const error = new Error(payload.error?.message || payload.detail?.message || "Production target request rejected");
@@ -55,6 +55,31 @@
   })));
   root.querySelectorAll("[data-target-id]").forEach((card) => {
     const id = card.dataset.targetId;
+    const updatePolicy = card.querySelector("[data-reviewed-updates]");
+    if (updatePolicy) {
+      const checkbox = updatePolicy.querySelector("[data-reviewed-updates-enabled]");
+      const save = updatePolicy.querySelector("[data-reviewed-updates-save]");
+      const status = updatePolicy.querySelector("[data-reviewed-updates-status]");
+      let revision;
+      const show = (policy) => {
+        revision = policy.revision;
+        checkbox.checked = policy.enabled;
+        checkbox.disabled = false;
+        save.disabled = false;
+        status.textContent = `Reviewed-update trust ${policy.enabled ? "On" : "Off"}.` + (policy.last_adoption_id ? ` Last automatic adoption: ${policy.last_adopted_version}; receipt ${policy.last_adoption_id}.` : " No automatic adoption recorded.");
+        const receipt = updatePolicy.querySelector("[data-reviewed-updates-receipt]");
+        receipt.hidden = !policy.last_adoption_id;
+        if (policy.last_adoption_id) receipt.href = `/api/production-targets/${id}/bridge/adoptions/${policy.last_adoption_id}`;
+      };
+      run(async () => show(await request(`/api/production-targets/${id}/bridge/reviewed-updates`, "GET")));
+      save.addEventListener("click", () => run(async () => {
+        if (!confirm(checkbox.checked ? "Trust exact reviewed updates installed on this same paired Kodi, preserving existing permissions and unchanged transport consent? Lab will not install software." : "Stop automatically trusting future installed Bridge updates? Already admitted updates and their evidence remain.")) return;
+        save.disabled = true;
+        try {
+          show(await request(`/api/production-targets/${id}/bridge/reviewed-updates`, "POST", {enabled: checkbox.checked, expected_revision: revision, confirmed: true}));
+        } finally { save.disabled = false; }
+      }));
+    }
     card.querySelector("[data-capability-operation]")?.addEventListener("click", (event) => run(async () => {
       const operation = event.currentTarget.dataset.capabilityOperation;
       const warning = operation === "add"
