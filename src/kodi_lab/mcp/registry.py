@@ -295,6 +295,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
+            name="log_scan",
+            schema_revision=1,
+            permissions=frozenset({"target.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset(TargetClass),
+            required_capabilities=frozenset({"target_inspect"}),
+            required_states=frozenset({"reconciled"}),
+            rate_class=ToolRateClass.READ_BOUNDED,
+            adapter="kodi_target.logs.scan",
+            production_eligible=True,
+            target_scope_required=True,
+            scope=ToolScope.TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
             name="inspect_ui_state",
             schema_revision=1,
             permissions=frozenset({"target.inspect"}),

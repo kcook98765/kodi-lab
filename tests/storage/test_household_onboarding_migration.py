@@ -43,12 +43,14 @@ legacy_application = _base_live_application
 def live_application(
     legacy_application: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Any, ...]:
-    # Revision 0071 predates log_read. Model a reviewed legacy-capability Bridge
-    # here; the real current Bridge is exercised against revision 0072 elsewhere.
+    # Keep this frozen-baseline test independent of later log capabilities.
+    # The current Bridge is exercised against the current schema elsewhere.
     bridge = legacy_application[3]
     legacy = {
-        "CAPABILITIES": [c for c in bridge["CAPABILITIES"] if c != "log_read"],
-        "OPERATIONS": bridge["OPERATIONS"] - {"log_read"},
+        "CAPABILITIES": [
+            c for c in bridge["CAPABILITIES"] if c not in {"log_read", "log_scan"}
+        ],
+        "OPERATIONS": bridge["OPERATIONS"] - {"log_read", "log_scan"},
         "BUILD_FINGERPRINT": hashlib.sha256(
             b"household-migration-legacy-capability-test-double"
         ).hexdigest(),

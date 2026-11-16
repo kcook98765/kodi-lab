@@ -8216,3 +8216,30 @@ revocation and proven retirement remain durable. Expiry or disconnect never
 frees an unproven controller. No schema, SQLite durability/journal, timeout,
 helper/runtime or general leasing-system change. See
 [the ownership contract and regression evidence](VIEWER-OWNERSHIP.md).
+
+## D-0502: Bridge-side log scans use fixed boundaries and bounded ephemeral cursors
+
+Issue #375 adds a separate read-only `log_scan` operation and capability, preserving
+the `log_read` stats/tail contract. Route both through the same target.inspect,
+production eligibility/acknowledgement, exact identity, confinement and publication
+reauthorization path. A Lab-supplied MCP-client binding joins the authenticated
+target/Bridge/credential and exact query in each Bridge-owned cursor.
+
+Count logical severity-header records with streaming literal matching and naive
+Kodi-local timestamp filters; never assume chronological ordering. Carry pending
+records, UTF-8 bytes and literal overlap across slices; bound excerpts independently
+from byte/time/concurrency work. Return cumulative counts and progress even with
+zero matches. Cursor state is bounded, process-local and expires absolutely.
+
+Fix each file's end at its initial observed size. Retain a read-only identity
+descriptor while that file is active so unlink/recreation cannot reuse its inode;
+close it on completion, failure, expiry or shutdown. Idle expiry uses the existing
+HTTP service loop and never waits for the scan lock. Metadata-only growth is not
+proof of append-only writes: after growth, verify the entire fixed-prefix digest
+in a second budgeted pass with stable metadata. If continuity cannot be proved,
+return changed/incomplete. Both files remain independent observations. Detailed
+limits and semantics are in [KODI-LOGS.md](KODI-LOGS.md).
+
+Publish new reviewed stable/overlay identities 1.1.33/1.1.34 and retain all old
+artifact identities and inventories, including 1.1.31/1.1.32. The schema capability
+extension grants no authority and performs no target installation or pairing.

@@ -154,7 +154,7 @@ def test_local_pairing_reset_invalidates_old_credential_and_preserves_identity(
         assert store.status(paired=False)["code"] == fresh_code
         info = client.bootstrap_info(_endpoint(), bridge_port=port)
         assert str(info.bridge_id) == old_bridge_id
-        assert info.addon_version == "1.1.31"
+        assert info.addon_version == "1.1.33"
     restarted = _load(
         monkeypatch, state_path=state_path, onboarding_path=onboarding_path
     )
@@ -268,7 +268,7 @@ def test_bootstrap_provisional_commit_and_idempotent_recovery(
             bridge_id=result.bridge_id,
             secret=secret,
         )
-        assert identity.addon_version == "1.1.31"
+        assert identity.addon_version == "1.1.33"
         assert identity.build_fingerprint == info.build_fingerprint
         with pytest.raises(ExternalBridgeError, match="pairing_code_unavailable"):
             client.bootstrap_info(_endpoint(), bridge_port=port)
@@ -469,6 +469,7 @@ def test_lab_stages_existing_target_then_commits_without_schema_change(
         assert paired.pinned_bridge_id == pending.observed_bridge_id
         assert paired.verified_capabilities == (
             "log_read",
+            "log_scan",
             "screenshot",
             "ui_observation",
             "workspace_deployment",

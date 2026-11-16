@@ -10,6 +10,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import overload
 from uuid import UUID, uuid4
 
 import httpx
@@ -17,7 +18,12 @@ from pydantic import ValidationError
 
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.kodi.launch import BridgeLaunchIntent, BridgeLaunchReceipt
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanBridgeRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.screenshots import (
     MAX_PNG_BYTES,
     PNG_MIME_TYPE,
@@ -32,10 +38,10 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.31"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.33"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 BRIDGE_CAPABILITIES = frozenset(
-    {"screenshot", "workspace_deployment", "ui_observation", "log_read"}
+    {"screenshot", "workspace_deployment", "ui_observation", "log_read", "log_scan"}
 )
 BRIDGE_JSON_ERROR_CODES = frozenset(
     {
@@ -44,6 +50,8 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
         "settings_request_failed",
         "log_request_invalid",
         "log_read_busy",
+        "log_scan_busy",
+        "log_cursor_invalid",
         "log_missing",
         "log_changed",
         "log_unavailable",
@@ -63,6 +71,7 @@ BRIDGE_OPERATIONS = frozenset(
         "managed_addon_settings_set",
         "managed_launch_receipt",
         "log_read",
+        "log_scan",
         "inspect_ui_state",
         "bridge_identity",
         "bridge_capabilities",
@@ -652,6 +661,7 @@ class ExternalBridgeClient:
             raise ExternalBridgeError("bridge_capability_unavailable")
         return tuple(sorted(values))
 
+    @overload
     def read_log(
         self,
         endpoint: ValidatedExternalEndpoint,
@@ -661,20 +671,49 @@ class ExternalBridgeClient:
         bridge_id: UUID,
         secret: bytes,
         request: KodiLogRequest,
-    ) -> tuple[BridgeIdentity, KodiLogResult]:
+    ) -> tuple[BridgeIdentity, KodiLogResult]: ...
+
+    @overload
+    def read_log(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        request: KodiLogScanBridgeRequest,
+    ) -> tuple[BridgeIdentity, KodiLogScanResult]: ...
+
+    def read_log(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        request: KodiLogRequest | KodiLogScanBridgeRequest,
+    ) -> tuple[BridgeIdentity, KodiLogResult | KodiLogScanResult]:
+        scanning = isinstance(request, KodiLogScanBridgeRequest)
+        key = "scan" if scanning else "log"
         payload = self._authenticated_json(
             endpoint,
             bridge_port=bridge_port,
             target_id=target_id,
             bridge_id=bridge_id,
             secret=secret,
-            operation="log_read",
+            operation="log_scan" if scanning else "log_read",
             payload=request.model_dump(),
         )
         try:
-            if not isinstance(payload, dict) or set(payload) != {"identity", "log"}:
+            if not isinstance(payload, dict) or set(payload) != {"identity", key}:
                 raise ValueError("invalid log envelope")
-            result = KodiLogResult.model_validate(payload["log"])
+            if isinstance(request, KodiLogScanBridgeRequest):
+                scanned = KodiLogScanResult.model_validate(payload[key])
+                scanned.require_request(request)
+                return self._identity(payload["identity"]), scanned
+            result = KodiLogResult.model_validate(payload[key])
             result.require_request(request)
             return self._identity(payload["identity"]), result
         except ValueError as error:

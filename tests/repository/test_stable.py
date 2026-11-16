@@ -30,7 +30,7 @@ def candidate(tmp_path: Path) -> Path:
     bundle = tmp_path / "candidate"
     (bundle / "bridge").mkdir(parents=True)
     (bundle / "repository").mkdir()
-    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.31.zip"
+    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.33.zip"
     build_archive(ROOT / "bridge/service.kodi_lab_bridge", bridge)
     assert sha256(bridge.read_bytes()) == BRIDGE_SHA256
     stable = ROOT / "repository/STABLE.json"
@@ -38,10 +38,10 @@ def candidate(tmp_path: Path) -> Path:
     provenance = {
         "schema": "kodi-lab-bridge-artifact-v1",
         "addon_id": "service.kodi_lab_bridge",
-        "version": "1.1.31",
+        "version": "1.1.33",
         "sha256": BRIDGE_SHA256,
         "semantic_fingerprint": (
-            "e18b4176611506335316a41e4dee9ea2ed113f8b5e7a0b95f6c156597d1618be"
+            "160258994be910987eb6a84352b1ac2eb238e71fa6107f703daff42244009fc1"
         ),
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
@@ -54,6 +54,7 @@ def candidate(tmp_path: Path) -> Path:
             "workspace_deployment",
             "ui_observation",
             "log_read",
+            "log_scan",
         ],
     }
     (bundle / "bridge/BRIDGE.json").write_bytes(canonical(provenance))
@@ -62,7 +63,7 @@ def candidate(tmp_path: Path) -> Path:
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
         "bridge": {
-            "zip": "bridge/service.kodi_lab_bridge-1.1.31.zip",
+            "zip": "bridge/service.kodi_lab_bridge-1.1.33.zip",
             "provenance": "bridge/BRIDGE.json",
         },
         "files": {
@@ -70,7 +71,7 @@ def candidate(tmp_path: Path) -> Path:
                 "sha256": "sha256:" + sha256(stable.read_bytes()),
                 "size": stable.stat().st_size,
             },
-            "bridge/service.kodi_lab_bridge-1.1.31.zip": {
+            "bridge/service.kodi_lab_bridge-1.1.33.zip": {
                 "sha256": "sha256:" + BRIDGE_SHA256,
                 "size": bridge.stat().st_size,
             },
@@ -128,7 +129,7 @@ def test_generation_is_deterministic_and_restarts(tmp_path: Path) -> None:
         stat.S_IMODE(
             (
                 data
-                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.31.zip"
+                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.33.zip"
             )
             .stat()
             .st_mode

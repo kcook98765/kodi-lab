@@ -119,16 +119,17 @@ def ready_web(
                 "semantic_fingerprint": bridge["BUILD_FINGERPRINT"],
                 "zip_sha256": "a" * 64,
                 "addon_id": "service.kodi_lab_bridge",
-                "addon_version": "1.1.31",
+                "addon_version": "1.1.33",
                 "protocol_version": "1",
                 "capabilities": [
                     "screenshot",
                     "workspace_deployment",
                     "ui_observation",
                     "log_read",
+                    "log_scan",
                 ],
                 "supported_kodi_versions": ["21.3"],
-                "source_reference": "controlled bridge 1.1.31 fixture",
+                "source_reference": "controlled bridge 1.1.33 fixture",
             },
             headers=headers,
         )
@@ -249,7 +250,7 @@ def test_fresh_production_web_pairing_uses_otp_not_rejected_pair_bridge(
     pair = _pair(client, target_id, csrf, port, code)
     assert pair.status_code == 200, pair.json()
     assert pair.json()["pairing_state"] == "pairing_pending"
-    assert pair.json()["observed_addon_version"] == "1.1.31"
+    assert pair.json()["observed_addon_version"] == "1.1.33"
     assert "credential" not in pair.text and code not in pair.text
     page = client.get("/production-targets")
     assert "Provisional bridge identity is recorded" in page.text

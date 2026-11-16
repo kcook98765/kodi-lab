@@ -109,7 +109,7 @@ class WebEnvironment:
 
         from tests.application.test_managed_bridge_preparation import Native
 
-        self.bridge_native = Native(self, "1.1.31")  # type: ignore[arg-type]
+        self.bridge_native = Native(self, "1.1.33")  # type: ignore[arg-type]
         self.bridge_client = Client()
         self.app.state.kodi_lab.managed_bridge_trust.close()
         self.app.state.kodi_lab.managed_bridge_trust.client = self.bridge_client

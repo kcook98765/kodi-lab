@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, Table, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -87,5 +88,5 @@ def test_populated_binding_preserves_history(
         ).fetchone() == ("active",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0014_human_reset_bridge",)
+        ).fetchone() == (ScriptDirectory.from_config(config).get_current_head(),)
     engine.dispose()

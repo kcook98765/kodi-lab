@@ -15,6 +15,7 @@ _INVENTORY = (
     "README.md",
     "addon.xml",
     "narrow_bridge.py",
+    "log_scan.py",
     "ui_observation.py",
     "onboarding.py",
     "pairing_ui.py",
@@ -23,7 +24,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "f565cbe885d26a6f1da7a25c4952798edf13e607d9921c89eefbc0c78cb68fff"
+RC1_ARCHIVE_SHA256 = "a77f9aa00ff94dbf1e3d9bc983beb25e923393f3b9ad1551458d16c2b3264867"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,14 +85,14 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.31"', b'version="1.1.32"'
+        b'version="1.1.33"', b'version="1.1.34"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.31"', b'ADDON_VERSION = "1.1.32"')
-    source = source.replace(b"|1.1.31|protocol-1|", b"|1.1.32|protocol-1|")
+    source = source.replace(b'ADDON_VERSION = "1.1.33"', b'ADDON_VERSION = "1.1.34"')
+    source = source.replace(b"|1.1.33|protocol-1|", b"|1.1.34|protocol-1|")
     source = source.replace(
-        b',managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent"',
-        b',managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,exact-release"',
+        b',managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan"',
+        b',managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan,exact-release"',
     )
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")

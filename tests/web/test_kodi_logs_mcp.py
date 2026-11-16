@@ -11,7 +11,7 @@ from sqlalchemy import delete
 
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.storage.models import McpClientTargetGrantRow
-from tests.application.test_mcp_kodi_logs import excerpt
+from tests.application.test_mcp_kodi_logs import excerpt, scan_excerpt
 from tests.web.conftest import (
     INSTANCE_ID,
     UNRELATED_INSTANCE_ID,
@@ -20,6 +20,7 @@ from tests.web.conftest import (
 from tests.web.test_mcp import _authority, _post
 
 
+@pytest.mark.parametrize("tool_name", ["log_read", "log_scan"])
 @pytest.mark.parametrize("revoke", [False, True])
 def test_read_only_catalog_call_limits_grants_and_content_free_audit(
     client: TestClient,
@@ -28,6 +29,7 @@ def test_read_only_catalog_call_limits_grants_and_content_free_audit(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     revoke: bool,
+    tool_name: str,
 ) -> None:
     # Alembic's test logging configuration may disable existing loggers. Audit
     # assertions must exercise an enabled logger rather than depend on order.
@@ -45,11 +47,12 @@ def test_read_only_catalog_call_limits_grants_and_content_free_audit(
                         McpClientTargetGrantRow.client_id == str(client_id)
                     )
                 )
-        return excerpt(request)
+        return scan_excerpt(request) if tool_name == "log_scan" else excerpt(request)
 
     monkeypatch.setattr(KodiTargetAdapterService, "read_log", read)
     catalog = _post(client, token, "tools/list").json()["result"]["tools"]
-    tool = next(t for t in catalog if t["name"] == "log_read")
+    tool = next(t for t in catalog if t["name"] == tool_name)
+    assert "client_binding" not in tool["inputSchema"]["properties"]
     assert tool["annotations"]["readOnlyHint"] is True
     assert "remote_action" not in {t["name"] for t in catalog}
     with caplog.at_level(logging.INFO, logger="kodi_lab.mcp"):
@@ -58,20 +61,32 @@ def test_read_only_catalog_call_limits_grants_and_content_free_audit(
             token,
             "tools/call",
             params={
-                "name": "log_read",
-                "arguments": {"target_id": str(INSTANCE_ID), "mode": "tail"},
+                "name": tool_name,
+                "arguments": {
+                    "target_id": str(INSTANCE_ID),
+                    **({"mode": "tail"} if tool_name == "log_read" else {}),
+                },
             },
         ).json()["result"]
     assert called == [INSTANCE_ID]
     if revoke:
         assert result["isError"]
         assert "sensitive log marker" not in json.dumps(result)
+        assert "sensitive scan marker" not in json.dumps(result)
     else:
         assert not result.get("isError", False)
         jsonschema.validate(result["structuredContent"], tool["outputSchema"])
-        assert result["structuredContent"]["content"] == "sensitive log marker\n"
+        if tool_name == "log_scan":
+            assert result["structuredContent"]["counts_exact"]
+            assert (
+                result["structuredContent"]["matches"][0]["content"]
+                == "sensitive scan marker"
+            )
+        else:
+            assert result["structuredContent"]["content"] == "sensitive log marker\n"
     assert "sensitive log marker" not in caplog.text
-    assert '"tool":"log_read"' in caplog.text
+    assert "sensitive scan marker" not in caplog.text
+    assert f'"tool":"{tool_name}"' in caplog.text
     assert len(called) == 1
 
 
@@ -102,8 +117,9 @@ def test_wire_rejects_arbitrary_paths_and_excess_limits_before_adapter(
     assert result.get("error") or result["result"]["isError"]
 
 
+@pytest.mark.parametrize("tool_name", ["log_read", "log_scan"])
 def test_ungranted_target_never_reaches_adapter(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tool_name: str
 ) -> None:
     _, token = _authority(client)
     monkeypatch.setattr(
@@ -116,7 +132,7 @@ def test_ungranted_target_never_reaches_adapter(
         token,
         "tools/call",
         params={
-            "name": "log_read",
+            "name": tool_name,
             "arguments": {"target_id": str(UNRELATED_INSTANCE_ID)},
         },
     ).json()["result"]

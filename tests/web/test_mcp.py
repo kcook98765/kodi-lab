@@ -301,6 +301,7 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "screenshot_capture",
         "screenshot_retrieve",
         "target_list",
@@ -397,6 +398,7 @@ def test_managed_target_list_projects_supported_tools_without_grant_escalation(
         "screenshot_capture",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
     ]
     assert status_lookups == [INSTANCE_ID]
     assert listed["process_state"] != "running"
@@ -453,6 +455,7 @@ def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
         "remote_action",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
     ]
     assert external["process_state"] == "unknown"
     assert external["jsonrpc_state"] == "not_checked"
@@ -510,6 +513,7 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
                     "addon_list",
                     "inspect_ui_state",
                     "log_read",
+                    "log_scan",
                     "screenshot_capture",
                     "screenshot_retrieve",
                     "target_list",
@@ -593,6 +597,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "development_source_list",
                     "inspect_ui_state",
                     "log_read",
+                    "log_scan",
                     "promotion_request",
                     "remote_action",
                     "screenshot_capture",
@@ -1025,6 +1030,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "development_source_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "promotion_request",
         "remote_action",
         "screenshot_capture",
@@ -1425,6 +1431,7 @@ def test_legacy_http_malformed_input_and_downgrade_matrix(
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "screenshot_capture",
         "screenshot_retrieve",
         "target_list",

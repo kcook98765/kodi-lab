@@ -147,6 +147,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "development_source_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "managed_ensure_ready",
         "managed_release",
         "managed_reset",

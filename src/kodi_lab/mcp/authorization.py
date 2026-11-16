@@ -373,7 +373,7 @@ class McpAuthorizationService:
         performs no additional native probe after the failed observation.
         """
         definition = self._definition(tool_name)
-        if tool_name not in {"inspect_ui_state", "log_read"}:
+        if tool_name not in {"inspect_ui_state", "log_read", "log_scan"}:
             raise McpAuthorizationError("permission_denied")
         with self._session_factory() as session:
             client = session.get(McpClientRow, str(principal.client_id))
@@ -1244,6 +1244,7 @@ class McpAuthorizationService:
                 "addon_list",
                 "inspect_ui_state",
                 "log_read",
+                "log_scan",
                 "screenshot_capture",
             }
         ):
@@ -1470,17 +1471,21 @@ class McpAuthorizationService:
             result = adapter()
         except McpAuthorizationError as error:
             if (
-                production or tool_name == "log_read"
+                production or tool_name in {"log_read", "log_scan"}
             ) and error.code != "identity_mismatch":
                 # Even bounded failure classifications are not disclosed after
                 # durable production authority changes during network work.
                 self.authorize_target(principal, tool_name, target_id)
             raise
         except Exception:
-            if production or tool_name == "log_read":
+            if production or tool_name in {"log_read", "log_scan"}:
                 self.authorize_target(principal, tool_name, target_id)
             raise
-        if production or preference_revision is not None or tool_name == "log_read":
+        if (
+            production
+            or preference_revision is not None
+            or tool_name in {"log_read", "log_scan"}
+        ):
             # A result is not publishable unless the entire durable authority
             # intersection still holds after the fresh native read.
             try:

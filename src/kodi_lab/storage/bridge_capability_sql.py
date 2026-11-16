@@ -5,7 +5,13 @@ import json
 
 
 def _sets(*, reviewed: bool) -> str:
-    values = ("log_read", "screenshot", "ui_observation", "workspace_deployment")
+    values = (
+        "log_read",
+        "log_scan",
+        "screenshot",
+        "ui_observation",
+        "workspace_deployment",
+    )
     return (
         "("
         + ",".join(
