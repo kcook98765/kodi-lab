@@ -605,6 +605,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.addon_settings import AddonSettingsSetResult
 from kodi_lab.kodi.bridge import (
+    BRIDGE_CAPABILITIES,
     SUPPORTED_V1_BRIDGE_ADDON_VERSION,
     ExternalBridgeClient,
 )
@@ -1259,7 +1260,9 @@ class ReviewedBridgeBuildRequest(BaseModel):
     addon_id: str = Field(min_length=1, max_length=128)
     addon_version: str = Field(min_length=1, max_length=64)
     protocol_version: str = Field(min_length=1, max_length=16)
-    capabilities: tuple[str, ...] = Field(min_length=1, max_length=4)
+    capabilities: tuple[str, ...] = Field(
+        min_length=1, max_length=len(BRIDGE_CAPABILITIES)
+    )
     supported_kodi_versions: tuple[str, ...] = Field(min_length=1, max_length=8)
     source_reference: str = Field(min_length=1, max_length=512)
 

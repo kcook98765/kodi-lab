@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
+from typing import overload
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -59,7 +60,12 @@ from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ValidatedExternalEndpoint,
 )
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanBridgeRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
@@ -1562,13 +1568,26 @@ class ExternalBridgeService:
             and set(identity.capabilities) == set(capabilities)
         )
 
-    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+    @overload
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult: ...
+
+    @overload
+    def read_log(
+        self, target_id: UUID, request: KodiLogScanBridgeRequest
+    ) -> KodiLogScanResult: ...
+
+    def read_log(
+        self, target_id: UUID, request: KodiLogRequest | KodiLogScanBridgeRequest
+    ) -> KodiLogResult | KodiLogScanResult:
+        capability = (
+            "log_scan" if isinstance(request, KodiLogScanBridgeRequest) else "log_read"
+        )
         snapshot = self._active_snapshot(
             target_id, allow_no_configured_bridge_capability=True
         )
         with self._sessions() as session:
             pairing = session.get(ExternalBridgePairingRow, str(target_id))
-            if pairing is None or "log_read" not in self._parse_closed(
+            if pairing is None or capability not in self._parse_closed(
                 pairing.observed_capabilities_json
             ):
                 raise ExternalBridgeServiceError("bridge_capability_unavailable")
@@ -1578,7 +1597,7 @@ class ExternalBridgeService:
                     if pairing
                     else None
                 )
-                if reviewed is None or "log_read" not in self._parse_closed(
+                if reviewed is None or capability not in self._parse_closed(
                     reviewed.capabilities_json
                 ):
                     raise ExternalBridgeServiceError("bridge_capability_unavailable")
@@ -1592,7 +1611,7 @@ class ExternalBridgeService:
                 request=request,
             )
             self._require_pinned_identity(snapshot, identity)
-            if "log_read" not in identity.capabilities:
+            if capability not in identity.capabilities:
                 raise ExternalBridgeServiceError("bridge_capability_unavailable")
             if (
                 self._active_snapshot(

@@ -25,8 +25,48 @@ from tests.storage.test_ui_observation_migration import (
     _triggers,
 )
 
-PREDECESSOR = "0001_initial_release"
-REVISION = "0001_initial_release"
+PREDECESSOR = "0014_human_reset_bridge"
+REVISION = "0015_log_scan_capability"
+
+
+@pytest.mark.parametrize("admit_scan", [False, True])
+def test_scan_capability_direct_predecessor_and_downgrade(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    admit_scan: bool,
+) -> None:
+    config, database = _config(tmp_path, monkeypatch)
+    command.upgrade(config, PREDECESSOR)
+    with sqlite3.connect(database) as connection:
+        _review(connection, '["log_read","screenshot"]', 1)
+        rows = connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
+    original = _triggers(database)
+    command.upgrade(config, REVISION)
+    assert _triggers(database) == original
+    with sqlite3.connect(database) as connection:
+        assert (
+            connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
+            == rows
+        )
+        if admit_scan:
+            _review(connection, '["log_read","log_scan","screenshot"]', 2)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            _review(connection, '["filesystem","screenshot"]', 3)
+    if admit_scan:
+        with pytest.raises(RuntimeError, match="refusing lossy downgrade"):
+            command.downgrade(config, PREDECESSOR)
+        assert _revision(database) == REVISION
+    else:
+        command.downgrade(config, PREDECESSOR)
+        assert _revision(database) == PREDECESSOR
+        with sqlite3.connect(database) as connection:
+            assert (
+                connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
+                == rows
+            )
+            with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+                _review(connection, '["log_scan","screenshot"]', 2)
+    assert _triggers(database) == original
 
 
 def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
@@ -35,7 +75,6 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
     command.upgrade(config, PREDECESSOR)
-    command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target = uuid4()
@@ -105,6 +144,7 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
         )
         result = service.commit_otp_pairing(target)
         assert "log_read" in result.observed_capabilities
+        assert "log_scan" in result.observed_capabilities
     with sqlite3.connect(database) as connection:
         before = connection.execute("SELECT * FROM external_bridge_pairings").fetchall()
         capabilities = json.loads(
@@ -113,6 +153,7 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
             ).fetchone()[0]
         )
         assert "log_read" in capabilities
+        assert "log_scan" in capabilities
     with sqlite3.connect(database) as connection:
         assert (
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()

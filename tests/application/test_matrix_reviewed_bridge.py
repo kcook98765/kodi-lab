@@ -33,7 +33,7 @@ def test_matrix_explicit_install_authentication_restart_and_settings_refusal(
 ) -> None:
     owner, broker, _, secrets = setup
     native = matrix(setup, monkeypatch)
-    assert owner.status(INSTANCE_ID)["addon_version"] == "1.1.31"
+    assert owner.status(INSTANCE_ID)["addon_version"] == "1.1.33"
     assert not owner.prepare(INSTANCE_ID)
     assert broker.establishments == 0
     owner.stage_reviewed(INSTANCE_ID)
@@ -108,7 +108,7 @@ def test_matrix_prerequisites_offer_only_explicit_reviewed_install(
     native = matrix(setup, monkeypatch)
     service = ManagedCapabilityPrerequisiteService(owner.sessions)
     before = service.inspect(INSTANCE_ID)
-    assert before.candidate_addon_version == "1.1.31"
+    assert before.candidate_addon_version == "1.1.33"
     assert broker.establishments == client.calls == 0 and not native.calls
     owner.stage_reviewed(INSTANCE_ID)
     prepared = service.inspect(INSTANCE_ID)

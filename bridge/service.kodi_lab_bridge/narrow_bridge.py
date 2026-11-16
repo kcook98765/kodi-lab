@@ -25,16 +25,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import xbmc
 import xbmcaddon
 import xbmcvfs
+from log_scan import ScanError, ScanStore
 from onboarding import BOOTSTRAP_VERSION, OnboardingError, OnboardingStore, _file_lock
 
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.31"
-CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
+ADDON_VERSION = "1.1.33"
+CAPABILITIES = [
+    "screenshot",
+    "workspace_deployment",
+    "ui_observation",
+    "log_read",
+    "log_scan",
+]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.31|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent"
+    b"kodi-lab-narrow-bridge|1.1.33|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -70,6 +77,7 @@ OPERATIONS = {
     "managed_launch",
     "managed_launch_receipt",
     "log_read",
+    "log_scan",
     "inspect_ui_state",
     "bridge_identity",
     "bridge_capabilities",
@@ -86,6 +94,7 @@ _STATE_LOCK = threading.Lock()
 _RESPONSE_LOCK = threading.Lock()
 _CAPTURE_LOCK = threading.Lock()
 _LOG_LOCK = threading.Lock()
+_LOG_SCANS = ScanStore()
 _DEPLOYMENT_LOCK = threading.Lock()
 _RESPONSES = OrderedDict()
 
@@ -248,6 +257,57 @@ def _read_log(payload):
         raise LogReadError("log_unavailable") from None
     finally:
         _LOG_LOCK.release()
+
+
+@contextmanager
+def _open_scan_log(log):
+    """Reuse the fixed log paths and descriptor/ancestor confinement of log_read."""
+    name = "kodi.log" if log == "current" else "kodi.old.log"
+    root = xbmcvfs.translatePath("special://logpath")
+    if not os.path.isabs(root):
+        raise OSError("log unavailable")
+    path = os.path.join(root, name)
+    with _deployment_directory(root, traverse_only=True) as parent:
+        descriptor = (
+            _windows_open_nofollow(path)
+            if os.name == "nt"
+            else os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+            )
+        )
+        with os.fdopen(descriptor, "rb") as stream:
+
+            def observe():
+                metadata = os.fstat(stream.fileno())
+                current = (
+                    os.lstat(path)
+                    if os.name == "nt"
+                    else os.stat(name, dir_fd=parent, follow_symlinks=False)
+                )
+                if (
+                    _unsafe_file(metadata)
+                    or _unsafe_file(current)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or not stat.S_ISREG(current.st_mode)
+                    or metadata.st_nlink != 1
+                    or current.st_nlink != 1
+                    or _file_identity(metadata) is None
+                    or not 0 <= metadata.st_size <= 2**63 - 1
+                    or _log_snapshot(metadata) != _log_snapshot(current)
+                ):
+                    raise ValueError("log changed or unavailable")
+                if os.name == "nt":
+                    info = _windows_handle_info(stream.fileno())
+                    if info is None or info[0] & 0x400 or info[1] != 1:
+                        raise OSError("log unavailable")
+                return (
+                    _file_identity(metadata),
+                    _log_snapshot(metadata),
+                    metadata.st_size,
+                )
+
+            observe()
+            yield stream, observe
 
 
 class ScreenshotError(Exception):
@@ -2970,6 +3030,33 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             self._json_response(document, request_hash, secret, result, cache=False)
+        elif document["operation"] == "log_scan":
+            try:
+                binding = (
+                    document["target_id"],
+                    document["bridge_id"],
+                    hashlib.sha256(secret).hexdigest(),
+                )
+                result = _LOG_SCANS.scan(
+                    document["payload"],
+                    binding,
+                    _open_scan_log,
+                    self.server.stopping.is_set,
+                )
+                # A pairing reset or credential change during work revokes publication.
+                with _state_guard():
+                    current_state = _load_state()
+                    _require_current_pairing(current_state, document, secret)
+            except ScanError as error:
+                self._json_error_response(document, request_hash, secret, error.code)
+                return
+            self._json_response(
+                document,
+                request_hash,
+                secret,
+                {"identity": _identity(current_state), "scan": result},
+                cache=False,
+            )
         elif document["operation"] == "log_read":
             try:
                 result = _read_log(document["payload"])
@@ -3548,6 +3635,8 @@ class Handler(BaseHTTPRequestHandler):
             "launch_dispatch_unconfirmed",
             "log_request_invalid",
             "log_read_busy",
+            "log_scan_busy",
+            "log_cursor_invalid",
             "log_missing",
             "log_changed",
             "log_unavailable",
@@ -3734,6 +3823,14 @@ class Server(ThreadingHTTPServer):
     def __init__(self, *args, **kwargs):
         self.stopping = threading.Event()
         super().__init__(*args, **kwargs)
+
+    def service_actions(self):
+        _LOG_SCANS.prune()
+
+    def server_close(self):
+        self.stopping.set()
+        _LOG_SCANS.shutdown()
+        super().server_close()
 
 
 def run():

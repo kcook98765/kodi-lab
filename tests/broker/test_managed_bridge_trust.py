@@ -48,13 +48,13 @@ def test_manifest_matches_packaged_approved_bridge() -> None:
 
 def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
     legacy = approved_bridge_build()
-    assert legacy["addon_version"] == "1.1.31"
+    assert legacy["addon_version"] == "1.1.33"
     assert legacy["build_fingerprint"] == (
-        "e18b4176611506335316a41e4dee9ea2ed113f8b5e7a0b95f6c156597d1618be"
+        "160258994be910987eb6a84352b1ac2eb238e71fa6107f703daff42244009fc1"
     )
     assert approved_bridge_build("21.3") == legacy
     assert approved_bridge_build("20.5") == legacy
-    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.32"
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.34"
 
 
 @pytest.mark.parametrize("release", ["19.4", "19.5", "20.5", "20.4"])
@@ -366,6 +366,16 @@ def test_partial_publication_removes_private_staging_material(tmp_path: Path) ->
             "1.1.30",
             "22.0-rc.2",
             "931f79b961146b93de2b79cc440af9851848e9655eba3f2b8319329e77213b04",
+        ),
+        (
+            "1.1.31",
+            "21.3",
+            "213e56cde46e10017c67a9f5fbd32a2be29023870bc99acacce26d28b45d955f",
+        ),
+        (
+            "1.1.32",
+            "22.0-rc.1",
+            "f565cbe885d26a6f1da7a25c4952798edf13e607d9921c89eefbc0c78cb68fff",
         ),
     ],
 )

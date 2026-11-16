@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol, cast
+from typing import Protocol, cast, overload
 from uuid import UUID, uuid4
 
 import httpx
@@ -74,7 +74,12 @@ from kodi_lab.kodi.external import (
     ProductionKodiIdentityResult,
     ValidatedExternalEndpoint,
 )
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanBridgeRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.remote import (
     BrowserRemoteAction,
     RemoteActionAmbiguousError,
@@ -143,6 +148,7 @@ _TARGET_TOOL_CAPABILITIES = (
     ("screenshot_capture", "screenshot"),
     ("inspect_ui_state", "target_inspect"),
     ("log_read", "target_inspect"),
+    ("log_scan", "target_inspect"),
 )
 
 
@@ -615,7 +621,17 @@ class KodiTargetAdapterService:
         except ExternalProbeError as error:
             raise KodiTargetAdapterError(error.code) from error
 
-    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+    @overload
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult: ...
+
+    @overload
+    def read_log(
+        self, target_id: UUID, request: KodiLogScanBridgeRequest
+    ) -> KodiLogScanResult: ...
+
+    def read_log(
+        self, target_id: UUID, request: KodiLogRequest | KodiLogScanBridgeRequest
+    ) -> KodiLogResult | KodiLogScanResult:
         try:
             with self._gate.enter(target_id):
                 if self._target_type(target_id) is TargetType.MANAGED:

@@ -8,7 +8,7 @@ import json
 import threading
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, overload
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
@@ -183,7 +183,13 @@ from kodi_lab.kodi.addon_settings import (
     AddonSettingsSetResult,
 )
 from kodi_lab.kodi.bridge import ExternalBridgeError
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanBridgeRequest,
+    KodiLogScanRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.kodi.ui_state import UiObservation
@@ -2185,10 +2191,45 @@ class McpTargetToolService:
         self._require_bounded(metadata)
         return ScreenshotToolResult(metadata=metadata, png=png)
 
+    def scan_log(
+        self, principal: McpPrincipal, *, target_id: UUID, request: KodiLogScanRequest
+    ) -> KodiLogScanResult:
+        bound = KodiLogScanBridgeRequest.model_validate(
+            {
+                **request.model_dump(),
+                "client_binding": hashlib.sha256(
+                    f"{principal.client_id}:{principal.credential_id}".encode()
+                ).hexdigest(),
+            }
+        )
+        return self.read_log(principal, target_id=target_id, request=bound)
+
+    @overload
     def read_log(
         self, principal: McpPrincipal, *, target_id: UUID, request: KodiLogRequest
-    ) -> KodiLogResult:
-        def read() -> KodiLogResult:
+    ) -> KodiLogResult: ...
+
+    @overload
+    def read_log(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request: KodiLogScanBridgeRequest,
+    ) -> KodiLogScanResult: ...
+
+    def read_log(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request: KodiLogRequest | KodiLogScanBridgeRequest,
+    ) -> KodiLogResult | KodiLogScanResult:
+        tool_name = (
+            "log_scan" if isinstance(request, KodiLogScanBridgeRequest) else "log_read"
+        )
+
+        def read() -> KodiLogResult | KodiLogScanResult:
             if self._target_adapters is None:
                 raise McpAuthorizationError("capability_unavailable")
             try:
@@ -2205,13 +2246,13 @@ class McpTargetToolService:
                     # Detailed failure facts require current target authority,
                     # including when generic identity errors skip the log fence.
                     self._authorization.authorize_managed_observation_error_detail(
-                        principal, "log_read", target_id
+                        principal, tool_name, target_id
                     )
                 raise McpAuthorizationError(error.code, reason=error.reason) from error
             self._require_bounded(result)
             return result
 
-        return self._authorization.invoke_target(principal, "log_read", target_id, read)
+        return self._authorization.invoke_target(principal, tool_name, target_id, read)
 
     def inspect_ui_state(
         self, principal: McpPrincipal, *, target_id: UUID

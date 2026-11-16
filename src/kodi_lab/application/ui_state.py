@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, overload
 from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -26,7 +26,12 @@ from kodi_lab.broker.docker_inventory import (
 from kodi_lab.broker.errors import ClientError
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import RuntimeExecutionProfile
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanBridgeRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.readiness import (
     JsonRpcInvalidResponseError,
     JsonRpcUnavailableError,
@@ -239,7 +244,17 @@ class ManagedUiObservationService:
         ):
             raise UiObservationError("identity_mismatch")
 
-    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+    @overload
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult: ...
+
+    @overload
+    def read_log(
+        self, target_id: UUID, request: KodiLogScanBridgeRequest
+    ) -> KodiLogScanResult: ...
+
+    def read_log(
+        self, target_id: UUID, request: KodiLogRequest | KodiLogScanBridgeRequest
+    ) -> KodiLogResult | KodiLogScanResult:
         observed, profile = self._admit(target_id)
         if self._bridges is None:
             raise UiObservationError("capability_unavailable")

@@ -14,7 +14,7 @@ then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
 Protocol 1 may advertise `screenshot`, `workspace_deployment` and
-`ui_observation` and `log_read`. Deployment is pathless and
+`ui_observation`, `log_read` and `log_scan`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
 reconciliation are Web-only.
@@ -29,7 +29,7 @@ protocol, Kodi-version or capability mismatch suspends bridge-dependent
 authority. Native read-only inspection remains independent when its native
 trust intersection is still coherent.
 
-Production uses `screenshot` and may use `ui_observation` or `log_read` when the exact reviewed
+Production uses `screenshot` and may use `ui_observation`, `log_read` or `log_scan` when the exact reviewed
 build declares it and existing provenance/transport confirmation is current.
 The bridge is an identity and inspection support component; production control never travels
 through it. The existing `remote_action` service sends only fixed server-owned
@@ -58,9 +58,9 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.27.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.33.zip` and
 `bridge/BRIDGE.json`. The latter
-binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
+binds the ZIP SHA-256, exact eleven-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
 `otp-1`, semantic fingerprint, and MIT license. Verify the full bundle and the
 ZIP before installing it on a remote Kodi box. The ZIP root is
@@ -96,6 +96,12 @@ retain their credentials and observation eligibility; current launch requires th
 new reviewed build and fresh exact-tree evidence.
 
 ## Continue a prepared managed installation
+
+Bridge **1.1.33** adds the separate read-only `log_scan` capability. Its exact-release
+overlay is **1.1.34**. [Log scan limits, continuation and upgrade requirements](KODI-LOGS.md)
+describe the operator-controlled transition. Existing historical identities,
+including 1.1.31/1.1.32, retain their existing permissions and operations. No target
+is upgraded or re-paired by the Lab schema migration or a log request.
 
 The closed managed installer admits exact Nexus **20.5** and Omega **21.3**
 profiles with the same reviewed stable **1.1.27** artifact; the existing

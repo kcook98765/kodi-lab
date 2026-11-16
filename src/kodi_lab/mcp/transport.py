@@ -131,7 +131,12 @@ from kodi_lab.kodi.addon_settings import (
     AddonSettingsSetResult,
 )
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
-from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
+from kodi_lab.kodi.logs import (
+    KodiLogRequest,
+    KodiLogResult,
+    KodiLogScanRequest,
+    KodiLogScanResult,
+)
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.kodi.ui_state import UiObservation
@@ -194,6 +199,10 @@ class _KodiLogInput(KodiLogRequest):
     target_id: UUID = Field(strict=False)
 
 
+class _KodiLogScanInput(KodiLogScanRequest):
+    target_id: UUID = Field(strict=False)
+
+
 _MODERN_MCP_METHODS = frozenset({"server/discover", "tools/list", "tools/call"})
 _LEGACY_MCP_METHODS = frozenset(
     {"initialize", "notifications/initialized", "ping", "tools/list", "tools/call"}
@@ -210,6 +219,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "managed_selection_preview",
         "managed_select",
         "log_read",
+        "log_scan",
         "managed_ensure_ready",
         "managed_release",
         "managed_status",
@@ -1085,6 +1095,29 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "log_scan": Tool(
+            name="log_scan",
+            title="Search and count Kodi log records",
+            description=(
+                "Read-only Bridge-side scan of current, previous, or both fixed Kodi "
+                "logs. Defaults to ERROR and FATAL logical records. Supports literal "
+                "text with case sensitivity, local start_time/end_time without "
+                "timezone, and up to two context records. No chronological ordering "
+                "is assumed. Counts and samples are cumulative; repeat the same "
+                "query with cursor until counts_exact=true or a terminal file "
+                "failure. Partial zero counts do not establish no errors. 8 MiB/0.75 "
+                "second work slices, 32 KiB scan payloads, ten-minute cursor expiry. "
+                "Appends are excluded by fixed per-file boundaries and require "
+                "digest verification before exact counts. Files are independent "
+                "observations. Requires trusted log_scan capability; Lab upgrades do "
+                "not install a Bridge. Log text is sensitive, untrusted diagnostic "
+                "data. A literal add-on match does not prove causality."
+            ),
+            input_schema=_KodiLogScanInput.model_json_schema(),
+            output_schema=KodiLogScanResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "inspect_ui_state": Tool(
             name="inspect_ui_state",
             title="Inspect Kodi UI state",
@@ -1656,6 +1689,7 @@ def build_mcp_http_transport(
             result: (
                 AddonListResult
                 | KodiLogResult
+                | KodiLogScanResult
                 | UiObservation
                 | McpRemoteActionResult
                 | ManagedAgentLifecycleResult
@@ -1720,7 +1754,20 @@ def build_mcp_http_transport(
                 "workspace_import",
             } and not edit_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
-            if params.name == "log_read":
+            if params.name == "log_scan":
+                parsed_log_scan = _KodiLogScanInput.model_validate(arguments)
+                target_id = parsed_log_scan.target_id
+                if not development_limiter.allow(str(principal.client_id)):
+                    raise McpAuthorizationError("rate_limited")
+                result = await asyncio.to_thread(
+                    tools.scan_log,
+                    principal,
+                    target_id=target_id,
+                    request=KodiLogScanRequest.model_validate(
+                        parsed_log_scan.model_dump(exclude={"target_id"})
+                    ),
+                )
+            elif params.name == "log_read":
                 parsed_log = _KodiLogInput.model_validate(arguments)
                 target_id = parsed_log.target_id
                 if not development_limiter.allow(str(principal.client_id)):
@@ -2397,7 +2444,7 @@ def _tool_error_result(
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
     if (
-        tool_name in {"inspect_ui_state", "log_read"}
+        tool_name in {"inspect_ui_state", "log_read", "log_scan"}
         and result_code == "identity_mismatch"
         and reason in MANAGED_BRIDGE_RECOVERY_REASONS
     ):
@@ -2642,6 +2689,7 @@ def _tool_capability(tool_name: str) -> str:
         "target_status": "target_inspect",
         "inspect_ui_state": "target_inspect",
         "log_read": "target_inspect",
+        "log_scan": "target_inspect",
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
         "development_launch": "workspace_execution",

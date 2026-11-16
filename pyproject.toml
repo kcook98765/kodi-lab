@@ -70,6 +70,7 @@ packages = ["src/kodi_lab"]
 "bridge/service.kodi_lab_bridge/README.md" = "kodi_lab/kodi/bridge_source/README.md"
 "bridge/service.kodi_lab_bridge/addon.xml" = "kodi_lab/kodi/bridge_source/addon.xml"
 "bridge/service.kodi_lab_bridge/narrow_bridge.py" = "kodi_lab/kodi/bridge_source/narrow_bridge.py"
+"bridge/service.kodi_lab_bridge/log_scan.py" = "kodi_lab/kodi/bridge_source/log_scan.py"
 "bridge/service.kodi_lab_bridge/ui_observation.py" = "kodi_lab/kodi/bridge_source/ui_observation.py"
 "bridge/service.kodi_lab_bridge/onboarding.py" = "kodi_lab/kodi/bridge_source/onboarding.py"
 "bridge/service.kodi_lab_bridge/pairing_ui.py" = "kodi_lab/kodi/bridge_source/pairing_ui.py"

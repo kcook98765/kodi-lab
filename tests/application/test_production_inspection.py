@@ -727,6 +727,7 @@ def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_ch
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "remote_action",
         "screenshot_capture",
         "screenshot_retrieve",
@@ -1001,7 +1002,7 @@ def test_production_native_timeout_is_target_unreachable(
         env.tools.target_status(env.principal, target_id=env.target_id)
 
 
-def test_registry_allows_exactly_seven_production_tools() -> None:
+def test_registry_allows_only_reviewed_production_tools() -> None:
     registry = build_mcp_tool_registry()
     eligible = {
         definition.name
@@ -1009,13 +1010,14 @@ def test_registry_allows_exactly_seven_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 44
+    assert len(registry.names()) == 45
     assert eligible == {
         "target_list",
         "target_status",
         "addon_list",
         "inspect_ui_state",
         "log_read",
+        "log_scan",
         "screenshot_capture",
         "remote_action",
     }

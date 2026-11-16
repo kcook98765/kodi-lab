@@ -251,6 +251,7 @@ def test_exact_web_authority_and_four_tool_transport(
             "addon_list",
             "inspect_ui_state",
             "log_read",
+            "log_scan",
             "remote_action",
             "screenshot_capture",
             "screenshot_retrieve",

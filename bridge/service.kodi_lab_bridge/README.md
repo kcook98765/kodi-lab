@@ -52,7 +52,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.31 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
+Bridge 1.1.33 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read`, `log_scan` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -152,6 +152,20 @@ Kodi Lab does not automatically install or update this add-on. Follow the
 canonical Kodi Lab bridge and production-validation documentation for the
 detailed operating and recovery procedures.
 
+The authenticated `log_scan` operation scans only those same fixed logs inside
+the Bridge. It uses 8 MiB/0.75-second work slices, 64 KiB reads, a 32 KiB scan-payload
+limit and one concurrent slice. Logical-record counts and bounded samples are
+cumulative. Cursors are bound to pairing, target, MCP client and the exact query,
+expire ten minutes after creation, and occupy at most 16 in-memory states.
+Active files retain at most 32 read-only identity descriptors to prevent inode
+reuse. Completion, failure, idle expiry and shutdown close them. No
+scan body is written to the replay cache or disk. A fixed boundary excludes later
+appends; growth requires a second digest pass with stable metadata before counts
+are exact. Rotation, truncation, replacement, edits or unverifiable continuity
+leave an explicit incomplete result. Severity, literal case-sensitive text,
+local timestamp filters and up to two context records do not grant any mutation
+authority. See the Lab `docs/KODI-LOGS.md` for parsing and continuation semantics.
+
 The authenticated `log_read` operation reads only `kodi.log` and `kodi.old.log`
 from Kodi's `special://logpath`. Its closed payload selects `current` or
 `previous` and `stats` (default, no content) or `tail`. Limits are 500 lines and
@@ -165,9 +179,9 @@ expose the host path. For older excerpts, use `before=start_byte` together with
 absent previous log from an unreachable Bridge or invalid trust. Reads pin path
 ancestors, reject links and nonregular files, and check the file again before
 returning. Log bodies are neither persisted in Bridge state nor replay-cached.
-Existing Bridge installations need this version and the normal trust verification
-before this capability becomes available; MCP inspection grants do not upgrade
-or pair a Bridge.
+Scans require the new `log_scan` capability and normal trust verification.
+Older `log_read`-capable Bridges keep their existing reads. MCP inspection grants
+do not upgrade or pair a Bridge.
 
 Bridge 1.1.23 fixes Android screenshot root privacy and traversal-only storage
 ancestors for logs and deployment. Android noexec mounts retain authenticated
