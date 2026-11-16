@@ -49,6 +49,8 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
         "managed_version_operations",
         "managed_clean_resets",
         "managed_web_intents",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
         "novnc_sessions",
         "managed_remote_guards",
     }
@@ -85,6 +87,8 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
         "managed_version_operations",
         "managed_clean_resets",
         "managed_web_intents",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
     }
     command.upgrade(config, "head")
     engine.dispose()

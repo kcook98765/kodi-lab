@@ -368,6 +368,8 @@ def test_empty_database_initializes_runtime_catalog_head(
         "external_production_policy_revision_guards",
         "production_capability_amendments",
         "production_bridge_http_acknowledgements",
+        "production_bridge_update_policies",
+        "production_bridge_adoptions",
         "production_native_control_http_acknowledgements",
         "production_mutation_control",
         "global_heavy_operation_lease",
