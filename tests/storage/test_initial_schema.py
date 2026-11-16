@@ -151,11 +151,14 @@ def test_sqlite_like_user_tables_are_not_mistaken_for_empty_databases(
 
 
 def test_normal_forward_migration_after_baseline(tmp_path: Path) -> None:
+    current_head = ScriptDirectory.from_config(
+        migration_config(tmp_path / "future.db")
+    ).get_current_head()
     tree = tmp_path / "migrations"
     shutil.copytree(Path(__file__).parents[2] / "migrations", tree)
     (tree / "versions/0002_future.py").write_text(
         "from alembic import op\n"
-        "revision='0002_future'\ndown_revision='0015_log_scan_capability'\n"
+        f"revision='0002_future'\ndown_revision={current_head!r}\n"
         "def upgrade():\n"
         "    op.execute('CREATE TABLE future_data (id INTEGER PRIMARY KEY)')\n"
         "def downgrade(): op.execute('DROP TABLE future_data')\n"
