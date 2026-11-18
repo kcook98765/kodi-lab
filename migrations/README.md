@@ -92,6 +92,18 @@ roles or role audit history, preserving evidence even after revocation.
 Existing sources, workspaces and authority remain unchanged. Used project history
 prevents downgrade; immutable owner/request triggers preserve replay evidence.
 
+`0011_agent_project_versions` updates retained mutation admission for owned
+projects, independently of human session selection. `0012_agent_project_intake`
+adds immutable bounded source-intake provenance; downgrade refuses populated
+provenance. `0013_agent_packages` adds separate owner-scoped original-package
+identities and immutable receipts, with downgrade refused once package history exists.
+
+`0014_human_reset_bridge` records explicit human Reset Bridge-preparation consent.
+Existing intents remain native-only; recorded preparation consent prevents lossy
+downgrade. `0015_log_scan_capability` extends only the closed pairing/reviewed-build
+sets with `log_scan`, preserving rows/triggers and granting no trust or permissions.
+Downgrade refuses while a pairing or reviewed build uses `log_scan`.
+
 `0016_reviewed_bridge_updates` adds owner-controlled, default-OFF production Bridge
 update policy and immutable automatic-adoption receipts. It changes no existing
 rows or consent bindings. Policy revisions are monotonic; receipts and policy
@@ -102,5 +114,7 @@ policy or adoption row exists. See [production operations](../docs/PRODUCTION-OP
 `system_snapshot` capability in the closed pairing/reviewed-build sets. It
 preserves existing rows, triggers, grants and reviewed identities. Downgrade
 refuses when either a pairing or a reviewed build uses the new capability.
-Native-only `system_info` remains independently available in Phase A without
-this migration or any Bridge upgrade.
+Native-only `system_info` requires no Bridge upgrade or new permission.
+The current application still requires schema head `0017_system_snapshot_capability`
+at startup, even when no Bridge enrichment will be used. The earlier Phase A-only
+implementation did not require this migration.

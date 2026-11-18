@@ -3,8 +3,10 @@
 Current client evidence: [Windows acceptance #275](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
 verified Codex CLI **0.169.0** only with explicit `--enable mcp_2026_07_28`.
 Default Codex compatibility is not qualified. The dated closeout matrices below
-retain their original client versions and tool counts; the [README tool matrix](../README.md)
-is the current complete tool inventory.
+retain their original client versions and tool counts; the
+[canonical MCP reference](MCP-TOOLS-AND-PERMISSIONS.md) is the current complete
+46-tool inventory, argument guide and permission matrix. Use its current
+production navigation and screenshot rules instead of historical slice rules.
 
 The phase/slice counts and client matrix below are historical checkpoints.
 Discover the installed toolset through an authenticated client; available tools

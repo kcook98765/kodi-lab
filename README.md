@@ -244,8 +244,13 @@ See [agent-owned projects](docs/AGENT-PROJECTS.md),
 [agent Reset](docs/MANAGED-AGENT-RESET.md) for supported inputs, exact operation
 identity and recovery. Source implementation and fixture success are distinct
 from the [completed core native qualification](docs/PIERS-RC2-QUALIFICATION.md).
-Original-ZIP GUI consumer installation and unattended repository install-by-ID
-remain [deferred](https://github.com/kcook98765/kodi-lab/issues/303#issuecomment-6867724644).
+[Agent-first development #303](https://github.com/kcook98765/kodi-lab/issues/303)
+is complete. Native original-ZIP GUI installation remains unverified and is not
+currently pursued ([#305, Not planned](https://github.com/kcook98765/kodi-lab/issues/305)).
+Unattended repository install-by-ID is unsupported and is not currently pursued
+([#339, Not planned](https://github.com/kcook98765/kodi-lab/issues/339)). Existing
+repository features and ZIP intake/delivery protections remain available under
+their documented limits.
 
 The existing manually selected workflow remains under **Advanced → Development
 tools → Current Managed Kodi**. Its [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development),
@@ -312,9 +317,14 @@ export KODI_LAB_MCP_TOKEN
 opencode
 ```
 
-Ask the agent to list its Kodi targets, inspect the chosen Kodi's health, then
-list its add-ons. Native managed status and add-on inspection need no Bridge
-setup. Screenshots use ordinary inspection permission; external Kodi also needs
+Ask the agent to discover its available tools with MCP `tools/list`, list Kodi
+targets with `target_list({})`, then use the returned exact `target_id` for
+`target_status`, `addon_list` and
+[`system_info({"target_id":"<UUID>"})`](docs/SYSTEM-INFO.md).
+System diagnostics use existing inspection access and work without Bridge;
+optional reviewed Bridge enrichment adds process and profile-filesystem facts.
+Native managed status and add-on inspection need no Bridge setup. Screenshots
+use ordinary inspection permission; external Kodi also needs
 Allow screenshots set to On and verified Bridge support. Richer UI/log inspection
 can require optional Bridge setup. Each tool uses the selected target's ID.
 Configuration syntax and compatibility vary by client. Tested **Codex CLI
@@ -362,6 +372,8 @@ for the Matrix r4 and historical Piers RC1 native development paths. The
   [external Kodi and repository setup](docs/LINUX-V1-INSTALL.md),
   [managed development workflow](docs/MANAGED-AGENT-LOOP.md), and
   [UI inspection](docs/UI-OBSERVATION.md).
+- **Diagnostics:** [System information](docs/SYSTEM-INFO.md) and
+  [bounded log reads, searches and counts](docs/KODI-LOGS.md).
 - **Agents and architecture:** [MCP tools and permissions](docs/MCP-TOOLS-AND-PERMISSIONS.md),
   [MCP development reference](docs/PHASE12-MCP-DEVELOPMENT.md),
   [remote-agent networking](docs/NATIVE-LAN-MCP.md), and

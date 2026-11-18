@@ -33,10 +33,12 @@ conditional/update definitions are unsupported. Legacy bool/number/text declarat
 have a deliberately small supported mapping. Missing, malformed or changed
 definitions fail closed. Existing deployment and add-on enablement are required.
 
-`development.settings.write` is an explicit custom-preset opt-in, denied by
-default. Existing built-ins and implicit clones do not gain it. Both client and
-exact managed target presets require it plus workspace inspection; source grant,
-client-owned workspace binding, target grant and current credential still apply.
+Trusted Managed Lab supplies `development.settings.write` for eligible managed
+work; it does not bypass selected-profile, ownership or runtime prerequisites.
+Other clients need explicit custom-preset opt-in, denied by default: both client
+and exact target presets require it plus `workspace.inspect`, the source and
+target grants, owned workspace binding and current credential. Ordinary built-in
+presets and implicit clones do not acquire settings permission automatically.
 External and production Kodi are excluded. The administrator controls these
 ordinary existing preset/grant interfaces; MCP cannot grant itself authority.
 
@@ -69,10 +71,13 @@ CSRF-protected `POST .../contain` with an empty object. Containment proves the
 original writer is stopped; it does not undo settings or prove they were unchanged.
 A Fresh Test remains a clean profile and does not inherit these settings.
 
-Current write capability requires the reviewed stable Bridge1.1.31 on exact
-Kodi20.5 or21.3. Established27/28/29/30 and older retained identities keep their
-existing authentication/inspection compatibility but cannot use settings writes.
-The RC1 overlay1.1.32 has source/artifact evidence only until separately qualified.
+Current write capability requires the exact current reviewed stable candidate
+Bridge **1.1.35** on **Nexus 20.5 or Omega 21.3**. Historical exact identities
+retain their admitted observation operations but do not satisfy current settings
+admission. Matrix and Piers are not enabled for settings writes. See the
+[Bridge version/capability matrix](BRIDGE.md#version-and-capability-matrix);
+settings operations are private runtime-bound operations, not an advertised
+external Bridge capability.
 Kodi19 provides older typed Addon methods, whereas getSettings and the reviewed
 Settings interface were introduced in20;19 is not enabled by this change.
 Nexus20.5's newer `Settings.set*` methods can verify only an in-memory change:
@@ -87,13 +92,23 @@ Native Ubuntu acceptance and Windows/WSL2 acceptance are separate evidence.
 
 A server-owned deadline refuses starting another setter after API acquisition
 when its write interval has expired. It does not preempt an already-running
-native Kodi setter. Ambiguous work is never repeated. The0086 transition also
-restores the already supported reconstruction lease kind omitted by0077 (#90),
+native Kodi setter. Ambiguous work is never repeated.
+
+Settings receipt/lease storage is included in `0001_initial_release`; the current
+application requires schema head `0017_system_snapshot_capability`. Apply supported
+forward migrations only through the [matched application upgrade procedure](LINUX-V1-UPGRADE-ROLLBACK.md),
+with verified backup and recovery material. Do not apply or stamp a retired
+prerelease revision to enable this capability.
+
+## Historical prerelease migration context
+
+The following records the retired schema transition, not a supported upgrade
+path. The `0086` transition restored the already supported reconstruction lease
+kind omitted by0077 (#90),
 while preserving the actual0085 reverse contract.
 
-The dedicated0086 receipt/typed-lease migration is required for this capability.
-Apply it through the supported matched application update procedure, with a
-verified backup/export, isolated recovery proof and deployment authorization.
+The dedicated `0086` receipt/typed-lease migration was required by that historical
+implementation. Those databases are outside the current supported forward chain.
 
 Historical recovery readers retain explicit compatibility with known0077–0085
 revisions where settings storage did not exist and the closed lease constraint

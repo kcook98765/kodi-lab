@@ -13,7 +13,7 @@ If the bridge is paired to an obsolete Kodi Lab target, use **Pair Kodi Lab** â†
 then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
-Protocol 1 may advertise `screenshot`, `workspace_deployment` and
+Current protocol 1 advertises `screenshot`, `workspace_deployment`,
 `ui_observation`, `log_read`, `log_scan` and `system_snapshot`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
@@ -96,6 +96,64 @@ and refuses unsafe FIFO inspection without blocking. See the
 retain their credentials and observation eligibility; current launch requires the
 new reviewed build and fresh exact-tree evidence.
 
+## Version and capability matrix
+
+Current clean-source bundle staging produces the stable **candidate 1.1.35**;
+managed Piers **22.0-rc.1/22.0-rc.2** uses exact-release preview **1.1.36**.
+These are reviewed source candidates, not a claim of public release publication
+or installation on any target. The generated stable repository serves the ZIP
+bound to that bundle, not whichever Bridge happens to be installed externally.
+Version numbers alone confer no authority: exact fingerprint, archive/inventory,
+native release, capability and current trust checks still apply.
+
+All rows below advertise `screenshot` and development-only
+`workspace_deployment`. The table shows the additional advertised read-only
+capabilities and the exact identities retained by current managed observation
+admission. Preview overlays bind the exact prerelease; they do not admit arbitrary
+Kodi 22 builds. Older release bytes and fingerprints remain immutable.
+
+| Stable / preview identity | Additional advertised capabilities | Current meaning / historical change |
+| --- | --- | --- |
+| 1.1.15 / 1.1.16 | `ui_observation` | Retained established observation identities; protected UI collection. |
+| 1.1.17 / 1.1.18 | `ui_observation` | Retained established identities; Windows installation/error corrections. |
+| 1.1.19 / 1.1.20 | `ui_observation`, `log_read` | Retained established identities; fixed current/previous log reads. |
+| 1.1.23 / 1.1.24 | `ui_observation`, `log_read` | Retained established identities; Android privacy/traversal corrections. |
+| 1.1.25 / 1.1.26 | `ui_observation`, `log_read` | Retained established identities; introduced private managed launch protocol. |
+| 1.1.27 / 1.1.28 | `ui_observation`, `log_read` | Retained established identities; execute-mask/FIFO corrections. |
+| 1.1.29 / 1.1.30 | `ui_observation`, `log_read` | Retained established identities; private managed settings protocol. |
+| 1.1.31 / 1.1.32 | `ui_observation`, `log_read` | Retained established identities; Matrix compatibility. |
+| 1.1.33 / 1.1.34 | `ui_observation`, `log_read`, `log_scan` | Retained established identities; bounded resumable scan. |
+| **1.1.35 / 1.1.36** | `ui_observation`, `log_read`, `log_scan`, `system_snapshot` | Current installation/establishment candidate; seven optional system facts. |
+
+Retained managed identity admission is for an already-established exact profile
+binding and supported operations. Fresh trust establishment, manifest launch and
+managed settings require the **current** reviewed build; historical launch/settings
+protocol support alone is insufficient. `managed_launch`, its receipt query and
+managed settings are private runtime-bound operations, not advertised capabilities;
+external OTP pairing cannot enable them. `fixed_execution` is a Lab/native
+development capability, not a Bridge capability.
+
+Earlier 1.1.7/1.1.8/1.1.13 review records and archives describe historical
+screenshot/deployment builds; they are outside the retained managed UI/log set
+above. The 1.1.14 pairing-reset change is historical. External Production admits
+only operations declared by its exact active immutable reviewed-build record,
+paired identity, native-version eligibility and current provenance/transport
+checks. None of these rows grants production deployment, launch, settings or
+lifecycle authority. Old builds do not acquire later capabilities when Lab is
+upgraded. The owner-opted [reviewed-production update policy](PRODUCTION-OPERATIONS.md#trust-reviewed-updates-installed-by-the-owner)
+can adopt an eligible **operator-installed** successor; `system_snapshot` is an
+eligible read-only addition, but `system_info` never triggers adoption itself.
+
+The authorities are the packaged `managed_bridge*_build.json` identities,
+[managed observation admission](../src/kodi_lab/application/managed_bridge_trust.py),
+[Bridge capability vocabulary](../src/kodi_lab/kodi/bridge.py), immutable historical
+archives/inventories and [bundle staging](../scripts/stage-linux-v1-bundle).
+Native/platform acceptance remains scoped to its recorded build and environment.
+The README shipped inside the pinned ZIP contains historical version wording;
+it is retained byte-for-byte as part of the reviewed artifact inventory. Use this
+reference for current capabilities. Correcting that packaged README requires a
+separately versioned reviewed artifact.
+
 ## Continue a prepared managed installation
 
 Bridge **1.1.33** adds the separate read-only `log_scan` capability. Its exact-release
@@ -104,9 +162,9 @@ describe the operator-controlled transition. Existing historical identities,
 including 1.1.31/1.1.32, retain their existing permissions and operations. No target
 is upgraded or re-paired by the Lab schema migration or a log request.
 
-The closed managed installer admits exact Nexus **20.5** and Omega **21.3**
-profiles with the same reviewed stable **1.1.27** artifact; the existing
-**22.0-rc.1** profile selects its separate overlay. Other patch releases do not
+The closed managed installer admits Matrix **19.4**, Nexus **20.5** and Omega
+**21.3** profiles with the current stable **1.1.35** artifact; exact
+**22.0-rc.1/22.0-rc.2** profiles select preview **1.1.36**. Other patch releases do not
 inherit eligibility. See [Nexus compatibility](NEXUS-BRIDGE-COMPATIBILITY.md)
 for the artifact and API contract. Start the selected profile and confirm native
 readiness, then use **Install reviewed Bridge** on its instance page. Installation
@@ -206,8 +264,8 @@ downgrade when any pairing or reviewed build uses the new capability. Existing
 1.1.33/1.1.34 reviewed identities and archives remain historical, admitted for
 their established operations; no previous immutable release artifact is changed.
 
-This source PR prepares local reviewed candidates, not published release assets.
-Before an operator upgrades external Kodi, separately qualify the settled source,
+This source prepares local reviewed candidates, not published release assets.
+Before an operator upgrades external Kodi, use the qualified settled source and
 build the exact ZIP and `BRIDGE.json` from clean committed source using
 `scripts/build_narrow_bridge.py` / the supported bundle staging procedure, verify
 the immutable digest/inventory, and use existing manual install and reviewed

@@ -87,22 +87,23 @@ GUI work needs a bounded hold; accepted launch does not monitor script lifetime.
 
 ## Reviewed managed Bridge upgrade
 
-Launch requires stable Bridge **1.1.31**, or its exact Kodi 22 RC1 overlay
-**1.1.32**. Source changes do not upgrade an installed Bridge. On an existing
-managed Matrix 19.4, Nexus 20.5, Omega 21.3 or Kodi 22 RC1 instance, open its Web detail page and explicitly
-choose **Install reviewed Bridge**. This uses ordinary lifecycle coordination,
-installs only packaged reviewed bytes and restarts that instance. Current code
-can be reused; a previous 1.1.23/1.1.24 tree can be replaced only when its entire
-inventory matches the frozen reviewed inventory. Drift or other versions require
-administrator review. The atomic replacement retains prior code under the
-managed profile's `userdata/managed-bridge-upgrades` (maximum 32 upgrades); the
-upgrade does not overwrite an unknown tree or adopt its trust.
+Launch requires the current stable candidate **1.1.35**, or exact-release
+preview **1.1.36** for managed Piers RC1/RC2. Source changes do not upgrade an
+installed Bridge. On an existing managed Matrix 19.4, Nexus 20.5, Omega 21.3 or
+exact Piers RC1/RC2 profile, open its Web detail page and explicitly choose
+**Install reviewed Bridge**. This uses ordinary lifecycle coordination, installs
+only packaged reviewed bytes and restarts that instance. Reuse/replacement is
+admitted only for an exact current or frozen historical inventory; drift requires
+administrator review. Atomic replacement retains prior code under the profile's
+`userdata/managed-bridge-upgrades` (maximum 32 upgrades). See the
+[version/capability matrix](BRIDGE.md#version-and-capability-matrix); historical
+qualification of an older artifact does not qualify the current candidate.
 
 Managed launch additionally requires a private broker-provisioned marker bound
 to the target, runtime, container, trust generation and pairing secret. External
-OTP pairing never creates it. Old 1.1.23/1.1.24, 1.1.19/1.1.20, 1.1.17/1.1.18 and
-1.1.15/1.1.16 exact identities remain admitted for established trust and their
-existing operations, without acquiring launch authority. Existing external
+OTP pairing never creates it. Retained historical exact identities remain
+admitted for established observation trust and their existing capabilities;
+they do not satisfy current launch admission. Existing external
 pairings are not changed. Windows external direct-install validation remains
 separate from this managed Linux development feature.
 
