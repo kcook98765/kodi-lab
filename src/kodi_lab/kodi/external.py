@@ -36,6 +36,7 @@ from kodi_lab.kodi.remote import (
     dispatch_semantic_remote,
     fixed_request_mapping,
 )
+from kodi_lab.kodi.system_info import SystemInfo, collect_system_info
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.kodi.ui_window_resolution import SkinContext
 from kodi_lab.storage.secrets import ExternalKodiCredential
@@ -383,6 +384,7 @@ class NativeExternalKodiVerifier:
         started: float,
         *,
         allow_method_error: bool = False,
+        allowed_method_errors: frozenset[int] = frozenset(),
     ) -> Any:
         remaining = self._total_timeout - (time.monotonic() - started)
         if remaining <= 0:
@@ -430,7 +432,13 @@ class NativeExternalKodiVerifier:
         ):
             raise ExternalProbeError("invalid_kodi_response")
         if set(document) == {"jsonrpc", "id", "error"}:
-            if allow_method_error and isinstance(document.get("error"), dict):
+            if isinstance(document.get("error"), dict) and (
+                allow_method_error
+                or (
+                    type(document["error"].get("code")) is int
+                    and document["error"].get("code") in allowed_method_errors
+                )
+            ):
                 return _METHOD_UNAVAILABLE
             raise ExternalProbeError("invalid_kodi_response")
         if set(document) != {"jsonrpc", "id", "result"}:
@@ -537,6 +545,23 @@ class NativeExternalKodiAdapter:
         self._connect_timeout = connect_timeout
         self._response_timeout = response_timeout
         self._total_timeout = total_timeout
+
+    def system_info(self) -> SystemInfo:
+        started = time.monotonic()
+        with self._client() as client:
+
+            def call(method: str, params: dict[str, Any] | None) -> object:
+                result = self._verifier._call(
+                    client,
+                    self._endpoint,
+                    method,
+                    params,
+                    started,
+                    allowed_method_errors=frozenset({-32601, -32602}),
+                )
+                return None if result is _METHOD_UNAVAILABLE else result
+
+            return collect_system_info(call)
 
     def inspect_ui_state(self) -> UiObservation:
         from kodi_lab.kodi.ui_state_native import UiObservationError, collect_native

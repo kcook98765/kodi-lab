@@ -186,6 +186,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
     limited = adapters.summaries([TARGET_ID])[0]
     assert limited.capabilities == (
         "target_status",
+        "system_info",
         "inspect_ui_state",
         "log_read",
         "log_scan",
@@ -202,6 +203,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
     complete = adapters.summaries([TARGET_ID])[0]
     assert complete.capabilities == (
         "target_status",
+        "system_info",
         "addon_list",
         "remote_action",
         "inspect_ui_state",

@@ -38,6 +38,7 @@ from kodi_lab.kodi.readiness import (
     KodiJsonRpcReadinessAdapter,
     _BoundedHttpTransport,
 )
+from kodi_lab.kodi.system_info import SystemInfo, collect_system_info
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError, UiRpc, collect_native
 from kodi_lab.kodi.ui_window_resolution import (
@@ -185,6 +186,8 @@ class ManagedUiObservationService:
         self,
         observed: ObserveManagedKodiRuntimeResult,
         profile: RuntimeExecutionProfile,
+        *,
+        system_info: bool = False,
     ) -> UiRpc:
         started = time.monotonic()
 
@@ -199,7 +202,9 @@ class ManagedUiObservationService:
                 request["params"] = params
             remaining = 6.0 - (time.monotonic() - started)
             if remaining <= 0:
-                raise UiObservationError("ui_observation_failed")
+                raise UiObservationError(
+                    "target_unreachable" if system_info else "ui_observation_failed"
+                )
             try:
                 body = self._transport.post(
                     host=observed.ipv4_address,
@@ -209,6 +214,23 @@ class ManagedUiObservationService:
                     timeout=min(remaining, profile.http_timeout_seconds),
                 )
                 result = json.loads(body)
+                if system_info:
+                    if (
+                        not isinstance(result, dict)
+                        or result.get("jsonrpc") != "2.0"
+                        or result.get("id") != request_id
+                    ):
+                        raise UiObservationError("invalid_kodi_response")
+                    if (
+                        set(result) == {"jsonrpc", "id", "error"}
+                        and isinstance(result["error"], dict)
+                        and type(result["error"].get("code")) is int
+                        and result["error"].get("code") in {-32601, -32602}
+                    ):
+                        return None
+                    if set(result) != {"jsonrpc", "id", "result"}:
+                        raise UiObservationError("invalid_kodi_response")
+                    return result["result"]
                 if (
                     not isinstance(result, dict)
                     or result.get("jsonrpc") != "2.0"
@@ -218,8 +240,20 @@ class ManagedUiObservationService:
                 ):
                     raise UiObservationError("ui_observation_failed")
                 return result["result"]
-            except (OSError, ValueError, RuntimeError) as error:
-                raise UiObservationError("ui_observation_failed") from error
+            except UiObservationError:
+                raise
+            except JsonRpcUnavailableError as error:
+                raise UiObservationError(
+                    "target_unreachable" if system_info else "ui_observation_failed"
+                ) from error
+            except OSError as error:
+                raise UiObservationError(
+                    "target_unreachable" if system_info else "ui_observation_failed"
+                ) from error
+            except (ValueError, RuntimeError) as error:
+                raise UiObservationError(
+                    "invalid_kodi_response" if system_info else "ui_observation_failed"
+                ) from error
 
         return call
 
@@ -265,6 +299,16 @@ class ManagedUiObservationService:
         if self._reconciliation.status(target_id).blocking:
             raise UiObservationError("reconciliation_required")
         return result
+
+    def system_info(self, target_id: UUID) -> SystemInfo:
+        observed, profile = self._admit(target_id)
+        result = collect_system_info(
+            self._native_call(observed, profile, system_info=True)
+        )
+        self._verify_current(target_id, observed)
+        if self._reconciliation.status(target_id).blocking:
+            raise UiObservationError("reconciliation_required")
+        return result.model_copy(update={"scope": "container_view"})
 
     def inspect(self, target_id: UUID) -> UiObservation:
         try:

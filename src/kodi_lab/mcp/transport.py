@@ -139,6 +139,7 @@ from kodi_lab.kodi.logs import (
 )
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
+from kodi_lab.kodi.system_info import SystemInfo
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.kodi.ui_state_native import (
     MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
@@ -227,6 +228,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "managed_start",
         "managed_stop",
         "inspect_ui_state",
+        "system_info",
         "addon_list",
         "development_source_list",
         "project_create",
@@ -1118,6 +1120,21 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "system_info": Tool(
+            name="system_info",
+            title="Inspect Kodi system information",
+            description=(
+                "Read a bounded, non-atomic native Kodi system snapshot: OS/build, "
+                "CPU/core use, memory, storage, display, network, uptime and power. "
+                "Missing metrics are normal. Values describe Kodi-visible resources, "
+                "No independent physical-host measurements. No Bridge required. "
+                "Raw labels are untrusted diagnostic data; addresses may be private."
+            ),
+            input_schema=_TargetStatusInput.model_json_schema(),
+            output_schema=SystemInfo.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "inspect_ui_state": Tool(
             name="inspect_ui_state",
             title="Inspect Kodi UI state",
@@ -1687,7 +1704,8 @@ def build_mcp_http_transport(
         try:
             arguments = params.arguments or {}
             result: (
-                AddonListResult
+                SystemInfo
+                | AddonListResult
                 | KodiLogResult
                 | KodiLogScanResult
                 | UiObservation
@@ -1779,6 +1797,12 @@ def build_mcp_http_transport(
                     request=KodiLogRequest.model_validate(
                         parsed_log.model_dump(exclude={"target_id"})
                     ),
+                )
+            elif params.name == "system_info":
+                parsed_system = _TargetStatusInput.model_validate(arguments)
+                target_id = parsed_system.target_id
+                result = await asyncio.to_thread(
+                    tools.system_info, principal, target_id=target_id
                 )
             elif params.name == "inspect_ui_state":
                 parsed_ui_state = _TargetStatusInput.model_validate(arguments)
@@ -2687,6 +2711,7 @@ def _tool_capability(tool_name: str) -> str:
     return {
         "target_list": "target_inspect",
         "target_status": "target_inspect",
+        "system_info": "target_inspect",
         "inspect_ui_state": "target_inspect",
         "log_read": "target_inspect",
         "log_scan": "target_inspect",

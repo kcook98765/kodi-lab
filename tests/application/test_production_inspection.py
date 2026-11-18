@@ -731,6 +731,7 @@ def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_ch
         "remote_action",
         "screenshot_capture",
         "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
     )
@@ -1010,10 +1011,11 @@ def test_registry_allows_only_reviewed_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 45
+    assert len(registry.names()) == 46
     assert eligible == {
         "target_list",
         "target_status",
+        "system_info",
         "addon_list",
         "inspect_ui_state",
         "log_read",

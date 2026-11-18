@@ -78,6 +78,7 @@ Jump to [inspection and GUI](#target-inspection-and-gui),
 | Tool | Purpose | Managed | Prod | Dev | Required permissions / Web controls |
 | --- | --- | --- | --- | --- | --- |
 | `target_list` | List accessible Kodi targets | Role | Conditional | Conditional | `target.inspect`; filters by current access, not all registered Kodi. |
+| `system_info` | Read Kodi system/OS diagnostics | Role | Conditional | Conditional | `target.inspect`; exact target access and current production inspection scope; native Kodi only, no Bridge required. See [system diagnostics](SYSTEM-INFO.md). |
 | `target_status` | Read target health and identity | Role | Conditional | Conditional | `target.inspect`; exact target access; status can describe unavailable Kodi. |
 | `addon_list` | Read installed add-on inventory | Role | Conditional | Opt-in | `target.inspect`; production inspection includes this read; development needs verified `addon_inventory` maximum. |
 | `inspect_ui_state` | Read supported GUI state | Role | Conditional | Conditional | `target.inspect`; reviewed Bridge enriches observations; bounded native fallback for external Kodi. |

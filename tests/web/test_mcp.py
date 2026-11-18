@@ -304,6 +304,7 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
         "log_scan",
         "screenshot_capture",
         "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
     ]
@@ -393,6 +394,7 @@ def test_managed_target_list_projects_supported_tools_without_grant_escalation(
     ).json()["result"]["structuredContent"]["targets"][0]
     assert listed["capabilities"] == [
         "target_status",
+        "system_info",
         "addon_list",
         "remote_action",
         "screenshot_capture",
@@ -451,6 +453,7 @@ def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
     assert external["kodi_version"] == "21.3"
     assert external["capabilities"] == [
         "target_status",
+        "system_info",
         "addon_list",
         "remote_action",
         "inspect_ui_state",
@@ -516,6 +519,7 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
                     "log_scan",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                 ]
@@ -602,6 +606,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "remote_action",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                     "workspace_create",
@@ -1035,6 +1040,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "remote_action",
         "screenshot_capture",
         "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
         "workspace_create",
@@ -1434,6 +1440,7 @@ def test_legacy_http_malformed_input_and_downgrade_matrix(
         "log_scan",
         "screenshot_capture",
         "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
     ]

@@ -86,6 +86,7 @@ from kodi_lab.kodi.remote import (
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
+from kodi_lab.kodi.system_info import SystemInfo
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.kodi.ui_window_resolution import (
@@ -143,6 +144,7 @@ class KodiTargetSummaryData:
 
 _TARGET_TOOL_CAPABILITIES = (
     ("target_status", "target_inspect"),
+    ("system_info", "target_inspect"),
     ("addon_list", "addon_inventory"),
     ("remote_action", "semantic_remote"),
     ("screenshot_capture", "screenshot"),
@@ -673,6 +675,56 @@ class KodiTargetAdapterService:
                 error.code,
                 reason=error.reason if isinstance(error, UiObservationError) else None,
             ) from error
+
+    def system_info(self, target_id: UUID) -> SystemInfo:
+        try:
+            with self._observation_gate.enter(target_id):
+                target_type = self._target_type(target_id)
+                if target_type is TargetType.MANAGED:
+                    if self._managed_ui_state is None:
+                        raise KodiTargetAdapterError("capability_unavailable")
+                    return self._managed_ui_state.system_info(target_id)
+                production = target_type is TargetType.EXTERNAL_PRODUCTION
+                with (
+                    self._gate.enter(target_id),
+                    (
+                        self._production_gate.enter(target_id)
+                        if production
+                        else nullcontext()
+                    ),
+                ):
+                    snapshot = (
+                        self._production_snapshot(
+                            target_id,
+                            required_capabilities=frozenset({"target_inspect"}),
+                            load_secret=True,
+                        )
+                        if production
+                        else self._external_snapshot(target_id, load_secret=True)
+                    )
+                    adapter = (
+                        self._production_adapter(snapshot)
+                        if production
+                        else self._external_adapter(snapshot)
+                    )
+
+                    def require_identity() -> None:
+                        if production:
+                            self._require_production_identity(
+                                snapshot, adapter.get_production_identity()
+                            )
+                        else:
+                            self._require_identity(snapshot, adapter)
+
+                    require_identity()
+                    result = adapter.system_info()
+                    require_identity()
+                    self.resolve(target_id)
+                    return result
+        except (UiObservationError, ExternalProbeError) as error:
+            raise KodiTargetAdapterError(error.code) from error
+        except httpx.HTTPError as error:
+            raise KodiTargetAdapterError("target_unreachable") from error
 
     def inspect_ui_state(self, target_id: UUID) -> UiObservation:
         try:
@@ -1219,7 +1271,7 @@ class KodiTargetAdapterService:
     def _production_summary(
         snapshot: _ExternalSnapshot, *, fresh: bool
     ) -> KodiTargetSummaryData:
-        tools = ["target_status"]
+        tools = ["target_status", "system_info"]
         if "addon_inventory" in snapshot.capabilities:
             tools.append("addon_list")
         return KodiTargetSummaryData(

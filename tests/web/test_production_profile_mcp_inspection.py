@@ -255,6 +255,7 @@ def test_exact_web_authority_and_four_tool_transport(
             "remote_action",
             "screenshot_capture",
             "screenshot_retrieve",
+            "system_info",
             "target_list",
             "target_status",
         )
