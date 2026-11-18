@@ -34,6 +34,8 @@ def test_managed_system_schema_identity_permissions_and_no_hot_path_polling(
 ) -> None:
     from tests.web.test_mcp import _legacy_post
 
+    # Alembic configuration in earlier tests may disable existing loggers.
+    monkeypatch.setattr(logging.getLogger("kodi_lab.mcp"), "disabled", False)
     caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
     post = _legacy_post if legacy else _post
     guard_targeted_status_isolation(database, broker, client, monkeypatch)

@@ -127,6 +127,11 @@ key checks. Both pairing capability columns independently prevent a lossy
 downgrade. These migration/packaging paths passed 17 individually focused cases;
 the existing migration implementation required no correction.
 
+The combined migration/MCP lane also exposed audit-test logger state inherited
+from Alembic logging configuration. The new MCP test now explicitly enables its
+captured logger, following existing audit tests; diagnostic content stays out of
+audit records. The failure and corrected interaction run are retained separately.
+
 All 54 native requests were independently compared with the four cited upstream
 versions. Unmapped HDR, DHCP and webOS observations retain the documented
 partial/unsupported-platform limits. Retained native Omega snapshots and all
