@@ -43,3 +43,14 @@ Review confirmed fixed server-owned requests, no caller-selected labels/paths,
 no Bridge dependency, bounded raw fields/core maps, no aggregate inference from
 per-core CPU text, production rate limiting, fresh native identity, exact-target
 grants, result suppression on revocation and no changes to list/status polling.
+
+Independent review corrections: publication now rechecks grants, client state
+and current credentials for managed and External Development diagnostics as well
+as production. Previously only production diagnostics received the final durable
+authority check. Managed transport outages now retain `target_unreachable`, and
+malformed JSON-RPC error codes remain typed `invalid_kodi_response` errors.
+Regression tests reproduced these failures before correction. Independent
+**FOCUSED PASS** covers 67 cases across individually run publication, transport,
+parser, application and MCP files, plus affected Ruff and strict mypy.
+Private independent evidence is in
+`/home/kyle/kodi-lab-review-evidence/380-independent-20261118/`.

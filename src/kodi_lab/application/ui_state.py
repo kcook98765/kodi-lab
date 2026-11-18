@@ -224,6 +224,7 @@ class ManagedUiObservationService:
                     if (
                         set(result) == {"jsonrpc", "id", "error"}
                         and isinstance(result["error"], dict)
+                        and type(result["error"].get("code")) is int
                         and result["error"].get("code") in {-32601, -32602}
                     ):
                         return None
@@ -241,6 +242,10 @@ class ManagedUiObservationService:
                 return result["result"]
             except UiObservationError:
                 raise
+            except JsonRpcUnavailableError as error:
+                raise UiObservationError(
+                    "target_unreachable" if system_info else "ui_observation_failed"
+                ) from error
             except OSError as error:
                 raise UiObservationError(
                     "target_unreachable" if system_info else "ui_observation_failed"

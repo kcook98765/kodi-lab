@@ -434,7 +434,10 @@ class NativeExternalKodiVerifier:
         if set(document) == {"jsonrpc", "id", "error"}:
             if isinstance(document.get("error"), dict) and (
                 allow_method_error
-                or document["error"].get("code") in allowed_method_errors
+                or (
+                    type(document["error"].get("code")) is int
+                    and document["error"].get("code") in allowed_method_errors
+                )
             ):
                 return _METHOD_UNAVAILABLE
             raise ExternalProbeError("invalid_kodi_response")

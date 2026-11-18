@@ -813,6 +813,8 @@ class McpAuthorizationService:
             client = session.get(McpClientRow, str(principal.client_id))
             if client is None or not client.enabled:
                 raise McpAuthorizationError("permission_denied")
+            if definition.name == "system_info":
+                self._require_current_credential(session, principal, client)
             grant = session.get(
                 McpClientTargetGrantRow,
                 {"client_id": str(principal.client_id), "target_id": str(target_id)},
@@ -1472,20 +1474,20 @@ class McpAuthorizationService:
             result = adapter()
         except McpAuthorizationError as error:
             if (
-                production or tool_name in {"log_read", "log_scan"}
+                production or tool_name in {"log_read", "log_scan", "system_info"}
             ) and error.code != "identity_mismatch":
                 # Even bounded failure classifications are not disclosed after
                 # durable production authority changes during network work.
                 self.authorize_target(principal, tool_name, target_id)
             raise
         except Exception:
-            if production or tool_name in {"log_read", "log_scan"}:
+            if production or tool_name in {"log_read", "log_scan", "system_info"}:
                 self.authorize_target(principal, tool_name, target_id)
             raise
         if (
             production
             or preference_revision is not None
-            or tool_name in {"log_read", "log_scan"}
+            or tool_name in {"log_read", "log_scan", "system_info"}
         ):
             # A result is not publishable unless the entire durable authority
             # intersection still holds after the fresh native read.
