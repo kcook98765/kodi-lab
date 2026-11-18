@@ -1,4 +1,4 @@
-"""Production policy and recovery over the real 1.1.33 OTP bridge endpoint."""
+"""Production policy and recovery over the real 1.1.35 OTP bridge endpoint."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def production_otp(
             semantic_fingerprint=bridge["BUILD_FINGERPRINT"],
             zip_sha256="a" * 64,
             addon_id="service.kodi_lab_bridge",
-            addon_version="1.1.33",
+            addon_version="1.1.35",
             protocol_version="1",
             capabilities=(
                 "screenshot",
@@ -87,9 +87,10 @@ def production_otp(
                 "ui_observation",
                 "log_read",
                 "log_scan",
+                "system_snapshot",
             ),
             supported_kodi_versions=("21.3",),
-            source_reference="controlled bridge 1.1.33 fixture",
+            source_reference="controlled bridge 1.1.35 fixture",
         )
         service.acknowledge_production_http_risk(target_id, bridge_port=port)
         yield factory, service, bridge, port, store, target_id
@@ -132,7 +133,7 @@ def test_production_otp_stages_then_explicitly_confirms_with_hmac(
     assert pending.pairing_state is ExternalBridgePairingState.PAIRING_PENDING
     assert pending.observed_protocol_version == "1"
     assert pending.observed_addon_id == "service.kodi_lab_bridge"
-    assert pending.observed_addon_version == "1.1.33"
+    assert pending.observed_addon_version == "1.1.35"
     assert pending.production_bridge_trust_revision == 1
     assert pending.production_confirmed_at is None
     reference = _reference(factory, target_id)

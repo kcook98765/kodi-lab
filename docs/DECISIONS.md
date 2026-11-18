@@ -8276,3 +8276,21 @@ not remote byte attestation. Unknown, retired, incompatible, downgraded or expan
 security-capability builds require the existing manual procedure. Migration 0016
 adds only policy/receipt storage, preserves all existing rows, and refuses lossy
 schema rollback once policy/history exists. No managed/development trust change.
+
+## Issue #380: native system diagnostics with optional reviewed enrichment
+
+`system_info` is a bounded `target.inspect` read on all target classes, separate
+from status/list/readiness polling. A server-owned allowlist preserves native
+JSON-RPC identity and transport protections. Indexed CPU usage stays per-core;
+ambiguous/localized numbers retain raw text instead of acquiring guessed units.
+Default-drive, profile-filesystem, Kodi-process and container-visible resources
+have distinct provenance/scope and never establish physical-host measurements.
+
+The optional protocol-1 `system_snapshot` operation accepts an empty object and
+returns seven fixed standard-library facts. It uses direct APIs rather than
+command-capable `platform` fallbacks and returns no paths, node names, environment
+or processor inventory. Exact integer storage bytes remain integers. The closed
+stored capability list needs an additive migration; previous reviewed builds
+remain established-compatible. No diagnostic read installs, pairs, activates or
+adopts a Bridge. Absent/older/unreachable operations preserve native diagnostics;
+authentication and trust/identity failures remain typed denials.

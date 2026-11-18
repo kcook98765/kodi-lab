@@ -1,0 +1,16 @@
+{
+  "protocol_version": "1",
+  "addon_id": "service.kodi_lab_bridge",
+  "addon_version": "1.1.34",
+  "build_fingerprint": "a3ff9b1d09bd26f2dbae7db864a42c5ddac8d1eedf24eaadeead187a58155110",
+  "files": {
+    "addon.xml": "71a55ba9f53b6a8db743c6dcb02b65085f22ff133706fff972bdf29b50d5d94e",
+    "narrow_bridge.py": "ac9f506fdf286ae6496265db435109d7b80acd7a6f03715a9cc38f51bb35cbdd",
+    "service.py": "018fca85967b5d14f101a2ad2cd86a2efc87f6710385879ac810e2342fc8e05e",
+    "ui_observation.py": "1a4f718ac1630db96aeebf851ee83d5d2df91dd2f83b2192aafc902f1dcce3b1",
+    "onboarding.py": "a0a9da06c86014636a8557316f58cf019a37507a66aea39ba3503c24f8992162",
+    "pairing_ui.py": "0d42f356d1f2a7035c0d6285dc01ed19182ca63b60c1bfb5c8182c8edaf4a514",
+    "resources/settings.xml": "02337c4bdc9454cd4881f14035bbba084f74114725ef78662c708dc4dc067122",
+    "log_scan.py": "80fb14b525709233170c3c0c736715dd4c9d566b391c3bdf7c9d7516d868d880"
+  }
+}

@@ -52,7 +52,9 @@ def updated(
         session.execute(delete(ReviewedBridgeBuildRow))
     globals_["ADDON_VERSION"] = "1.1.31"
     globals_["BUILD_FINGERPRINT"] = OLD_FINGERPRINT
-    globals_["CAPABILITIES"] = sorted(BRIDGE_CAPABILITIES - {"log_scan"})
+    globals_["CAPABILITIES"] = sorted(
+        BRIDGE_CAPABILITIES - {"log_scan", "system_snapshot"}
+    )
     service.register_reviewed_build(
         semantic_fingerprint=OLD_FINGERPRINT,
         zip_sha256=OLD_ZIP,
@@ -149,7 +151,7 @@ def test_exact_shield_transition_keeps_pairing_consent_and_navigation_anchor(
     assert result.complete and result.counts_exact
     assert sum(f.matched_records for f in result.files) == 1
     after = e.service.status(e.target)
-    assert after.addon_version == "1.1.33"
+    assert after.addon_version == "1.1.35"
     assert (
         after.production_bridge_trust_revision
         == before.production_bridge_trust_revision + 1
@@ -210,7 +212,7 @@ def test_successor_and_disabling_policy_preserve_completed_consent(
     enable(e)
     assert scan(e).counts_exact
     monkeypatch.setattr(
-        stable, "CURRENT_BRIDGE", stable.ReviewedBridge("1.1.35", "b" * 64, "c" * 64)
+        stable, "CURRENT_BRIDGE", stable.ReviewedBridge("1.1.37", "b" * 64, "c" * 64)
     )
     e.install_current()
     assert scan(e).counts_exact
@@ -282,7 +284,7 @@ def test_negative_admission_does_not_change_pinned_trust(
                 build = session.scalar(
                     select(ReviewedBridgeBuildRow).where(
                         ReviewedBridgeBuildRow.addon_version
-                        == ("1.1.31" if damage == "old_retired" else "1.1.33")
+                        == ("1.1.31" if damage == "old_retired" else "1.1.35")
                     )
                 )
                 if damage == "wrong_zip":
@@ -294,7 +296,7 @@ def test_negative_admission_does_not_change_pinned_trust(
             elif damage == "wrong_previous":
                 pair.reviewed_build_id = session.scalar(
                     select(ReviewedBridgeBuildRow.id).where(
-                        ReviewedBridgeBuildRow.addon_version == "1.1.33"
+                        ReviewedBridgeBuildRow.addon_version == "1.1.35"
                     )
                 )
             elif damage == "native":
@@ -403,7 +405,7 @@ def test_remote_observation_races_fail_closed(
                 r = session.scalar(
                     select(ReviewedBridgeBuildRow).where(
                         ReviewedBridgeBuildRow.addon_version
-                        == ("1.1.31" if change == "retire_old" else "1.1.33")
+                        == ("1.1.31" if change == "retire_old" else "1.1.35")
                     )
                 )
                 r.state = "retired"
@@ -424,7 +426,9 @@ def test_old_inflight_log_is_not_published_after_adoption(
     e = updated
     e.globals["ADDON_VERSION"] = "1.1.31"
     e.globals["BUILD_FINGERPRINT"] = OLD_FINGERPRINT
-    e.globals["CAPABILITIES"] = sorted(BRIDGE_CAPABILITIES - {"log_scan"})
+    e.globals["CAPABILITIES"] = sorted(
+        BRIDGE_CAPABILITIES - {"log_scan", "system_snapshot"}
+    )
     original = e.service._client.read_log
 
     def old_response(*args: Any, **kwargs: Any) -> Any:
@@ -439,7 +443,7 @@ def test_old_inflight_log_is_not_published_after_adoption(
     monkeypatch.setattr(e.service._client, "read_log", old_response)
     with pytest.raises(ExternalBridgeServiceError, match="bridge_identity_mismatch"):
         e.service.read_log(e.target, KodiLogRequest())
-    assert e.service.status(e.target).addon_version == "1.1.33"
+    assert e.service.status(e.target).addon_version == "1.1.35"
 
 
 def test_security_capability_additions_require_manual_review(updated: Any) -> None:
@@ -666,12 +670,14 @@ def test_backend_rollback_does_not_automatically_downgrade_trust(
     )
     e.globals["ADDON_VERSION"] = "1.1.31"
     e.globals["BUILD_FINGERPRINT"] = OLD_FINGERPRINT
-    e.globals["CAPABILITIES"] = sorted(BRIDGE_CAPABILITIES - {"log_scan"})
+    e.globals["CAPABILITIES"] = sorted(
+        BRIDGE_CAPABILITIES - {"log_scan", "system_snapshot"}
+    )
     with pytest.raises(
         ExternalBridgeServiceError, match="reviewed_update_not_successor"
     ):
         scan(e)
-    assert e.service.status(e.target).addon_version == "1.1.33"
+    assert e.service.status(e.target).addon_version == "1.1.35"
 
 
 def test_existing_on_navigation_preference_survives_without_promoting_old_actions(
@@ -741,7 +747,7 @@ def test_lost_commit_response_and_service_restart_preserve_single_adoption(
 
     def observe(*args: Any, **kwargs: Any) -> Any:
         result = snapshot(*args, **kwargs)
-        if result.addon_version == "1.1.33" and not lost[0]:
+        if result.addon_version == "1.1.35" and not lost[0]:
             lost[0] = True
             raise ExternalBridgeServiceError("bridge_unreachable")
         return result
@@ -749,7 +755,7 @@ def test_lost_commit_response_and_service_restart_preserve_single_adoption(
     monkeypatch.setattr(e.service, "_active_snapshot", observe)
     with pytest.raises(ExternalBridgeServiceError, match="bridge_unreachable"):
         scan(e)
-    assert e.service.status(e.target).addon_version == "1.1.33"
+    assert e.service.status(e.target).addon_version == "1.1.35"
     restarted = ExternalBridgeService(
         e.factory, endpoint_policy=e.service._endpoint_policy, secret_store=e.store
     )

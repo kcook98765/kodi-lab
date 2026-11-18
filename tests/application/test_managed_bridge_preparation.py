@@ -319,7 +319,7 @@ def test_actual_packaged_builds_match_each_reviewed_inventory() -> None:
             hashlib.sha256(sources[name]).hexdigest() == digest
             for name, digest in build["files"].items()
         )
-    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.34"
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.36"
 
 
 def test_existing_valid_bridge_checks_without_staging_or_restart(setup: Setup) -> None:
@@ -650,7 +650,7 @@ def test_retained_nexus_repair_preserves_hub_selection_profiles_and_agent_author
     monkeypatch.setattr(env.broker, "managed_container_inventory", inventory)
     transport = Transport()
     transport.native_version = {"major": 20, "minor": 5, "tag": "stable"}
-    native = Native(SimpleNamespace(transport=transport), "1.1.33")  # type: ignore[arg-type]
+    native = Native(SimpleNamespace(transport=transport), "1.1.35")  # type: ignore[arg-type]
     client = Client()
     client.value = replace(client.value, kodi_version="20.5")
     store = ExternalBridgeSecretStore(

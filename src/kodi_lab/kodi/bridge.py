@@ -10,6 +10,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import overload
 from uuid import UUID, uuid4
 
@@ -30,6 +31,7 @@ from kodi_lab.kodi.screenshots import (
     ScreenshotArtifactError,
     validate_external_png,
 )
+from kodi_lab.kodi.system_info import BridgeSystemSnapshot
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 
@@ -38,10 +40,17 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.33"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.35"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 BRIDGE_CAPABILITIES = frozenset(
-    {"screenshot", "workspace_deployment", "ui_observation", "log_read", "log_scan"}
+    {
+        "screenshot",
+        "workspace_deployment",
+        "ui_observation",
+        "log_read",
+        "log_scan",
+        "system_snapshot",
+    }
 )
 BRIDGE_JSON_ERROR_CODES = frozenset(
     {
@@ -72,6 +81,7 @@ BRIDGE_OPERATIONS = frozenset(
         "managed_launch_receipt",
         "log_read",
         "log_scan",
+        "system_snapshot",
         "inspect_ui_state",
         "bridge_identity",
         "bridge_capabilities",
@@ -718,6 +728,32 @@ class ExternalBridgeClient:
             return self._identity(payload["identity"]), result
         except ValueError as error:
             raise ExternalBridgeError("bridge_operation_failed") from error
+
+    def system_snapshot(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+    ) -> tuple[BridgeIdentity, BridgeSystemSnapshot]:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="system_snapshot",
+        )
+        if not isinstance(payload, dict) or set(payload) != {"identity", "snapshot"}:
+            raise ExternalBridgeError("bridge_operation_failed")
+        identity = self._identity(payload["identity"])
+        try:
+            result = BridgeSystemSnapshot.model_validate(payload["snapshot"])
+        except ValidationError as error:
+            raise ExternalBridgeError("bridge_operation_failed") from error
+        return identity, result
 
     def inspect_ui_state(
         self,
@@ -1459,6 +1495,19 @@ class ExternalBridgeClient:
         bridge_port: int,
         body: dict[str, object],
     ) -> object:
+        # Optional diagnostics cannot extend a native read with an unbounded
+        # trickle response. Other protocol operations keep their existing policy.
+        snapshot_started = (
+            monotonic() if body.get("operation") == "system_snapshot" else None
+        )
+        timeout = (
+            self._timeout()
+            if snapshot_started is None
+            else httpx.Timeout(
+                min(1.0, self._response_timeout),
+                connect=min(1.0, self._connect_timeout),
+            )
+        )
         try:
             with (
                 self._client() as client,
@@ -1466,7 +1515,7 @@ class ExternalBridgeClient:
                     "POST",
                     self._url(endpoint, bridge_port),
                     json=body,
-                    timeout=self._timeout(),
+                    timeout=timeout,
                 ) as response,
             ):
                 if response.status_code in {401, 403}:
@@ -1486,10 +1535,17 @@ class ExternalBridgeClient:
                 chunks: list[bytes] = []
                 size = 0
                 for chunk in response.iter_bytes():
+                    if (
+                        snapshot_started is not None
+                        and monotonic() - snapshot_started > 6.0
+                    ):
+                        raise ExternalBridgeError("bridge_unreachable")
                     size += len(chunk)
                     if size > MAX_BRIDGE_JSON_BYTES:
                         raise ExternalBridgeError("bridge_authentication_failed")
                     chunks.append(chunk)
+            if snapshot_started is not None and monotonic() - snapshot_started > 6.0:
+                raise ExternalBridgeError("bridge_unreachable")
             return json.loads(b"".join(chunks))
         except ExternalBridgeError:
             raise

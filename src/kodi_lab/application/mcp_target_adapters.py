@@ -86,7 +86,12 @@ from kodi_lab.kodi.remote import (
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
-from kodi_lab.kodi.system_info import SystemInfo
+from kodi_lab.kodi.system_info import (
+    BRIDGE_OPTIONAL_FAILURES,
+    SystemInfo,
+    enrich_system_info,
+    without_system_enrichment,
+)
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.kodi.ui_window_resolution import (
@@ -718,6 +723,16 @@ class KodiTargetAdapterService:
 
                     require_identity()
                     result = adapter.system_info()
+                    if self._external_bridges is None:
+                        result = without_system_enrichment(result, "bridge_not_paired")
+                    else:
+                        try:
+                            raw = self._external_bridges.system_snapshot(target_id)
+                            result = enrich_system_info(result, raw)
+                        except ExternalBridgeServiceError as error:
+                            if error.code not in BRIDGE_OPTIONAL_FAILURES:
+                                raise KodiTargetAdapterError(error.code) from error
+                            result = without_system_enrichment(result, error.code)
                     require_identity()
                     self.resolve(target_id)
                     return result

@@ -73,6 +73,7 @@ from kodi_lab.kodi.logs import (
     KodiLogScanBridgeRequest,
     KodiLogScanResult,
 )
+from kodi_lab.kodi.system_info import BridgeSystemSnapshot
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.repository import stable
 from kodi_lab.screenshot_diagnostics import (
@@ -1748,7 +1749,12 @@ class ExternalBridgeService:
             old_caps = self._parse_closed(previous.capabilities_json)
             if not old_caps <= set(capabilities) or not set(
                 capabilities
-            ) <= old_caps | {"log_read", "log_scan", "ui_observation"}:
+            ) <= old_caps | {
+                "log_read",
+                "log_scan",
+                "system_snapshot",
+                "ui_observation",
+            }:
                 raise ExternalBridgeServiceError("reviewed_update_capability_expansion")
             revision = pairing.production_bridge_trust_revision
             assert revision is not None
@@ -1990,6 +1996,47 @@ class ExternalBridgeService:
             )
             self._require_pinned_identity(snapshot, identity)
             if capability not in identity.capabilities:
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            if (
+                self._active_snapshot(
+                    target_id, allow_no_configured_bridge_capability=True
+                )
+                != snapshot
+            ):
+                raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            return result
+        except ExternalBridgeError as error:
+            raise ExternalBridgeServiceError(error.code) from error
+
+    def system_snapshot(self, target_id: UUID) -> BridgeSystemSnapshot:
+        # Inspection never installs, repairs, adopts or changes reviewed trust.
+        snapshot = self._active_snapshot(
+            target_id, allow_no_configured_bridge_capability=True
+        )
+        with self._sessions() as session:
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            if pairing is None or "system_snapshot" not in self._parse_closed(
+                pairing.observed_capabilities_json
+            ):
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            if snapshot.target_type is TargetType.EXTERNAL_PRODUCTION:
+                reviewed = session.get(
+                    ReviewedBridgeBuildRow, pairing.reviewed_build_id
+                )
+                if reviewed is None or "system_snapshot" not in self._parse_closed(
+                    reviewed.capabilities_json
+                ):
+                    raise ExternalBridgeServiceError("bridge_capability_unavailable")
+        try:
+            identity, result = self._client.system_snapshot(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=self._read_secret(snapshot),
+            )
+            self._require_pinned_identity(snapshot, identity)
+            if "system_snapshot" not in identity.capabilities:
                 raise ExternalBridgeServiceError("bridge_capability_unavailable")
             if (
                 self._active_snapshot(

@@ -14,7 +14,7 @@ then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
 Protocol 1 may advertise `screenshot`, `workspace_deployment` and
-`ui_observation`, `log_read` and `log_scan`. Deployment is pathless and
+`ui_observation`, `log_read`, `log_scan` and `system_snapshot`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
 reconciliation are Web-only.
@@ -29,7 +29,8 @@ protocol, Kodi-version or capability mismatch suspends bridge-dependent
 authority. Native read-only inspection remains independent when its native
 trust intersection is still coherent.
 
-Production uses `screenshot` and may use `ui_observation`, `log_read` or `log_scan` when the exact reviewed
+Production uses `screenshot` and may use `ui_observation`, `log_read`, `log_scan`
+or `system_snapshot` when the exact reviewed
 build declares it and existing provenance/transport confirmation is current.
 The bridge is an identity and inspection support component; production control never travels
 through it. The existing `remote_action` service sends only fixed server-owned
@@ -58,7 +59,7 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.33.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.35.zip` and
 `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact eleven-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -181,3 +182,34 @@ installs, enables, rotates trust or starts/restarts Kodi. Optional Bridge failur
 does not add a prerequisite to direct workspace deployment, native remote input
 or managed X11 screenshots. Existing fallback, grants and identity fences remain
 authoritative; a recovery reason grants no mutation authority.
+
+## Optional system snapshots (candidate 1.1.35 / exact-release preview 1.1.36)
+
+`system_snapshot` is an authenticated, read-only, empty-payload protocol-1
+operation with its own advertised capability. It adds only seven fixed facts:
+logical CPU count, OS name/release, machine architecture when directly available,
+and integer total/used/free bytes for Kodi's profile filesystem. There is no
+processor-model probe: Python platform fallbacks can execute commands.
+
+Native MCP `system_info` remains independent of Bridge pairing. A missing/older
+Bridge or a bounded operation/transport failure yields native metrics plus an
+explicit enrichment reason. Authenticated identity/build/provenance mismatch
+remains a typed denial. Production enrichment requires the existing exact
+reviewed-build capability, native generation, pairing, provenance and transport
+acknowledgement. A read does not adopt or change reviewed trust. Values remain
+separate from native metrics with `narrow_bridge` provenance, Kodi-process or
+profile-filesystem scope, and the parent's container/unknown scope.
+
+Schema `0017_system_snapshot_capability` only extends the closed stored Bridge
+capability vocabulary; it preserves rows/triggers/grants and refuses lossy
+downgrade when any pairing or reviewed build uses the new capability. Existing
+1.1.33/1.1.34 reviewed identities and archives remain historical, admitted for
+their established operations; no previous immutable release artifact is changed.
+
+This source PR prepares local reviewed candidates, not published release assets.
+Before an operator upgrades external Kodi, separately qualify the settled source,
+build the exact ZIP and `BRIDGE.json` from clean committed source using
+`scripts/build_narrow_bridge.py` / the supported bundle staging procedure, verify
+the immutable digest/inventory, and use existing manual install and reviewed
+provenance/reverification controls. No external installation, pairing, activation
+or production deployment is performed by diagnostics. See [system diagnostics](SYSTEM-INFO.md).

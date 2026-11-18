@@ -101,7 +101,7 @@ class Native:
             result = {
                 "addon": {
                     "addonid": "service.kodi_lab_bridge",
-                    "version": "1.1.33",
+                    "version": "1.1.35",
                     "enabled": self.enabled,
                 }
             }

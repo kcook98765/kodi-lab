@@ -76,7 +76,7 @@ def test_fresh_feeds_generate_and_verify_with_selected_transport(
             origin
         )
     assert (
-        data / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.33.zip"
+        data / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.35.zip"
     ).is_file()
 
 
@@ -300,7 +300,7 @@ def test_real_https_requires_trust_and_checks_all_downloads(
     monkeypatch.setenv("SSL_CERT_FILE", str(proxy.cert))
     install.probe_repository(proxy.base, proxy.manifests)
     assert (
-        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.33.zip"
+        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.35.zip"
         in proxy.seen
     )
     for feed in ("stable", "development"):
@@ -358,7 +358,7 @@ def test_approved_development_package_downloads_through_https(
         "/stable/addons.xml",
         "/development/addons.xml.sha256",
         "/install/repository.kodi-lab-dev-1.0.0.zip",
-        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.33.zip",
+        "/stable/zips/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.35.zip",
     ],
 )
 def test_proxy_failures_never_follow_redirects_or_accept_wrong_content(

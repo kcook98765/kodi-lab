@@ -27,9 +27,9 @@ def test_candidate_matches_deterministic_archive_and_preserves_stable(
     assert fragment.endswith(b"\n") and not fragment.endswith(b"\n\n")
     candidate = tmp_path / "rc1.zip"
     digest = build_rc1_bridge_archive(ROOT, candidate)
-    assert digest == "a77f9aa00ff94dbf1e3d9bc983beb25e923393f3b9ad1551458d16c2b3264867"
+    assert digest == "e64fe6d857ff50e3d1788d675065465f67798ce38114b680d50e9982c36bae82"
     assert build_rc1_bridge_archive(ROOT, tmp_path / "again.zip") == digest
-    assert ADDON_VERSION == "1.1.33"
+    assert ADDON_VERSION == "1.1.35"
     assert build_archive(ROOT, tmp_path / "stable.zip") != digest
     for name, value in reviewed_rc1_bridge_sources(ROOT).items():
         expected = approved_bridge_build("22.0-rc.1")["files"].get(name)

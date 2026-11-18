@@ -9,6 +9,7 @@ def _sets(*, reviewed: bool) -> str:
         "log_read",
         "log_scan",
         "screenshot",
+        "system_snapshot",
         "ui_observation",
         "workspace_deployment",
     )

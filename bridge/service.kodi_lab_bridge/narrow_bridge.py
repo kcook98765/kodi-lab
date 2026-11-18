@@ -12,6 +12,7 @@ import re
 import shutil
 import stat
 import struct
+import sys
 import threading
 import time
 import uuid
@@ -32,16 +33,17 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.33"
+ADDON_VERSION = "1.1.35"
 CAPABILITIES = [
     "screenshot",
     "workspace_deployment",
     "ui_observation",
     "log_read",
     "log_scan",
+    "system_snapshot",
 ]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.33|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan"
+    b"kodi-lab-narrow-bridge|1.1.35|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan,system-snapshot"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -78,6 +80,7 @@ OPERATIONS = {
     "managed_launch_receipt",
     "log_read",
     "log_scan",
+    "system_snapshot",
     "inspect_ui_state",
     "bridge_identity",
     "bridge_capabilities",
@@ -128,6 +131,81 @@ def _log_snapshot(metadata):
             ]
         )
     ).hexdigest()
+
+
+def _system_snapshot():
+    """Only fixed facts visible to this Kodi process; no physical-host claim.
+
+    Avoid platform.processor/uname fallbacks: some Python ports spawn commands.
+    This operation deliberately uses direct APIs and never returns a path/node.
+    """
+    result = {
+        key: None
+        for key in (
+            "logical_cpu_count",
+            "os_name",
+            "os_release",
+            "machine",
+            "profile_storage_total",
+            "profile_storage_used",
+            "profile_storage_free",
+        )
+    }
+    result["schema_version"] = 1
+    try:
+        count = os.cpu_count()
+        if type(count) is int and 1 <= count <= 1048576:
+            result["logical_cpu_count"] = count
+    except (OSError, ValueError, RuntimeError):
+        pass
+    try:
+        if hasattr(os, "uname"):
+            native = os.uname()
+            facts = {
+                "os_name": native.sysname,
+                "os_release": native.release,
+                "machine": native.machine,
+            }
+        elif sys.platform == "win32":
+            native = sys.getwindowsversion()
+            facts = {
+                "os_name": "Windows",
+                "os_release": f"{native.major}.{native.minor}.{native.build}",
+                "machine": None,
+            }
+        else:
+            facts = {"os_name": sys.platform, "os_release": None, "machine": None}
+        for key, value in facts.items():
+            if (
+                isinstance(value, str)
+                and value.strip()
+                and not any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)
+                and len(value.encode("utf-8")) <= 160
+            ):
+                result[key] = value
+    except (OSError, ValueError, RuntimeError):
+        pass
+    try:
+        path = xbmcvfs.translatePath("special://profile")
+        # An unavailable translation must never fall back to the working directory.
+        if path and os.path.isabs(path):
+            usage = shutil.disk_usage(path)
+            values = (usage.total, usage.used, usage.free)
+            if (
+                all(type(v) is int and 0 <= v <= 2**63 - 1 for v in values)
+                and usage.used <= usage.total
+                and usage.free <= usage.total
+            ):
+                result.update(
+                    {
+                        "profile_storage_total": usage.total,
+                        "profile_storage_used": usage.used,
+                        "profile_storage_free": usage.free,
+                    }
+                )
+    except (OSError, ValueError, RuntimeError):
+        pass
+    return result
 
 
 def _read_log(payload):
@@ -3030,6 +3108,20 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             self._json_response(document, request_hash, secret, result, cache=False)
+        elif document["operation"] == "system_snapshot":
+            if document["payload"] != {}:
+                raise ValueError
+            result = _system_snapshot()
+            with _state_guard():
+                current_state = _load_state()
+                _require_current_pairing(current_state, document, secret)
+            self._json_response(
+                document,
+                request_hash,
+                secret,
+                {"identity": _identity(current_state), "snapshot": result},
+                cache=False,
+            )
         elif document["operation"] == "log_scan":
             try:
                 binding = (

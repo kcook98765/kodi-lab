@@ -38,7 +38,13 @@ from kodi_lab.kodi.readiness import (
     KodiJsonRpcReadinessAdapter,
     _BoundedHttpTransport,
 )
-from kodi_lab.kodi.system_info import SystemInfo, collect_system_info
+from kodi_lab.kodi.system_info import (
+    BRIDGE_OPTIONAL_FAILURES,
+    SystemInfo,
+    collect_system_info,
+    enrich_system_info,
+    without_system_enrichment,
+)
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError, UiRpc, collect_native
 from kodi_lab.kodi.ui_window_resolution import (
@@ -305,6 +311,18 @@ class ManagedUiObservationService:
         result = collect_system_info(
             self._native_call(observed, profile, system_info=True)
         )
+        if self._bridges is None:
+            result = without_system_enrichment(result, "bridge_not_paired")
+        else:
+            try:
+                raw = self._bridges.system_snapshot(
+                    target_id, observed, profile.kodi_release.canonical
+                )
+                result = enrich_system_info(result, raw)
+            except UiObservationError as error:
+                if error.code not in BRIDGE_OPTIONAL_FAILURES:
+                    raise
+                result = without_system_enrichment(result, error.code)
         self._verify_current(target_id, observed)
         if self._reconciliation.status(target_id).blocking:
             raise UiObservationError("reconciliation_required")

@@ -17,12 +17,12 @@ from typing import Any, cast
 BUILDER_ID = "kodi-lab-narrow-bridge-zip-v2"
 NORMALIZED_TIMESTAMP = (2026, 9, 21, 0, 0, 0)
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.33"
+ADDON_VERSION = "1.1.35"
 PROTOCOL = "1"
 BOOTSTRAP = "otp-1"
 FINGERPRINT_INPUT = (
-    b"kodi-lab-narrow-bridge|1.1.33|protocol-1|identity,capabilities,"
-    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan"
+    b"kodi-lab-narrow-bridge|1.1.35|protocol-1|identity,capabilities,"
+    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch,partial-execute-modes,managed-addon-settings-persistent,resumable-log-scan,system-snapshot"
 )
 SEMANTIC_FINGERPRINT = hashlib.sha256(FINGERPRINT_INPUT).hexdigest()
 RELEASE_INVENTORY = (
@@ -179,6 +179,7 @@ def provenance(addon_root: Path, archive: Path, repository: Path) -> dict[str, A
             "ui_observation",
             "log_read",
             "log_scan",
+            "system_snapshot",
         ],
         "source_commit": commit,
         "source_tree": tree,
