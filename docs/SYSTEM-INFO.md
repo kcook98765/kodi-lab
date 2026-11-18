@@ -69,3 +69,37 @@ source. HDR labels are absent in Matrix; platform/API availability and localizat
 vary. These source comparisons are not native acceptance of every version.
 The [Omega system-info implementation](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/utils/SystemInfo.cpp)
 establishes default-drive scope, binary units and uptime semantics.
+
+## Optional reviewed Bridge enrichment
+
+Candidate Bridge **1.1.35** (exact-release preview **1.1.36**) adds an optional
+`enrichment` object with its own collection status, an explicit compatibility/
+availability reason, and seven fields. Native metrics and their status retain
+their original meaning. Enriched fields have `source: narrow_bridge`:
+
+- `logical_cpu_count`: `os.cpu_count()`, a process-visible logical CPU count;
+  it can exceed affinity/cgroup quotas and is not a physical core count.
+- `os_name`, `os_release`, `machine`: direct OS APIs (`os.uname` on POSIX).
+  Windows reports its numeric version through `sys.getwindowsversion`;
+  architecture may be unavailable. No hostname/node or processor model is read
+  into the response. Command-capable platform fallback APIs are avoided.
+- `profile_storage_total`, `profile_storage_used`, `profile_storage_free`:
+  exact integer **bytes** for the filesystem containing Kodi's translated
+  `special://profile`. Available space can exclude filesystem reserved blocks,
+  so used + free need not equal total. These fields do not describe native
+  Kodi's default-drive capacity or all host storage.
+
+A missing, older, unreachable or operation-incompatible Bridge returns native
+metrics with an explicit unavailable enrichment reason. Trust, identity,
+reviewed-build/provenance and authentication failures remain typed denials;
+no diagnostic read installs, pairs, activates, repairs or adopts a Bridge.
+Production enrichment requires the reviewed build to admit `system_snapshot`
+and all existing generation/provenance/transport checks. Managed binding and
+revocation are rechecked before publication. Bridge facts are not response-cached.
+
+The closed capability vocabulary requires schema
+`0017_system_snapshot_capability`; no new target permission is introduced.
+Existing profiles are unchanged by source work. External upgrades require a
+separately qualified exact reviewed ZIP, manual operator installation and the
+existing trust/provenance confirmation procedure in [Bridge guidance](BRIDGE.md).
+No publication, deployment or external installation is part of this feature PR.

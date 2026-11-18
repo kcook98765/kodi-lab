@@ -201,3 +201,28 @@ script completion and GUI acceptance; receipt queries never dispatch. Pending
 receipts remain uncertain and are not retried. The private launch journal caps
 at 4,096 records and fails closed; it is not cleared by age. Administrators
 retain/recover the managed profile rather than deleting unknown receipts.
+
+
+## Optional system diagnostics (1.1.35)
+
+Authenticated protocol-1 `system_snapshot` accepts only `{}`. It returns logical
+CPU count (`os.cpu_count`), OS name/release and architecture through direct
+`os.uname` APIs where available, and exact integer total/used/free bytes for
+Kodi's fixed `special://profile` filesystem via `shutil.disk_usage`. Windows uses
+`sys.getwindowsversion` for its numeric release; architecture can be unavailable.
+Unavailable facts are null and do not invalidate other readings.
+
+These describe resources visible to the Kodi process. A container may see a
+shared kernel/CPU count and global memory; these are not independent physical
+host measurements or container quotas. Profile storage describes only that
+filesystem; available bytes can exclude reserved blocks, so used + free need not
+equal total. No path is returned.
+
+No commands, process listing, environment enumeration, arbitrary paths or
+privileged broker access are involved. `platform.processor` and command-capable
+platform fallbacks are deliberately avoided; no portable processor model is
+claimed. The seven fixed facts are bounded and their response is not cached.
+Existing authentication, pairing, replay and exact-build review still apply.
+An older/unpaired Bridge remains usable for its existing capabilities; native
+MCP `system_info` needs no Bridge. Installation/upgrade on external Kodi remains
+an explicit operator action using a separately qualified exact reviewed ZIP.

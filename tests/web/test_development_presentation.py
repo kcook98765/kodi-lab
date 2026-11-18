@@ -172,7 +172,7 @@ def development_case(
                     else str(uuid4()),
                     pinned_protocol_version="1",
                     pinned_addon_id="service.kodi_lab_bridge",
-                    pinned_addon_version="1.1.33",
+                    pinned_addon_version="1.1.35",
                     pinned_kodi_version="21.3",
                     pinned_build_fingerprint="b" * 64,
                     paired_at=None if case == "pairing-pending" else STAMP,

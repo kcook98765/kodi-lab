@@ -279,6 +279,6 @@ def test_preview_candidate_and_authenticated_release_remain_exact(setup: Any) ->
     assert (
         result.candidate_addon_version
         == result.last_authenticated_addon_version
-        == "1.1.34"
+        == "1.1.36"
     )
     assert reasons(result)["manifest_launch"] == "stored_identity_requires_observation"

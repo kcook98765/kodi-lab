@@ -34,7 +34,7 @@ def test_reviewed_candidate_status_and_web_control_match_exact_release(
     page = client.get(f"/instances/{INSTANCE_ID}").text
     assert ("data-reviewed-bridge-install disabled" in page) is available
     if available:
-        assert response.json()["addon_version"] == "1.1.33"
+        assert response.json()["addon_version"] == "1.1.35"
 
 
 def test_reviewed_bridge_exposes_explicit_status_refresh(client: TestClient) -> None:

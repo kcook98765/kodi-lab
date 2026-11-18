@@ -120,7 +120,10 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
     config, database = _config(tmp_path, monkeypatch)
     command.upgrade(config, PREDECESSOR)
     original = _triggers(database)
-    command.upgrade(config, REVISION)
+    # The current resident advertises the additive system_snapshot capability.
+    command.upgrade(config, "head")
+    current_triggers = _triggers(database)
+    assert original.items() <= current_triggers.items()
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target = uuid4()
@@ -158,5 +161,6 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()
             == before
         )
-    assert _revision(database) == REVISION and _triggers(database) == original
+    assert _revision(database) == "0017_system_snapshot_capability"
+    assert _triggers(database) == current_triggers
     engine.dispose()

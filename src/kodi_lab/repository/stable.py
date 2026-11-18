@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.33"
-BRIDGE_SHA256 = "ab0738d30f11bdaf1f458d9608a832686b1cd723c0bfa80ae70ec8717efdee71"
-BRIDGE_FINGERPRINT = "160258994be910987eb6a84352b1ac2eb238e71fa6107f703daff42244009fc1"
+BRIDGE_VERSION = "1.1.35"
+BRIDGE_SHA256 = "cf7bc763e8c5c15c82233d1904abd34d528ee65eee147317b288ccf3325a5a79"
+BRIDGE_FINGERPRINT = "c9252043826cf4818849502eaaedcf76c6639329159f1ce92f4620fa70edd678"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 
 
@@ -396,6 +396,14 @@ def bridge_capabilities(bridge: bytes) -> list[str]:
                     "ui_observation",
                     "log_read",
                     "log_scan",
+                ],
+                [
+                    "screenshot",
+                    "workspace_deployment",
+                    "ui_observation",
+                    "log_read",
+                    "log_scan",
+                    "system_snapshot",
                 ],
             ):
                 return cast(list[str], value)

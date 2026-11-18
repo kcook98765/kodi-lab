@@ -97,3 +97,10 @@ update policy and immutable automatic-adoption receipts. It changes no existing
 rows or consent bindings. Policy revisions are monotonic; receipts and policy
 history resist update/delete and SQLite replacement. Downgrade refuses once a
 policy or adoption row exists. See [production operations](../docs/PRODUCTION-OPERATIONS.md#trust-reviewed-updates-installed-by-the-owner).
+
+`0017_system_snapshot_capability` admits only the authenticated read-only
+`system_snapshot` capability in the closed pairing/reviewed-build sets. It
+preserves existing rows, triggers, grants and reviewed identities. Downgrade
+refuses when either a pairing or a reviewed build uses the new capability.
+Native-only `system_info` remains independently available in Phase A without
+this migration or any Bridge upgrade.

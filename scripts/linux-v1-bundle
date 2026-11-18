@@ -25,7 +25,7 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 APP_ARCHIVE = "kodi-lab-application-images.tar"
-BRIDGE_ZIP = "bridge/service.kodi_lab_bridge-1.1.33.zip"
+BRIDGE_ZIP = "bridge/service.kodi_lab_bridge-1.1.35.zip"
 BRIDGE_PROVENANCE = "bridge/BRIDGE.json"
 STABLE_MANIFEST = "repository/STABLE.json"
 DEVELOPMENT_MANIFEST = "repository/DEVELOPMENT.json"
@@ -231,12 +231,12 @@ def verify_stable_manifest(bundle: pathlib.Path) -> dict[str, Any]:
         "repository_version": "1.0.0",
         "generator": "kodi-lab-stable-repository-v1",
         "bridge_id": "service.kodi_lab_bridge",
-        "bridge_version": "1.1.33",
+        "bridge_version": "1.1.35",
         "bridge_zip_sha256": (
-            "ab0738d30f11bdaf1f458d9608a832686b1cd723c0bfa80ae70ec8717efdee71"
+            "cf7bc763e8c5c15c82233d1904abd34d528ee65eee147317b288ccf3325a5a79"
         ),
         "bridge_semantic_fingerprint": (
-            "160258994be910987eb6a84352b1ac2eb238e71fa6107f703daff42244009fc1"
+            "c9252043826cf4818849502eaaedcf76c6639329159f1ce92f4620fa70edd678"
         ),
     }:
         raise ValueError("stable repository input manifest differs")
@@ -442,14 +442,21 @@ def verify_bridge(bundle: pathlib.Path, data: dict[str, Any]) -> dict[str, Any]:
     if (
         provenance.get("schema") != "kodi-lab-bridge-artifact-v1"
         or provenance.get("addon_id") != "service.kodi_lab_bridge"
-        or provenance.get("version") != "1.1.33"
+        or provenance.get("version") != "1.1.35"
         or provenance.get("protocol") != "1"
         or provenance.get("bootstrap") != "otp-1"
         or provenance.get("license") != "MIT"
         or provenance.get("semantic_fingerprint")
-        != "160258994be910987eb6a84352b1ac2eb238e71fa6107f703daff42244009fc1"
+        != "c9252043826cf4818849502eaaedcf76c6639329159f1ce92f4620fa70edd678"
         or provenance.get("capabilities")
-        != ["screenshot", "workspace_deployment", "ui_observation", "log_read", "log_scan"]
+        != [
+            "screenshot",
+            "workspace_deployment",
+            "ui_observation",
+            "log_read",
+            "log_scan",
+            "system_snapshot",
+        ]
         or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
         or provenance.get("source_commit") != data.get("source_commit")
         or provenance.get("source_tree") != data.get("source_tree")
@@ -554,7 +561,7 @@ def verify_bridge(bundle: pathlib.Path, data: dict[str, Any]) -> dict[str, Any]:
     if (
         source_constant("narrow_bridge.py", "PROTOCOL") != "1"
         or source_constant("narrow_bridge.py", "ADDON_ID") != "service.kodi_lab_bridge"
-        or source_constant("narrow_bridge.py", "ADDON_VERSION") != "1.1.33"
+        or source_constant("narrow_bridge.py", "ADDON_VERSION") != "1.1.35"
         or source_constant("onboarding.py", "BOOTSTRAP_VERSION") != "otp-1"
     ):
         raise ValueError("bridge ZIP source identity differs")

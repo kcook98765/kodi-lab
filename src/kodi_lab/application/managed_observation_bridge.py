@@ -21,6 +21,7 @@ from kodi_lab.kodi.logs import (
     KodiLogScanResult,
 )
 from kodi_lab.kodi.observation_bridge import ObservationBridgeClient
+from kodi_lab.kodi.system_info import BridgeSystemSnapshot
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.storage.models import ManagedBridgeTrustRow
@@ -85,6 +86,58 @@ class ManagedObservationBridgeService:
             raise UiObservationError(
                 "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
             ) from error
+        except UiObservationError:
+            raise
+        except Exception as error:
+            raise UiObservationError(
+                "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+            ) from error
+
+    def system_snapshot(
+        self,
+        target_id: UUID,
+        observed: ObserveManagedKodiRuntimeResult,
+        kodi_version: str,
+    ) -> BridgeSystemSnapshot:
+        with self._sessions() as session:
+            row = session.get(ManagedBridgeTrustRow, str(target_id))
+            if row is None:
+                raise UiObservationError("bridge_not_paired")
+            session.expunge(row)
+        try:
+            self._require_binding(row, target_id, observed)
+            assert row.secret_reference and row.bridge_id and row.identity_json
+            pinned = ExternalBridgeClient._identity(json.loads(row.identity_json))
+            require_approved_identity(pinned, kodi_version, established=True)
+            if "system_snapshot" not in pinned.capabilities:
+                raise UiObservationError("bridge_capability_unavailable")
+            endpoint = ValidatedExternalEndpoint(
+                ExternalProtocolKind.JSONRPC_HTTP,
+                observed.ipv4_address,
+                observed.jsonrpc_port,
+            )
+            secret = self._secrets.read(
+                target_id, UUID(row.secret_reference), "request_authentication"
+            )
+            identity, result = self._client.system_snapshot(
+                endpoint,
+                bridge_port=row.bridge_port,
+                target_id=target_id,
+                bridge_id=UUID(row.bridge_id),
+                secret=secret,
+            )
+            require_approved_identity(identity, kodi_version, established=True)
+            if identity_json(identity) != row.identity_json:
+                raise UiObservationError(
+                    "identity_mismatch", reason="managed_bridge_identity_unconfirmed"
+                )
+            if "system_snapshot" not in identity.capabilities:
+                raise UiObservationError("bridge_capability_unavailable")
+            self._require_current(row)
+            return result
+        except ExternalBridgeError as error:
+            self._require_current(row)
+            raise UiObservationError(error.code) from error
         except UiObservationError:
             raise
         except Exception as error:

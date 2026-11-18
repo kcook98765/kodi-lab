@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from kodi_lab.kodi.ui_state_native import UiRpc
 
@@ -17,8 +17,10 @@ MAX_CORES = 256
 
 
 type Normalization = Literal["exact", "rounded", "raw_only", "unavailable"]
-type MetricValue = str | float | bool | dict[str, float] | None
-type MetricScope = Literal["kodi_reported", "kodi_process", "kodi_default_drive"]
+type MetricValue = str | int | float | bool | dict[str, float] | None
+type MetricScope = Literal[
+    "kodi_reported", "kodi_process", "kodi_default_drive", "kodi_profile_filesystem"
+]
 
 
 class _MetricIdentity(TypedDict):
@@ -29,13 +31,70 @@ class _MetricIdentity(TypedDict):
 class SystemMetric(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     availability: Literal["available", "not_reported", "unsupported", "invalid"]
-    source: Literal["native_jsonrpc"] = "native_jsonrpc"
+    source: Literal["native_jsonrpc", "narrow_bridge"] = "native_jsonrpc"
     label: str
     scope: MetricScope = "kodi_reported"
     value: MetricValue = None
     unit: str | None = None
     raw: str | None = None
     normalization: Normalization = "unavailable"
+
+
+type BridgeUnavailableReason = Literal[
+    "bridge_not_paired",
+    "bridge_capability_unavailable",
+    "bridge_unreachable",
+    "bridge_operation_failed",
+]
+BRIDGE_OPTIONAL_FAILURES = frozenset(
+    {
+        "bridge_not_paired",
+        "bridge_capability_unavailable",
+        "bridge_unreachable",
+        "bridge_operation_failed",
+    }
+)
+
+
+class BridgeSystemSnapshot(BaseModel):
+    """Closed authenticated wire data. Missing fields are malformed, null is normal."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    schema_version: Literal[1]
+    logical_cpu_count: int | None = Field(ge=1, le=1048576)
+    os_name: str | None = Field(max_length=160)
+    os_release: str | None = Field(max_length=160)
+    machine: str | None = Field(max_length=160)
+    profile_storage_total: int | None = Field(ge=0, le=2**63 - 1)
+    profile_storage_used: int | None = Field(ge=0, le=2**63 - 1)
+    profile_storage_free: int | None = Field(ge=0, le=2**63 - 1)
+
+    @field_validator("os_name", "os_release", "machine")
+    @classmethod
+    def bounded_text(cls, value: str | None) -> str | None:
+        if value is not None and (
+            not value.strip()
+            or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)
+            or len(value.encode("utf-8")) > MAX_RAW
+        ):
+            raise ValueError("invalid system text")
+        return value
+
+    @model_validator(mode="after")
+    def storage_bounds(self) -> BridgeSystemSnapshot:
+        if self.profile_storage_total is not None and any(
+            value is not None and value > self.profile_storage_total
+            for value in (self.profile_storage_free, self.profile_storage_used)
+        ):
+            raise ValueError("invalid storage bounds")
+        return self
+
+
+class BridgeSystemEnrichment(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    reason: BridgeUnavailableReason | None = None
+    metrics: dict[str, SystemMetric] = Field(default_factory=dict)
 
 
 class SystemInfo(BaseModel):
@@ -45,6 +104,7 @@ class SystemInfo(BaseModel):
     status: Literal["complete", "partial", "unavailable"]
     scope: Literal["container_view", "unknown"] = "unknown"
     metrics: dict[str, SystemMetric]
+    enrichment: BridgeSystemEnrichment | None = None
 
 
 # kind determines parsing, never request selection. MB in these Kodi labels is
@@ -261,4 +321,54 @@ def collect_system_info(call: UiRpc) -> SystemInfo:
         if available
         else "unavailable",
         metrics=metrics,
+    )
+
+
+def enrich_system_info(native: SystemInfo, raw: BridgeSystemSnapshot) -> SystemInfo:
+    """Separate origins; never replace a native value with a process observation."""
+    labels = {
+        "logical_cpu_count": "os.cpu_count",
+        "os_name": "os.uname.sysname_or_sys.platform",
+        "os_release": "os.uname.release_or_sys.getwindowsversion",
+        "machine": "os.uname.machine",
+        "profile_storage_total": "shutil.disk_usage.profile.total",
+        "profile_storage_used": "shutil.disk_usage.profile.used",
+        "profile_storage_free": "shutil.disk_usage.profile.free",
+    }
+    metrics = {}
+    for name, label in labels.items():
+        value = getattr(raw, name)
+        storage = name.startswith("profile_storage_")
+        metrics[name] = SystemMetric(
+            availability="not_reported" if value is None else "available",
+            source="narrow_bridge",
+            label=label,
+            scope="kodi_profile_filesystem" if storage else "kodi_process",
+            value=value,
+            unit="bytes"
+            if storage
+            else "count"
+            if name == "logical_cpu_count"
+            else None,
+            normalization="unavailable" if value is None else "exact",
+        )
+    available = sum(m.availability == "available" for m in metrics.values())
+    enrichment = BridgeSystemEnrichment(
+        status="complete"
+        if available == len(metrics)
+        else "partial"
+        if available
+        else "unavailable",
+        metrics=metrics,
+    )
+    return native.model_copy(
+        update={"enrichment": enrichment, "observed_at": datetime.now(UTC)}
+    )
+
+
+def without_system_enrichment(native: SystemInfo, reason: str) -> SystemInfo:
+    # Callers must only suppress the closed compatibility/availability failures.
+    enrichment = BridgeSystemEnrichment.model_validate({"reason": reason})
+    return native.model_copy(
+        update={"enrichment": enrichment, "observed_at": datetime.now(UTC)}
     )

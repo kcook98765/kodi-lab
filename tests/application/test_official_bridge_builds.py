@@ -137,7 +137,7 @@ def test_exact_official_release_is_registered_once_without_other_writes(
         assert stable.BRIDGE_SHA256 in row.source_reference
         assert (
             row.capabilities_json
-            == '["log_read","log_scan","screenshot","ui_observation",'
+            == '["log_read","log_scan","screenshot","system_snapshot","ui_observation",'
             '"workspace_deployment"]'
         )
 
