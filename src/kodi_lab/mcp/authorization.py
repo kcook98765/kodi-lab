@@ -1241,6 +1241,7 @@ class McpAuthorizationService:
             not in {
                 "target_list",
                 "target_status",
+                "system_info",
                 "addon_list",
                 "inspect_ui_state",
                 "log_read",
@@ -1401,7 +1402,7 @@ class McpAuthorizationService:
     ) -> TargetTechnicalAuthority:
         try:
             resolver = getattr(self._targets, "resolve_ui_state", None)
-            if tool_name == "inspect_ui_state" and callable(resolver):
+            if tool_name in {"inspect_ui_state", "system_info"} and callable(resolver):
                 return cast(Callable[[UUID], TargetTechnicalAuthority], resolver)(
                     target_id
                 )

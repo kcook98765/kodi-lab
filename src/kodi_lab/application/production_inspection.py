@@ -366,6 +366,7 @@ class ProductionReadRateLimiter:
         self._maps: dict[str, dict[Hashable, _Bucket]] = {
             "target_list": {},
             "target_status": {},
+            "system_info": {},
             "addon_list": {},
             "log_read": {},
             "log_scan": {},
@@ -377,7 +378,7 @@ class ProductionReadRateLimiter:
     def require_target_read(
         self, tool_name: str, client_id: UUID, target_id: UUID
     ) -> None:
-        if tool_name == "target_status":
+        if tool_name in {"target_status", "system_info"}:
             self._require(tool_name, (client_id, target_id), rate=1 / 5.0, burst=1)
         elif tool_name == "addon_list":
             self._require(tool_name, (client_id, target_id), rate=1 / 30.0, burst=1)

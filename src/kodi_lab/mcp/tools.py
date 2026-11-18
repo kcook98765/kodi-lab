@@ -192,6 +192,7 @@ from kodi_lab.kodi.logs import (
 )
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
+from kodi_lab.kodi.system_info import SystemInfo
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.kodi.ui_state_native import MANAGED_BRIDGE_RECOVERY_REASONS
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
@@ -2253,6 +2254,25 @@ class McpTargetToolService:
             return result
 
         return self._authorization.invoke_target(principal, tool_name, target_id, read)
+
+    def system_info(self, principal: McpPrincipal, *, target_id: UUID) -> SystemInfo:
+        def inspect() -> SystemInfo:
+            if self._target_adapters is None:
+                raise McpAuthorizationError("capability_unavailable")
+            try:
+                result = self._target_adapters.system_info(target_id)
+            except ManagedInstanceNotFoundError as error:
+                raise McpAuthorizationError(
+                    "target_not_found_or_not_authorized"
+                ) from error
+            except KodiTargetAdapterError as error:
+                raise McpAuthorizationError(error.code) from error
+            self._require_bounded(result)
+            return result
+
+        return self._authorization.invoke_target(
+            principal, "system_info", target_id, inspect
+        )
 
     def inspect_ui_state(
         self, principal: McpPrincipal, *, target_id: UUID

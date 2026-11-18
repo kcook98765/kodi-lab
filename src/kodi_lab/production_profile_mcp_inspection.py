@@ -43,6 +43,7 @@ _EXPECTED_TOOLS: Final = (
     "remote_action",
     "screenshot_capture",
     "screenshot_retrieve",
+    "system_info",
     "target_list",
     "target_status",
 )
@@ -54,6 +55,7 @@ _EXPECTED_VISUAL_TOOLS: Final = (
     "remote_action",
     "screenshot_capture",
     "screenshot_retrieve",
+    "system_info",
     "target_list",
     "target_status",
 )

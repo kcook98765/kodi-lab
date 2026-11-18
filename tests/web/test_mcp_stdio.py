@@ -222,6 +222,7 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                     "log_scan",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                 ]
@@ -358,6 +359,7 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                     "log_scan",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                 ]
@@ -449,6 +451,7 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     "remote_action",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                     "workspace_create",
@@ -612,6 +615,7 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                     "remote_action",
                     "screenshot_capture",
                     "screenshot_retrieve",
+                    "system_info",
                     "target_list",
                     "target_status",
                     "workspace_create",
