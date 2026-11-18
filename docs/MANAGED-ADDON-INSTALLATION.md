@@ -5,10 +5,12 @@ Use `project_create` or `project_import`, then exact-generation
 managed development. This existing controlled source-deployment path needs no
 human Kodi installation action or per-version Web publication approval. It
 remains the rapid edit/test/debug loop for Matrix 19.4, Nexus 20.5, Omega 21.3
-and the explicitly approved Piers 22.0 RC1 runtime.
+and the explicitly approved Piers 22.0 RC2 preview. Retained RC1 profiles
+keep their recorded pins and evidence; see [RC2 qualification](PIERS-RC2-QUALIFICATION.md).
 
-**Repository-backed unattended installation is unsupported.** Investigation of
-[#339](https://github.com/kcook98765/kodi-lab/issues/339) found that the documented
+**Repository-backed unattended installation is unsupported and is not currently
+pursued.** [#339](https://github.com/kcook98765/kodi-lab/issues/339) is closed as
+**Not planned**. Investigation found that the documented
 `InstallAddon(id)` cannot satisfy noninteractive, exact-reviewed-package
 installation or controlled upgrades on these versions. No repository installer,
 automatic development-repository provisioning, trusted-agent feed publication,

@@ -1,7 +1,7 @@
 # Linux amd64 V1 local deployment candidate contract
 
 The V1 bundle distributes Kodi Lab application images, the reviewed bridge
-1.1.31 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
+1.1.35 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
 The candidate is local and unpublished. `BUNDLE.json` records the exact source
 Git commit/tree, application image identities, bridge artifact identity, recipe
 metadata, and every distributed file. `SHA256SUMS`
@@ -13,7 +13,7 @@ download checks integrity but does not establish publisher identity.
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `compose.lan-http.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
 | Reviewed runtime inputs | `runtime-recipes/matrix-19.4-graceful-r4.json`, `nexus-20.5-graceful-r4.json`, `omega-21.3-graceful-r6.json` | File hashes and installed wheel recipe digests; provider, suite, version |
-| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.31.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
+| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.35.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
 | Kodi feed inputs | `repository/STABLE.json`, `repository/DEVELOPMENT.json`, installed repository generator/server | Reviewed repository/Bridge identities; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
 | Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `PRODUCTION-OPERATIONS.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
@@ -58,8 +58,10 @@ macOS and ARM64 hosts are not qualified. Historical private archive bootstrap
 resources are not release prerequisites.
 
 `0001_initial_release` is the initial database baseline. The supported forward
-chain runs from `0001_initial_release` through `0014_human_reset_bridge`, the
-current head. Both sdist and wheel include this same migration tree; the
+chain runs from `0001_initial_release` through `0015_log_scan_capability`,
+`0016_reviewed_bridge_updates` and the current head,
+`0017_system_snapshot_capability`. Both sdist and wheel include this same
+migration tree; the
 [migration policy](https://github.com/kcook98765/kodi-lab/blob/main/migrations/README.md)
 describes each intermediate revision. Supported upgrades use the explicit administrator upgrade flow;
 ordinary Web startup requires the installed head and never migrates. Unsupported

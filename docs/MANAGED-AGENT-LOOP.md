@@ -6,7 +6,8 @@ uses direct deployment to an explicit managed version without human Web source
 registration, publication approval or Kodi installation navigation. The
 registered-source workflow below retains its separate setup and permissions.
 
-For a new local add-on, start in **Development → Current Managed Kodi**: select
+For a registered local add-on, open **Advanced → Development tools → Current
+Managed Kodi**: select
 the project and its development agent, then choose Kodi. [Automatic local project
 onboarding](LOCAL-PROJECT-ONBOARDING.md) supplies the internal source registration,
 exact source grant and client-owned workspace. Use manual registration/binding
@@ -24,15 +25,17 @@ Start, screen viewing, retained Stop and confirmed clean Reset. These actions do
 not grant agent or workspace authority. After Reset, use **Set up for add-on
 testing** to establish fresh Bridge and deployment evidence.
 
-Issue #238 is [being delivered in stages](MANAGED-VERSION-LIFECYCLE.md). The
-version-oriented MCP loop is now available after explicit administrator opt-in:
+The [version-oriented MCP loop](MANAGED-VERSION-LIFECYCLE.md) is available through
+Trusted Managed Lab or explicit legacy administrator opt-in. The legacy
+registered-source path below retains its exact grants and policies:
 
 1. Call `managed_status({})` to discover the supported versions and authorized
    slot state. No raw target/container/revision is needed for lifecycle actions.
 2. Persist a fresh request UUID, then call
-   `managed_start({version: "omega", request_id: "<UUID>"})`. It prepares an empty
-   approved cached slot or resumes the same stopped profile. Poll with the
-   original UUID after a lost response or while readiness is checking. Continue
+   `managed_start({version: "omega", request_id: "<UUID>"})`. It resumes the same
+   stopped profile. Legacy explicit-grant callers may also prepare an absent
+   profile from an approved cached runtime; role callers need human installation.
+   Poll with the original UUID after a lost response or while readiness is checking. Continue
    native work only when `status.native_ready` is true. Bridge and workspace
    readiness are separate; Start grants neither.
 3. Develop/test through the separately authorized workspace loop below.
@@ -49,7 +52,7 @@ automatically opt in. The administrator must prepare an approved cached runtime;
 Start never downloads, approves, repins or silently adopts an old profile.
 
 To switch versions, safely Stop the current version first with its own grant.
-Automatic switching remains a separate phase. For a clean Kodi environment,
+There is no automatic eviction of a running version. For a clean Kodi environment,
 explicitly authorized agents can call
 `managed_reset({version: "omega", request_id: "<new UUID>", restart: false})`.
 This deliberately replaces only Kodi's writable profile from its existing
@@ -59,7 +62,8 @@ policies. Default Reset leaves the new profile stopped; `restart: true` requests
 native Start. Bridge pairing, profile-bound deployment evidence and any disposed
 Current Kodi selection are invalidated; complete their existing preparation
 before fresh deployment. See [clean Reset and recovery](MANAGED-CLEAN-RESET.md).
-Reset of the selected Current Kodi closes that selection. The existing MCP
+For this legacy selected-session workflow, Reset of the selected Current Kodi
+closes that selection. The existing MCP
 selection tools cannot bootstrap it again: an administrator must select the
 replacement/workspace while all Kodi are stopped, copy a fresh source baseline,
 prepare reviewed Bridge trust and enable the add-on. The administrator closes
@@ -127,7 +131,8 @@ enable/start the add-on, or give an agent new permissions. Follow the
    managed project, or `workspace_launch` under its existing permissions, when
    the installed server and reviewed Bridge support it. The
    [trusted local preset](TRUSTED-LOCAL-DEVELOPMENT.md) grants launch separately
-   from general Kodi control; navigation remains deferred. Launch acceptance establishes dispatch, not the intended
+   from general Kodi control; navigation uses separately authorized `remote_action`.
+   Launch acceptance establishes dispatch, not the intended
    window, completed execution or functional acceptance: inspect the UI and
    test the feature. `workspace_execute` remains a bounded video-plugin smoke
    test, not a generic script or mixed-manifest launcher. See

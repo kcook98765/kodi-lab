@@ -14,7 +14,8 @@ proves and records which exact reviewed package is present. Operator action is
 not evidence of Kodi Lab trust, and Kodi Lab trust is not installation
 authority.
 
-The bridge supports identity, capability proof and bounded screenshots. It is
+The bridge supports identity, capability proof, screenshots, protected UI
+observations, bounded log reads/scans and optional system snapshots. It is
 not an arbitrary control channel. Production control uses fixed server-owned
 native semantic calls. Bridge mismatch suspends bridge-dependent screenshot and
 control authority; native read-only inspection remains independent when its own
@@ -22,7 +23,7 @@ production identity/generation remains coherent.
 
 ## Required production artifact
 
-A candidate built from this source contains `bridge/service.kodi_lab_bridge-1.1.15.zip`
+A candidate built from this source contains `bridge/service.kodi_lab_bridge-1.1.35.zip`
 and `bridge/BRIDGE.json`. Verify the full source-free bundle and compare the
 exact ZIP hash with both provenance and `BUNDLE.json`. A hosted Kodi repository
 and automatic updater are
@@ -34,18 +35,22 @@ SHA-256 with the value in its reviewed provenance. The reviewed record must
 also identify add-on ID/version, protocol, semantic fingerprint, capabilities,
 supported Kodi versions and source reference.
 
-Bridge 1.1.7 and 1.1.8 are historical review evidence. Source bridge 1.1.15
-artifact uses `otp-1`; its exact hash and source identity are in the local
-candidate's `bridge/BRIDGE.json`. Neither this document nor a filename alone
-approves any other ZIP bytes.
+The current stable candidate is **1.1.35**, with exact-release preview **1.1.36**
+for managed Piers. These source candidates are distinct from published release
+assets and from any target's installed version. See the [version/capability
+matrix](https://github.com/kcook98765/kodi-lab/blob/main/docs/BRIDGE.md#version-and-capability-matrix). Bridge 1.1.7, 1.1.8 and 1.1.15
+references in older reports describe those historical bytes. The current
+artifact uses `otp-1`; its exact hash and source identity are in the candidate's
+`bridge/BRIDGE.json`. Neither this document nor a filename alone approves a ZIP.
+Updating Lab does not install or upgrade external Bridges.
 
 ## Manual production bridge installation and onboarding
 
 Keep production mutations globally blocked and the target mutation suspension
 set while onboarding.
-Bridge 1.1.15 uses the shared `otp-1` protocol. The bridge displays a temporary
-four-character code; Kodi Lab creates a separate protected 32-byte credential.
-The candidate's reviewed 1.1.15 ZIP is the pairing artifact after transition.
+The current reviewed candidate uses the shared `otp-1` protocol. The bridge
+displays a temporary four-character code; Kodi Lab creates a separate protected 32-byte credential.
+Use the candidate's exact reviewed ZIP and provenance for pairing.
 
 1. Obtain the exact bridge ZIP and provenance from the verified local bundle.
 2. Compute SHA-256 locally and compare the entire value with the recorded
@@ -127,9 +132,13 @@ After you install a reviewed successor through Kodi, an authorized `log_read` or
 Bridge UUID and HMAC credential, native identity, unchanged network/transport
 binding and exact current compiled reviewed release. The immutable review must
 be active and support the native Kodi version. Only read-only observation additions
-(`log_read`, `log_scan`, `ui_observation`) can extend the declared capability set;
-configured maxima, client/target permissions and production protections still
-apply independently. A matching add-on version alone is insufficient.
+(`log_read`, `log_scan`, `ui_observation`, `system_snapshot`) can extend the
+declared capability set; configured maxima, client/target permissions and
+production protections still apply independently. A matching add-on version
+alone is insufficient. `system_info` may consume
+`system_snapshot` only under already-current trust: that diagnostic read does
+not trigger adoption. Use the authorized log observation or explicit reverification
+path first when adoption is needed.
 
 Each adoption advances the software trust revision and records previous/new
 reviewed build IDs (which retain exact version, fingerprint and ZIP digest),

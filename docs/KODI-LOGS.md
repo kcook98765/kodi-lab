@@ -128,8 +128,10 @@ completed observation are outside that observation.
 
 ### Bridge compatibility and enabling
 
-Requires trusted **Bridge 1.1.33**, protocol 1, `log_scan`; exact-release RC overlays
-use **1.1.34**. The Lab schema migration admits this capability without altering
+`log_scan` was introduced in **1.1.33** (exact-release preview **1.1.34**).
+The current candidates **1.1.35/1.1.36** retain it. Protocol 1, the advertised
+`log_scan` capability and exact approved trust are required; a numerically newer
+version alone is insufficient. See the [version/capability matrix](BRIDGE.md#version-and-capability-matrix). The Lab schema migration admits this capability without altering
 existing pairings, grants, reviewed rows or credentials. Historical identities,
 including 1.1.31/1.1.32, remain trusted for their existing operations. An older
 Bridge returns a capability-unavailable result before a scan is dispatched; use
@@ -214,14 +216,20 @@ Routine MCP audits record target, client, tool, outcome and timestamps, without
 arguments or log bodies. The Bridge does not persist excerpts or keep them in
 its replay response cache. No log archive is created by the tool.
 
-Schema migration `0072_kodi_log_capability` adds the closed Bridge capability,
-preserves existing rows and authority triggers, and grants no permissions or
-trust. Downgrade refuses while any paired or reviewed record contains
-`log_read`; use normal credential retirement and record removal rather than
-discarding provenance. See D-0433.
+`log_read` is part of the supported `0001_initial_release` baseline.
+`0072_kodi_log_capability` and D-0433 describe its historical prerelease
+introduction, not a current upgrade step. Migration `0015_log_scan_capability`
+adds `log_scan` to the closed pairing/reviewed-build vocabulary while preserving
+rows and authority triggers. It grants no access or trust and refuses downgrade
+while either stored set uses `log_scan`. Preserve provenance and use the
+[supported backup/recovery path](LINUX-V1-UPGRADE-ROLLBACK.md), rather than deleting
+records to force a downgrade. Current head `0017_system_snapshot_capability`
+adds only the optional system-snapshot capability.
 
-Managed Matrix 19.4 supports the exact reviewed stable Bridge 1.1.31 after
-explicit administrator installation and fresh target-specific authentication.
+Historical managed Matrix 19.4 installed acceptance used exact reviewed Bridge
+1.1.31 after explicit administrator installation and fresh target-specific
+authentication. Current installation uses the [current candidate](BRIDGE.md#version-and-capability-matrix);
+that older result does not qualify new bytes.
 Native JSON-RPC readiness or readable log files cannot satisfy resident trust.
 See [Matrix compatibility and installed acceptance](MATRIX-BRIDGE-COMPATIBILITY.md).
 

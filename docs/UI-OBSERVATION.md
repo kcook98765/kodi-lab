@@ -23,7 +23,7 @@ are true/false. Snapshots are bounded and non-atomic. Identity checks invalidate
 associations after window/dialog/focus changes. Changes between identical boundary
 identities cannot all be detected. Structured fields are authoritative.
 
-The reviewed stable Bridge 1.1.31 collects direct window/dialog/focus and player facts, guarded focus
+The current reviewed stable candidate [1.1.35](BRIDGE.md#version-and-capability-matrix) collects direct window/dialog/focus and player facts, guarded focus
 wrapper classification, and GUI-dispatched curated InfoLabels/conditions. Generic
 direct Python ListItem reads are prohibited. The same collector profile supports
 qualified Kodi 19.4, 20.5 and 21.3, without Kodi-major branches. Screensaver uses

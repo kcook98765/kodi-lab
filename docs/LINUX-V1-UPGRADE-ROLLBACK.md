@@ -8,9 +8,19 @@ migrations continue through `0002_managed_setup`, `0003_managed_versions`,
 `0007_production_navigation`, `0008_managed_bridge_preparation`,
 `0009_trusted_managed_lab`, `0010_agent_projects`, `0011_agent_project_versions`,
 `0012_agent_project_intake`, `0013_agent_packages`, `0014_human_reset_bridge`,
-`0015_log_scan_capability` and the current head, `0016_reviewed_bridge_updates`.
+`0015_log_scan_capability`, `0016_reviewed_bridge_updates` and the current head,
+`0017_system_snapshot_capability`.
 The explicit administrator upgrade flow applies this chain; ordinary Web startup
 requires the installed head and never migrates.
+
+Migration `0015` admits `log_scan`; `0016` adds default-Off reviewed-production
+Bridge update policy/receipts; `0017` admits `system_snapshot`. These migrations
+do not install or upgrade a Bridge, opt a target into update trust or grant agent
+access. Downgrades refuse state the predecessor cannot represent, including
+`log_scan`/`system_snapshot` pairing or reviewed-build records and reviewed-update
+policy/history. Preserve the matching application backup and images for recovery;
+do not delete trust or receipt history to force a schema downgrade.
+
 The current application refuses unsupported prerelease databases and backups;
 it does not convert or stamp them. Preserve unsupported state separately and use
 a fresh, independent installation. Never erase state to bypass a refusal. See the

@@ -1,7 +1,11 @@
 # Phase 12 MCP development workflows
 
 This document retains the Phase 12 implementation and formal-review checkpoints
-below, including their historical tool counts. The current V1
+below, including their historical tool counts and authority descriptions.
+For the current 46 tools, arguments, target eligibility and production controls,
+use the [canonical MCP reference](MCP-TOOLS-AND-PERMISSIONS.md); agent-owned intake
+and direct deployment are described in [agent projects](AGENT-PROJECTS.md).
+The current V1
 contract is defined in [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract);
 later source scan/capture, exact ambiguous-smoke recovery, batch imports,
 retained action observations, direct manifest launch and opt-in managed lifecycle extend that surface.

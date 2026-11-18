@@ -38,7 +38,7 @@ The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
-documents. It also contains `bridge/service.kodi_lab_bridge-1.1.31.zip` and its
+documents. It also contains `bridge/service.kodi_lab_bridge-1.1.35.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
 both installed images. Kodi 22 Piers RC2 is an additional Development-only
@@ -169,9 +169,11 @@ shell access or an already-paired bridge. Kodi may require its normal explicit
 permission/warning for HTTP sources; do not disable unrelated protections.
 Private-LAN HTTP does not authenticate the server against a malicious LAN actor.
 
-The exact `bridge/service.kodi_lab_bridge-1.1.31.zip` remains a manual fallback.
+The exact `bridge/service.kodi_lab_bridge-1.1.35.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
-before transferring it. The stable feed serves these identical reviewed bytes.
+before transferring it. The stable feed generated from this candidate serves
+these identical reviewed bytes. Updating Lab does not update an external Kodi's
+installed Bridge; the operator installs it and Lab reverifies trust.
 
 For ordinary onboarding, open **External Production Kodi → Connect External
 Production Kodi** or **External Development Kodi → Connect External Development
@@ -246,7 +248,7 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    independent bridge credential, and displays the authenticated bridge
    identity. If the response is uncertain, use **Resume pairing**; do not
    submit the code a second time. Check the observed UUID, add-on version
-   `1.1.31`, protocol `1`, Kodi version, and capabilities under **External
+   `1.1.35` for this candidate, protocol `1`, Kodi version, and capabilities under **External
    Development Kodi**. Advanced external target administration supports explicit
    target approval and capability limits before development deployment.
 4. For advanced production registration, use **External Production Kodi** instead.
@@ -259,11 +261,14 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    Pairing alone grants no production scope. Follow `PRODUCTION-OPERATIONS.md`
    before authorizing screenshots or semantic remote actions.
 
-The bridge provides authenticated identity and bounded screenshots. An
-approved external development target may also use its pathless workspace
-deployment capability. Production uses only the bridge screenshot capability;
-production remote actions use separate native Kodi calls under explicit Web
-policy. Native target registration, verification, status, and read-only Kodi
+The bridge provides authenticated identity, screenshots, protected UI
+observations, bounded log reads/scans and optional system snapshots. Each
+operation requires its own advertised/reviewed capability and current trust;
+see the [Bridge version and capability matrix](https://github.com/kcook98765/kodi-lab/blob/main/docs/BRIDGE.md#version-and-capability-matrix).
+An approved external development target may also use pathless workspace
+deployment. Production may use the reviewed read-only capabilities; its remote
+actions use separate native Kodi calls under explicit Web policy. Native target
+registration, verification, status, and read-only Kodi
 inspection do not require the bridge. Managed Kodi acquisition and Web
 administration do not require a remote bridge either. Bridge HTTP HMAC protects
 integrity, while screenshot pixels are cleartext on HTTP; use a trusted private
