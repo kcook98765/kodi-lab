@@ -152,8 +152,10 @@ def test_closed_requests_cardinality_and_result_bounds() -> None:
     assert all("path" not in label.lower() for label in INFO_LABELS)
 
 
-@pytest.mark.parametrize("error", [-32601, -32602, -32603])
-def test_optional_methods_only_ignore_explicit_unsupported_errors(error: int) -> None:
+@pytest.mark.parametrize("error", [-32601, -32602, -32603, [], {}, True])
+def test_optional_methods_only_ignore_explicit_unsupported_errors(
+    error: object,
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         if body["method"].endswith("Labels"):
@@ -177,7 +179,7 @@ def test_optional_methods_only_ignore_explicit_unsupported_errors(error: int) ->
     adapter = NativeExternalKodiAdapter(
         endpoint, None, transport=httpx.MockTransport(handler)
     )
-    if error == -32603:
+    if error not in (-32601, -32602):
         with pytest.raises(ExternalProbeError, match="invalid_kodi_response"):
             adapter.system_info()
     else:
