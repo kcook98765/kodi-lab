@@ -14,7 +14,7 @@ then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
 Protocol 1 may advertise `screenshot`, `workspace_deployment` and
-`ui_observation`, `log_read` and `log_scan`. Deployment is pathless and
+`ui_observation`, `log_read`, `log_scan` and `system_snapshot`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
 reconciliation are Web-only.
@@ -29,7 +29,8 @@ protocol, Kodi-version or capability mismatch suspends bridge-dependent
 authority. Native read-only inspection remains independent when its native
 trust intersection is still coherent.
 
-Production uses `screenshot` and may use `ui_observation`, `log_read` or `log_scan` when the exact reviewed
+Production uses `screenshot` and may use `ui_observation`, `log_read`, `log_scan`
+or `system_snapshot` when the exact reviewed
 build declares it and existing provenance/transport confirmation is current.
 The bridge is an identity and inspection support component; production control never travels
 through it. The existing `remote_action` service sends only fixed server-owned

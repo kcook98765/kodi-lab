@@ -107,6 +107,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
                 "0014_human_reset_bridge.py",
                 "0015_log_scan_capability.py",
                 "0016_reviewed_bridge_updates.py",
+                "0017_system_snapshot_capability.py",
             }
         )
         for kind in ("templates", "static"):

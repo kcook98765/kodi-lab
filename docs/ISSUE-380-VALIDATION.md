@@ -103,3 +103,27 @@ on the settled integration tree, build clean committed-source provenance, review
 migration/recovery for the destination and explicitly authorize publication or
 installation. Source preparation/native disposable-runtime checks do not establish
 acceptance on existing registered managed, external-development or production Kodi.
+
+## Independent review and qualification
+
+Independent Phase A corrections remain on PR #381 and are incorporated into the
+dependent Phase B tree without rewriting the original implementation commits.
+The review also corrected six stale current-head migration assertions and the
+packaged migration inventory. Direct-predecessor populated production checks
+preserve every application table, pairing, reviewed build, policy, adoption
+receipt and trigger through upgrade/downgrade/upgrade, with integrity and foreign
+key checks. Both pairing capability columns independently prevent a lossy
+downgrade. These migration/packaging paths passed 17 individually focused cases;
+the existing migration implementation required no correction.
+
+All 54 native requests were independently compared with the four cited upstream
+versions. Unmapped HDR, DHCP and webOS observations retain the documented
+partial/unsupported-platform limits. Retained native Omega snapshots and all
+eleven installed candidate file hashes were verified against the unchanged
+Bridge release inventory. No additional native runtime or acquisition was needed.
+
+Independent focused, combined integration, clean-source candidate provenance and
+the single settled-tree release-gate evidence are retained under
+`/home/kyle/kodi-lab-review-evidence/380-independent-20261118/`.
+The final review report there records the exact qualified commits/tree and gate
+outcome; this document does not imply a release pass before that gate completes.
