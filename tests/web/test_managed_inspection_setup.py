@@ -145,6 +145,7 @@ def test_explicit_managed_inspection_setup_and_saved_state_guidance(
         for tool in _post(client, issued.token, "tools/list").json()["result"]["tools"]
     }
     assert names == {
+        "system_info",
         "target_list",
         "target_status",
         "addon_list",
