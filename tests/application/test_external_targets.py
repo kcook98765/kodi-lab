@@ -168,6 +168,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "remote_action",
         "screenshot_capture",
         "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
         "workspace_capture",
