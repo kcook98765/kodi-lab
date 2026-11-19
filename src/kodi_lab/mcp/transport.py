@@ -2492,10 +2492,15 @@ def _tool_error_result(
     ):
         message += (
             "\nnext_action: The current fixed smoke accepts exactly one Python "
-            "video-plugin extension. Direct manifest-entry-point launch is not "
-            "available yet. Inspect workspace_validate eligibility and observe "
-            "the intended UI separately; do not treat menu launch or accepted "
-            "dispatch as script completion."
+            "video-plugin extension. Inspect workspace_validate launch_entries "
+            "for an eligible declared-entry ordinal and deploy the exact generation. "
+            "On a compatible managed target, development_launch requires "
+            "development.launch and workspace.inspect, with a bound Current Kodi "
+            "project or Trusted Managed Lab owned-project authority; "
+            "workspace_launch requires target.control and development.execute. "
+            "Use only a launch tool exposed to this client and authorized for this "
+            "workspace and target. Accepted dispatch is not script completion; "
+            "verify native logs or the intended UI separately."
         )
     if tool_name == "workspace_create" and result_code == "workspace_quota_exceeded":
         limits = {
