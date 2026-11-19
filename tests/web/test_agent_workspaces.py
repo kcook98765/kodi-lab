@@ -888,6 +888,16 @@ def test_promotion_rejection_is_confirmed_web_only_and_durable(
     rejected = client.post(reject_url, json={"confirmed": True}, headers=headers)
     assert rejected.status_code == 200
     assert rejected.json()["state"] == "invalidated"
+    diagnostic = client.get(f"{plans_url}/{plan_id}")
+    assert diagnostic.status_code == 200
+    assert diagnostic.json()["invalidation_reason"] == "web_admin_rejected"
+    assert "rejected" in diagnostic.json()["next_action"]
+    page = client.get(
+        f"/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}"
+    )
+    assert page.status_code == 200
+    assert "web_admin_rejected" in page.text
+    assert diagnostic.json()["next_action"] in page.text
     assert (
         client.post(
             f"{plans_url}/{plan_id}/approve-and-execute",

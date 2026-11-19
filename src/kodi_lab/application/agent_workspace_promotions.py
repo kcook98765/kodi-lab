@@ -77,6 +77,30 @@ PROMOTION_PLAN_TTL = timedelta(minutes=15)
 PROMOTION_LEASE_TTL = timedelta(minutes=15)
 
 
+def _invalidation_diagnostic(reason: str | None) -> tuple[str | None, str | None]:
+    """Project stored reasons through an explicit, path-free public vocabulary."""
+    if reason is None:
+        return None, None
+    actions = {
+        "promotion_source_not_writable": (
+            "Ask the operator to check promotion write permission for this "
+            "registered source under the Kodi Lab service account. After correcting "
+            "that prerequisite, request a new promotion plan; this plan stays invalidated."
+        ),
+        "promotion_plan_expired": "Review current workspace evidence and request a new promotion plan.",
+        "web_admin_rejected": "This plan was rejected in Web review. Request a new plan only if a new review is intended.",
+        "promotion_workspace_drift": "Validate, deploy and execute the current workspace generation before requesting a new plan.",
+        "promotion_target_drift": "Check the verification target and refresh deployment and execution evidence before requesting a new plan.",
+    }
+    if reason in actions:
+        return reason, actions[reason]
+    return (
+        "promotion_plan_invalidated",
+        "Ask the operator to check the registered source and current workspace "
+        "evidence before requesting a new promotion plan. This plan cannot be approved.",
+    )
+
+
 class AgentWorkspacePromotionError(RuntimeError):
     def __init__(self, code: str, safe_message: str) -> None:
         self.code = code
@@ -117,6 +141,8 @@ class AgentWorkspacePromotionPlanRead(BaseModel):
     current_version: str = Field(max_length=128)
     promoted_version: str = Field(max_length=128)
     source_write_permission: str
+    invalidation_reason: str | None = Field(default=None, max_length=64)
+    next_action: str | None = Field(default=None, max_length=512)
     changed_file_count: int = Field(ge=1, le=100)
     added_file_count: int = Field(ge=0, le=100)
     modified_file_count: int = Field(ge=0, le=100)
@@ -1004,6 +1030,7 @@ class AgentWorkspacePromotionService:
             raise AgentWorkspacePromotionError(
                 "promotion_plan_not_found", "Promotion plan was not found."
             )
+        reason, next_action = _invalidation_diagnostic(plan.invalidation_reason)
         return AgentWorkspacePromotionPlanRead(
             plan_id=plan.id,
             workspace_id=workspace.id,
@@ -1022,7 +1049,13 @@ class AgentWorkspacePromotionService:
             addon_id=plan.addon_id,
             current_version=plan.current_version,
             promoted_version=plan.promoted_version,
-            source_write_permission="promotion_enabled",
+            source_write_permission=(
+                "readable_not_promotion_writable"
+                if reason == "promotion_source_not_writable"
+                else "promotion_enabled"
+            ),
+            invalidation_reason=reason,
+            next_action=next_action,
             changed_file_count=plan.changed_file_count,
             added_file_count=sum(
                 item.change_kind is AgentWorkspacePromotionChangeKind.ADD

@@ -14,6 +14,7 @@
       <dt>Add-on ID</dt><dd>{{ plan.addon_id }}</dd>
       <dt>Version</dt><dd>{{ plan.current_version }} → {{ plan.promoted_version }}</dd>
       <dt>Plan state</dt><dd>{{ plan.state.value }}</dd>
+      {% if plan.invalidation_reason %}<dt>Invalidation reason</dt><dd>{{ plan.invalidation_reason }}</dd>{% endif %}
       <dt>Origin</dt><dd>{{ plan.originating_actor }}{% if plan.originating_mcp_client_name %}: {{ plan.originating_mcp_client_name }} ({{ plan.originating_mcp_client_id }}){% endif %}</dd>
       <dt>Identity</dt><dd>{{ plan.identity_classification }}</dd>
       <dt>Validation</dt><dd>{{ plan.validation_classification }}</dd>
@@ -24,6 +25,7 @@
       <dt>Changed files</dt><dd>{{ plan.changed_file_count }} total; {{ plan.added_file_count }} added; {{ plan.modified_file_count }} modified</dd>
       <dt>Review bounds</dt><dd>{{ plan.changed_file_count }}/{{ plan.review_file_limit }} files; {{ plan.review_text_bytes }}/{{ plan.review_text_limit_bytes }} UTF-8 bytes</dd>
     </dl>
+    {% if plan.next_action %}<p role="status">{{ plan.next_action }}</p>{% endif %}
     {% for change in plan.changes %}
     <article>
       <h2>{{ change.path }} — {{ change.change_kind.value }}</h2>

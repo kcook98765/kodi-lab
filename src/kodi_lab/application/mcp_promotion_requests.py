@@ -84,6 +84,8 @@ class PromotionRequestResult(BaseModel):
     web_review_required: bool = True
     readiness_classification: str = Field(max_length=64)
     conflict_classification: str = Field(max_length=64)
+    invalidation_reason: str | None = Field(default=None, max_length=64)
+    next_action: str | None = Field(default=None, max_length=512)
 
 
 class PromotionStatusProjection(BaseModel):
@@ -480,6 +482,8 @@ class McpPromotionRequestService:
                 else "not_ready_for_web_review"
             ),
             conflict_classification=plan.source_conflict_classification,
+            invalidation_reason=plan.invalidation_reason,
+            next_action=plan.next_action,
         )
 
     def _load_request(

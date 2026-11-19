@@ -2076,6 +2076,8 @@ def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
 
     assert replayed == requested
     assert requested.review_state == "reviewable"
+    assert requested.invalidation_reason is None
+    assert requested.next_action is None
     assert requested.web_review_required is True
     assert requested.changed_file_count == 1
     assert requested.modified_file_count == 1
@@ -2215,6 +2217,88 @@ def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
         )
         service._prune_and_require_capacity(session, MCP_CLIENT_ID)
         assert session.scalar(select(McpDevelopmentRequestRow)) is None
+
+
+@pytest.mark.parametrize(
+    "historical_reason",
+    [None, "promotion_target_drift", "private /secret/path: OSError"],
+)
+def test_mcp_promotion_invalidation_diagnostics_are_sanitized_and_replayable(
+    tmp_path: Path,
+    historical_reason: str | None,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    before = harness.source.joinpath("main.py").read_bytes()
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+
+    def request(current: McpPromotionRequestService) -> Any:
+        return current.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=request_id,
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+
+    harness.source.chmod(0o555)
+    try:
+        requested = request(service)
+    finally:
+        harness.source.chmod(0o755)
+    assert requested.review_state == "invalidated"
+    assert requested.invalidation_reason == "promotion_source_not_writable"
+    assert requested.next_action is not None
+    assert "service account" in requested.next_action
+    assert "new promotion plan" in requested.next_action
+    assert requested.readiness_classification == "not_ready_for_web_review"
+    assert harness.source.joinpath("main.py").read_bytes() == before
+    if historical_reason is not None:
+        with harness.factory.begin() as session:
+            row = session.get(
+                AgentWorkspacePromotionPlanRow, str(requested.promotion_plan_id)
+            )
+            assert row is not None
+            row.invalidation_reason = historical_reason
+    restarted = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    replayed = request(restarted)
+    review = harness.promotions.get_plan(
+        TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+    )
+    assert replayed.invalidation_reason == review.invalidation_reason
+    assert replayed.next_action == review.next_action
+    if historical_reason is None:
+        assert replayed == requested
+        assert review.source_write_permission == "readable_not_promotion_writable"
+    elif historical_reason.startswith("private"):
+        assert replayed.invalidation_reason == "promotion_plan_invalidated"
+        assert "secret" not in replayed.model_dump_json()
+        assert "OSError" not in replayed.model_dump_json()
+    else:
+        assert replayed.invalidation_reason == historical_reason
+    with pytest.raises(
+        AgentWorkspacePromotionConflictError, match="promotion_plan_not_executable"
+    ):
+        harness.promotions.approve_and_execute(
+            TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+        )
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
 
 
 def test_mcp_promotion_post_marker_replay_is_ambiguous_and_mapping_is_retained(
