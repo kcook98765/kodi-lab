@@ -27,7 +27,8 @@ runtime, grant permissions, or run a caller's command/path/arguments.
 3. Deploy that exact generation with `workspace_deploy`. A new launch verifies
    the latest deployment for this workspace/target, the installed tree, enabled
    identity, runtime revision, container and current observation epoch.
-4. Call `development_launch` for the explicitly approved selected project, or
+4. Call `development_launch` for the explicitly approved selected project (or an
+   agent-owned project under Trusted Managed Lab authority), or
    the existing `workspace_launch` under its legacy permissions, with `request_id`, `workspace_id`,
    `expected_generation`, `target_id`, and the chosen `extension_ordinal`.
 5. Only an `accepted` receipt means the fixed dispatch was accepted. Inspect

@@ -364,9 +364,16 @@ absent executable extension, unsupported extension type, non-video plugin and
 unsafe/missing library. Failed execution preserves its reason for request replay
 and never falls back to a different entry point.
 
-Explicit script/plugin entry-point launch is still tracked in issue #13. A
-successful smoke or accepted dispatch is not script completion or confirmation
-that the intended custom window opened. Observe the UI separately.
+For compatible managed targets, inspect `workspace_validate.launch_entries` and
+deploy the exact generation before using an exposed, authorized declared-entry
+launch tool. `development_launch` requires `development.launch` plus
+`workspace.inspect`, with either the bound Current Kodi project or Trusted Managed
+Lab authority for an agent-owned project. `workspace_launch` requires
+`target.control` plus `development.execute`. Both recheck current workspace/target
+authority and native prerequisites. See [manifest-entry launch](MANIFEST-ENTRY-LAUNCH.md).
+A successful smoke or accepted launch dispatch is not script completion or
+confirmation that the intended custom window opened. Observe native logs or the UI
+separately.
 
 ## Slice 4 exact-generation deployment and fixed execution
 

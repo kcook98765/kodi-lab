@@ -9,6 +9,48 @@ from kodi_lab.mcp.transport import _tool_error_result
 
 
 @pytest.mark.parametrize(
+    "reason", ["script_launch_not_supported", "multiple_executable_extensions"]
+)
+def test_program_smoke_refusal_guides_only_authorized_managed_launch(
+    reason: str,
+) -> None:
+    result = _tool_error_result(
+        "execution_unsupported", tool_name="workspace_execute", reason=reason
+    )
+    assert result.is_error and result.structured_content is None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert text.startswith(f"execution_unsupported: {reason}\nnext_action:")
+    assert "fixed smoke accepts exactly one Python video-plugin" in text
+    assert "workspace_validate launch_entries" in text
+    assert "eligible declared-entry ordinal" in text
+    assert "deploy the exact generation" in text
+    assert "compatible managed target" in text
+    assert (
+        "development_launch requires development.launch and workspace.inspect" in text
+    )
+    assert (
+        "bound Current Kodi project or Trusted Managed Lab owned-project authority"
+        in text
+    )
+    assert "development.launch and workspace.inspect" in text
+    assert "workspace_launch requires target.control and development.execute" in text
+    assert "exposed to this client and authorized" in text
+    assert "Accepted dispatch is not script completion" in text
+    assert "not available yet" not in text
+
+
+def test_other_refusals_do_not_offer_program_launch() -> None:
+    result = _tool_error_result(
+        "execution_unsupported",
+        tool_name="workspace_execute",
+        reason="dependency_missing",
+    )
+    assert isinstance(result.content[0], TextContent)
+    assert "next_action" not in result.content[0].text
+
+
+@pytest.mark.parametrize(
     ("outer", "reason"),
     [
         ("execution_unsupported", "dependency_missing"),
