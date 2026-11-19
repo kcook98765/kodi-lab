@@ -85,19 +85,32 @@ def _invalidation_diagnostic(reason: str | None) -> tuple[str | None, str | None
         "promotion_source_not_writable": (
             "Ask the operator to check promotion write permission for this "
             "registered source under the Kodi Lab service account. After correcting "
-            "that prerequisite, request a new promotion plan; this plan stays invalidated."
+            "that prerequisite, request a new promotion plan; this plan stays "
+            "invalidated."
         ),
-        "promotion_plan_expired": "Review current workspace evidence and request a new promotion plan.",
-        "web_admin_rejected": "This plan was rejected in Web review. Request a new plan only if a new review is intended.",
-        "promotion_workspace_drift": "Validate, deploy and execute the current workspace generation before requesting a new plan.",
-        "promotion_target_drift": "Check the verification target and refresh deployment and execution evidence before requesting a new plan.",
+        "promotion_plan_expired": (
+            "Review current workspace evidence and request a new promotion plan."
+        ),
+        "web_admin_rejected": (
+            "This plan was rejected in Web review. Request a new plan only if a new "
+            "review is intended."
+        ),
+        "promotion_workspace_drift": (
+            "Validate, deploy and execute the current workspace generation before "
+            "requesting a new plan."
+        ),
+        "promotion_target_drift": (
+            "Check the verification target and refresh deployment and execution "
+            "evidence before requesting a new plan."
+        ),
     }
     if reason in actions:
         return reason, actions[reason]
     return (
         "promotion_plan_invalidated",
         "Ask the operator to check the registered source and current workspace "
-        "evidence before requesting a new promotion plan. This plan cannot be approved.",
+        "evidence before requesting a new promotion plan. This plan cannot be "
+        "approved.",
     )
 
 
