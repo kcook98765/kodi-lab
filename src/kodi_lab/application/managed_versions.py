@@ -126,6 +126,7 @@ class ManagedVersionStatus(BaseModel):
     )
     operation_id: UUID | None = None
     request_id: UUID | None = None
+    pending_action: Literal["start", "stop"] | None = None
     next_action: Literal[
         "grant_access",
         "start",
@@ -1045,6 +1046,7 @@ class ManagedVersionLifecycleService:
                     return ManagedVersionStatus(
                         **base,
                         state="blocked" if blocked else "starting",
+                        pending_action=cast(Literal["start", "stop"], parent.action),
                         code="operation_requires_reconciliation"
                         if stale
                         else parent.code,

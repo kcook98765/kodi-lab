@@ -603,6 +603,7 @@ class ManagedSlotsWeb:
             cache_ok = cached.status == "ready" and not cached.busy
             other = next((name for name in running if name.lower() != version), None)
             ready = value.native_ready and value.state == "running"
+            stopping = value.state == "starting" and value.pending_action == "stop"
             state_reason = friendly(value.code) if value.state == "blocked" else None
             # Routine Stop/Reset protection does not make a stopped profile
             # need recovery or prevent ordinary Start.
@@ -677,7 +678,9 @@ class ManagedSlotsWeb:
                     name=version.title() + (" (preview)" if version == "piers" else ""),
                     release=value.kodi_release,
                     state=value.state,
-                    state_label={
+                    state_label="Stopping"
+                    if stopping
+                    else {
                         "empty": "Not set up",
                         "stopped": "Stopped",
                         "starting": "Starting",
@@ -691,14 +694,21 @@ class ManagedSlotsWeb:
                     else "Kodi files available"
                     if cache_ok
                     else "Installation needed",
-                    native="Ready"
+                    native="Stopping Kodi"
+                    if stopping
+                    else "Ready"
                     if ready
                     else "Checking Kodi"
                     if value.state == "starting"
                     else "Not running"
                     if value.state in {"empty", "stopped"}
                     else "Needs review",
-                    message=reason
+                    message=(
+                        "Kodi is stopping. Wait for the current request to finish."
+                        if stopping
+                        else None
+                    )
+                    or reason
                     or (
                         "Kodi is running."
                         if ready

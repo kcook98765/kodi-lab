@@ -148,6 +148,71 @@ def test_stop_retains_and_confirmed_reset_replaces_only_the_profile(
     assert "/development-session/preparation" in guide.text
 
 
+def test_pending_stop_renders_stopping_across_reload_and_concurrent_polling(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: Broker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    csrf = setup(client, database)
+    stop = broker.stop_managed_container
+    for _ in range(2):
+        assert act(client, csrf, "start").status_code == 200
+        wait(client)
+        assert slot(client)["state_label"] == "Running"
+        original = dict(
+            request_id=str(uuid4()),
+            expected_snapshot=slot(client)["snapshot"],
+            confirm_reset=False,
+        )
+        entered, proceed = Event(), Event()
+
+        def paused(
+            *, _entered: Event = entered, _proceed: Event = proceed, **kwargs: Any
+        ) -> Any:
+            _entered.set()
+            assert _proceed.wait(15)
+            return stop(**kwargs)
+
+        monkeypatch.setattr(broker, "stop_managed_container", paused)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future = executor.submit(act, client, csrf, "stop", payload=original)
+            try:
+                assert entered.wait(5)
+                polls = [executor.submit(slot, client) for _ in range(2)]
+                for poll in polls:
+                    current = poll.result(timeout=5)
+                    assert (
+                        current["state"] == "starting"
+                    )  # authoritative state unchanged
+                    assert current["state_label"] == "Stopping"
+                    assert current["native"] == "Stopping Kodi"
+                    assert "Kodi is stopping" in current["message"]
+                    assert "Kodi is starting" not in current["message"]
+                    assert (
+                        not current["start"]
+                        and not current["stop"]
+                        and not current["reset"]
+                    )
+                    assert current["pending_request"] == original["request_id"]
+                page = client.get("/managed-kodi")
+                assert page.status_code == 200
+                assert "Kodi is stopping" in page.text
+                assert ">Stopping<" in page.text
+            finally:
+                proceed.set()
+            result = future.result(timeout=10)
+        assert result.status_code == 200
+        assert slot(client)["state_label"] == "Stopped"
+        assert slot(client)["native"] == "Not running"
+        assert act(client, csrf, "stop", payload=original).status_code == 200
+        assert slot(client)["state_label"] == "Stopped"
+        monkeypatch.setattr(broker, "stop_managed_container", stop)
+
+
 def test_stale_reset_confirmation_and_missing_consent_do_not_remove(
     client: TestClient, database: sessionmaker[Session], broker: Broker
 ) -> None:
