@@ -2,8 +2,10 @@
 
 For a trusted local development agent, use the opt-in `development_launch` tool
 with [the explicit local development preset](TRUSTED-LOCAL-DEVELOPMENT.md).
-It calls the same launch coordinator and requires the exact bound Current Kodi
-project, `development.launch` and `workspace.inspect` on client and target policy.
+It calls the same launch coordinator with `development.launch` and
+`workspace.inspect`, requiring either the exact bound Current Kodi project or
+Trusted Managed Lab authority for an agent-owned project. Current workspace and
+target authorization is rechecked before dispatch.
 It does not require `target.control` or grant navigation or recovery authority.
 
 The existing `workspace_launch` opens one explicitly selected script or plugin entry point of
