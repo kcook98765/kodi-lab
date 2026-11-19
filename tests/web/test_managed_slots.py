@@ -170,9 +170,11 @@ def test_pending_stop_renders_stopping_across_reload_and_concurrent_polling(
         )
         entered, proceed = Event(), Event()
 
-        def paused(**kwargs: Any) -> Any:
-            entered.set()
-            assert proceed.wait(15)
+        def paused(
+            *, _entered: Event = entered, _proceed: Event = proceed, **kwargs: Any
+        ) -> Any:
+            _entered.set()
+            assert _proceed.wait(15)
             return stop(**kwargs)
 
         monkeypatch.setattr(broker, "stop_managed_container", paused)
