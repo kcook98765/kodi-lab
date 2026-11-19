@@ -32,7 +32,10 @@ from fastapi import (
     WebSocket,
     status,
 )
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     FileResponse,
@@ -2612,6 +2615,20 @@ def create_app(
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
+
+    @app.exception_handler(HTTPException)
+    async def http_failure(request: Request, error: HTTPException) -> Response:
+        # Route metadata keeps API/MCP authentication errors as JSON even when
+        # their callers accept HTML. The fixed destination cannot redirect offsite.
+        if (
+            error.status_code == status.HTTP_401_UNAUTHORIZED
+            and request.method == "GET"
+            and getattr(request.scope.get("route"), "response_class", None)
+            is HTMLResponse
+            and "text/html" in request.headers.get("accept", "").lower()
+        ):
+            return RedirectResponse("/login", status_code=303)
+        return await http_exception_handler(request, error)
 
     def current_session(request: Request) -> AuthenticatedWebSession:
         token = request.cookies.get(settings.web_session_cookie_name)
