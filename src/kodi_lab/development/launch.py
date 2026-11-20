@@ -89,15 +89,32 @@ def manifest_launch_entries(
 def python_service_descriptor_eligible(
     descriptor: DevelopmentSourceValidationResult,
 ) -> bool:
-    """Qualify one Python service without platform overrides or mixed entries."""
+    """One Python service, optionally accompanied by one script and/or plugin.
+
+    This is descriptor admission, not proof of service execution or launchability.
+    Repeated types and unrelated lifecycle families require separate qualification.
+    """
     entries = tuple(
         item for item in descriptor.extensions if item.point != "xbmc.addon.metadata"
     )
+    points = tuple(item.point for item in entries)
     return bool(
-        len(entries) == 1
-        and entries[0].point == "xbmc.service"
-        and not entries[0].has_platform_library
-        and safe_launch_library(entries[0].library)
+        points.count("xbmc.service") == 1
+        and len(points) == len(set(points))
+        and set(points)
+        <= {"xbmc.service", "xbmc.python.script", "xbmc.python.pluginsource"}
+        and all(
+            not item.has_platform_library
+            and safe_launch_library(item.library)
+            and (
+                item.point != "xbmc.python.pluginsource"
+                or (
+                    bool(item.provides)
+                    and set(item.provides) <= {"video", "audio", "image", "executable"}
+                )
+            )
+            for item in entries
+        )
     )
 
 

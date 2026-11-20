@@ -1034,7 +1034,7 @@ def test_service_start_requires_explicit_authority_and_persists_enabled_only_rec
 @pytest.mark.parametrize(
     "defect",
     [
-        "mixed",
+        "unrelated",
         "library",
         "duplicate",
         "platform",
@@ -1057,13 +1057,13 @@ def test_opted_service_start_keeps_descriptor_runtime_and_provenance_guards(
     adapter.kodi_type = "xbmc.service"
     broker = FakeBroker()
     broker.service_descriptor_eligible = True
-    if defect in {"mixed", "library", "duplicate", "platform"}:
+    if defect in {"unrelated", "library", "duplicate", "platform"}:
         path = tmp_path / "source" / "addon.xml"
         text = path.read_text()
-        if defect == "mixed":
+        if defect == "unrelated":
             text = text.replace(
                 "</addon>",
-                '<extension point="xbmc.python.script" library="other.py"/></addon>',
+                '<extension point="xbmc.python.weather" library="other.py"/></addon>',
             )
         elif defect == "library":
             text = text.replace("service.py", "../escape.py")
@@ -1220,3 +1220,72 @@ def test_malformed_native_error_keeps_service_start_authority_and_reconciliation
     assert result.reconciliation_required and result.service_start_authorized
     assert adapter.enable_calls == [ADDON_ID]
     assert ManagedInstanceReconciliationService(factory).status(INSTANCE_ID).blocking
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        ("xbmc.python.script", "xbmc.service"),
+        ("xbmc.service", "xbmc.python.script"),
+        ("xbmc.python.pluginsource", "xbmc.service"),
+        ("xbmc.python.script", "xbmc.python.pluginsource", "xbmc.service"),
+    ],
+)
+@pytest.mark.parametrize("native_defect", [None, "inventory", "details", "after"])
+def test_mixed_service_consent_and_exact_primary_type(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    points: tuple[str, ...],
+    native_defect: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    folder = tmp_path / "source"
+    extensions = []
+    for ordinal, point in enumerate(points):
+        library = f"entry{ordinal}.py"
+        extensions.append(
+            f'<extension point="{point}" library="{library}">'
+            + ("<provides>video</provides>" if point.endswith("pluginsource") else "")
+            + "</extension>"
+        )
+        (folder / library).write_text("# inert fixture\n")
+    (folder / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="{VERSION}">'
+        '<extension point="xbmc.addon.metadata"/>' + "".join(extensions) + "</addon>"
+    )
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = points[0]
+    target = replace(_target(), kodi_type=points[0])
+    service = _service(factory, tmp_path, broker, [target], adapter)
+    assert (
+        service.enable(INSTANCE_ID, SOURCE_ID).failure_reason
+        == "auto_start_addon_unsupported"
+    )
+    assert not adapter.enable_calls
+    if native_defect == "inventory":
+        target = replace(target, kodi_type="xbmc.python.weather")
+    elif native_defect == "details":
+        adapter.kodi_type = "xbmc.python.weather"
+    elif native_defect == "after":
+        original = adapter.enable
+
+        def enable(addon_id: str) -> None:
+            original(addon_id)
+            adapter.kodi_type = "xbmc.python.weather"
+
+        monkeypatch.setattr(adapter, "enable", enable)
+    service = _service(factory, tmp_path, broker, [target], adapter)
+    result = service.enable(INSTANCE_ID, SOURCE_ID, allow_service_start=True)
+    assert result.service_start_authorized
+    assert result.service_execution == "not_observed"
+    if native_defect in {"inventory", "details"}:
+        assert not adapter.enable_calls
+        assert result.failure_reason == "auto_start_addon_unsupported"
+    elif native_defect == "after":
+        assert result.reconciliation_required and adapter.enable_calls == [ADDON_ID]
+    else:
+        assert result.result_enabled and adapter.enable_calls == [ADDON_ID]

@@ -1984,21 +1984,19 @@ class DockerManagedContainerAdapter:
                     descriptor = parse_captured_addon_xml(
                         "destination", descriptor_bytes
                     )
-                    executable = tuple(
-                        item
-                        for item in descriptor.extensions
-                        if item.point != "xbmc.addon.metadata"
-                    )
-                    service_library = (
-                        executable[0].library if len(executable) == 1 else None
-                    )
-                    service_entry = manifest.by_path().get(service_library or "")
+                    # Every declared executable library must be present in the
+                    # same digest-verified installed tree, regardless of order.
                     service_eligible = bool(
                         descriptor.addon_id == spec.addon_id
                         and descriptor.observed_version == spec.addon_version
                         and python_service_descriptor_eligible(descriptor)
-                        and service_entry is not None
-                        and service_entry.entry_type == "file"
+                        and all(
+                            (entry := manifest.by_path().get(item.library or ""))
+                            is not None
+                            and entry.entry_type == "file"
+                            for item in descriptor.extensions
+                            if item.point != "xbmc.addon.metadata"
+                        )
                     )
                     library = copied_video_plugin_library(descriptor)
                     entry = None if library is None else manifest.by_path().get(library)

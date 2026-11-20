@@ -1,4 +1,4 @@
-# Explicit Python service enablement (#112, bounded slice)
+# Explicit Python service enablement (#112, #394)
 
 The existing copied-source enablement route now accepts an opt-in for one Python
 service. Default requests still refuse service startup. This does not implement
@@ -14,13 +14,26 @@ This is operation intent, not a reusable grant. Existing source/deployment,
 identity, native inventory, dependencies, reservations and reconciliation checks
 remain required. No generic command, filesystem, disable or toggle input is added.
 
-Admission requires a single non-metadata `xbmc.service` extension with a safe
-relative Python library, no platform-library overrides, and the existing regular
-library file in the verified installed manifest. The broker derives eligibility
-from installed descriptor bytes during the existing complete digest-matched
-readback; repairing the host descriptor at the same ID/version cannot qualify an
-ineligible installed service. Both native inventory and details must identify a
-service. Mixed or duplicate entrypoints remain unsupported by this slice.
+Admission accepts one `xbmc.service`, optionally with one `xbmc.python.script`
+and/or one `xbmc.python.pluginsource`. Each executable declaration requires a
+safe relative Python library, no platform-library overrides, and a regular
+library file in the verified installed manifest. Plugin content declarations
+must contain supported Kodi content types. Duplicate types and other lifecycle
+families remain outside automatic service activation; parsing and source copying
+do not discard them.
+
+The broker derives eligibility from installed descriptor bytes during the
+existing complete digest-matched readback. Repairing the host descriptor at the
+same ID/version cannot qualify an ineligible installed tree. Both native
+inventory and details must match the descriptor's first non-metadata type,
+which Kodi reports as the primary type; a mixed service need not report
+`xbmc.service`. The post-enable type must still match. This primary projection
+does not replace validation of the complete installed descriptor.
+
+Script and plugin launches retain their manifest ordinals and separate launch
+authorization. Services are never directly launched by this interface. The fixed
+video smoke remains narrower than add-on validity. Multi-content plugin launch
+is still ineligible for the existing single-window launcher.
 
 The runtime policy requires stable Omega 21.3, a non-root runtime and SUPPRESS
 autostart mode. This is a conservative admission policy, not qualification of
