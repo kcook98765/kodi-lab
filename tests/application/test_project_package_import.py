@@ -142,7 +142,7 @@ def test_owned_import_exact_provenance_replay_and_private_edits(
         "size",
         "entries",
         "corrupt",
-        "service",
+        "unrelated",
         "dependencies",
     ],
 )
@@ -156,7 +156,7 @@ def test_source_package_structure_bounds_and_unsupported_formats(invalid: str) -
         files["huge.txt"] = b"a" * (1024 * 1024 + 1)
     elif invalid == "entries":
         files = {f"resources/{i}.txt": b"x" for i in range(257)}
-    elif invalid in {"service", "dependencies"}:
+    elif invalid in {"unrelated", "dependencies"}:
         descriptor = project_seed(
             ProjectCreateInput(
                 request_id=uuid4(),
@@ -165,8 +165,10 @@ def test_source_package_structure_bounds_and_unsupported_formats(invalid: str) -
             )
         )["addon.xml"]
         files["addon.xml"] = descriptor.replace(
-            b"xbmc.python.script" if invalid == "service" else b'xbmc.python"',
-            b"xbmc.service" if invalid == "service" else b'inputstream.adaptive"',
+            b"xbmc.python.script" if invalid == "unrelated" else b'xbmc.python"',
+            b"xbmc.python.weather"
+            if invalid == "unrelated"
+            else b'inputstream.adaptive"',
         )
     payload = package(files, symlink=invalid == "symlink")
     if invalid == "corrupt":
@@ -224,3 +226,68 @@ def test_nested_seed_replay_after_publication_interruption_preserves_unknown_byt
     with pytest.raises(AgentProjectError, match="requires_review"):
         _seed_source(tmp_path, identity, files)
     assert (tree / "resources/new/unexpected.txt").read_text() == "retained evidence"
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        ("xbmc.python.script", "xbmc.service"),
+        ("xbmc.python.pluginsource", "xbmc.service"),
+        ("xbmc.python.script", "xbmc.python.pluginsource"),
+        ("xbmc.python.script", "xbmc.python.pluginsource", "xbmc.service"),
+        ("xbmc.service",),
+    ],
+)
+def test_mixed_project_import_preserves_all_entries_without_service_authority(
+    tmp_path: Path,
+    points: tuple[str, ...],
+) -> None:
+    sessions, workspaces, admin, tools, _submitted = _environment(tmp_path)
+    owner = admin.create_client(
+        display_name="Mixed source owner",
+        preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+        trusted_managed_lab=True,
+    )
+    principal = McpAuthenticationService(sessions).authenticate(
+        admin.issue_credential(owner.id).token
+    )
+    assert principal is not None
+    entries = []
+    files = {}
+    for ordinal, point in enumerate(points):
+        library = f"entry{ordinal}.py"
+        entries.append(
+            f'<extension point="{point}" library="{library}">'
+            + ("<provides>video</provides>" if point.endswith("pluginsource") else "")
+            + "</extension>"
+        )
+        files[library] = b"# inert fixture\n"
+    xml = (
+        '<addon id="script.package.example" name="Package" version="1.0.0">'
+        + "".join(entries)
+        + "</addon>"
+    ).encode()
+    files["addon.xml"] = xml
+    result = tools.project_import(principal, request(package(files)))
+    _finish(workspaces, result.workspace.creation_operation_id)
+    assert (
+        workspaces.read_file(
+            result.workspace.workspace_id, "addon.xml"
+        ).content.encode()
+        == xml
+    )
+    observed = workspaces.validate_structure(
+        result.workspace.workspace_id, expected_generation=0
+    )
+    assert observed.addon_id == "script.package.example"
+    from kodi_lab.storage.models import DevelopmentSourceEnablementOperationRow
+
+    with sessions() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(
+                    DevelopmentSourceEnablementOperationRow
+                )
+            )
+            == 0
+        )

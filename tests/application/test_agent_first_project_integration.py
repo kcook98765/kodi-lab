@@ -61,6 +61,7 @@ ADDON = "script.agentfirst.integration"
 
 
 @pytest.mark.parametrize("release", ["20.5", "21.3"])
+@pytest.mark.parametrize("mixed", [False, True])
 @pytest.mark.parametrize(
     "initial",
     [
@@ -74,7 +75,11 @@ ADDON = "script.agentfirst.integration"
     ],
 )
 def test_new_owned_program_real_service_chain_without_web_selection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, release: str, initial: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    release: str,
+    initial: str,
+    mixed: bool,
 ) -> None:
     e = fixture._environment(tmp_path, kodi_release=release)
     e.workspaces._development_root = None
@@ -127,6 +132,22 @@ def test_new_owned_program_real_service_chain_without_web_selection(
         workspace_development=e.development,
         workspace_launch=launch,
     )
+    if mixed:
+        from kodi_lab.application import agent_projects
+
+        seed = agent_projects.project_seed
+
+        def mixed_seed(value: ProjectCreateInput) -> dict[str, bytes]:
+            files = seed(value)
+            files["addon.xml"] = files["addon.xml"].replace(
+                b"</addon>",
+                b'<extension point="xbmc.python.pluginsource" '
+                b'library="plugin.py"><provides>video</provides></extension></addon>',
+            )
+            files["plugin.py"] = b"# inert plugin\n"
+            return files
+
+        monkeypatch.setattr(agent_projects, "project_seed", mixed_seed)
     project = tools.project_create(
         principal,
         ProjectCreateInput(
