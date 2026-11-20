@@ -42,6 +42,37 @@ before attaching, copying or restarting. Import and workspace editing cannot
 acquire background service authority. Use registered sources and Web service
 consent for this campaign's service lane.
 
+## Registered-source cold path
+
+1. Register the complete reviewed source, create/capture its workspace and
+   validate the exact generation. With retained profiles, review the identity
+   preview and select that target/workspace before attachment or source copy.
+2. Attach the source and copy it through the supported stopped source-copy path.
+   Start Kodi and wait for native readiness. Neither a copy receipt nor process
+   startup proves enabled state or service work.
+3. In Manage Kodi, explicitly select “Allow this service to start now and on
+   future Kodi starts while enabled” and choose **Enable service**. The matching
+   Web request is `POST /api/instances/{target}/development-sources/{source}/enable`
+   with `{"allow_service_start": true}`. Inspect the enabled inventory and service
+   evidence independently.
+4. Deploy the validated workspace generation through `workspace_deploy` in
+   `direct` mode. The existing stop/copy/restart, exact-tree verification and
+   recovery contract applies. Registered sources need their consented first
+   enablement before this path can satisfy its enabled-inventory postcondition.
+5. Invoke only an eligible script/plugin ordinal through `development_launch`.
+   Services remain driven by enablement and Kodi lifecycle. Observe actual UI or
+   plugin output and background work; accepted dispatch is not completion.
+6. Use supported Stop/Start controls to qualify abort, reconstructed state and
+   resumed work. An ambiguous operation must be inspected under its original
+   identity before a new request is considered; never replay it to force success.
+
+The canonical source baseline and a later workspace deployment are separate
+proofs. After workspace code changes, an old registered-source enablement check
+may correctly refuse its stale full-tree baseline. Do not adopt the changed
+installed tree or strip extensions to bypass that refusal. Continue through the
+workspace's exact current deployment/launch contract, or deliberately establish
+a new stopped registered-source baseline when first enablement is required.
+
 ## Kodi rules and qualification
 
 Kodi's [manifest documentation](https://kodi.wiki/view/Addon.xml) defines the
@@ -53,11 +84,54 @@ and [Piers RC2 parser](https://github.com/xbmc/xbmc/blob/22.0rc2-Piers/xbmc/addo
 retain multiple types and derive the primary type from the first declaration.
 Native results, rather than parser inference alone, determine the matrix below.
 
-Qualification is in progress. No native completion is claimed by this source
-checkpoint. The final matrix must distinguish manifest validity, registered
-intake, stopped deployment, consented enablement, enabled inventory, each
-script/plugin launch, service work and stopped/restarted activity on Matrix
-19.4, Nexus 20.5, Omega 21.3 and Piers 22 RC2.
+Native Linux amd64 qualification used seven inert add-ons in a separate Docker
+Engine, fresh Lab data and profiles, and the supported authenticated Web/MCP
+interfaces. It reused reviewed cached runtimes; this is not clean-host runtime
+acquisition, a production upgrade, remote-client browser acceptance or TV Guide
+application acceptance. Metadata and all executable declarations were retained.
+
+| Representative declaration order / plugin content | Matrix 19.4 | Nexus 20.5 | Omega 21.3 | Piers 22 RC2 |
+| --- | --- | --- | --- | --- |
+| script + service | Pass | Pass | Pass* | Pass |
+| plugin + service: video | Pass | Pass | Pass* | Pass |
+| plugin + service: audio | Pass | Pass | Pass* | Pass |
+| plugin + service: image | Pass | Pass | Pass* | Pass |
+| plugin + service: executable | Pass | Pass | Pass* | Pass |
+| script + plugin: video | Pass | Pass | Pass* | Pass |
+| script + plugin: video + service | Pass | Pass | Pass* | Pass |
+
+Each passing cell includes native manifest discovery, registered intake and
+validation, stopped baseline copy, first enablement from disabled, matching
+native enabled inventory, exact-generation workspace deployment, and every
+script/plugin entry's execution log and native UI capture. Service cases also
+include refusal without consent, explicit consented enablement, timed background
+work and a reminder-model action, then reconstructed fixed reminder state and
+new work after Stop/Start. Independently read and hashed stopped-profile archives
+contain cooperative abort markers for all six services. These inert timers and
+fixed reminder seeds do not test TV Guide's persistent reminders, scheduler,
+providers or user data. Other declaration orders have policy tests, without a
+claim of native coverage for every permutation.
+
+*Omega's original seven-case run and final-candidate script/service follow-up
+passed. Two supplemental repeat starts exited with native status 1, without an
+OOM indication; their cause remains unresolved. One workspace operation stopped
+at readiness and was reconciled through the supported Web endpoint as
+`contained_requested_tree`, not success. A later explicit Start and new
+workspace deployment succeeded. The original failure receipts and failed-boot
+profiles remain preserved separately from the passing run; repeated Omega
+startup is not an unqualified reliability pass.
+
+Matrix, Nexus and Piers run the frozen implementation at `aa1e9a8`; the original
+Omega matrix used its preceding candidate, before the additional refusal for
+repeated script declarations. Installed Web and broker hashes match the final
+changed Python modules; the final-candidate Omega follow-up covers script/service.
+Project import/owned-project restrictions and unchanged single-extension behavior
+have focused regression coverage; the native matrix uses registered sources.
+Source validation is **FOCUSED PASS**. The full release gate was explicitly
+skipped at the owner's request; no **RELEASE PASS** is claimed.
+Private credentials, complete log scans, operation receipts, runtime/image
+identities, UI captures and archive hashes are retained in the owner's private
+`issue394-20261119` evidence directory, not published in this repository.
 
 Live service reload, hot replacement, automatic obsolete-file deletion, arbitrary
 service health and other platforms remain unqualified. Successful enablement
