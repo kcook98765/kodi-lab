@@ -807,3 +807,44 @@ def test_service_eligibility_comes_from_verified_installed_descriptor(
     )
     assert proof.matched is True
     assert proof.python_service_descriptor_eligible is (installed == "safe")
+
+
+@pytest.mark.parametrize("missing", [None, "script.py", "plugin.py", "service.py"])
+def test_mixed_service_requires_every_installed_library(
+    tmp_path: Path,
+    missing: str | None,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    spec = _spec(tmp_path)
+    source = tmp_path / "development" / "addon"
+    extensions = []
+    for point, library in (
+        ("xbmc.python.script", "script.py"),
+        ("xbmc.python.pluginsource", "plugin.py"),
+        ("xbmc.service", "service.py"),
+    ):
+        extensions.append(
+            f'<extension point="{point}" library="{library}">'
+            + ("<provides>video</provides>" if point.endswith("pluginsource") else "")
+            + "</extension>"
+        )
+        if library != missing:
+            (source / library).write_text("# installed inert fixture\n")
+    (source / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="1.0.0">'
+        + "".join(extensions)
+        + "</addon>"
+    )
+    applied = _apply(client, spec)
+    # Host repairs confer no authority over the retained installed bytes.
+    if missing:
+        (source / missing).write_text("# host repair only\n")
+    client.inspection = _inspection(state="running")
+    proof = DockerManagedContainerAdapter(
+        lambda: client
+    ).verify_attached_development_source_destination(
+        spec=_verification_spec(applied.verified_destination_digest),
+        expected_container_id=CONTAINER_ID,
+    )
+    assert proof.matched
+    assert proof.python_service_descriptor_eligible is (missing is None)

@@ -506,11 +506,16 @@ class DevelopmentSourceEnablementService:
                 source_observation.has_auto_start_behavior
                 or "xbmc.service" in source.extension_types
             )
-            pure_service = tuple(
-                point
-                for point in source_observation.extension_types
-                if point != "xbmc.addon.metadata"
-            ) == ("xbmc.service",)
+            # Kodi reports the first non-metadata declaration as its primary
+            # type. It is a projection of the complete verified descriptor.
+            primary_type = next(
+                (
+                    item.point
+                    for item in source_observation.extensions
+                    if item.point != "xbmc.addon.metadata"
+                ),
+                None,
+            )
             if service_declared:
                 if not allow_service_start:
                     return self._failed(
@@ -636,10 +641,10 @@ class DevelopmentSourceEnablementService:
                 native_item = inventory_by_id.get(source.addon_id)
                 if not (
                     allow_service_start
-                    and pure_service
-                    and details.kodi_type == "xbmc.service"
+                    and service_declared
+                    and details.kodi_type == primary_type
                     and native_item is not None
-                    and native_item.kodi_type == "xbmc.service"
+                    and native_item.kodi_type == primary_type
                 ):
                     return self._failed(
                         handle, "auto_start_addon_unsupported", dependencies
@@ -714,7 +719,7 @@ class DevelopmentSourceEnablementService:
                 return self._reconciliation(handle, dependencies)
             if after.addon_id != source.addon_id or after.version != addon_version:
                 return self._reconciliation(handle, dependencies)
-            if service_declared and after.kodi_type != "xbmc.service":
+            if service_declared and after.kodi_type != primary_type:
                 return self._reconciliation(handle, dependencies)
             if not after.enabled:
                 return self._failed(
