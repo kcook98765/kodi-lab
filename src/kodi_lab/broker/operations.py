@@ -1088,6 +1088,7 @@ class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
     matched: Literal[True]
     video_plugin_descriptor_eligible: bool = False
     python_service_descriptor_eligible: bool = False
+    addon_xml_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     readback_bytes: int | None = Field(default=None, ge=0)
 
     @field_validator(
@@ -3613,6 +3614,7 @@ def build_foundation_registry(
             matched=True,
             video_plugin_descriptor_eligible=(outcome.video_plugin_descriptor_eligible),
             python_service_descriptor_eligible=outcome.python_service_descriptor_eligible,
+            addon_xml_sha256=outcome.addon_xml_sha256,
         )
 
     registry.register(
@@ -3747,6 +3749,7 @@ def build_foundation_registry(
             matched=True,
             video_plugin_descriptor_eligible=(outcome.video_plugin_descriptor_eligible),
             python_service_descriptor_eligible=outcome.python_service_descriptor_eligible,
+            addon_xml_sha256=outcome.addon_xml_sha256,
             readback_bytes=outcome.readback_bytes,
         )
 

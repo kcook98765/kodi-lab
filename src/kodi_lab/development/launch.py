@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from kodi_lab.development.sources import DevelopmentSourceValidationResult
+from kodi_lab.domain import PythonBytecodePolicy, RuntimeExecutionProfile
 
 
 class ManifestLaunchEntry(BaseModel):
@@ -20,6 +21,7 @@ class ManifestLaunchEntry(BaseModel):
             "unsupported_extension",
             "unsafe_library",
             "multiple_plugin_extensions",
+            "multiple_script_extensions",
             "unsupported_plugin_content",
         ]
         | None
@@ -39,6 +41,9 @@ def safe_launch_library(value: str | None) -> bool:
 def manifest_launch_entries(
     descriptor: DevelopmentSourceValidationResult,
 ) -> tuple[ManifestLaunchEntry, ...]:
+    script_count = sum(
+        item.point == "xbmc.python.script" for item in descriptor.extensions
+    )
     plugin_count = sum(
         item.point == "xbmc.python.pluginsource" for item in descriptor.extensions
     )
@@ -56,6 +61,7 @@ def manifest_launch_entries(
                 "unsupported_extension",
                 "unsafe_library",
                 "multiple_plugin_extensions",
+                "multiple_script_extensions",
                 "unsupported_plugin_content",
             ]
             | None
@@ -64,6 +70,8 @@ def manifest_launch_entries(
             reason = "unsupported_extension"
         elif not safe_launch_library(item.library):
             reason = "unsafe_library"
+        elif kind == "script" and script_count != 1:
+            reason = "multiple_script_extensions"
         elif kind == "plugin" and plugin_count != 1:
             reason = "multiple_plugin_extensions"
         elif kind == "plugin" and (
@@ -149,3 +157,17 @@ def python_module_library(descriptor: DevelopmentSourceValidationResult) -> str 
     ):
         return None
     return library
+
+
+def python_service_runtime_qualified(profile: RuntimeExecutionProfile) -> bool:
+    """Admission for the recorded Linux Python-service qualification matrix.
+
+    Exact runtime/image and native identity are independently verified by callers.
+    This allowlist grants neither source consent nor arbitrary lifecycle authority.
+    """
+    return (
+        profile.kodi_release.canonical in {"19.4", "20.5", "21.3", "22.0-rc.2"}
+        and profile.runtime_uid != 0
+        and profile.runtime_gid != 0
+        and profile.python_bytecode_policy is PythonBytecodePolicy.SUPPRESS
+    )

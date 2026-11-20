@@ -329,6 +329,7 @@ class VerifiedDevelopmentSourceDestinationRecord:
     matched: bool
     video_plugin_descriptor_eligible: bool = False
     python_service_descriptor_eligible: bool = False
+    addon_xml_sha256: str | None = None
     verified_destination_digest: str | None = None
     readback_bytes: int | None = None
 
@@ -2027,6 +2028,11 @@ class DockerManagedContainerAdapter:
                 matched=True,
                 video_plugin_descriptor_eligible=descriptor_eligible,
                 python_service_descriptor_eligible=service_eligible,
+                addon_xml_sha256=(
+                    hashlib.sha256(descriptor_bytes).hexdigest()
+                    if descriptor_bytes is not None
+                    else None
+                ),
                 verified_destination_digest=manifest.digest,
                 readback_bytes=measurement.counts["readback_bytes"],
             )

@@ -22,8 +22,10 @@ must contain supported Kodi content types. Duplicate types and other lifecycle
 families remain outside automatic service activation; parsing and source copying
 do not discard them.
 
-The broker derives eligibility from installed descriptor bytes during the
-existing complete digest-matched readback. Repairing the host descriptor at the
+The broker derives eligibility and the SHA-256 of the complete installed
+`addon.xml` during the existing complete digest-matched readback. Enablement
+requires that hash to match the source descriptor validated for this operation.
+Missing proof from an older broker fails closed. Repairing the host descriptor at the
 same ID/version cannot qualify an ineligible installed tree. Both native
 inventory and details must match the descriptor's first non-metadata type,
 which Kodi reports as the primary type; a mixed service need not report
@@ -35,8 +37,8 @@ authorization. Services are never directly launched by this interface. The fixed
 video smoke remains narrower than add-on validity. Multi-content plugin launch
 is still ineligible for the existing single-window launcher.
 
-The runtime policy requires stable Omega 21.3, a non-root runtime and SUPPRESS
-autostart mode. This is a conservative admission policy, not qualification of
+The runtime policy admits Matrix 19.4, Nexus 20.5, Omega 21.3 and Piers 22 RC2,
+a non-root runtime and SUPPRESS bytecode mode. This is a conservative admission policy, not qualification of
 every image/platform matching those fields. The UI projection is advisory;
 the server performs authoritative checks. A successful receipt says **enabled**
 and `service_execution=not_observed`. Already-enabled services need no mutation.
@@ -59,7 +61,12 @@ settings-storage era. Their unresolved operations still block. Missing safety
 storage in current or unknown layouts fails closed. No running service database
 was migrated during this campaign.
 
-## Verification
+## Historical #112 verification
+
+The #394 qualification and current limits are recorded in
+[MIXED-PYTHON-ADDONS.md](MIXED-PYTHON-ADDONS.md). The original evidence below
+remains scoped to its original single-service fixture.
+
 
 FOCUSED PASS includes each changed test file, the full migration test file
 (111 cases), exact schema-head contract, direct 0087 upgrade/default/downgrade

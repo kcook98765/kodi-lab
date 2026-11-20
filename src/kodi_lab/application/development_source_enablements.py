@@ -48,7 +48,10 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
 )
-from kodi_lab.development.launch import python_service_descriptor_eligible
+from kodi_lab.development.launch import (
+    python_service_descriptor_eligible,
+    python_service_runtime_qualified,
+)
 from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperationState,
@@ -536,12 +539,7 @@ class DevelopmentSourceEnablementService:
                 return self._failed(
                     handle, "runtime_bytecode_policy_incompatible", dependencies
                 )
-            if service_declared and (
-                profile.expected_kodi_version != "21.3"
-                or profile.expected_version_tag != "stable"
-                or profile.runtime_uid == 0
-                or profile.runtime_gid == 0
-            ):
+            if service_declared and not python_service_runtime_qualified(profile):
                 return self._failed(handle, "service_runtime_unqualified", dependencies)
             runtime = self._resolve_runtime(instance_id, instance.runtime_revision_id)
             if isinstance(runtime, str):
@@ -594,6 +592,7 @@ class DevelopmentSourceEnablementService:
                 or verified.container_id != container_id
                 or verified.addon_id != source.addon_id
                 or verified.addon_version != addon_version
+                or verified.addon_xml_sha256 != source_observation.addon_xml_sha256
             ):
                 return self._failed(
                     handle, "deployment_verification_failed", dependencies

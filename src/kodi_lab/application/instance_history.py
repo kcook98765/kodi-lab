@@ -36,6 +36,7 @@ from kodi_lab.application.snapshot_status import (
     SnapshotStatusService,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.development.launch import python_service_runtime_qualified
 from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceEnablementResult,
@@ -235,20 +236,20 @@ class ManagedInstanceDetailService:
                     else:
                         state = "Provenance unknown"
             service_declared = "xbmc.service" in source.extension_types
-            pure_service = tuple(
-                point
-                for point in source.extension_types
-                if point != "xbmc.addon.metadata"
-            ) == ("xbmc.service",)
-            if service_declared and not pure_service:
-                state = "Unsupported mixed service extensions"
+            common_python_service = service_declared and set(
+                source.extension_types
+            ) <= {
+                "xbmc.python.script",
+                "xbmc.python.pluginsource",
+                "xbmc.service",
+                "xbmc.addon.metadata",
+            }
+            if service_declared and not common_python_service:
+                state = "Unsupported service extension combination"
                 enable_eligible = False
             elif service_declared and (
                 profile is None
-                or profile.expected_kodi_version != "21.3"
-                or profile.expected_version_tag != "stable"
-                or profile.runtime_uid == 0
-                or profile.runtime_gid == 0
+                or not python_service_runtime_qualified(profile)
                 or instance.instance_type.value != "disposable"
             ):
                 state = "Service startup is unqualified for this runtime"
@@ -354,7 +355,7 @@ class ManagedInstanceDetailService:
                             and not reconciliation.blocking
                             and not active_mutation
                         ),
-                        "service_start_requires_approval": pure_service,
+                        "service_start_requires_approval": service_declared,
                         "enablement_blocked_dependency_id": blocked_dependency_id,
                         "enablement_blocked_reason": blocked_reason,
                         "smoke_test_state": smoke_state,
