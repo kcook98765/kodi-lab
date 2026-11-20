@@ -13,7 +13,10 @@ from kodi_lab.application.addon_dependencies import (
     evaluate_dependencies,
     first_blocking_dependency,
 )
-from kodi_lab.development.launch import manifest_launch_entries, python_module_library
+from kodi_lab.development.launch import (
+    python_entrypoints_eligible,
+    python_module_library,
+)
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     ManagedInstanceMutationKind,
@@ -48,13 +51,12 @@ def enable_owned_project(
     follows its existing stopped-tree recovery path; replay cannot dispatch again.
     """
     descriptor = service._workspace_descriptor(UUID(operation.workspace_id))
-    entries = [entry for entry in manifest_launch_entries(descriptor) if entry.eligible]
     module = python_module_library(descriptor) is not None
     if (
         operation.target_class != "internal_lab"
         or recheck_authority is None
         or descriptor.has_auto_start_behavior
-        or (not module and len(entries) != 1)
+        or (not module and not python_entrypoints_eligible(descriptor))
         or any(
             entry.point
             not in {
@@ -97,12 +99,10 @@ def enable_owned_project(
     recognized = next(
         (item for item in inventory.items if item.addon_id == operation.addon_id), None
     )
-    expected_type = (
-        "xbmc.python.module"
-        if module
-        else "xbmc.python.script"
-        if entries[0].kind == "script"
-        else "xbmc.python.pluginsource"
+    expected_type = next(
+        entry.point
+        for entry in descriptor.extensions
+        if entry.point != "xbmc.addon.metadata"
     )
     if (
         inventory.identity.kodi_release != profile.kodi_release

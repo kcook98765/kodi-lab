@@ -47,10 +47,19 @@ review claim; Lab validates the transferred bytes and does not fetch that refere
 Provenance is immutable and protected from a lossy schema downgrade.
 
 Inline packages are bounded to 45 KiB compressed, 256 entries, 4 MiB expanded,
-and 1 MiB per file. They must contain one add-on ID directory, one eligible Python
-Program/plugin entry, UTF-8 source text and supported image/font resources.
+and 1 MiB per file. They must contain one add-on ID directory, safe Python
+entry libraries, UTF-8 source text and supported image/font resources. One of each
+script, plugin and service type may coexist, with every declaration and file
+preserved. Duplicate executable types and other lifecycle families are refused.
 Eligible separately reviewed pure-Python modules and their consumers are covered
-below; service/binary/repository add-ons and unsupported member types are refused. ZIP structure, paths, duplicates, symlinks, CRC
+below; binary/repository add-ons and unsupported member types are refused.
+
+Importing a service grants no background activation authority. Private service
+projects, including a service added by workspace editing, receive
+`project_service_activation_requires_consent` before deployment attaches, copies,
+stops or restarts Kodi. Use the reviewed registered-source workflow and explicit
+Web service consent for native service qualification; private projects have no
+automatic service-enable alternative. ZIP structure, paths, duplicates, symlinks, CRC
 and compressed stream validation reuse the existing ZIP validator. Source seeds
 publish with private read-only files and directories; workspace capture supplies
 the editable copy. Empty archive directories and executable permission bits are
@@ -111,10 +120,11 @@ Capacity, human input, holds, pending operations and uncertain outcomes retain
 their existing guards. An uncertain human selection remains a review blocker.
 Fixture/source validation does not establish native cross-version acceptance.
 
-When Kodi discovers a newly copied owned Program or video project disabled,
+When Kodi discovers a newly copied owned script/plugin project disabled,
 managed workspace deployment enables that exact add-on before reporting success.
 The same exact-tree verification and original lease also cover eligible passive
-Python module projects.
+Python module projects. A script and plugin may coexist; native inventory must
+match the first non-metadata declaration, while launch retains each ordinal.
 It verifies the copied tree, native identity and dependencies, and rechecks the
 current credential and role under the original deployment lease. This does not
 enable service add-ons or change external-device policy. A lost enablement

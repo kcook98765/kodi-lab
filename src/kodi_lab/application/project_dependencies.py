@@ -12,7 +12,10 @@ from kodi_lab.application.addon_dependencies import (
     evaluate_dependencies,
     first_blocking_dependency,
 )
-from kodi_lab.development.launch import manifest_launch_entries, python_module_library
+from kodi_lab.development.launch import (
+    python_entrypoints_eligible,
+    python_module_library,
+)
 from kodi_lab.storage.agent_project_context import owned_project_workspace
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -72,8 +75,7 @@ def verify_owned_dependencies(
         refuse("project_module_descriptor_unsupported")
     if not module and (
         descriptor.has_auto_start_behavior
-        or len([item for item in manifest_launch_entries(descriptor) if item.eligible])
-        != 1
+        or not python_entrypoints_eligible(descriptor)
     ):
         refuse("project_dependency_consumer_unsupported")
     if len(dependencies) > 3 or any(

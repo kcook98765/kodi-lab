@@ -19,7 +19,10 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Literal
 from uuid import UUID
 
-from kodi_lab.development.launch import manifest_launch_entries, python_module_library
+from kodi_lab.development.launch import (
+    python_entrypoints_eligible,
+    python_module_library,
+)
 from kodi_lab.development.repository_zip import repository_zip_urls
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
@@ -226,10 +229,6 @@ def read_editable_addon_zip(
         raise AddonZipValidationError(
             "addon_zip_id_directory_mismatch", "Directory and add-on ID must match."
         )
-    entries = manifest_launch_entries(observed)
-    executable = [
-        entry for entry in entries if entry.extension_point != "xbmc.addon.metadata"
-    ]
     module_library = python_module_library(observed)
     module = (
         source_modules
@@ -242,14 +241,18 @@ def read_editable_addon_zip(
     if (
         not module
         and (
-            len(executable) != 1
-            or not executable[0].eligible
-            or executable[0].library not in files
+            not python_entrypoints_eligible(observed)
+            or any(
+                extension.library not in files
+                for extension in observed.extensions
+                if extension.point != "xbmc.addon.metadata"
+            )
         )
     ) or any(extension.has_platform_library for extension in observed.extensions):
         raise AddonZipValidationError(
             "project_addon_type_unsupported",
-            "One Python Program/plugin or passive script.module is required.",
+            "Safe Python script/plugin/service entries or a passive script.module "
+            "are required.",
         )
     if sum(
         dependency.dependency_id != "xbmc.python"

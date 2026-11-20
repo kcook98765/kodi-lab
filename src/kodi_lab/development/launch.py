@@ -86,10 +86,10 @@ def manifest_launch_entries(
     return tuple(result)
 
 
-def python_service_descriptor_eligible(
+def python_entrypoints_eligible(
     descriptor: DevelopmentSourceValidationResult,
 ) -> bool:
-    """One Python service, optionally accompanied by one script and/or plugin.
+    """One of each common Python executable type, with no unrelated lifecycles.
 
     This is descriptor admission, not proof of service execution or launchability.
     Repeated types and unrelated lifecycle families require separate qualification.
@@ -99,7 +99,7 @@ def python_service_descriptor_eligible(
     )
     points = tuple(item.point for item in entries)
     return bool(
-        points.count("xbmc.service") == 1
+        bool(points)
         and len(points) == len(set(points))
         and set(points)
         <= {"xbmc.service", "xbmc.python.script", "xbmc.python.pluginsource"}
@@ -115,6 +115,15 @@ def python_service_descriptor_eligible(
             )
             for item in entries
         )
+    )
+
+
+def python_service_descriptor_eligible(
+    descriptor: DevelopmentSourceValidationResult,
+) -> bool:
+    """One Python service with optional script/plugin entrypoints."""
+    return "xbmc.service" in descriptor.extension_types and python_entrypoints_eligible(
+        descriptor
     )
 
 

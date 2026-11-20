@@ -265,3 +265,49 @@ def test_owned_setup_exemption_retains_failed_copy_and_reconciliation_evidence(
         item.action for item in result.next_actions
     }
     assert vars(env.broker) == counts
+
+
+def test_private_service_cannot_acquire_activation_by_import_or_edit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.development.sources import parse_captured_addon_xml
+
+    env = fixture._environment(tmp_path)
+    make_owned(env)
+    descriptor = parse_captured_addon_xml(
+        "workspace",
+        b'<addon id="script.fixture" name="Fixture" version="1.0.0">'
+        b'<extension point="xbmc.python.script" library="main.py"/>'
+        b'<extension point="xbmc.service" library="service.py"/></addon>',
+    )
+    monkeypatch.setattr(env.development, "_workspace_descriptor", lambda _: descriptor)
+    from kodi_lab.application.mcp_workspace_development import (
+        McpWorkspaceDevelopmentError,
+    )
+
+    setup_tools(env)  # Establish the real source grant and workspace owner binding.
+    before = vars(env.broker).copy()
+    with (
+        env.sessions() as session,
+        pytest.raises(
+            McpWorkspaceDevelopmentError,
+            match="project_service_activation_requires_consent",
+        ),
+    ):
+        env.development._deployment_preflight_rows(
+            session,
+            env.workspace_id,
+            0,
+            fixture.TARGET_ID,
+            client_id=env.client_id,
+        )
+    assert vars(env.broker) == before
+    with env.sessions() as session:
+        assert (
+            session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                (str(fixture.TARGET_ID), str(fixture.SOURCE_ID)),
+            )
+            is None
+        )

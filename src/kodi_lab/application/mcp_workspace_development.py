@@ -2702,6 +2702,15 @@ class McpWorkspaceDevelopmentService:
                 raise McpWorkspaceDevelopmentError(
                     "workspace_not_found_or_not_authorized"
                 )
+            if (
+                project
+                and self._workspace_descriptor(workspace_id).has_auto_start_behavior
+            ):
+                # Import/capture conveys no authority to start a background service.
+                # Reject before attachment, copy, stop or restart can change state.
+                raise McpWorkspaceDevelopmentError(
+                    "project_service_activation_requires_consent"
+                )
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 target_id, source.id
             )
