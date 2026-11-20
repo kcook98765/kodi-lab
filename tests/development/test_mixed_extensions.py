@@ -96,3 +96,11 @@ def test_multi_content_descriptor_and_bounded_launch_are_distinct() -> None:
     )
     assert python_service_descriptor_eligible(observed)
     assert manifest_launch_entries(observed)[0].reason == "unsupported_plugin_content"
+
+
+def test_repeated_script_entries_are_preserved_but_not_claimed_launchable() -> None:
+    observed = descriptor(SCRIPT, SCRIPT.replace("script.py", "second.py"))
+    entries = manifest_launch_entries(observed)
+    assert [entry.ordinal for entry in entries] == [0, 1]
+    assert all(not entry.eligible for entry in entries)
+    assert all(entry.reason == "multiple_script_extensions" for entry in entries)

@@ -240,6 +240,7 @@ class FakeBroker:
     def __init__(self) -> None:
         self.destination_matches = True
         self.service_descriptor_eligible = False
+        self.addon_xml_sha256: str | None = None
         self.verify_calls = 0
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
@@ -291,6 +292,7 @@ class FakeBroker:
             addon_version=VERSION,
             matched=True,
             python_service_descriptor_eligible=self.service_descriptor_eligible,
+            addon_xml_sha256=self.addon_xml_sha256,
         )
 
 
@@ -366,6 +368,12 @@ def _service(
     *,
     hook: object | None = None,
 ) -> DevelopmentSourceEnablementService:
+    import hashlib
+
+    broker.addon_xml_sha256 = hashlib.sha256(
+        (tmp_path / "source" / "addon.xml").read_bytes()
+    ).hexdigest()
+
     def after_enable() -> None:
         if isinstance(hook, BaseException):
             raise hook
@@ -1042,6 +1050,7 @@ def test_service_start_requires_explicit_authority_and_persists_enabled_only_rec
         "native_type",
         "provenance",
         "runtime",
+        "preview",
         "root",
     ],
 )
@@ -1088,7 +1097,16 @@ def test_opted_service_start_keeps_descriptor_runtime_and_provenance_guards(
     elif defect == "runtime":
         with factory.begin() as session:
             session.execute(
-                update(RuntimeExecutionProfileRow).values(expected_kodi_version="20.5")
+                update(RuntimeExecutionProfileRow).values(expected_kodi_version="20.4")
+            )
+    elif defect == "preview":
+        with factory.begin() as session:
+            session.execute(
+                update(RuntimeExecutionProfileRow).values(
+                    expected_kodi_version="22.0",
+                    expected_version_tag="rc",
+                    expected_prerelease_ordinal=1,
+                )
             )
     elif defect == "root":
         with factory.begin() as session:
@@ -1289,3 +1307,69 @@ def test_mixed_service_consent_and_exact_primary_type(
         assert result.reconciliation_required and adapter.enable_calls == [ADDON_ID]
     else:
         assert result.result_enabled and adapter.enable_calls == [ADDON_ID]
+
+
+@pytest.mark.parametrize(
+    "release,tag,ordinal",
+    [
+        ("19.4", "stable", None),
+        ("20.5", "stable", None),
+        ("21.3", "stable", None),
+        ("22.0", "rc", 2),
+    ],
+)
+def test_service_runtime_matrix_keeps_explicit_consent(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    release: str,
+    tag: str,
+    ordinal: int | None,
+) -> None:
+    from dataclasses import replace
+
+    _python_service(tmp_path)
+    with factory.begin() as session:
+        session.execute(
+            update(RuntimeExecutionProfileRow).values(
+                expected_kodi_version=release,
+                expected_version_tag=tag,
+                expected_prerelease_ordinal=ordinal,
+            )
+        )
+    broker = FakeBroker()
+    broker.service_descriptor_eligible = True
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.service"
+    service = _service(
+        factory,
+        tmp_path,
+        broker,
+        [replace(_target(), kodi_type="xbmc.service")],
+        adapter,
+    )
+    assert (
+        service.enable(INSTANCE_ID, SOURCE_ID).failure_reason
+        == "auto_start_addon_unsupported"
+    )
+    assert not adapter.enable_calls
+    assert service.enable(
+        INSTANCE_ID, SOURCE_ID, allow_service_start=True
+    ).result_enabled
+
+
+@pytest.mark.parametrize("installed", ["mixed", "unsupported_mixed", "unknown"])
+def test_host_manifest_cannot_hide_an_installed_service(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    installed: str,
+) -> None:
+    # Registered and current host descriptors both appear non-service, while
+    # the digest-verified installed descriptor differs (or old broker lacks proof).
+    broker = FakeBroker()
+    adapter = FakeEnableAdapter()
+    service = _service(factory, tmp_path, broker, [_target()], adapter)
+    broker.addon_xml_sha256 = None if installed == "unknown" else "f" * 64
+    broker.service_descriptor_eligible = installed == "mixed"
+    result = service.enable(INSTANCE_ID, SOURCE_ID)
+    assert result.failure_reason == "deployment_verification_failed"
+    assert adapter.enable_calls == [] and not result.service_start_authorized

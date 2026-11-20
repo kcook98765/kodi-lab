@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import unicodedata
@@ -71,6 +72,7 @@ class DevelopmentSourceValidationResult:
     """Parsed source identity without an effective absolute host path."""
 
     relative_locator: str
+    addon_xml_sha256: str
     addon_id: str
     observed_name: str
     observed_version: str
@@ -395,6 +397,7 @@ class DevelopmentSourceValidator:
             ) from error
         return DevelopmentSourceValidationResult(
             relative_locator=locator,
+            addon_xml_sha256=hashlib.sha256(document).hexdigest(),
             addon_id=addon_id,
             observed_name=observed_name,
             observed_version=observed_version,

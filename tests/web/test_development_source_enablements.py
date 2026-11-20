@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -397,11 +398,21 @@ def test_service_start_opt_in_is_strict_and_authenticated(
     assert service.start_authority == [True]
 
 
+@pytest.mark.parametrize(
+    "points",
+    [
+        ("xbmc.service",),
+        ("xbmc.python.script", "xbmc.service"),
+        ("xbmc.python.pluginsource", "xbmc.service"),
+        ("xbmc.python.script", "xbmc.python.pluginsource", "xbmc.service"),
+    ],
+)
 def test_service_enable_ui_requires_startup_choice_for_disabled_copied_service(
     database: sessionmaker[Session],
     broker: FakeBroker,
     data_root: Path,
     tmp_path: Path,
+    points: tuple[str, ...],
 ) -> None:
     from sqlalchemy import update
 
@@ -414,7 +425,7 @@ def test_service_enable_ui_requires_startup_choice_for_disabled_copied_service(
         session.execute(
             update(DevelopmentSourceRow)
             .where(DevelopmentSourceRow.id == str(SOURCE_A))
-            .values(extension_types_json='["xbmc.service"]')
+            .values(extension_types_json=json.dumps(points))
         )
         session.execute(
             update(RuntimeExecutionProfileRow).values(python_bytecode_policy="suppress")
@@ -428,7 +439,7 @@ def test_service_enable_ui_requires_startup_choice_for_disabled_copied_service(
                 name="Alpha Video",
                 version="1.2.3",
                 enabled=False,
-                kodi_type="xbmc.service",
+                kodi_type=points[0],
             ),
         ),
     )

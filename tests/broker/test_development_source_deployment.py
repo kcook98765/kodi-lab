@@ -792,6 +792,9 @@ def test_service_eligibility_comes_from_verified_installed_descriptor(
     )
     if installed != "missing":
         (source / "service.py").write_text("# known installed service\n")
+    import hashlib
+
+    installed_digest = hashlib.sha256((source / "addon.xml").read_bytes()).hexdigest()
     applied = _apply(client, spec)
     # Repairing the host descriptor cannot qualify an unsafe installed tree.
     (source / "addon.xml").write_text(
@@ -805,6 +808,7 @@ def test_service_eligibility_comes_from_verified_installed_descriptor(
         spec=_verification_spec(applied.verified_destination_digest),
         expected_container_id=CONTAINER_ID,
     )
+    assert proof.addon_xml_sha256 == installed_digest
     assert proof.matched is True
     assert proof.python_service_descriptor_eligible is (installed == "safe")
 
