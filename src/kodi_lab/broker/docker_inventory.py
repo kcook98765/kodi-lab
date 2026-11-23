@@ -2037,7 +2037,8 @@ class DockerManagedContainerAdapter:
             if spec.approved_additions is not None and review_paths is None:
                 raise DockerDevelopmentSourceDeploymentError(
                     "development_source_additions_review_conflict",
-                    "Approved container preconditions could not be proven before copying.",
+                    "Approved container preconditions could not be proven "
+                    "before copying.",
                 ) from error
             raise
         except (APIError, DockerException, OSError) as error:
