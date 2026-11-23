@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -16,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, defer, sessionmaker
 
 from kodi_lab.config import Settings
+from kodi_lab.development.addition_reviews import SourceAdditionProof
 from kodi_lab.development.confined_fs import open_development_root
 from kodi_lab.development.deployment import (
     capture_development_tree,
@@ -45,8 +47,10 @@ from kodi_lab.storage.development_sessions import (
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     AgentProjectRow,
+    GlobalHeavyOperationLeaseRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
+    SourceAdditionReviewRow,
 )
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
@@ -65,6 +69,7 @@ from kodi_lab.storage.repositories import (
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
+from kodi_lab.storage.source_addition_reviews import addition_review_scope
 from kodi_lab.storage.workspace_deployments import (
     prior_workspace_copy,
     selected_profile_lineage_sql,
@@ -137,6 +142,10 @@ class DevelopmentSourceDeploymentSpec:
     staging_root: Path
     prior_evidence: PriorDevelopmentSourceDeploymentEvidence | None
     expected_source_digest: str | None = None
+    addition_scope_digest: str | None = None
+    approved_additions: SourceAdditionProof | None = None
+    approval_check: Callable[[], None] | None = None
+    approval_guard: Callable[[], AbstractContextManager[None]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +165,17 @@ class DevelopmentSourceDestinationVerificationSpec:
 
 
 class DevelopmentSourceDeploymentResolver(Protocol):
+    def resolve_additions_review(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec: ...
+
+    def approved_copy_guard(
+        self, spec: DevelopmentSourceDeploymentSpec
+    ) -> AbstractContextManager[DevelopmentSourceDeploymentSpec]: ...
+
     def resolve_workspace_reconciliation(
         self,
         deployment_operation_id: str,
@@ -249,6 +269,38 @@ class SqliteDevelopmentSourceDeploymentResolver:
         deployment_operation_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDeploymentSpec:
+        return self._resolve(
+            managed_instance_id,
+            development_source_id,
+            deployment_operation_id,
+            expected_container_id,
+        )
+
+    def resolve_additions_review(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        from uuid import uuid4
+
+        return self._resolve(
+            managed_instance_id,
+            development_source_id,
+            str(uuid4()),
+            expected_container_id,
+            for_review=True,
+        )
+
+    def _resolve(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        deployment_operation_id: str,
+        expected_container_id: str,
+        *,
+        for_review: bool = False,
+    ) -> DevelopmentSourceDeploymentSpec:
         try:
             instance_id = UUID(managed_instance_id)
             source_id = UUID(development_source_id)
@@ -341,7 +393,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         "Selected development session does not admit this source copy.",
                         code=error.code,
                     ) from error
-                if (
+                if not for_review and (
                     operation is None
                     or operation.state
                     is not DevelopmentSourceDeploymentOperationState.RUNNING
@@ -414,6 +466,36 @@ class SqliteDevelopmentSourceDeploymentResolver:
                         confidence=evidence.confidence,
                     )
                 )
+                review = session.scalar(
+                    select(SourceAdditionReviewRow).where(
+                        SourceAdditionReviewRow.operation_id == deployment_operation_id
+                    )
+                )
+                proof = (
+                    None
+                    if review is None
+                    else SourceAdditionProof.model_validate_json(review.proof_json)
+                )
+                scope = None
+                if for_review or review is not None:
+                    if prior is None or prior.confidence not in {
+                        DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
+                        DevelopmentSourceDeploymentConfidence.STALE,
+                    }:
+                        raise DevelopmentSourceDeploymentStateError(
+                            "Trusted baseline is unavailable for additions review."
+                        )
+                    scope = addition_review_scope(
+                        session,
+                        managed_instance_id,
+                        development_source_id,
+                        expected_container_id,
+                    )
+                    if proof is not None and proof.scope_digest != scope:
+                        raise DevelopmentSourceDeploymentStateError(
+                            "Addition approval scope changed.",
+                            code="development_source_additions_review_conflict",
+                        )
                 return DevelopmentSourceDeploymentSpec(
                     managed_instance_id=managed_instance_id,
                     development_source_id=development_source_id,
@@ -429,6 +511,8 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     staging_root=self._data_root / "development-source-staging",
                     prior_evidence=prior,
                     expected_source_digest=None,
+                    addition_scope_digest=scope,
+                    approved_additions=proof,
                 )
         except DevelopmentSourceDeploymentStateError:
             raise
@@ -436,6 +520,107 @@ class SqliteDevelopmentSourceDeploymentResolver:
             raise DevelopmentSourceDeploymentStateError(
                 "Canonical deployment state could not be read."
             ) from error
+
+    @contextmanager
+    def approved_copy_guard(
+        self, spec: DevelopmentSourceDeploymentSpec
+    ) -> Iterator[DevelopmentSourceDeploymentSpec]:
+        """Consume once and retain exclusion across exact revalidation and copy.
+
+        The ordinary typed leases still own the operation. Source scanning and
+        immutable staging run without a database writer lock. The adapter enters
+        final exclusion only for preimage confirmation, copy and readback; this
+        temporarily blocks other database writers. Dispatch is retained even
+        when staging, application or verification raises.
+        """
+        with self._session_factory() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            review = session.scalar(
+                select(SourceAdditionReviewRow).where(
+                    SourceAdditionReviewRow.operation_id == spec.deployment_operation_id
+                )
+            )
+
+            def check() -> None:
+                now = self._clock()
+                stamp = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                operation = DevelopmentSourceDeploymentOperationRepository(session).get(
+                    UUID(spec.deployment_operation_id)
+                )
+                mutation = ManagedInstanceMutationLeaseRepository(session).current(
+                    UUID(spec.managed_instance_id)
+                )
+                heavy = session.scalar(select(GlobalHeavyOperationLeaseRow))
+                if (
+                    review is None
+                    or review.approved_at is None
+                    or review.expires_at <= stamp
+                    or spec.approved_additions is None
+                    or SourceAdditionProof.model_validate_json(review.proof_json)
+                    != spec.approved_additions
+                    or review.target_id != spec.managed_instance_id
+                    or review.source_id != spec.development_source_id
+                    or spec.prior_evidence is None
+                    or review.container_id != spec.prior_evidence.trusted_container_id
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Addition approval is unavailable or expired.",
+                        code="development_source_additions_review_conflict",
+                    )
+                if (
+                    operation is None
+                    or operation.state
+                    is not DevelopmentSourceDeploymentOperationState.RUNNING
+                    or operation.lease_token_digest is None
+                    or operation.lease_expires_at is None
+                    or operation.lease_expires_at <= now
+                    or mutation is None
+                    or heavy is None
+                    or mutation.operation_kind
+                    is not ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_DEPLOYMENT
+                    or heavy.operation_kind.value != "development_source_deployment"
+                    or mutation.operation_id != spec.deployment_operation_id
+                    or heavy.operation_id != spec.deployment_operation_id
+                    or mutation.lease_token_digest != operation.lease_token_digest
+                    or heavy.lease_token_digest != operation.lease_token_digest
+                    or mutation.lease_expires_at is None
+                    or mutation.lease_expires_at <= stamp
+                    or heavy.lease_expires_at is None
+                    or heavy.lease_expires_at <= stamp
+                    or addition_review_scope(
+                        session,
+                        spec.managed_instance_id,
+                        spec.development_source_id,
+                        review.container_id,
+                    )
+                    != spec.addition_scope_digest
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Addition approval authority changed.",
+                        code="development_source_additions_review_conflict",
+                    )
+
+            check()
+            assert review is not None
+            if review.dispatched_at is not None:
+                raise DevelopmentSourceDeploymentStateError(
+                    "Addition approval has already been dispatched.",
+                    code="development_source_additions_review_conflict",
+                )
+            review.dispatched_at = self._clock().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            session.commit()
+
+            @contextmanager
+            def exclude() -> Iterator[None]:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                session.expire_all()
+                try:
+                    check()
+                    yield
+                finally:
+                    session.rollback()
+
+            yield replace(spec, approval_check=check, approval_guard=exclude)
 
     def resolve_destination_verification(
         self,

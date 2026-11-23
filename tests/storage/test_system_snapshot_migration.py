@@ -47,7 +47,7 @@ def test_direct_predecessor_preservation_and_safe_downgrade(
             _review(connection, '["screenshot","system_snapshot"]', 2)
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["filesystem","screenshot"]', 3)
-    command.upgrade(config, "head")
+    command.upgrade(config, REVISION)
     assert _revision(database) == REVISION
     if admit_snapshot:
         with pytest.raises(RuntimeError, match="refusing lossy downgrade"):

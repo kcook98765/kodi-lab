@@ -104,6 +104,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "read_stopped_managed_logs",
                 "reconstruction_destination",
                 "remove_mismatched_managed_container",
+                "review_source_additions",
                 "reviewed_runtime_image_present",
                 "start_managed_container",
                 "stop_managed_container",

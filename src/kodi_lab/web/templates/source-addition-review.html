@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Review added files · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Review added files before copying</h1>
+<p>Use this when a stopped disposable Kodi has generated extra files inside an attached add-on. Review does not change Kodi or trust these files. Every previously trusted entry must still match exactly.</p>
+{% if not review %}
+<p>Enter each added file's path relative to the add-on folder, one per line (up to 32). Only regular files in existing directories can be reviewed. Files that collide with the candidate source cannot be approved.</p>
+<form method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label for="addition-paths">Added file paths</label>
+<textarea id="addition-paths" name="paths" rows="5" maxlength="16416" required></textarea>
+<button type="submit">Inspect these added files</button>
+</form>
+{% else %}
+<p>Review <code>{{ review.id }}</code>. Created {{ review.created_at }}. Expires {{ review.expires_at }}.</p>
+<dl>
+<dt>Kodi target</dt><dd>{{ review.target_name or 'Retired target' }} · <code>{{ review.target_id }}</code></dd>
+<dt>Registered source</dt><dd>{{ review.source_name or 'Historical source' }}{% if review.addon_id %} ({{ review.addon_id }}){% endif %} · <code>{{ review.source_id }}</code></dd>
+<dt>Stopped container</dt><dd><code>{{ review.container_id }}</code></dd>
+<dt>Trusted destination</dt><dd><code>{{ review.proof.trusted_destination_digest }}</code></dd>
+<dt>Reviewed complete destination</dt><dd><code>{{ review.proof.destination_digest }}</code></dd>
+<dt>Candidate source</dt><dd><code>{{ review.proof.source_digest }}</code></dd>
+</dl>
+<p>The complete destination, after excluding only the files below in memory, matches the trusted destination. All existing entries remain exact. File names and contents do not establish safety: skin XML and executable files can change Kodi behavior. Approve only files you have independently reviewed.</p>
+<form action="/source-addition-reviews/{{ review.id }}/approve" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{% for file in review.proof.additions %}
+<fieldset>
+<legend><code>{{ file.path }}</code></legend>
+<p>Regular file · {{ file.size }} bytes · mode {{ '%04o'|format(file.mode) }} · owner {{ file.uid }}:{{ file.gid }}</p>
+<p>SHA-256 <code>{{ file.sha256 }}</code></p>
+{% if not review.operation_id %}<label><input type="checkbox" name="approved_paths" value="{{ file.path }}" required> I approve preserving this exact file.</label>{% endif %}
+</fieldset>
+{% endfor %}
+{% if not review.operation_id %}
+<label><input type="checkbox" name="review_ack" value="yes" required> I reviewed every listed file and approve one guarded source copy. Preserve these files unchanged.</label>
+<p>Approval expires after 15 minutes and is bound to this baseline, source, candidate generation, selected session, target and runtime. Changes require a new review. Copying does not start Kodi or establish native acceptance.</p>
+<button type="submit">Approve these files and copy source</button>
+{% endif %}
+</form>
+{% if review.operation_id %}
+<p>Approved {{ review.approved_at }} for operation <code>{{ review.operation_id }}</code>. {% if review.dispatched_at %}Dispatch recorded {{ review.dispatched_at }}.{% endif %}</p>
+{% if review.operation %}
+<p>Saved copy state: {{ review.operation.state.value }}. {% if review.operation.failure_reason %}Reason: <code>{{ review.operation.failure_reason }}</code>.{% endif %} {% if review.operation.reconciliation_required %}Preserve the stopped profile and review recovery in Kodi history.{% endif %}</p>
+{% else %}<p>Detailed copy history is no longer retained. This approval cannot create another operation.</p>{% endif %}
+<p>Refreshing reads saved history. It never resubmits or restarts copying.</p>
+{% endif %}
+<p><a href="/source-addition-reviews/{{ review.id }}">Refresh saved review and copy status</a></p>
+{% endif %}
+<p><a href="/instances/{{ target_id }}/history">Review Kodi history</a> · <a href="/instances/{{ target_id }}">Return to Kodi details</a></p>
+{% endblock %}

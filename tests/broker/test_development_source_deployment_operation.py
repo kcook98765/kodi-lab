@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from kodi_lab.broker.operations import (
 from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.socket_path import SocketPathConfig
 from kodi_lab.broker.transport import receive_frame, send_frame
+from kodi_lab.development.addition_reviews import AddedFile, SourceAdditionProof
 
 INSTANCE_ID = str(UUID(int=101))
 SOURCE_ID = str(UUID(int=102))
@@ -41,6 +43,7 @@ OPERATION_ID = str(UUID(int=103))
 REVISION_ID = str(UUID(int=104))
 WORKSPACE_ID = str(UUID(int=105))
 CONTAINER_ID = "a" * 64
+REVIEW_PATH = "1080i/script-skinshortcuts-includes.xml"
 
 
 def _spec(tmp_path: Path) -> DevelopmentSourceDeploymentSpec:
@@ -90,6 +93,24 @@ class FakeResolver:
         if self.error is not None:
             raise self.error
         return self.spec
+
+    def resolve_additions_review(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        return self.resolve(
+            managed_instance_id,
+            development_source_id,
+            OPERATION_ID,
+            expected_container_id,
+        )
+
+    def approved_copy_guard(
+        self, spec: DevelopmentSourceDeploymentSpec
+    ) -> AbstractContextManager[DevelopmentSourceDeploymentSpec]:
+        return nullcontext(spec)
 
     def resolve_destination_verification(
         self,
@@ -174,6 +195,36 @@ class FakeProvider:
         self.verification_calls: list[
             tuple[DevelopmentSourceDestinationVerificationSpec, str]
         ] = []
+        self.review_calls: list[
+            tuple[DevelopmentSourceDeploymentSpec, str, tuple[str, ...]]
+        ] = []
+        self.review_proof = SourceAdditionProof(
+            scope_digest="sha256:" + "1" * 64,
+            source_digest="sha256:" + "2" * 64,
+            destination_digest="sha256:" + "3" * 64,
+            container_digest="sha256:" + "4" * 64,
+            trusted_destination_digest="sha256:" + "5" * 64,
+            additions=(
+                AddedFile(
+                    path=REVIEW_PATH,
+                    sha256="6" * 64,
+                    size=123,
+                    mode=0o644,
+                    uid=2468,
+                    gid=1357,
+                ),
+            ),
+        )
+
+    def review_source_additions(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+        paths: tuple[str, ...],
+    ) -> SourceAdditionProof:
+        self.review_calls.append((spec, expected_container_id, paths))
+        return self.review_proof
 
     def copy_sync_attached_development_source(
         self,
@@ -331,6 +382,63 @@ def test_destination_verification_protocol_accepts_semantic_identities_only(
         "uid",
         "gid",
     } & set(result.model_dump())
+
+
+def test_source_additions_review_round_trips_json_paths_and_proof(
+    tmp_path: Path, socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    resolver = FakeResolver(_spec(tmp_path))
+    provider = FakeProvider()
+    with run_broker(socket_config, registry=_registry(provider, resolver)):
+        proof = BrokerClient(socket_config.socket_path).review_source_additions(
+            managed_instance_id=INSTANCE_ID,
+            development_source_id=SOURCE_ID,
+            expected_container_id=CONTAINER_ID,
+            paths=(REVIEW_PATH,),
+        )
+    assert proof == provider.review_proof
+    assert resolver.calls == [(INSTANCE_ID, SOURCE_ID, OPERATION_ID, CONTAINER_ID)]
+    assert provider.review_calls == [(_spec(tmp_path), CONTAINER_ID, (REVIEW_PATH,))]
+    assert isinstance(provider.review_calls[0][2], tuple)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"paths": [123]}, id="non-string-element"),
+        pytest.param({"paths": [True]}, id="boolean-element"),
+        pytest.param({"paths": []}, id="empty"),
+        pytest.param({"paths": [f"1080i/{i}.xml" for i in range(33)]}, id="too-many"),
+        pytest.param({"paths": REVIEW_PATH}, id="non-array"),
+        pytest.param({"destination": "/private"}, id="unknown-field"),
+    ],
+)
+def test_source_additions_review_rejects_invalid_wire_params(
+    tmp_path: Path,
+    socket_config: SocketPathConfig,
+    run_broker: Any,
+    overrides: dict[str, object],
+) -> None:
+    resolver = FakeResolver(_spec(tmp_path))
+    provider = FakeProvider()
+    with run_broker(socket_config, registry=_registry(provider, resolver)):
+        response = _raw(
+            socket_config.socket_path,
+            {
+                "managed_instance_id": INSTANCE_ID,
+                "development_source_id": SOURCE_ID,
+                "expected_container_id": CONTAINER_ID,
+                "paths": [REVIEW_PATH],
+                **overrides,
+            },
+            operation="review_source_additions",
+        )
+    assert response["ok"] is False
+    error = response["error"]
+    assert isinstance(error, dict)
+    assert error["code"] == "invalid_params"
+    assert resolver.calls == []
+    assert provider.review_calls == []
 
 
 def test_workspace_protocol_accepts_only_semantic_exact_generation_authority(
