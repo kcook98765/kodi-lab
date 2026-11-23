@@ -8294,3 +8294,26 @@ stored capability list needs an additive migration; previous reviewed builds
 remain established-compatible. No diagnostic read installs, pairs, activates or
 adopts a Bridge. Absent/older/unreachable operations preserve native diagnostics;
 authentication and trust/identity failures remain typed denials.
+
+## D-0504: Explicit review of exact destination regular-file additions
+
+Issue #399 extends ordinary registered-source copy with Web administrator review
+of up to 32 named added regular files in existing directories. Removing only those
+entries from an in-memory canonical inventory must reproduce the retained trusted
+full destination digest. No trust is granted by a filename, content shape or
+runtime attribution. Default refusal and existing provenance rules remain intact.
+
+A 15-minute saved proof binds the baseline/evidence, source/attachment, candidate
+bytes, selection/workspace generation, target and full container/runtime identity.
+Per-file consent atomically claims one ordinary copy operation under existing
+leases. The broker durably records one dispatch, then revalidates complete proof
+and preimage under final writer exclusion before applying the immutable delta.
+Hashing, staging and archive construction precede that final exclusion to reduce
+writer blocking; Web authentication timestamp writes may still wait/time out.
+Complete readback preserves approved additions and records the truthful full
+result through normal success/failure/reconciliation receipts. No new MCP grant,
+force/adoption/deletion operation or native acceptance is introduced.
+
+Migration 0018 adds bounded retained review history without changing prior rows;
+lossy downgrade refuses populated history. Details and administrator limitations
+are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).

@@ -9,7 +9,7 @@ import shutil
 import stat
 import tarfile
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network
@@ -83,6 +83,11 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     copied_video_plugin_library,
     parse_captured_addon_xml,
+)
+from kodi_lab.development.addition_reviews import (
+    SourceAdditionProof,
+    identity_digest,
+    prove_additions,
 )
 from kodi_lab.development.deployment import (
     DevelopmentTreeError,
@@ -480,6 +485,14 @@ class ManagedInstanceSnapshotApplyProvider(Protocol):
 
 
 class DevelopmentSourceDeploymentProvider(Protocol):
+    def review_source_additions(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+        paths: tuple[str, ...],
+    ) -> SourceAdditionProof: ...
+
     def copy_sync_attached_development_source(
         self,
         *,
@@ -1625,6 +1638,32 @@ class DockerManagedContainerAdapter:
         spec: DevelopmentSourceDeploymentSpec,
         expected_container_id: str,
     ) -> AppliedDevelopmentSourceDeploymentRecord:
+        result = self._copy_sync_source(
+            spec=spec, expected_container_id=expected_container_id
+        )
+        assert isinstance(result, AppliedDevelopmentSourceDeploymentRecord)
+        return result
+
+    def review_source_additions(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+        paths: tuple[str, ...],
+    ) -> SourceAdditionProof:
+        result = self._copy_sync_source(
+            spec=spec, expected_container_id=expected_container_id, review_paths=paths
+        )
+        assert isinstance(result, SourceAdditionProof)
+        return result
+
+    def _copy_sync_source(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+        review_paths: tuple[str, ...] | None = None,
+    ) -> AppliedDevelopmentSourceDeploymentRecord | SourceAdditionProof:
         """Capture twice, apply only a delta, and verify one fixed destination."""
 
         if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
@@ -1639,6 +1678,7 @@ class DockerManagedContainerAdapter:
         archive_path = operation_stage / "delta.tar"
         client: _SnapshotDockerClient | None = None
         apply_started = False
+        exclusion = ExitStack()
         try:
             source_stage.mkdir(mode=0o700)
             first = measurement.run(
@@ -1729,13 +1769,79 @@ class DockerManagedContainerAdapter:
                 before = read_destination("destination_before")
             except NotFound:
                 before = None
+
+            def review_proof(
+                paths: tuple[str, ...],
+                current: DevelopmentTreeManifest | None,
+                inspection: object,
+            ) -> SourceAdditionProof:
+                evidence = spec.prior_evidence
+                if (
+                    evidence is None
+                    or current is None
+                    or spec.addition_scope_digest is None
+                    or evidence.runtime_revision_id != spec.runtime_revision_id
+                    or evidence.trusted_container_id != selected_id
+                    or evidence.confidence.value
+                    not in {"verified_at_last_operation", "stale"}
+                ):
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_additions_review_conflict",
+                        "Exact trusted baseline is required for additions review.",
+                    )
+                return prove_additions(
+                    first,
+                    current,
+                    paths=paths,
+                    trusted_digest=evidence.verified_destination_digest,
+                    scope_digest=spec.addition_scope_digest,
+                    container=inspection,
+                    runtime_uid=spec.runtime_uid,
+                    runtime_gid=spec.runtime_gid,
+                )
+
+            if review_paths is not None:
+                classify_delta(first, before)
+                proof = review_proof(review_paths, before, inspected)
+                second_source = capture_development_tree(
+                    spec.development_root, spec.relative_locator
+                )
+                compare_captures(first, second_source)
+                if (
+                    read_destination("review_confirm").digest
+                    != proof.destination_digest
+                    or identity_digest(client.inspect_container(selected_id))
+                    != proof.container_digest
+                ):
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_additions_review_conflict",
+                        "Destination or container changed during review.",
+                    )
+                return proof
+
+            approval = spec.approved_additions
+            if approval is not None and (
+                review_proof(
+                    tuple(item.path for item in approval.additions),
+                    before,
+                    inspected,
+                )
+                != approval
+            ):
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_source_additions_review_conflict",
+                    "Approved additions or identity changed.",
+                )
             if before is not None:
                 evidence = spec.prior_evidence
                 if (
                     evidence is None
                     or evidence.runtime_revision_id != spec.runtime_revision_id
                     or evidence.trusted_container_id != selected_id
-                    or evidence.verified_destination_digest != before.digest
+                    or (
+                        evidence.verified_destination_digest != before.digest
+                        and approval is None
+                    )
                 ):
                     raise DockerDevelopmentSourceDeploymentError(
                         "development_source_replacement_conflict",
@@ -1744,10 +1850,14 @@ class DockerManagedContainerAdapter:
                 # A stale assertion may be reaffirmed only when the complete
                 # stopped destination still matches its retained successful
                 # copy and the source has not changed. This path never writes.
-                if evidence.confidence.value != "verified_at_last_operation" and (
-                    evidence.confidence.value != "stale"
-                    or evidence.source_manifest_digest != first.digest
-                    or classify_delta(first, before).applied_paths
+                if (
+                    approval is None
+                    and evidence.confidence.value != "verified_at_last_operation"
+                    and (
+                        evidence.confidence.value != "stale"
+                        or evidence.source_manifest_digest != first.digest
+                        or classify_delta(first, before).applied_paths
+                    )
                 ):
                     raise DockerDevelopmentSourceDeploymentError(
                         "development_source_replacement_conflict",
@@ -1797,6 +1907,37 @@ class DockerManagedContainerAdapter:
                     ),
                 )
                 measurement.counts["delta_archive_bytes"] = archive_path.stat().st_size
+            if approval is not None:
+                if spec.approval_check is None or spec.approval_guard is None:
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_additions_review_conflict",
+                        "Approval exclusion is unavailable.",
+                    )
+                exclusion.enter_context(spec.approval_guard())
+                spec.approval_check()
+                fresh_inspection = _require_mapping(
+                    client.inspect_container(selected_id)
+                )
+                self._validate_deprovision_candidate(
+                    fresh_inspection,
+                    selected_container_id=selected_id,
+                    managed_instance_id=spec.managed_instance_id,
+                    expected_container_id=expected_container_id,
+                    expected_runtime_revision_id=spec.runtime_revision_id,
+                )
+                if (
+                    review_proof(
+                        tuple(item.path for item in approval.additions),
+                        read_destination("approved_preimage_confirm"),
+                        fresh_inspection,
+                    )
+                    != approval
+                ):
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_additions_review_conflict",
+                        "Approved preimage changed before copying.",
+                    )
+            if delta.applied_paths:
                 apply_destination = "/home/kodi" if before is None else destination
                 apply_started = True
                 with archive_path.open("rb") as archive_file:
@@ -1832,6 +1973,14 @@ class DockerManagedContainerAdapter:
                 expected_container_id=expected_container_id,
                 expected_runtime_revision_id=spec.runtime_revision_id,
             )
+            if approval is not None:
+                assert spec.approval_check is not None
+                spec.approval_check()
+                if identity_digest(final) != approval.container_digest:
+                    raise DevelopmentTreeError(
+                        "development_destination_verification_failed",
+                        "Approved container identity changed during copying.",
+                    )
             classification: Literal[
                 "initial_deployment", "synchronized", "unchanged"
             ] = (
@@ -1905,6 +2054,7 @@ class DockerManagedContainerAdapter:
                 ) from error
             raise
         finally:
+            exclusion.close()
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from kodi_lab.broker.operations import (
 from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.socket_path import SocketPathConfig
 from kodi_lab.broker.transport import receive_frame, send_frame
+from kodi_lab.development.addition_reviews import SourceAdditionProof
 
 INSTANCE_ID = str(UUID(int=101))
 SOURCE_ID = str(UUID(int=102))
@@ -90,6 +92,24 @@ class FakeResolver:
         if self.error is not None:
             raise self.error
         return self.spec
+
+    def resolve_additions_review(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        return self.resolve(
+            managed_instance_id,
+            development_source_id,
+            OPERATION_ID,
+            expected_container_id,
+        )
+
+    def approved_copy_guard(
+        self, spec: DevelopmentSourceDeploymentSpec
+    ) -> AbstractContextManager[DevelopmentSourceDeploymentSpec]:
+        return nullcontext(spec)
 
     def resolve_destination_verification(
         self,
@@ -174,6 +194,15 @@ class FakeProvider:
         self.verification_calls: list[
             tuple[DevelopmentSourceDestinationVerificationSpec, str]
         ] = []
+
+    def review_source_additions(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+        paths: tuple[str, ...],
+    ) -> SourceAdditionProof:
+        raise AssertionError("This fake does not provide addition review evidence")
 
     def copy_sync_attached_development_source(
         self,

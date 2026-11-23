@@ -22,6 +22,9 @@
 </form>
 {% else %}
 <p>Preserve this request and review Kodi history. Refreshing or repeating the request does not reset running, failed or uncertain work.</p>
+{% if operation.failure_reason == 'development_source_replacement_conflict' %}
+<p>If only new regular files were generated inside existing add-on directories, <a href="/instances/{{ receipt.target_id }}/development-sources/{{ receipt.source_id }}/review-additions">review the exact added files before a new guarded copy</a>.</p>
+{% endif %}
 {% endif %}
 {% endif %}
 <p><a href="/development-session/source-copy/{{ receipt.request_id }}">Refresh saved copy status</a> · <a href="/instances/{{ receipt.target_id }}/history">Review Kodi history</a> · <a href="/development-session/preparation">Return to session preparation</a></p>

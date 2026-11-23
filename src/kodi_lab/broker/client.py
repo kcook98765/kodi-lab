@@ -111,6 +111,7 @@ from kodi_lab.broker.operations import (
     ReviewedInstallationLaunchParams,
     ReviewedInstallationLaunchResult,
     ReviewedInstallationWorkerResult,
+    ReviewSourceAdditionsParams,
     SmokeLogParams,
     StartManagedContainerParams,
     StartManagedContainerResult,
@@ -143,6 +144,7 @@ from kodi_lab.broker.transport import (
     reject_buffered_trailing_data,
     send_frame,
 )
+from kodi_lab.development.addition_reviews import SourceAdditionProof
 from kodi_lab.runtime.preview import PreviewAcknowledgement
 
 CONNECT_TIMEOUT_SECONDS = 5.0
@@ -822,6 +824,27 @@ class BrokerClient:
                 "snapshot deletion result identity does not match the request"
             )
         return result
+
+    def review_source_additions(
+        self,
+        *,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+        paths: tuple[str, ...],
+    ) -> SourceAdditionProof:
+        params = ReviewSourceAdditionsParams(
+            managed_instance_id=managed_instance_id,
+            development_source_id=development_source_id,
+            expected_container_id=expected_container_id,
+            paths=paths,
+        )
+        return self._call(
+            "review_source_additions",
+            params,
+            SourceAdditionProof,
+            response_timeout=900.0,
+        )
 
     def copy_sync_attached_development_source(
         self,
@@ -1508,6 +1531,9 @@ class BrokerClient:
                     DevelopmentSourceDeploymentClientError
                 ),
                 "development_source_unavailable": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_additions_review_conflict": (
                     DevelopmentSourceDeploymentClientError
                 ),
                 "development_source_replacement_conflict": (

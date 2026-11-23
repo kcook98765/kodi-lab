@@ -52,6 +52,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    field_validator,
     model_validator,
 )
 from python_multipart.multipart import MultipartParser, parse_options_header
@@ -550,6 +551,7 @@ from kodi_lab.application.snapshots import (
     SnapshotCreateExecutor,
     SnapshotServiceFactory,
 )
+from kodi_lab.application.source_addition_reviews import SourceAdditionReviewService
 from kodi_lab.application.ui_state import ManagedUiObservationService
 from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
@@ -1326,6 +1328,27 @@ class HistoricalContainmentRequest(BaseModel):
     request_id: UUID
     expected_runtime_state_revision: int = Field(ge=0)
     confirmed: Literal[True]
+
+
+class SourceAdditionPreviewForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    paths: str = Field(min_length=1, max_length=16416)
+
+    @field_validator("paths")
+    @classmethod
+    def bounded_paths(cls, value: str) -> str:
+        paths = value.splitlines()
+        if not 1 <= len(paths) <= 32 or any(not path for path in paths):
+            raise ValueError("Enter 1 to 32 nonempty file paths, one per line.")
+        return value
+
+
+class SourceAdditionApprovalForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    csrf_token: str = Field(max_length=256)
+    review_ack: Literal["yes"]
+    approved_paths: list[str] = Field(min_length=1, max_length=32)
 
 
 class SessionSourceCopyRequest(BaseModel):
@@ -4461,6 +4484,9 @@ def create_app(
     session_preparation = SessionPreparationService(session_factory)
     session_source_copy = SessionSourceCopyService(
         session_factory, context.development_source_deployment_operations
+    )
+    source_addition_reviews = SourceAdditionReviewService(
+        session_factory, broker, context.development_source_deployment_operations
     )
     session_reviews = SessionReplacementReviewService(session_service)
     session_replacements = SessionReplacementService(session_service, context.lifecycle)
@@ -8290,6 +8316,91 @@ def create_app(
     ) -> AttachedDevelopmentSourceRead:
         return context.development_source_attachments.detach_source(
             instance_id, source_id
+        )
+
+    @app.get(
+        "/instances/{instance_id}/development-sources/{source_id}/review-additions",
+        response_class=HTMLResponse,
+    )
+    def source_additions_start(
+        request: Request,
+        instance_id: UUID,
+        source_id: UUID,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "source-addition-review.html",
+            {
+                "target_id": instance_id,
+                "source_id": source_id,
+                "review": None,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post(
+        "/instances/{instance_id}/development-sources/{source_id}/review-additions"
+    )
+    def source_additions_preview(
+        request: Request,
+        instance_id: UUID,
+        source_id: UUID,
+        body: SourceAdditionPreviewForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        paths = tuple(body.paths.splitlines())
+        review = source_addition_reviews.preview(instance_id, source_id, paths)
+        return RedirectResponse(
+            f"/source-addition-reviews/{review.id}",
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/source-addition-reviews/{review_id}", response_class=HTMLResponse)
+    def source_additions_review_page(
+        request: Request,
+        review_id: UUID,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        review = source_addition_reviews.get(review_id)
+        if review is None:
+            raise HTTPException(status_code=404)
+        return templates.TemplateResponse(
+            request,
+            "source-addition-review.html",
+            {
+                "target_id": review.target_id,
+                "source_id": review.source_id,
+                "review": review,
+                "csrf_token": authenticated.csrf_token,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/source-addition-reviews/{review_id}/approve")
+    def source_additions_approve(
+        request: Request,
+        review_id: UUID,
+        body: SourceAdditionApprovalForm = Form(),
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, body.csrf_token):
+            raise HTTPException(status_code=403)
+        source_addition_reviews.approve(
+            review_id,
+            tuple(body.approved_paths),
+            context.development_source_deployment_executor.submit,
+        )
+        return RedirectResponse(
+            f"/source-addition-reviews/{review_id}",
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.post(

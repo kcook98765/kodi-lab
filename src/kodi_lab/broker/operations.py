@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network
 from typing import Literal, TypeVar, cast
@@ -169,6 +170,7 @@ from kodi_lab.broker.stopped_logs import (
     StoppedLogSnapshot,
     StoppedManagedLogProvider,
 )
+from kodi_lab.development.addition_reviews import ReviewPaths, SourceAdditionProof
 from kodi_lab.domain.smoke_diagnostics import (
     AddonExceptionDiagnostic,
     SmokeDiagnosticStatus,
@@ -344,7 +346,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=40)
+    operations: list[str] = Field(max_length=41)
     protocol_version: Literal[1]
 
 
@@ -1059,6 +1061,10 @@ class VerifyAttachedDevelopmentSourceDestinationParams(StrictModel):
         if not is_canonical_uuid(value):
             raise ValueError("identity must be a canonical UUID string")
         return value
+
+
+class ReviewSourceAdditionsParams(VerifyAttachedDevelopmentSourceDestinationParams):
+    paths: ReviewPaths
 
 
 class VerifyMcpWorkspaceDestinationParams(StrictModel):
@@ -3278,6 +3284,49 @@ def build_foundation_registry(
         },
     )
 
+    def review_source_additions(
+        params: ReviewSourceAdditionsParams,
+    ) -> SourceAdditionProof:
+        try:
+            spec = deployment_resolver.resolve_additions_review(
+                params.managed_instance_id,
+                params.development_source_id,
+                params.expected_container_id,
+            )
+            return deployment_provider.review_source_additions(
+                spec=spec,
+                expected_container_id=params.expected_container_id,
+                paths=params.paths,
+            )
+        except (
+            DevelopmentSourceDeploymentStateError,
+            DockerDevelopmentSourceDeploymentError,
+        ) as error:
+            raise OperationError(
+                error.code, "The exact additions could not be safely reviewed."
+            ) from error
+        except (
+            ManagedContainerNotFoundError,
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            RuntimeRevisionPreconditionError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            DockerDaemonUnavailableError,
+        ) as error:
+            raise OperationError(
+                "development_source_additions_review_conflict",
+                "Review requires the exact owned stopped runtime and trusted baseline.",
+            ) from error
+
+    registry.register(
+        name="review_source_additions",
+        params_model=ReviewSourceAdditionsParams,
+        result_model=SourceAdditionProof,
+        handler=review_source_additions,
+    )
+
     def copy_sync_attached_development_source(
         params: CopySyncAttachedDevelopmentSourceParams,
     ) -> CopySyncAttachedDevelopmentSourceResult:
@@ -3293,9 +3342,15 @@ def build_foundation_registry(
                 params.deployment_operation_id,
                 params.expected_container_id,
             )
-            outcome = deployment_provider.copy_sync_attached_development_source(
-                spec=spec, expected_container_id=params.expected_container_id
-            )
+            with (
+                deployment_resolver.approved_copy_guard(spec)
+                if spec.approved_additions is not None
+                else nullcontext(spec)
+            ) as guarded_spec:
+                outcome = deployment_provider.copy_sync_attached_development_source(
+                    spec=guarded_spec,
+                    expected_container_id=params.expected_container_id,
+                )
         except DevelopmentSourceDeploymentStateError as error:
             raise OperationError(
                 error.code,

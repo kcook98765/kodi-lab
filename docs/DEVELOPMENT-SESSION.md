@@ -533,3 +533,12 @@ Kodi without a development workspace. It preserves a different valid stopped
 selection and refuses active/unknown resources or incomplete selections. Development
 resume, agent lifecycle and Bridge preparation keep their strict session rules.
 See [ordinary managed Start](ORDINARY-MANAGED-START.md) for admission and recovery.
+
+## Review generated additions before a source copy
+
+When ordinary source copy refuses an unexpected addition, an administrator can
+[review exact added regular files](SOURCE-ADDITION-REVIEW.md) on the stopped
+disposable target. The saved copy failure and Kodi source-attachment details link
+to this workflow. It preserves the original refusal/receipt and requires explicit
+per-file approval for one new guarded copy; it never adopts changed trusted files,
+auto-trusts skin output, starts Kodi or establishes native acceptance.

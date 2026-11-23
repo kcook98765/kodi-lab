@@ -115,6 +115,12 @@ policy or adoption row exists. See [production operations](../docs/PRODUCTION-OP
 preserves existing rows, triggers, grants and reviewed identities. Downgrade
 refuses when either a pairing or a reviewed build uses the new capability.
 Native-only `system_info` requires no Bridge upgrade or new permission.
-The current application still requires schema head `0017_system_snapshot_capability`
+The current application requires schema head `0018_source_addition_reviews`
 at startup, even when no Bridge enrichment will be used. The earlier Phase A-only
 implementation did not require this migration.
+
+`0018_source_addition_reviews` adds bounded administrator review/approval/dispatch
+history for exact added regular files before an ordinary source copy. It changes
+no prior authority or baseline rows, and refuses lossy downgrade once review
+history exists. Matching Web/broker/schema must be upgraded together. See
+[the administrator workflow](../docs/SOURCE-ADDITION-REVIEW.md).

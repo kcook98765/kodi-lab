@@ -3613,6 +3613,35 @@ class DevelopmentSourceDeploymentOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class SourceAdditionReviewRow(Base):
+    """Bounded exact preview and one-shot approval for an ordinary source copy."""
+
+    __tablename__ = "source_addition_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "length(proof_json) BETWEEN 1 AND 65536",
+            name="source_addition_review_proof_bounded",
+        ),
+        CheckConstraint(
+            "(operation_id IS NULL AND approved_at IS NULL "
+            "AND dispatched_at IS NULL) OR (operation_id IS NOT NULL "
+            "AND approved_at IS NOT NULL)",
+            name="source_addition_review_approval",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    proof_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    approved_at: Mapped[str | None] = mapped_column(String(32))
+    operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    dispatched_at: Mapped[str | None] = mapped_column(String(32))
+
+
 class DevelopmentSourceEnablementOperationRow(Base):
     """Typed synchronous copied-source enablement history."""
 

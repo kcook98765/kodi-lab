@@ -76,6 +76,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
         "managed_web_intents",
         "production_bridge_update_policies",
         "production_bridge_adoptions",
+        "source_addition_reviews",
     }
     with engine.connect() as connection:
         assert (
@@ -101,7 +102,7 @@ def test_service_start_authority_backfill_and_downgrade_keep_history(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0017_system_snapshot_capability"
+            == "0018_source_addition_reviews"
         )
         assert (
             connection.scalar(
