@@ -14,17 +14,22 @@ from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentService,
 )
 from kodi_lab.application.source_addition_reviews import SourceAdditionReviewService
+from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentStateError,
     SqliteDevelopmentSourceDeploymentResolver,
 )
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
-from kodi_lab.broker.errors import DevelopmentSourceDeploymentClientError, RequestError
+from kodi_lab.broker.errors import (
+    DevelopmentSourceDeploymentClientError,
+    RemoteBrokerError,
+    RequestError,
+)
 from kodi_lab.broker.operations import (
     CopySyncAttachedDevelopmentSourceResult,
     build_foundation_registry,
 )
-from kodi_lab.broker.protocol import Request
+from kodi_lab.broker.protocol import Request, encode_model, error_response
 from kodi_lab.development.addition_reviews import SourceAdditionProof
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -56,16 +61,18 @@ class LocalBroker(fixture.FakeBroker):
         )
 
     def dispatch(self, name: str, params: dict[str, Any]) -> Any:
+        request = Request(
+            version=1, request_id=str(uuid4()), operation=name, params=params
+        )
         try:
-            return self.registry.dispatch(
-                Request(
-                    version=1, request_id=str(uuid4()), operation=name, params=params
-                )
-            )
+            return self.registry.dispatch(request)
         except RequestError as error:
-            raise DevelopmentSourceDeploymentClientError(
-                error.code, "Fixture broker refused", request_id=str(uuid4())
-            ) from error
+            # Preserve the real client's typed error classification at this boundary.
+            return BrokerClient._validate_response(
+                encode_model(error_response(error)),
+                request.request_id,
+                SourceAdditionProof,
+            )
 
     def review_source_additions(self, **kwargs: Any) -> SourceAdditionProof:
         return SourceAdditionProof.model_validate(
@@ -314,6 +321,64 @@ def test_submit_loss_retains_original_queued_receipt(
     assert len(submitted) == 1 and not client.put_members
 
 
+def test_renamed_container_fails_approved_copy_with_terminal_receipt(
+    factory: sessionmaker[Session], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, coordinator, broker, _resolver, client, _clock = setup(factory, tmp_path)
+    review = service.preview(fixture.INSTANCE_ID, fixture.SOURCE_ID, (PATH,))
+    original_name = client.inspection["Name"]
+    client.inspection["Name"] = original_name + "-renamed"
+    assert client.inspection["Id"] == fixture.CONTAINER_ID
+    submitted: list[UUID] = []
+    saved = service.approve(review.id, (PATH,), submitted.append)
+    lease = coordinator.acquire(saved.operation_id)
+    assert lease is not None
+
+    def no_archive(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("Renamed container reached destination archive read or write")
+
+    monkeypatch.setattr(client, "get_archive", no_archive)
+    monkeypatch.setattr(client, "put_archive", no_archive)
+    with pytest.raises(
+        DevelopmentSourceDeploymentError,
+        match="development_source_additions_review_conflict",
+    ):
+        DevelopmentSourceDeploymentService(broker, coordinator, lease).deploy()
+
+    receipt = service.get(review.id)
+    assert receipt is not None and receipt.operation_id == saved.operation_id
+    assert receipt.approved_at == saved.approved_at is not None
+    assert receipt.dispatched_at is not None
+    assert receipt.operation is not None
+    assert receipt.operation.state.value == "failed"
+    assert receipt.operation.completed_at is not None
+    assert (
+        receipt.operation.failure_reason
+        == "development_source_additions_review_conflict"
+    )
+    assert not receipt.operation.reconciliation_required
+    assert not client.put_members and not client.applied
+    with factory() as session:
+        assert (
+            session.get(ManagedInstanceMutationLeaseRow, str(fixture.INSTANCE_ID))
+            is None
+        )
+        assert session.scalar(select(GlobalHeavyOperationLeaseRow)) is None
+
+    # Restoring the container name cannot replay a consumed review or dispatch.
+    client.inspection["Name"] = original_name
+    assert service.approve(review.id, (PATH,), submitted.append) == receipt
+    assert submitted == [saved.operation_id]
+    with pytest.raises(DevelopmentSourceDeploymentClientError):
+        broker.copy_sync_attached_development_source(
+            managed_instance_id=str(fixture.INSTANCE_ID),
+            development_source_id=str(fixture.SOURCE_ID),
+            expected_container_id=fixture.CONTAINER_ID,
+            deployment_operation_id=str(lease.operation_id),
+        )
+    assert service.get(review.id) == receipt
+
+
 def test_failed_copy_retains_consumed_review_and_ordinary_recovery_receipt(
     factory: sessionmaker[Session], tmp_path: Path
 ) -> None:
@@ -411,7 +476,7 @@ def test_other_target_or_container_cannot_use_the_approved_operation(
     saved = service.approve(review.id, (PATH,), lambda _: None)
     lease = coordinator.acquire(saved.operation_id)
     assert lease is not None
-    with pytest.raises(DevelopmentSourceDeploymentClientError):
+    with pytest.raises(RemoteBrokerError) as refused:
         broker.copy_sync_attached_development_source(
             managed_instance_id=str(
                 fixture.SECOND_INSTANCE_ID
@@ -424,6 +489,11 @@ def test_other_target_or_container_cannot_use_the_approved_operation(
             else fixture.CONTAINER_ID,
             deployment_operation_id=str(lease.operation_id),
         )
+    assert refused.value.code == (
+        "development_session_other_target"
+        if identity == "target"
+        else "development_session_identity_changed"
+    )
     receipt = service.get(review.id)
     assert receipt is not None and receipt.dispatched_at is None
     assert not client.put_members
