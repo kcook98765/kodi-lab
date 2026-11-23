@@ -1066,6 +1066,12 @@ class VerifyAttachedDevelopmentSourceDestinationParams(StrictModel):
 class ReviewSourceAdditionsParams(VerifyAttachedDevelopmentSourceDestinationParams):
     paths: ReviewPaths
 
+    @field_validator("paths", mode="before")
+    @classmethod
+    def _json_paths(cls, value: object) -> object:
+        # JSON carries tuples as arrays; retain strict element/count validation.
+        return tuple(value) if isinstance(value, list) else value
+
 
 class VerifyMcpWorkspaceDestinationParams(StrictModel):
     deployment_operation_id: str = Field(min_length=36, max_length=36)
