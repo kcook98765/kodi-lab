@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mutations import (
@@ -228,6 +228,77 @@ def test_exact_revision_and_fixture_mismatches_fail_before_reservation(
     with factory() as session:
         assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
         assert session.get(GlobalHeavyOperationLeaseRow, 1) is None
+
+
+def test_incident_shaped_terminal_receipt_is_immutable_and_non_acquirable(
+    factory: sessionmaker[Session],
+) -> None:
+    coordinator = SnapshotRestoreOperationCoordinator(factory)
+    operation_id = coordinator.queue(INSTANCE_ID, SNAPSHOT_ID).operation_id
+    lease = coordinator.acquire(operation_id)
+    assert lease is not None
+    coordinator.record_prior_state(lease, InstanceRuntimeState.STOPPED)
+    coordinator.record_container_identity(lease, old_container_id="a" * 64)
+    coordinator.update_phase(lease, SnapshotRestoreOperationPhase.PROVISIONING)
+    coordinator.finish_failure(
+        lease,
+        reason="Snapshot restore could not be completed after source removal.",
+        reconciliation_required=True,
+    )
+    original = coordinator.get(operation_id)
+    assert original is not None
+    assert original.state is SnapshotRestoreOperationState.RECONCILIATION_REQUIRED
+    assert original.fresh_container_id is None
+
+    class EmptyInventory:
+        def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+            return ManagedContainerInventoryResult(containers=[])
+
+    assert (
+        coordinator.inspect_reconciliation(original, EmptyInventory())
+        is SnapshotRestoreReconciliationState.UNPROVISIONED
+    )
+    assert coordinator.acquire(operation_id) is None
+    with pytest.raises(SnapshotRestoreLeaseLostError):
+        coordinator.update_phase(
+            lease,
+            SnapshotRestoreOperationPhase.VALIDATING_SNAPSHOT,
+            expected_phase=SnapshotRestoreOperationPhase.ACQUIRING_LEASES,
+        )
+    assert coordinator.get(operation_id) == original
+    with factory() as session:
+        assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
+        assert session.get(GlobalHeavyOperationLeaseRow, 1) is None
+
+
+def test_expiry_during_writer_acquisition_cannot_authorize_dispatch(
+    factory: sessionmaker[Session],
+) -> None:
+    clock = Clock()
+    coordinator = SnapshotRestoreOperationCoordinator(factory, clock=clock)
+    lease = coordinator.acquire(
+        coordinator.queue(INSTANCE_ID, SNAPSHOT_ID).operation_id
+    )
+    assert lease is not None
+
+    def writer_acquired(
+        connection: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if statement == "BEGIN IMMEDIATE":
+            clock.value += SNAPSHOT_RESTORE_LEASE_DURATION + timedelta(seconds=1)
+
+    engine = factory.kw["bind"]
+    event.listen(engine, "after_cursor_execute", writer_acquired)
+    try:
+        with pytest.raises(SnapshotRestoreLeaseLostError), coordinator.checked(lease):
+            pytest.fail("expired ownership must not reach dispatch admission")
+    finally:
+        event.remove(engine, "after_cursor_execute", writer_acquired)
 
 
 def test_restore_blocks_reset_create_lifecycle_and_second_global_heavy(

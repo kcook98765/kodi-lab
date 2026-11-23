@@ -5,7 +5,7 @@ from __future__ import annotations
 import grp
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -26,8 +26,13 @@ from kodi_lab.application.snapshot_restore_operations import (
     SnapshotRestoreLeaseLostError,
     SnapshotRestoreOperationCoordinator,
 )
+from kodi_lab.application.snapshot_restore_sessions import RestoreSessionBinding
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
-from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
+from kodi_lab.broker.errors import (
+    ClientProtocolError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
 from kodi_lab.broker.operations import (
     ApplyManagedInstanceSnapshotResult,
     DeprovisionManagedContainerResult,
@@ -42,6 +47,7 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     RuntimeExecutionProfile,
+    Snapshot,
     SnapshotRestoreOperationPhase,
     SnapshotState,
     SnapshotValidationResult,
@@ -55,6 +61,7 @@ from kodi_lab.snapshot.storage import SnapshotCaptureContext, SnapshotStorageErr
 from kodi_lab.snapshot.validation import SnapshotValidation, validate_published_snapshot
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
+    RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
@@ -130,6 +137,8 @@ type SnapshotValidator = Callable[..., SnapshotValidation]
 class _RestoreContext:
     manifest: SnapshotCaptureContext
     profile: RuntimeExecutionProfile
+    image_id: str
+    snapshot: Snapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,14 +179,27 @@ class DisposableSnapshotRestoreService:
 
     def restore(self) -> DisposableSnapshotRestoreResult:
         self._coordinator.update_phase(
-            self._lease, SnapshotRestoreOperationPhase.VALIDATING_SNAPSHOT
+            self._lease,
+            SnapshotRestoreOperationPhase.VALIDATING_SNAPSHOT,
+            expected_phase=SnapshotRestoreOperationPhase.ACQUIRING_LEASES,
         )
         context = self._load_context()
         validated = self._validate_artifact(context.manifest)
+        if (
+            validated.artifact.snapshot_id != self._lease.snapshot_id
+            or validated.artifact.archive_digest != context.snapshot.archive_digest
+            or validated.artifact.manifest_digest != context.snapshot.manifest_digest
+            or validated.artifact.archive_size != context.snapshot.archive_size
+            or validated.artifact.member_count != context.snapshot.member_count
+        ):
+            raise SnapshotRestoreError(
+                "Validated snapshot differs from its recorded identity."
+            )
         self._coordinator.update_phase(
             self._lease, SnapshotRestoreOperationPhase.RESOLVING_INSTANCE
         )
         old = self._exact_container()
+        self._verify_container(old, context)
         if old.runtime_state not in {
             ContainerRuntimeState.RUNNING,
             ContainerRuntimeState.STOPPED,
@@ -190,27 +212,53 @@ class DisposableSnapshotRestoreService:
         self._coordinator.record_container_identity(
             self._lease, old_container_id=old.container_id
         )
+        with self._coordinator.checked(self._lease) as session:
+            binding = RestoreSessionBinding.capture(
+                session,
+                self._broker.managed_container_inventory().containers,
+                target_id=str(self._lease.managed_instance_id),
+                revision_id=str(context.manifest.runtime_revision_id),
+                container_id=old.container_id,
+            )
+            self._check_context(session, context)
         stopped_by_operation = False
         old_removed = False
         fresh_id: str | None = None
         structural_restore_complete = False
+        removal_dispatched = False
+        stop_unconfirmed = False
         try:
             if prior is InstanceRuntimeState.RUNNING:
                 self._coordinator.update_phase(
                     self._lease, SnapshotRestoreOperationPhase.STOPPING
                 )
-                self._broker.stop_managed_container(
+                self._guard(
+                    context, binding, old.container_id, ContainerRuntimeState.RUNNING
+                )
+                stop_unconfirmed = True
+                stopped = self._broker.stop_managed_container(
                     managed_instance_id=str(self._lease.managed_instance_id),
                     expected_container_id=old.container_id,
                     expected_runtime_state=ContainerRuntimeState.RUNNING,
                 )
-                self._prove_state(old.container_id, ContainerRuntimeState.STOPPED)
+                self._verify_state_result(
+                    stopped, old.container_id, ContainerRuntimeState.STOPPED
+                )
+                self._prove_state(
+                    old.container_id, ContainerRuntimeState.STOPPED, context
+                )
                 stopped_by_operation = True
+                stop_unconfirmed = False
 
             self._coordinator.update_phase(
                 self._lease, SnapshotRestoreOperationPhase.DEPROVISIONING
             )
-            with self._session_factory.begin() as session:
+            with self._coordinator.checked(self._lease) as session:
+                self._check_context(session, context)
+                binding.check(session)
+                self._prove_state(
+                    old.container_id, ContainerRuntimeState.STOPPED, context
+                )
                 invalidate_development_source_deployments(
                     session, self._lease.managed_instance_id
                 )
@@ -220,23 +268,50 @@ class DisposableSnapshotRestoreService:
                 invalidate_managed_bridge_trust(
                     session, self._lease.managed_instance_id
                 )
-            self._broker.deprovision_managed_container(
+            self._guard(
+                context, binding, old.container_id, ContainerRuntimeState.STOPPED
+            )
+            removal_dispatched = True
+            removed = self._broker.deprovision_managed_container(
                 managed_instance_id=str(self._lease.managed_instance_id),
                 expected_container_id=old.container_id,
                 expected_runtime_revision_id=str(context.manifest.runtime_revision_id),
                 expected_runtime_state=ContainerRuntimeState.STOPPED,
             )
+            if (
+                removed.managed_instance_id != str(self._lease.managed_instance_id)
+                or removed.runtime_revision_id
+                != str(context.manifest.runtime_revision_id)
+                or removed.removed_container_id != old.container_id
+                or not removed.removed
+            ):
+                raise SnapshotRestoreError(
+                    "Source retirement identity is unconfirmed.",
+                    reconciliation_required=True,
+                )
             self._prove_absence()
             old_removed = True
 
-            self._coordinator.update_phase(
-                self._lease, SnapshotRestoreOperationPhase.PROVISIONING
-            )
+            with self._coordinator.checked(
+                self._lease,
+                phase=SnapshotRestoreOperationPhase.PROVISIONING,
+                expected_phase=SnapshotRestoreOperationPhase.DEPROVISIONING,
+            ) as session:
+                self._check_context(session, context)
+                self._prove_absence()
+                successor = binding.handoff(
+                    session, self._lease.operation_id, self._coordinator._clock()
+                )
+            binding = successor
+            self._guard(context, binding, None, None)
             provisioned = self._broker.provision_managed_container(
                 managed_instance_id=str(self._lease.managed_instance_id)
             )
             if (
                 not provisioned.created
+                or provisioned.managed_instance_id
+                != str(self._lease.managed_instance_id)
+                or provisioned.image_id != context.image_id
                 or provisioned.container_id == old.container_id
                 or provisioned.runtime_revision_id
                 != str(context.manifest.runtime_revision_id)
@@ -247,14 +322,16 @@ class DisposableSnapshotRestoreService:
                     reconciliation_required=True,
                 )
             fresh_id = provisioned.container_id
+            binding = binding.bound(fresh_id)
             self._coordinator.record_container_identity(
                 self._lease, fresh_container_id=fresh_id
             )
-            self._prove_state(fresh_id, ContainerRuntimeState.STOPPED)
+            self._prove_state(fresh_id, ContainerRuntimeState.STOPPED, context)
 
             self._coordinator.update_phase(
                 self._lease, SnapshotRestoreOperationPhase.APPLYING_SNAPSHOT
             )
+            self._guard(context, binding, fresh_id, ContainerRuntimeState.STOPPED)
             applied = self._broker.apply_managed_instance_snapshot(
                 snapshot_id=str(self._lease.snapshot_id),
                 managed_instance_id=str(self._lease.managed_instance_id),
@@ -264,7 +341,10 @@ class DisposableSnapshotRestoreService:
                 self._lease, SnapshotRestoreOperationPhase.VERIFYING_FILES
             )
             if (
-                applied.archive_digest != validated.artifact.archive_digest
+                applied.snapshot_id != str(self._lease.snapshot_id)
+                or applied.managed_instance_id != str(self._lease.managed_instance_id)
+                or applied.container_id != fresh_id
+                or applied.archive_digest != validated.artifact.archive_digest
                 or applied.manifest_digest != validated.artifact.manifest_digest
                 or applied.archive_size != validated.artifact.archive_size
                 or applied.member_count != validated.artifact.member_count
@@ -290,12 +370,16 @@ class DisposableSnapshotRestoreService:
                 self._coordinator.update_phase(
                     self._lease, SnapshotRestoreOperationPhase.RESTORING_RUNNING_STATE
                 )
-                self._broker.start_managed_container(
+                self._guard(context, binding, fresh_id, ContainerRuntimeState.STOPPED)
+                started = self._broker.start_managed_container(
                     managed_instance_id=str(self._lease.managed_instance_id),
                     expected_container_id=fresh_id,
                     expected_runtime_state=ContainerRuntimeState.STOPPED,
                 )
-                self._prove_state(fresh_id, ContainerRuntimeState.RUNNING)
+                self._verify_state_result(
+                    started, fresh_id, ContainerRuntimeState.RUNNING
+                )
+                self._prove_state(fresh_id, ContainerRuntimeState.RUNNING, context)
                 self._coordinator.update_phase(
                     self._lease, SnapshotRestoreOperationPhase.WAITING_READINESS
                 )
@@ -303,7 +387,7 @@ class DisposableSnapshotRestoreService:
                     self._broker, context.profile
                 ).wait_until_usable(str(self._lease.managed_instance_id))
                 if readiness.usability_state is not UsabilityState.USABLE:
-                    self._stop_failed_running_restore(fresh_id)
+                    self._stop_failed_running_restore(fresh_id, context, binding)
                     raise SnapshotRestoreError(
                         "Snapshot bytes restored, but prior running state "
                         "was not recovered.",
@@ -313,13 +397,13 @@ class DisposableSnapshotRestoreService:
             self._coordinator.update_phase(
                 self._lease, SnapshotRestoreOperationPhase.FINAL_VERIFICATION
             )
-            self._verify_pins(context.manifest)
+            self._guard(context, binding, fresh_id, None)
             final_state = (
                 ContainerRuntimeState.RUNNING
                 if prior is InstanceRuntimeState.RUNNING
                 else ContainerRuntimeState.STOPPED
             )
-            self._prove_state(fresh_id, final_state)
+            self._prove_state(fresh_id, final_state, context)
             return DisposableSnapshotRestoreResult(
                 snapshot_id=self._lease.snapshot_id,
                 managed_instance_id=self._lease.managed_instance_id,
@@ -331,9 +415,13 @@ class DisposableSnapshotRestoreService:
                 recognized_databases_checked=applied.recognized_databases_checked,
             )
         except SnapshotRestoreError as error:
-            if not old_removed and stopped_by_operation:
-                self._recover_old_running(context.profile, old.container_id, error)
-            if old_removed and not error.reconciliation_required:
+            if (
+                not removal_dispatched
+                and stopped_by_operation
+                and not error.reconciliation_required
+            ):
+                self._recover_old_running(context, binding, old.container_id, error)
+            if removal_dispatched and not error.reconciliation_required:
                 raise SnapshotRestoreError(
                     error.safe_reason, reconciliation_required=True
                 ) from error
@@ -344,11 +432,17 @@ class DisposableSnapshotRestoreService:
                     "broker_runtime_dispatch_unconfirmed",
                     reconciliation_required=True,
                 ) from error
-            if not old_removed and stopped_by_operation:
+            definite_refusal = isinstance(error, RemoteBrokerError) and error.code in {
+                "runtime_revision_precondition_failed",
+                "container_identity_precondition_failed",
+                "container_must_be_stopped",
+                "managed_instance_state_unavailable",
+            }
+            if not old_removed and stopped_by_operation and definite_refusal:
                 wrapped = SnapshotRestoreError(
                     "Snapshot restore could not be completed."
                 )
-                self._recover_old_running(context.profile, old.container_id, wrapped)
+                self._recover_old_running(context, binding, old.container_id, wrapped)
             reason = (
                 "Snapshot restore could not be completed after source removal."
                 if old_removed
@@ -356,11 +450,18 @@ class DisposableSnapshotRestoreService:
             )
             raise SnapshotRestoreError(
                 reason,
-                reconciliation_required=old_removed or structural_restore_complete,
+                reconciliation_required=old_removed
+                or structural_restore_complete
+                or (
+                    (removal_dispatched or stop_unconfirmed or stopped_by_operation)
+                    and not definite_refusal
+                ),
             ) from error
 
-    def _load_context(self) -> _RestoreContext:
-        with self._session_factory() as session:
+    def _load_context(self, session: Session | None = None) -> _RestoreContext:
+        with (
+            self._session_factory() if session is None else nullcontext(session)
+        ) as session:
             snapshot = SnapshotRepository(session).get(self._lease.snapshot_id)
             instance = ManagedInstanceRepository(session).get(
                 self._lease.managed_instance_id
@@ -391,6 +492,11 @@ class DisposableSnapshotRestoreService:
             )
             if revision is None or profile is None:
                 raise SnapshotRestoreError("Pinned runtime state is unavailable.")
+            artifact = RuntimeContainerArtifactRepository(session).get(
+                instance.runtime_revision_id
+            )
+            if artifact is None:
+                raise SnapshotRestoreError("Pinned runtime image is unavailable.")
             definition = RuntimeDefinitionRepository(session).get(
                 revision.runtime_definition_id
             )
@@ -407,6 +513,8 @@ class DisposableSnapshotRestoreService:
                     prior_runtime_state=snapshot.prior_runtime_state.value,
                 ),
                 profile=profile,
+                image_id=artifact.image_id,
+                snapshot=snapshot,
             )
 
     def _validate_artifact(self, context: SnapshotCaptureContext) -> SnapshotValidation:
@@ -432,9 +540,10 @@ class DisposableSnapshotRestoreService:
         return matches[0]
 
     def _prove_state(
-        self, container_id: str, state: ContainerRuntimeState
+        self, container_id: str, state: ContainerRuntimeState, context: _RestoreContext
     ) -> ManagedContainerInventoryEntry:
         container = self._exact_container()
+        self._verify_container(container, context)
         if (
             container.container_id != container_id
             or container.runtime_state is not state
@@ -444,6 +553,60 @@ class DisposableSnapshotRestoreService:
                 reconciliation_required=True,
             )
         return container
+
+    def _verify_container(
+        self, container: ManagedContainerInventoryEntry, context: _RestoreContext
+    ) -> None:
+        if (
+            container.runtime_revision_id != str(context.manifest.runtime_revision_id)
+            or container.image_id != context.image_id
+        ):
+            raise SnapshotRestoreError(
+                "Managed container pin or image changed.", reconciliation_required=True
+            )
+
+    def _verify_state_result(
+        self,
+        result: StartManagedContainerResult | StopManagedContainerResult,
+        container_id: str,
+        state: ContainerRuntimeState,
+    ) -> None:
+        if (
+            result.managed_instance_id != str(self._lease.managed_instance_id)
+            or result.container_id != container_id
+            or result.runtime_state is not state
+        ):
+            raise SnapshotRestoreError(
+                "Broker runtime identity is unconfirmed.", reconciliation_required=True
+            )
+
+    def _check_context(self, session: Session, context: _RestoreContext) -> None:
+        if self._load_context(session) != context:
+            raise SnapshotRestoreError(
+                "Snapshot, runtime pin, image or fixture changed."
+            )
+
+    def _guard(
+        self,
+        context: _RestoreContext,
+        binding: RestoreSessionBinding,
+        container_id: str | None,
+        state: ContainerRuntimeState | None,
+    ) -> None:
+        with self._coordinator.checked(self._lease) as session:
+            self._check_context(session, context)
+            binding.check(session)
+            if container_id is None:
+                self._prove_absence()
+            else:
+                container = self._exact_container()
+                self._verify_container(container, context)
+                if container.container_id != container_id or (
+                    state is not None and container.runtime_state is not state
+                ):
+                    raise SnapshotRestoreError(
+                        "Restore container identity or state changed."
+                    )
 
     def _prove_absence(self) -> None:
         if any(
@@ -455,37 +618,26 @@ class DisposableSnapshotRestoreService:
                 reconciliation_required=True,
             )
 
-    def _verify_pins(self, context: SnapshotCaptureContext) -> None:
-        with self._session_factory() as session:
-            instance = ManagedInstanceRepository(session).get(
-                self._lease.managed_instance_id
-            )
-            if (
-                instance is None
-                or instance.runtime_revision_id != context.runtime_revision_id
-                or instance.fixture_definition_id
-                != context.captured_fixture_definition_id
-            ):
-                raise SnapshotRestoreError(
-                    "Runtime pin or fixture assignment changed during restore.",
-                    reconciliation_required=True,
-                )
-
     def _recover_old_running(
         self,
-        profile: RuntimeExecutionProfile,
+        context: _RestoreContext,
+        binding: RestoreSessionBinding,
         container_id: str,
         original: SnapshotRestoreError,
     ) -> None:
         try:
-            self._broker.start_managed_container(
+            self._guard(context, binding, container_id, ContainerRuntimeState.STOPPED)
+            result = self._broker.start_managed_container(
                 managed_instance_id=str(self._lease.managed_instance_id),
                 expected_container_id=container_id,
                 expected_runtime_state=ContainerRuntimeState.STOPPED,
             )
-            self._prove_state(container_id, ContainerRuntimeState.RUNNING)
+            self._verify_state_result(
+                result, container_id, ContainerRuntimeState.RUNNING
+            )
+            self._prove_state(container_id, ContainerRuntimeState.RUNNING, context)
             readiness = self._readiness_factory(
-                self._broker, profile
+                self._broker, context.profile
             ).wait_until_usable(str(self._lease.managed_instance_id))
             if readiness.usability_state is not UsabilityState.USABLE:
                 raise RuntimeError("not usable")
@@ -499,17 +651,29 @@ class DisposableSnapshotRestoreService:
                 reconciliation_required=True,
             ) from recovery_error
 
-    def _stop_failed_running_restore(self, container_id: str) -> None:
+    def _stop_failed_running_restore(
+        self,
+        container_id: str,
+        context: _RestoreContext,
+        binding: RestoreSessionBinding,
+    ) -> None:
         try:
             container = self._exact_container()
             if container.container_id != container_id:
                 return
             if container.runtime_state is ContainerRuntimeState.RUNNING:
-                self._broker.stop_managed_container(
+                self._guard(
+                    context, binding, container_id, ContainerRuntimeState.RUNNING
+                )
+                result = self._broker.stop_managed_container(
                     managed_instance_id=str(self._lease.managed_instance_id),
                     expected_container_id=container_id,
                     expected_runtime_state=ContainerRuntimeState.RUNNING,
                 )
+                self._verify_state_result(
+                    result, container_id, ContainerRuntimeState.STOPPED
+                )
+                self._prove_state(container_id, ContainerRuntimeState.STOPPED, context)
         except (ClientTransportError, ClientProtocolError) as error:
             raise SnapshotRestoreError(
                 "broker_runtime_dispatch_unconfirmed",
