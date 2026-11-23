@@ -173,6 +173,25 @@ lease, persists only bounded semantic phases, and records prior source state.
 Queued work may start after process restart; expired running restore is never
 destructively resumed and is terminalized reconciliation-required.
 
+With a selected development session, restore admits only that exact bound
+target/revision/container and checks its generation, workspace/source, retained
+policy, image/fixture pins and both original leases before destructive dispatch.
+Only an exact successful removal reply plus proven absence permits an atomic
+handoff: the old generation closes with its original container and source/workspace
+identity intact, and a new generation reserves the same selection without a
+container. Ordinary broker provisioning verifies and binds the fresh container;
+its identity guards are unchanged. Current deployment/Bridge confidence is
+invalidated, while historical receipts keep their original attribution. A legacy
+restore without a selected session does not create one. Stopped profiles remain
+stopped; running profiles restart only after snapshot verification.
+
+Original restore execution is one-shot. Interrupted or terminal receipts cannot
+be reopened, replayed destructively or resumed from an absent container. In
+particular, historical receipts lack saved session-admission and operation-linked
+provision-dispatch evidence: a `provisioning` phase with no fresh container ID is
+not proof that dispatch never occurred. Administrator review or matching current
+session metadata cannot reconstruct that missing evidence or clear its fence.
+
 Before old-container removal, failure retains the old container and attempts
 normal restart/readiness if restore stopped a running source. After removal,
 provision or any apply/verification uncertainty requires reconciliation. A

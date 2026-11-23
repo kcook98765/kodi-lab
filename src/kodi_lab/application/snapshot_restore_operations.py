@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,6 +22,7 @@ from kodi_lab.application.reconciliation import (
     SnapshotReconciliationService,
     StaleOperationReconciliationDispatcher,
 )
+from kodi_lab.application.snapshot_restore_sessions import require_restore_selection
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.domain import (
@@ -34,6 +37,11 @@ from kodi_lab.domain import (
     SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
+)
+from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
+from kodi_lab.storage.models import (
+    GlobalHeavyOperationLeaseRow,
+    ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import (
     GlobalHeavyOperationLeaseRepository,
@@ -137,6 +145,7 @@ class SnapshotRestoreOperationCoordinator:
         )
         try:
             with self._session_factory.begin() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
                 instances = ManagedInstanceRepository(session)
                 snapshots = SnapshotRepository(session)
                 snapshot = snapshots.get(snapshot_id)
@@ -180,6 +189,12 @@ class SnapshotRestoreOperationCoordinator:
                 ).active_for_instance(instance_id)
                 if existing is not None and existing.snapshot_id == snapshot_id:
                     return self.to_status(existing)
+                try:
+                    require_restore_selection(
+                        session, str(instance_id), str(instance.runtime_revision_id)
+                    )
+                except DevelopmentSessionConflict as error:
+                    raise SnapshotRestoreUnsupportedError(error.code) from error
                 SnapshotRestoreOperationRepository(session).create(operation)
                 ManagedInstanceMutationLeaseRepository(session).reserve(
                     instance_id,
@@ -201,12 +216,16 @@ class SnapshotRestoreOperationCoordinator:
 
     def acquire(self, operation_id: UUID) -> SnapshotRestoreLease | None:
         token = secrets.token_urlsafe(32)
-        now = self._clock()
-        expires = now + SNAPSHOT_RESTORE_LEASE_DURATION
         with self._session_factory.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            now = self._clock()
+            expires = now + SNAPSHOT_RESTORE_LEASE_DURATION
             operations = SnapshotRestoreOperationRepository(session)
             operation = operations.get(operation_id)
-            if operation is None:
+            if (
+                operation is None
+                or operation.state is not SnapshotRestoreOperationState.QUEUED
+            ):
                 return None
             lease = SnapshotRestoreLease(
                 operation.id,
@@ -239,15 +258,56 @@ class SnapshotRestoreOperationCoordinator:
             return lease
 
     def update_phase(
-        self, lease: SnapshotRestoreLease, phase: SnapshotRestoreOperationPhase
+        self,
+        lease: SnapshotRestoreLease,
+        phase: SnapshotRestoreOperationPhase,
+        *,
+        expected_phase: SnapshotRestoreOperationPhase | None = None,
     ) -> None:
-        now = self._clock()
-        expires = now + SNAPSHOT_RESTORE_LEASE_DURATION
+        with self.checked(lease, phase=phase, expected_phase=expected_phase):
+            pass
+
+    @contextmanager
+    def checked(
+        self,
+        lease: SnapshotRestoreLease,
+        *,
+        phase: SnapshotRestoreOperationPhase | None = None,
+        expected_phase: SnapshotRestoreOperationPhase | None = None,
+    ) -> Iterator[Session]:
+        """Check original receipt and renew both leases in one writer transaction."""
         with self._session_factory.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
+            now = self._clock()
+            expires = now + SNAPSHOT_RESTORE_LEASE_DURATION
+            operation = SnapshotRestoreOperationRepository(session).get(
+                lease.operation_id
+            )
+            mutation_row = session.get(
+                ManagedInstanceMutationLeaseRow, str(lease.managed_instance_id)
+            )
+            heavy_row = session.get(GlobalHeavyOperationLeaseRow, 1)
+            if (
+                operation is None
+                or operation.snapshot_id != lease.snapshot_id
+                or operation.managed_instance_id != lease.managed_instance_id
+                or mutation_row is None
+                or mutation_row.operation_kind
+                is not ManagedInstanceMutationKind.SNAPSHOT_RESTORE
+                or heavy_row is None
+                or heavy_row.operation_kind
+                is not GlobalHeavyOperationKind.SNAPSHOT_RESTORE
+                or (
+                    expected_phase is not None and operation.phase is not expected_phase
+                )
+            ):
+                raise SnapshotRestoreLeaseLostError(
+                    "Restore execution identity or phase changed."
+                )
             ok = SnapshotRestoreOperationRepository(session).update_phase(
                 lease.operation_id,
                 token_digest=lease.token_digest,
-                phase=phase,
+                phase=phase or operation.phase,
                 now=now,
                 lease_expires_at=expires,
             )
@@ -268,6 +328,7 @@ class SnapshotRestoreOperationCoordinator:
                 raise SnapshotRestoreLeaseLostError(
                     "Restore leases are no longer owned."
                 )
+            yield session
 
     def record_prior_state(
         self, lease: SnapshotRestoreLease, state: InstanceRuntimeState

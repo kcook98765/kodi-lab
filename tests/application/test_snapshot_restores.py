@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.snapshot_restore_operations import (
+    SnapshotRestoreLease,
+    SnapshotRestoreLeaseLostError,
     SnapshotRestoreOperationCoordinator,
+    SnapshotRestoreUnsupportedError,
 )
 from kodi_lab.application.snapshot_restores import (
     DisposableSnapshotRestoreService,
@@ -22,8 +25,15 @@ from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
     KodiProcessState,
+    ManagedContainerRecord,
+    ProvisionedManagedContainerRecord,
+    StartManagedContainerRecord,
 )
-from kodi_lab.broker.errors import ClientTransportError
+from kodi_lab.broker.errors import ClientTransportError, RemoteBrokerError
+from kodi_lab.broker.managed_capacity import (
+    ManagedCapacityAdmission,
+    ManagedCapacityError,
+)
 from kodi_lab.broker.operations import (
     ApplyManagedInstanceSnapshotResult,
     DeprovisionManagedContainerResult,
@@ -40,22 +50,33 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
+    GlobalHeavyOperationKind,
     InstanceRuntimeState,
     Snapshot,
+    SnapshotRestoreOperationPhase,
     SnapshotState,
     SnapshotValidationResult,
 )
 from kodi_lab.kodi.readiness import JsonRpcState, ReadinessResult, UsabilityState
+from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
 from kodi_lab.snapshot.storage import SnapshotArtifactIdentity, SnapshotStorageError
 from kodi_lab.snapshot.validation import SnapshotValidation
+from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AgentWorkspaceRow,
+    DevelopmentSessionPolicyRow,
+    DevelopmentSessionRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
+    GlobalHeavyOperationLeaseRow,
     ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    ManagedProvisionReservationRow,
+    RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
@@ -63,13 +84,15 @@ from kodi_lab.storage.models import (
 )
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 
-INSTANCE_ID = UUID("93300000-0000-4000-8000-000000000001")
+INSTANCE_ID = recipe_target_id(load_installation_recipe("omega"))
 REVISION_ID = UUID("93300000-0000-4000-8000-000000000002")
 DEFINITION_ID = UUID("93300000-0000-4000-8000-000000000003")
 SNAPSHOT_ID = UUID("93300000-0000-4000-8000-000000000004")
 OLD_ID = "a" * 64
 FRESH_ID = "b" * 64
 IMAGE_ID = "sha256:" + "c" * 64
+SOURCE_ID = "93300000-0000-4000-8000-000000000020"
+WORKSPACE_ID = "93300000-0000-4000-8000-000000000030"
 
 
 @pytest.fixture
@@ -100,6 +123,11 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 approval_note=None,
                 requires_trusted_build_confirmation=False,
                 trusted_build_confirmed_at=None,
+            )
+        )
+        session.add(
+            RuntimeContainerArtifactRow(
+                runtime_revision_id=str(REVISION_ID), image_id=IMAGE_ID
             )
         )
         session.add(
@@ -239,6 +267,24 @@ class FakeBroker:
     container_id: str | None = OLD_ID
     calls: list[str] = field(default_factory=list)
     fail: str | None = None
+    sessions: sessionmaker[Session] | None = None
+
+    def records(self) -> tuple[ManagedContainerRecord, ...]:
+        return tuple(
+            ManagedContainerRecord(
+                item.managed_instance_id,
+                item.container_id,
+                item.image_id,
+                item.runtime_state,
+                item.health_state,
+                item.runtime_revision_id,
+            )
+            for item in self.managed_container_inventory().containers
+        )
+
+    def admission(self) -> ManagedCapacityAdmission:
+        assert self.sessions is not None
+        return ManagedCapacityAdmission(self.sessions, self.records)
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         containers = []
@@ -250,6 +296,7 @@ class FakeBroker:
                     image_id=IMAGE_ID,
                     runtime_state=self.state,
                     health_state=ContainerHealthState.NOT_CONFIGURED,
+                    runtime_revision_id=str(REVISION_ID),
                 )
             )
         return ManagedContainerInventoryResult(containers=containers)
@@ -268,24 +315,35 @@ class FakeBroker:
         )
 
     def start_managed_container(self, **_kwargs: object) -> StartManagedContainerResult:
-        self.calls.append("start")
-        if self.fail == "start":
-            raise RuntimeError("start")
-        self.state = ContainerRuntimeState.RUNNING
+        def start() -> StartManagedContainerRecord:
+            self.calls.append("start")
+            if self.fail == "start":
+                raise RuntimeError("start")
+            self.state = ContainerRuntimeState.RUNNING
+            assert self.container_id is not None
+            return StartManagedContainerRecord(
+                str(INSTANCE_ID), self.container_id, self.state, True
+            )
+
         assert self.container_id is not None
-        return StartManagedContainerResult(
-            managed_instance_id=str(INSTANCE_ID),
+        result = self.admission().run_start(
+            instance_id=str(INSTANCE_ID),
             container_id=self.container_id,
-            runtime_state=self.state,
-            start_performed=True,
+            revision_id=str(REVISION_ID),
+            dispatch=start,
         )
+        return StartManagedContainerResult.model_validate(asdict(result))
 
     def deprovision_managed_container(
         self, **_kwargs: object
     ) -> DeprovisionManagedContainerResult:
         self.calls.append("deprovision")
         if self.fail == "deprovision":
-            raise RuntimeError("deprovision")
+            raise RemoteBrokerError(
+                "container_must_be_stopped",
+                "fixture pre-dispatch refusal",
+                request_id=None,
+            )
         removed = self.container_id
         assert removed is not None
         self.container_id = None
@@ -299,19 +357,29 @@ class FakeBroker:
     def provision_managed_container(
         self, **_kwargs: object
     ) -> ProvisionManagedContainerResult:
-        self.calls.append("provision")
-        if self.fail == "provision":
-            raise RuntimeError("provision")
-        self.container_id = FRESH_ID
-        self.state = ContainerRuntimeState.STOPPED
-        return ProvisionManagedContainerResult(
-            managed_instance_id=str(INSTANCE_ID),
-            runtime_revision_id=str(REVISION_ID),
-            container_id=FRESH_ID,
-            image_id=IMAGE_ID,
-            runtime_state=self.state,
-            created=True,
+        def create() -> ProvisionedManagedContainerRecord:
+            self.calls.append("provision")
+            if self.fail == "provision":
+                raise RuntimeError("provision")
+            self.container_id = FRESH_ID
+            self.state = ContainerRuntimeState.STOPPED
+            if self.fail == "unknown_create":
+                raise ClientTransportError("fixture lost create reply")
+            return ProvisionedManagedContainerRecord(
+                str(INSTANCE_ID),
+                str(REVISION_ID),
+                FRESH_ID,
+                IMAGE_ID,
+                self.state,
+                True,
+            )
+
+        result = self.admission().run_provision(
+            instance_id=str(INSTANCE_ID),
+            revision_id=str(REVISION_ID),
+            dispatch=create,
         )
+        return ProvisionManagedContainerResult.model_validate(asdict(result))
 
     def apply_managed_instance_snapshot(
         self, *, snapshot_id: str, **_kwargs: object
@@ -372,6 +440,7 @@ def service(
     usable: bool = True,
     invalid: bool = False,
 ) -> DisposableSnapshotRestoreService:
+    broker.sessions = factory
     coordinator = SnapshotRestoreOperationCoordinator(factory)
     operation = coordinator.queue(INSTANCE_ID, SNAPSHOT_ID)
     lease = coordinator.acquire(operation.operation_id)
@@ -514,3 +583,419 @@ def test_readiness_failure_retains_structurally_restored_fresh_container_stopped
     assert captured.value.reconciliation_required
     assert broker.container_id == FRESH_ID
     assert broker.state is ContainerRuntimeState.STOPPED
+
+
+def select_session(
+    factory: sessionmaker[Session], *, retained: bool = True, generation: int = 55
+) -> None:
+    now = "2026-09-16T00:00:00.000000Z"
+    with factory.begin() as session:
+        session.add(
+            AgentWorkspaceRow(
+                id=WORKSPACE_ID,
+                development_source_id=SOURCE_ID,
+                source_addon_id="plugin.video.restore-attachment",
+                source_logical_name="restore",
+                source_observed_name="restore",
+                source_observed_version="1.0.0",
+                state="ready",
+                bytes_state="present",
+                baseline_artifact_id=str(uuid4()),
+                baseline_manifest_digest="sha256:" + "1" * 64,
+                current_tree_digest="sha256:" + "2" * 64,
+                capture_started_at=now,
+                captured_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            DevelopmentSessionRow(
+                generation=generation,
+                request_id=str(uuid4()),
+                target_id=str(INSTANCE_ID),
+                runtime_revision_id=str(REVISION_ID),
+                workspace_id=WORKSPACE_ID,
+                source_id=SOURCE_ID,
+                container_id=OLD_ID,
+                phase="bound",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            DevelopmentSessionPolicyRow(
+                id=1,
+                active_generation=generation,
+                retain_profiles=retained,
+                retained_omega_target_id=str(INSTANCE_ID) if retained else None,
+            )
+        )
+
+
+@pytest.mark.parametrize("retained", [False, True])
+@pytest.mark.parametrize(
+    "state", [ContainerRuntimeState.STOPPED, ContainerRuntimeState.RUNNING]
+)
+def test_selected_restore_hands_off_history_through_real_capacity(
+    factory: sessionmaker[Session],
+    retained: bool,
+    state: ContainerRuntimeState,
+) -> None:
+    select_session(factory, retained=retained)
+    broker = FakeBroker(state)
+    restore = service(factory, broker)
+    result = restore.restore()
+    restore._coordinator.finish_success(restore._lease)
+    assert result.final_runtime_state is state
+    assert broker.calls == (
+        ["stop"] if state is ContainerRuntimeState.RUNNING else []
+    ) + ["deprovision", "provision", "apply"] + (
+        ["start"] if state is ContainerRuntimeState.RUNNING else []
+    )
+    with factory() as session:
+        old = session.get(DevelopmentSessionRow, 55)
+        new = session.get(DevelopmentSessionRow, 56)
+        policy = session.get(DevelopmentSessionPolicyRow, 1)
+        assert old is not None and new is not None and policy is not None
+        assert (old.phase, old.container_id, old.workspace_id, old.source_id) == (
+            "closed",
+            OLD_ID,
+            WORKSPACE_ID,
+            SOURCE_ID,
+        )
+        assert (new.phase, new.container_id, new.workspace_id, new.source_id) == (
+            "bound",
+            FRESH_ID,
+            WORKSPACE_ID,
+            SOURCE_ID,
+        )
+        assert policy.active_generation == 56
+        assert session.scalar(select(ManagedProvisionReservationRow)) is None
+        evidence = session.get(
+            DevelopmentSourceDeploymentRow, (str(INSTANCE_ID), SOURCE_ID)
+        )
+        assert (
+            evidence is not None
+            and evidence.confidence is DevelopmentSourceDeploymentConfidence.STALE
+        )
+    calls = broker.calls[:]
+    with pytest.raises(SnapshotRestoreLeaseLostError):
+        restore.restore()
+    assert broker.calls == calls
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "generation",
+        "workspace",
+        "workspace_generation",
+        "source",
+        "source_locator",
+        "policy",
+        "revision",
+        "fixture",
+        "image",
+        "mutation_token",
+        "heavy_kind",
+        "expiry",
+        "cid",
+    ],
+)
+@pytest.mark.parametrize(
+    "state", [ContainerRuntimeState.STOPPED, ContainerRuntimeState.RUNNING]
+)
+def test_change_after_admission_refuses_destructive_dispatch(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    state: ContainerRuntimeState,
+) -> None:
+    select_session(factory)
+    broker = FakeBroker(state)
+    restore = service(factory, broker)
+    update = restore._coordinator.update_phase
+
+    def change_before_removal(
+        lease: SnapshotRestoreLease,
+        phase: SnapshotRestoreOperationPhase,
+        *,
+        expected_phase: SnapshotRestoreOperationPhase | None = None,
+    ) -> None:
+        # Keep the production phase/lease renewal, then simulate identity drift.
+        update(lease, phase, expected_phase=expected_phase)
+        boundary = (
+            "stopping" if state is ContainerRuntimeState.RUNNING else "deprovisioning"
+        )
+        if phase != boundary:
+            return
+        with factory.begin() as session:
+            current = session.get(DevelopmentSessionRow, 55)
+            policy = session.get(DevelopmentSessionPolicyRow, 1)
+            instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+            assert current is not None and policy is not None and instance is not None
+            if change == "generation":
+                policy.active_generation = None
+            elif change == "workspace":
+                current.workspace_id = str(uuid4())
+            elif change == "workspace_generation":
+                workspace = session.get(AgentWorkspaceRow, WORKSPACE_ID)
+                assert workspace is not None
+                workspace.generation += 1
+            elif change == "source":
+                current.source_id = str(uuid4())
+            elif change == "source_locator":
+                source = session.get(DevelopmentSourceRow, SOURCE_ID)
+                assert source is not None
+                source.relative_locator = "sources/replaced"
+            elif change == "policy":
+                policy.retain_profiles, policy.retained_omega_target_id = False, None
+            elif change == "revision":
+                instance.runtime_revision_id = str(uuid4())
+            elif change == "fixture":
+                instance.fixture_definition_id = str(uuid4())
+            elif change == "image":
+                artifact = session.get(RuntimeContainerArtifactRow, str(REVISION_ID))
+                assert artifact is not None
+                artifact.image_id = "sha256:" + "d" * 64
+            elif change == "cid":
+                broker.container_id = "f" * 64
+            elif change == "mutation_token":
+                mutation = session.get(
+                    ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)
+                )
+                assert mutation is not None
+                mutation.lease_token_digest = "0" * 64
+            else:
+                heavy = session.get(GlobalHeavyOperationLeaseRow, 1)
+                assert heavy is not None
+                if change == "expiry":
+                    heavy.lease_expires_at = "2020-01-01T00:00:00.000000Z"
+                else:
+                    heavy.operation_kind = GlobalHeavyOperationKind.SNAPSHOT_CREATE
+
+    monkeypatch.setattr(restore._coordinator, "update_phase", change_before_removal)
+    with pytest.raises(SnapshotRestoreError):
+        restore.restore()
+    assert broker.calls == []
+    with factory() as session:
+        evidence = session.get(
+            DevelopmentSourceDeploymentRow, (str(INSTANCE_ID), SOURCE_ID)
+        )
+        assert (
+            evidence is not None
+            and evidence.confidence
+            is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+        )
+
+
+def test_generation_capacity_refused_before_stop(
+    factory: sessionmaker[Session],
+) -> None:
+    select_session(factory, generation=256)
+    broker = FakeBroker(ContainerRuntimeState.RUNNING)
+    with pytest.raises(DevelopmentSessionConflict):
+        service(factory, broker).restore()
+    assert broker.calls == []
+
+
+def test_ordinary_stale_provision_still_refused(factory: sessionmaker[Session]) -> None:
+    select_session(factory)
+    broker = FakeBroker(
+        ContainerRuntimeState.STOPPED, container_id=None, sessions=factory
+    )
+    with pytest.raises(
+        ManagedCapacityError, match="development_session_identity_changed"
+    ):
+        broker.provision_managed_container()
+    assert broker.calls == []
+
+
+def test_other_selected_target_is_refused_at_queue(
+    factory: sessionmaker[Session],
+) -> None:
+    select_session(factory)
+    with factory.begin() as session:
+        current = session.get(DevelopmentSessionRow, 55)
+        assert current is not None
+        current.target_id = str(uuid4())
+    with pytest.raises(SnapshotRestoreUnsupportedError):
+        SnapshotRestoreOperationCoordinator(factory).queue(INSTANCE_ID, SNAPSHOT_ID)
+    with factory() as session:
+        assert session.scalar(select(ManagedInstanceMutationLeaseRow)) is None
+        assert session.scalar(select(GlobalHeavyOperationLeaseRow)) is None
+
+
+@pytest.mark.parametrize("after_handoff", [False, True])
+def test_interruption_never_reenters_original_restore(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    after_handoff: bool,
+) -> None:
+    select_session(factory)
+    broker = FakeBroker(ContainerRuntimeState.STOPPED)
+    restore = service(factory, broker)
+    if after_handoff:
+
+        def interrupt_create(**_kwargs: object) -> ProvisionManagedContainerResult:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(broker, "provision_managed_container", interrupt_create)
+    else:
+        remove = broker.deprovision_managed_container
+
+        def interrupt_removal(**kwargs: object) -> DeprovisionManagedContainerResult:
+            remove(**kwargs)
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(broker, "deprovision_managed_container", interrupt_removal)
+    with pytest.raises(KeyboardInterrupt):
+        restore.restore()
+    calls = broker.calls[:]
+    assert broker.container_id is None
+    with factory() as session:
+        old = session.get(DevelopmentSessionRow, 55)
+        new = session.get(DevelopmentSessionRow, 56)
+        assert old is not None and old.container_id == OLD_ID
+        assert old.phase == ("closed" if after_handoff else "bound")
+        assert (new is not None) is after_handoff
+        if new is not None:
+            assert (new.phase, new.container_id) == ("reserved", None)
+    assert restore._coordinator.acquire(restore._lease.operation_id) is None
+    with pytest.raises(SnapshotRestoreLeaseLostError):
+        restore.restore()
+    assert broker.calls == calls
+
+
+def test_historical_selected_incident_cannot_adopt_current_generation(
+    factory: sessionmaker[Session],
+) -> None:
+    select_session(factory)
+    broker = FakeBroker(ContainerRuntimeState.STOPPED, container_id=None)
+    coordinator = SnapshotRestoreOperationCoordinator(factory)
+    queued = coordinator.queue(INSTANCE_ID, SNAPSHOT_ID)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    coordinator.record_prior_state(lease, InstanceRuntimeState.STOPPED)
+    coordinator.record_container_identity(lease, old_container_id=OLD_ID)
+    coordinator.update_phase(lease, SnapshotRestoreOperationPhase.PROVISIONING)
+    coordinator.finish_failure(
+        lease,
+        reason="source removed; provisioning refused",
+        reconciliation_required=True,
+    )
+    original = coordinator.get(lease.operation_id)
+    assert coordinator.acquire(lease.operation_id) is None
+    with pytest.raises(SnapshotRestoreLeaseLostError):
+        coordinator.update_phase(
+            lease,
+            SnapshotRestoreOperationPhase.VALIDATING_SNAPSHOT,
+            expected_phase=SnapshotRestoreOperationPhase.ACQUIRING_LEASES,
+        )
+    assert coordinator.get(lease.operation_id) == original
+    with factory() as session:
+        current = session.get(DevelopmentSessionRow, 55)
+        assert current is not None and (current.phase, current.container_id) == (
+            "bound",
+            OLD_ID,
+        )
+        assert session.get(DevelopmentSessionRow, 56) is None
+    assert broker.calls == []
+
+
+def test_unknown_create_keeps_broker_and_successor_fenced(
+    factory: sessionmaker[Session],
+) -> None:
+    select_session(factory)
+    broker = FakeBroker(ContainerRuntimeState.STOPPED, fail="unknown_create")
+    restore = service(factory, broker)
+    with pytest.raises(SnapshotRestoreError) as error:
+        restore.restore()
+    assert error.value.reconciliation_required
+    restore._coordinator.finish_failure(
+        restore._lease, reason=error.value.safe_reason, reconciliation_required=True
+    )
+    assert broker.calls == ["deprovision", "provision"]
+    with factory() as session:
+        old = session.get(DevelopmentSessionRow, 55)
+        new = session.get(DevelopmentSessionRow, 56)
+        reservation = session.get(ManagedProvisionReservationRow, str(INSTANCE_ID))
+        assert old is not None and (old.phase, old.container_id) == ("closed", OLD_ID)
+        assert new is not None and new.phase == "uncertain"
+        assert reservation is not None and reservation.phase == "uncertain"
+    assert restore._coordinator.acquire(restore._lease.operation_id) is None
+    with pytest.raises(SnapshotRestoreLeaseLostError):
+        restore.restore()
+    assert broker.calls == ["deprovision", "provision"]
+
+
+@pytest.mark.parametrize("reply", ["lost", "wrong", "remote_unknown"])
+def test_unconfirmed_removal_never_hands_off_or_restarts(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    reply: str,
+) -> None:
+    select_session(factory)
+    broker = FakeBroker(ContainerRuntimeState.RUNNING)
+    remove = broker.deprovision_managed_container
+
+    def unconfirmed(**kwargs: object) -> DeprovisionManagedContainerResult:
+        result = remove(**kwargs)
+        if reply == "lost":
+            raise ClientTransportError("lost removal reply")
+        if reply == "remote_unknown":
+            raise RemoteBrokerError(
+                "internal_error", "unknown removal", request_id=None
+            )
+        return result.model_copy(update={"removed_container_id": "f" * 64})
+
+    monkeypatch.setattr(broker, "deprovision_managed_container", unconfirmed)
+    restore = service(factory, broker)
+    with pytest.raises(SnapshotRestoreError) as error:
+        restore.restore()
+    assert error.value.reconciliation_required
+    assert broker.calls == ["stop", "deprovision"]
+    with factory() as session:
+        assert session.get(DevelopmentSessionRow, 56) is None
+        old = session.get(DevelopmentSessionRow, 55)
+        assert old is not None and (old.phase, old.container_id) == ("bound", OLD_ID)
+
+
+@pytest.mark.parametrize(
+    "step,field,value",
+    [
+        ("provision", "managed_instance_id", str(uuid4())),
+        ("provision", "image_id", "sha256:" + "d" * 64),
+        ("provision", "runtime_revision_id", str(uuid4())),
+        ("provision", "runtime_state", ContainerRuntimeState.RUNNING),
+        ("apply", "snapshot_id", str(uuid4())),
+        ("apply", "container_id", "f" * 64),
+        ("start", "container_id", "f" * 64),
+        ("stop", "managed_instance_id", str(uuid4())),
+    ],
+)
+def test_remote_success_identity_is_not_trusted(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    step: str,
+    field: str,
+    value: object,
+) -> None:
+    broker = FakeBroker(ContainerRuntimeState.RUNNING)
+    method_name = {
+        "provision": "provision_managed_container",
+        "apply": "apply_managed_instance_snapshot",
+        "start": "start_managed_container",
+        "stop": "stop_managed_container",
+    }[step]
+    method = getattr(broker, method_name)
+
+    def wrong_reply(**kwargs: object) -> object:
+        return method(**kwargs).model_copy(update={field: value})
+
+    monkeypatch.setattr(broker, method_name, wrong_reply)
+    with pytest.raises(SnapshotRestoreError) as error:
+        service(factory, broker).restore()
+    assert error.value.reconciliation_required
+    assert broker.calls[-1] == step
