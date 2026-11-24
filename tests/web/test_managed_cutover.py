@@ -37,6 +37,11 @@ def test_managed_page_replaces_slot_receipts_and_uses_session_authority(
     assert calls == [("admin", "managed_start", {})]
     page = client.get("/managed-kodi")
     assert "Take Control" in page.text
+    assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
+    assert (
+        "img-src 'self' blob:;"
+        in client.get("/kodi").headers["content-security-policy"]
+    )
     assert "Legacy Current Managed" not in page.text
     assert client.get("/managed-kodi/omega/development").status_code == 404
     assert client.get("/api/managed-kodi/requests/old").status_code == 404

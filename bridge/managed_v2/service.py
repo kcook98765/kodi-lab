@@ -16,6 +16,8 @@ import xbmcaddon
 REPO = "repository.kodi-lab-v2"
 REPO_LABEL = "Kodi Lab Managed Feed"
 ESTUARY = "skin.estuary"
+MAX_DEPENDENCY_ITEMS = 96
+MAX_DEPENDENCY_LABELS = 128
 PRIVATE = Path("/run/kodi/managed-v2")
 PROFILE = Path("/home/kodi/.kodi")
 OPERATIONS = {
@@ -117,21 +119,36 @@ class Native:
     def confirm_dependencies(self, approved):
         if self.window() != 12000:
             return False
-        names = [f"Container(6).ListItemAbsolute({index}).Label" for index in range(20)]
-        heading, button = "Control.GetLabel(1)", "Control.GetLabel(5)"
-        labels = self.labels(heading, button, *names)
-        values = {labels[k] for k in names if labels[k]}
+        heading = "Control.GetLabel(1)"
+        button = "Control.GetLabel(5)"
+        total = "Container(6).NumItems"
+        expected = "The following additional add-ons will be installed"
+        layout = self.labels(heading, button, total)
+        count = layout[total]
         need(
-            labels[heading] == "The following additional add-ons will be installed"
-            and labels[button] == "OK"
-            and values
-            and values <= approved,
+            layout[heading] == expected
+            and layout[button] == "OK"
+            and re.fullmatch(r"[1-9][0-9]?", count)
+            and int(count) <= MAX_DEPENDENCY_ITEMS,
+            "unexpected_dependencies_dialog",
+        )
+        names = [
+            f"Container(6).ListItemAbsolute({index}).Label"
+            for index in range(int(count))
+        ]
+        labels = self.labels(heading, button, total, *names)
+        need(
+            all(labels[key] == layout[key] for key in (heading, button, total))
+            and all(labels[key] and labels[key] in approved for key in names),
             "unexpected_dependencies_dialog",
         )
         need(
-            self.gui()["skin"]["id"] == ESTUARY and self.window() == 12000,
+            self.gui()["skin"]["id"] == ESTUARY
+            and self.window() == 12000
+            and self.labels(heading, button, total) == layout,
             "input_context_changed",
         )
+        self.actions.append("dependency_items:" + count)
         self.act("approve_dependencies", "SendClick(12000,5)")
         self.wait(lambda: self.window() != 12000, "dependency_consent_unconfirmed")
         return True
@@ -341,7 +358,7 @@ class Native:
         need(
             type(intent["replace"]) is bool
             and len(intent["files"]) <= 3000
-            and len(intent["dependencies"]) <= 64
+            and len(intent["dependencies"]) <= MAX_DEPENDENCY_LABELS
             and len(intent["name"]) <= 128,
             "install_bounds",
         )

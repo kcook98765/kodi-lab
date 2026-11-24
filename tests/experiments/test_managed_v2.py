@@ -395,3 +395,30 @@ def test_takeover_recovers_interrupted_snapshot_in_original_namespace(
     restarted.perform("managed_recover", {}, actor="admin")
     assert not (archived / stage).exists()
     assert (restarted.snapshots.root / stage).read_bytes() == b"unrelated admin staging"
+
+
+def test_human_release_waits_for_rfb_helper_exit(tmp_path: Path) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    attempt = uuid4()
+    agent = str(uuid4())
+
+    controller.perform("managed_acquire", {}, actor=agent)
+    with controller.runtime.exclusive():
+        controller.begin_input(attempt)
+    with pytest.raises(Refusal, match="managed_input_in_use"):
+        controller.perform("managed_acquire", {}, actor=agent)
+
+    release = controller.perform("managed_release", {}, actor="admin")
+    assert release["result"] == {"owner": "admin", "release_pending": True}
+    controller.finish_input(attempt, False)
+    with pytest.raises(Refusal, match="managed_input_in_use"):
+        controller.perform("managed_acquire", {}, actor=agent)
+
+    controller.finish_input(attempt, True)
+    assert controller.owner() is None
+    assert controller.perform("managed_acquire", {}, actor=agent)["result"] == {
+        "owner": agent,
+        "idle_timeout_seconds": 900,
+    }

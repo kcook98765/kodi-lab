@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
 from kodi_lab.kodi.remote import (
@@ -38,9 +38,15 @@ from .snapshots import Snapshots
 
 class Controller:
     def __init__(
-        self, root: Path, *, interrupt: Callable[[str], None] | None = None
+        self,
+        root: Path,
+        *,
+        daemon_root: Path | None = None,
+        interrupt: Callable[[str], None] | None = None,
     ) -> None:
-        self.runtime = Runtime(root, self.checkpoint)
+        self.runtime = Runtime(root, self.checkpoint, daemon_root=daemon_root)
+        self.input_attempt: UUID | None = None
+        self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
@@ -123,11 +129,39 @@ class Controller:
         )
         return {"owner": actor, "idle_timeout_seconds": 900}
 
+    def begin_input(self, attempt: UUID) -> None:
+        if self.input_attempt is not None:
+            raise Refusal("managed_input_in_use")
+        record = self.last_operation()
+        if record and record["state"] == "pending":
+            raise Refusal("managed_recovery_required")
+        self.claim("admin")
+        self.input_attempt = attempt
+        self.input_revoked = False
+
+    def finish_input(self, attempt: UUID | None, terminated: bool) -> None:
+        if not terminated or attempt is None:
+            return
+        with self.runtime.exclusive():
+            if self.input_attempt == attempt:
+                if self.owner() == "admin":
+                    self.lease_path.unlink(missing_ok=True)
+                self.input_attempt = None
+                self.input_revoked = False
+
     def authorize_profile(
         self, name: str, actor: str, pending: Document | None
     ) -> Document | None:
         if name in ADMIN and actor != "admin":
             raise Refusal("managed_admin_required")
+        if self.input_attempt is not None and name not in READ | PRIVATE:
+            if actor == "admin" and name == "managed_release":
+                self.input_revoked = True
+                return {"owner": "admin", "release_pending": True}
+            if actor == "admin" and name == "managed_stop":
+                self.input_revoked = True
+            else:
+                raise Refusal("managed_input_in_use")
         if name == "managed_take_control":
             return self.claim(actor)
         if name in PRIVATE or name == "managed_status":
@@ -243,6 +277,8 @@ class Controller:
         }
         previous = self.last_operation()
         status["owner"] = self.owner()
+        status["view_control"] = self.input_attempt is not None
+        status["view_target"] = str(self.runtime.target)
         if previous and (self.actor == "admin" or previous.get("actor") == self.actor):
             status["operation"] = {
                 key: previous[key]
@@ -399,12 +435,21 @@ class Controller:
         self, package: Package, catalog: dict[str, Package]
     ) -> list[Document]:
         records = {}
+        # Dependencies supplied by the pinned runtime's system manifest are
+        # included in the immutable image rather than the curated ZIP feed.
+        system = {
+            entry.text
+            for entry in ET.parse(self.runtime.material / "manifest.xml")
+            .getroot()
+            .findall("addon")
+            if entry.get("optional") != "true"
+        }
         seen = {package.id}
 
         def scan(parent: Package) -> None:
             for child in parent.node.findall("requires/import"):
                 name = child.attrib["addon"]
-                if name in seen or name.startswith("xbmc."):
+                if name in seen or name in system:
                     continue
                 seen.add(name)
                 if not self.installed(name) and child.get("optional") == "true":

@@ -31,5 +31,4 @@
   <thead><tr><th>Saved capture</th><th>State</th><th>Target</th><th>Created</th><th>Review</th></tr></thead>
   <tbody>{% for capture in captures %}<tr><td><a href="/diagnostics/{{ capture.capture_id }}">{{ capture.capture_id }}</a></td><td>{{ capture.state }}</td><td>{{ capture.target_id }}</td><td>{{ capture.created_at }}</td><td>{{ 'Review due' if capture.review_due else capture.review_after }}</td></tr>{% else %}<tr><td colspan="5">No captures saved.</td></tr>{% endfor %}</tbody>
 </table>
-<p><a href="/development-session">Development session</a> · <a href="/diagnostics">All saved captures</a></p>
 {% endblock %}

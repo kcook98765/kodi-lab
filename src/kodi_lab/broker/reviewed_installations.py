@@ -191,6 +191,23 @@ def _installation_mounts_match(
             ):
                 return False
             expected[development] = ("bind", source, False)
+    managed_destination = "/var/lib/kodi-lab-managed"
+    if broker and isinstance(mounts, list):
+        managed_mounts = [
+            m
+            for m in mounts
+            if isinstance(m, dict) and m.get("Destination") == managed_destination
+        ]
+        if managed_mounts:
+            name = managed_mounts[0].get("Name")
+            if (
+                len(managed_mounts) != 1
+                or not isinstance(name, str)
+                or re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name) is None
+                or name in {state_volume, lock_volume}
+            ):
+                return False
+            expected[managed_destination] = ("volume", name, True)
     binds = host.get("Binds")
     structured = host.get("Mounts")
     if broker and structured:

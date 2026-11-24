@@ -4,6 +4,7 @@ WORKDIR /build
 RUN python -m pip install --no-cache-dir uv==0.11.7 hatchling==1.29.0
 COPY pyproject.toml uv.lock README.md LICENSE THIRD_PARTY_NOTICES.md ./
 COPY bridge/service.kodi_lab_bridge ./bridge/service.kodi_lab_bridge
+COPY bridge/managed_v2/service.py ./bridge/managed_v2/service.py
 COPY migrations ./migrations
 COPY src ./src
 RUN uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file /build/requirements.txt >/dev/null \
@@ -57,7 +58,12 @@ USER kodi-lab
 EXPOSE 8100
 ENTRYPOINT ["/usr/local/bin/kodi-lab-remote-web"]
 
+FROM docker:29-dind@sha256:3f3c01aaaebf7cce837356b688b7c059a4749f10bd7660dec7c58fc454a283f0 AS docker-client
+
 FROM installed-runtime AS broker
+
+COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
+RUN install -d -m 0700 /var/lib/kodi-lab-managed
 
 LABEL io.kodi-lab.reviewed-ostree-worker="v1"
 RUN apt-get update \

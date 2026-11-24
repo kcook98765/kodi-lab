@@ -127,9 +127,16 @@ class ManagedBridgeClient(ExternalBridgeClient):
 
 
 class Runtime:
-    def __init__(self, root: Path, checkpoint: Checkpoint | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        checkpoint: Checkpoint | None = None,
+        *,
+        daemon_root: Path | None = None,
+    ) -> None:
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
+        self.daemon_root = daemon_root if daemon_root is not None else self.root
         mode = self.root.stat()
         if mode.st_mode & 0o077 or mode.st_uid != os.getuid():
             raise Refusal("private_owner_root_required")
@@ -251,6 +258,9 @@ class Runtime:
     def volume(self, slot: str) -> str:
         return self.volume_prefix + slot[:12]
 
+    def daemon_path(self, path: Path) -> Path:
+        return self.daemon_root / path.relative_to(self.root)
+
     def stage(self, clean: bool) -> str:
         self.capacity()
         slot = uuid4().hex
@@ -269,7 +279,7 @@ class Runtime:
             "--opt",
             "o=bind",
             "--opt",
-            f"device={path}",
+            f"device={self.daemon_path(path)}",
             self.volume(slot),
         )
         return slot
@@ -279,7 +289,7 @@ class Runtime:
         path = self.profile(slot)
         if value["Labels"].get(LABEL) != str(self.target) or value["Options"].get(
             "device"
-        ) != str(path):
+        ) != str(self.daemon_path(path)):
             raise Refusal("volume_identity")
         return path
 
@@ -527,7 +537,7 @@ class Runtime:
                 "--pids-limit",
                 "32",
                 "--mount",
-                f"type=bind,src={self.feed},dst=/feed,readonly",
+                f"type=bind,src={self.daemon_path(self.feed)},dst=/feed,readonly",
                 "--entrypoint",
                 "/usr/bin/python3",
                 IMAGE,
@@ -566,15 +576,15 @@ class Runtime:
             "--mount",
             f"type=volume,src={self.volume(slot)},dst=/home/kodi/.kodi,volume-nocopy",
             "--mount",
-            f"type=bind,src={self.credentials},dst=/managed-v2-credentials,readonly",
+            f"type=bind,src={self.daemon_path(self.credentials)},dst=/managed-v2-credentials,readonly",
             "--mount",
-            f"type=bind,src={self.material / 'manifest.xml'},"
+            f"type=bind,src={self.daemon_path(self.material / 'manifest.xml')},"
             "dst=/usr/share/kodi/system/addon-manifest.xml,readonly",
             "--mount",
-            f"type=bind,src={self.material / 'bridge'},"
+            f"type=bind,src={self.daemon_path(self.material / 'bridge')},"
             f"dst=/usr/share/kodi/addons/{BRIDGE},readonly",
             "--mount",
-            f"type=bind,src={self.material / 'repository'},"
+            f"type=bind,src={self.daemon_path(self.material / 'repository')},"
             f"dst=/usr/share/kodi/addons/{REPO},readonly",
             IMAGE,
         )

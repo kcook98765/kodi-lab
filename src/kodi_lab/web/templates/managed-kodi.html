@@ -27,15 +27,11 @@
   <section aria-labelledby="managed-view-heading">
     <h3 id="managed-view-heading">Kodi screen</h3>
     <button type="button" id="managed-view">View</button>
-    <button type="button" data-action="managed_take_control">Take Control</button>
-    <button type="button" data-action="managed_release">Release Control</button>
-    <img id="managed-screen" alt="Managed Kodi screen" width="640" hidden>
-    <div id="managed-navigation" hidden>
-      {% for key in ['up', 'down', 'left', 'right', 'select', 'back', 'home', 'info'] %}
-      <button type="button" data-action="managed_navigate" data-key="{{ key }}">{{ key | title }}</button>
-      {% endfor %}
-    </div>
+    <button type="button" id="managed-take-control">Take Control</button>
+    <button type="button" id="managed-release-control">Release Control</button>
+    <p id="managed-view-status" role="status"></p>
+    <div id="managed-viewer" hidden></div>
   </section>
 </section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', path='/managed.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', path='/managed.js') }}"></script>{% endblock %}

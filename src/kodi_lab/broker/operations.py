@@ -1493,127 +1493,10 @@ def _broker_info(_params: EmptyParams) -> BrokerInfoResult:
     )
 
 
-def build_foundation_registry(
-    container_provider: ManagedContainerOperationsProvider | None = None,
-    *,
-    provisioning_resolver: ProvisioningResolver | None = None,
-    provisioning_provider: ManagedContainerProvisioningProvider | None = None,
-    deprovisioning_provider: ManagedContainerDeprovisioningProvider | None = None,
-    revision_resolver: ManagedInstanceRevisionResolver | None = None,
-    runtime_observation_resolver: RuntimeObservationResolver | None = None,
-    runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
-    screenshot_capture_resolver: ScreenshotCaptureResolver | None = None,
-    screenshot_capture_provider: ManagedScreenshotCaptureProvider | None = None,
-    assigned_fixture_resolver: AssignedFixtureResolver | None = None,
-    assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
-    snapshot_capture_resolver: SnapshotCaptureResolver | None = None,
-    snapshot_capture_provider: ManagedInstanceSnapshotCaptureProvider | None = None,
-    snapshot_restore_resolver: SnapshotRestoreResolver | None = None,
-    snapshot_restore_provider: ManagedInstanceSnapshotApplyProvider | None = None,
-    snapshot_delete_resolver: SnapshotDeleteResolver | None = None,
-    snapshot_delete_provider: SnapshotArtifactDeletionProvider | None = None,
-    development_source_deployment_resolver: (
-        DevelopmentSourceDeploymentResolver | None
-    ) = None,
-    development_source_deployment_provider: (
-        DevelopmentSourceDeploymentProvider | None
-    ) = None,
-    addon_zip_installation_resolver: SqliteAddonZipInstallationResolver | None = None,
-    addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
-    kodi_log_resolver: KodiLogAuthorityResolver | None = None,
-    kodi_log_provider: KodiLogWindowProvider | None = None,
-    smoke_log_resolver: SqliteSmokeLogAuthorityResolver | None = None,
-    reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
-    reconstruction_resolver: SqliteReconstructionAuthorizationResolver | None = None,
-    reconstruction_provider: DockerManagedContainerAdapter | None = None,
-    managed_bridge_resolver: SqliteManagedBridgeTrustResolver | None = None,
-    managed_bridge_provider: DockerManagedBridgeTrustProvider | None = None,
-    capacity_admission: ManagedCapacityAdmission | None = None,
-    stopped_diagnostics_resolver: SqliteStoppedDiagnosticsResolver | None = None,
-    stopped_diagnostics_provider: StoppedManagedRuntimeProvider | None = None,
-    stopped_log_provider: StoppedManagedLogProvider | None = None,
-    stopped_log_resolver: SqliteStoppedLogResolver | None = None,
-) -> OperationRegistry:
-    """Build the exact Phase 2 operation registry."""
-
-    registry = OperationRegistry()
-    reviewed_worker = reviewed_installation_worker or DockerReviewedInstallationWorker()
-    provider = container_provider or DockerManagedContainerAdapter()
-    capacity = capacity_admission
-    if capacity is None and container_provider is None:
-        capacity = ManagedCapacityAdmission.production(
-            lambda: provider.list_managed_containers()
-        )
-    resolver = provisioning_resolver or SqliteProvisioningResolver.production()
-    provisioner = provisioning_provider or cast(
-        ManagedContainerProvisioningProvider, provider
-    )
-    deprovisioner = deprovisioning_provider or cast(
-        ManagedContainerDeprovisioningProvider, provider
-    )
-    pin_resolver = (
-        revision_resolver or SqliteManagedInstanceRevisionResolver.production()
-    )
-    recovery_resolver = (
-        reconstruction_resolver
-        or SqliteReconstructionAuthorizationResolver.production()
-    )
-    recovery_provider = reconstruction_provider or cast(
-        DockerManagedContainerAdapter, provider
-    )
-    observation_resolver = (
-        runtime_observation_resolver or SqliteRuntimeObservationResolver.production()
-    )
-    observation_provider = runtime_observation_provider or cast(
-        ManagedKodiRuntimeObservationProvider, provider
-    )
-    screenshot_resolver = (
-        screenshot_capture_resolver or SqliteScreenshotCaptureResolver.production()
-    )
-    screenshot_provider = (
-        screenshot_capture_provider or DockerManagedScreenshotCaptureProvider()
-    )
-    fixture_resolver = (
-        assigned_fixture_resolver or SqliteAssignedFixtureResolver.production()
-    )
-    fixture_provider = assigned_fixture_provider or cast(
-        AssignedFixtureApplicationProvider, provider
-    )
-    snapshot_resolver = (
-        snapshot_capture_resolver or SqliteSnapshotCaptureResolver.production()
-    )
-    snapshot_provider = snapshot_capture_provider or cast(
-        ManagedInstanceSnapshotCaptureProvider, provider
-    )
-    restore_resolver = (
-        snapshot_restore_resolver or SqliteSnapshotRestoreResolver.production()
-    )
-    restore_provider = snapshot_restore_provider or cast(
-        ManagedInstanceSnapshotApplyProvider, provider
-    )
-    delete_resolver = (
-        snapshot_delete_resolver or SqliteSnapshotDeleteResolver.production()
-    )
-    delete_provider = (
-        snapshot_delete_provider or LocalSnapshotArtifactDeletionProvider()
-    )
-    deployment_resolver = (
-        development_source_deployment_resolver
-        or SqliteDevelopmentSourceDeploymentResolver.production()
-    )
-    deployment_provider = development_source_deployment_provider or cast(
-        DevelopmentSourceDeploymentProvider, provider
-    )
-    zip_resolver = (
-        addon_zip_installation_resolver
-        or SqliteAddonZipInstallationResolver.production()
-    )
-    zip_provider = addon_zip_installation_provider or cast(
-        AddonZipInstallationProvider, provider
-    )
-    log_resolver = kodi_log_resolver or SqliteKodiLogAuthorityResolver.production()
-    log_provider = kodi_log_provider or KodiLogWindowProvider()
-    smoke_resolver = smoke_log_resolver or SqliteSmokeLogAuthorityResolver.production()
+def register_reviewed_runtime_operations(
+    registry: OperationRegistry, reviewed_worker: DockerReviewedInstallationWorker
+) -> None:
+    """The installed broker keeps acquisition separate from working profiles."""
     registry.register(
         name="ping",
         params_model=EmptyParams,
@@ -1744,6 +1627,136 @@ def build_foundation_registry(
         result_model=CapabilitiesResult,
         handler=capabilities,
     )
+
+
+def build_reviewed_runtime_registry() -> OperationRegistry:
+    registry = OperationRegistry()
+    register_reviewed_runtime_operations(registry, DockerReviewedInstallationWorker())
+    return registry
+
+
+def build_foundation_registry(
+    container_provider: ManagedContainerOperationsProvider | None = None,
+    *,
+    provisioning_resolver: ProvisioningResolver | None = None,
+    provisioning_provider: ManagedContainerProvisioningProvider | None = None,
+    deprovisioning_provider: ManagedContainerDeprovisioningProvider | None = None,
+    revision_resolver: ManagedInstanceRevisionResolver | None = None,
+    runtime_observation_resolver: RuntimeObservationResolver | None = None,
+    runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
+    screenshot_capture_resolver: ScreenshotCaptureResolver | None = None,
+    screenshot_capture_provider: ManagedScreenshotCaptureProvider | None = None,
+    assigned_fixture_resolver: AssignedFixtureResolver | None = None,
+    assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
+    snapshot_capture_resolver: SnapshotCaptureResolver | None = None,
+    snapshot_capture_provider: ManagedInstanceSnapshotCaptureProvider | None = None,
+    snapshot_restore_resolver: SnapshotRestoreResolver | None = None,
+    snapshot_restore_provider: ManagedInstanceSnapshotApplyProvider | None = None,
+    snapshot_delete_resolver: SnapshotDeleteResolver | None = None,
+    snapshot_delete_provider: SnapshotArtifactDeletionProvider | None = None,
+    development_source_deployment_resolver: (
+        DevelopmentSourceDeploymentResolver | None
+    ) = None,
+    development_source_deployment_provider: (
+        DevelopmentSourceDeploymentProvider | None
+    ) = None,
+    addon_zip_installation_resolver: SqliteAddonZipInstallationResolver | None = None,
+    addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
+    kodi_log_resolver: KodiLogAuthorityResolver | None = None,
+    kodi_log_provider: KodiLogWindowProvider | None = None,
+    smoke_log_resolver: SqliteSmokeLogAuthorityResolver | None = None,
+    reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
+    reconstruction_resolver: SqliteReconstructionAuthorizationResolver | None = None,
+    reconstruction_provider: DockerManagedContainerAdapter | None = None,
+    managed_bridge_resolver: SqliteManagedBridgeTrustResolver | None = None,
+    managed_bridge_provider: DockerManagedBridgeTrustProvider | None = None,
+    capacity_admission: ManagedCapacityAdmission | None = None,
+    stopped_diagnostics_resolver: SqliteStoppedDiagnosticsResolver | None = None,
+    stopped_diagnostics_provider: StoppedManagedRuntimeProvider | None = None,
+    stopped_log_provider: StoppedManagedLogProvider | None = None,
+    stopped_log_resolver: SqliteStoppedLogResolver | None = None,
+) -> OperationRegistry:
+    """Build the exact Phase 2 operation registry."""
+
+    registry = OperationRegistry()
+    reviewed_worker = reviewed_installation_worker or DockerReviewedInstallationWorker()
+    provider = container_provider or DockerManagedContainerAdapter()
+    capacity = capacity_admission
+    if capacity is None and container_provider is None:
+        capacity = ManagedCapacityAdmission.production(
+            lambda: provider.list_managed_containers()
+        )
+    resolver = provisioning_resolver or SqliteProvisioningResolver.production()
+    provisioner = provisioning_provider or cast(
+        ManagedContainerProvisioningProvider, provider
+    )
+    deprovisioner = deprovisioning_provider or cast(
+        ManagedContainerDeprovisioningProvider, provider
+    )
+    pin_resolver = (
+        revision_resolver or SqliteManagedInstanceRevisionResolver.production()
+    )
+    recovery_resolver = (
+        reconstruction_resolver
+        or SqliteReconstructionAuthorizationResolver.production()
+    )
+    recovery_provider = reconstruction_provider or cast(
+        DockerManagedContainerAdapter, provider
+    )
+    observation_resolver = (
+        runtime_observation_resolver or SqliteRuntimeObservationResolver.production()
+    )
+    observation_provider = runtime_observation_provider or cast(
+        ManagedKodiRuntimeObservationProvider, provider
+    )
+    screenshot_resolver = (
+        screenshot_capture_resolver or SqliteScreenshotCaptureResolver.production()
+    )
+    screenshot_provider = (
+        screenshot_capture_provider or DockerManagedScreenshotCaptureProvider()
+    )
+    fixture_resolver = (
+        assigned_fixture_resolver or SqliteAssignedFixtureResolver.production()
+    )
+    fixture_provider = assigned_fixture_provider or cast(
+        AssignedFixtureApplicationProvider, provider
+    )
+    snapshot_resolver = (
+        snapshot_capture_resolver or SqliteSnapshotCaptureResolver.production()
+    )
+    snapshot_provider = snapshot_capture_provider or cast(
+        ManagedInstanceSnapshotCaptureProvider, provider
+    )
+    restore_resolver = (
+        snapshot_restore_resolver or SqliteSnapshotRestoreResolver.production()
+    )
+    restore_provider = snapshot_restore_provider or cast(
+        ManagedInstanceSnapshotApplyProvider, provider
+    )
+    delete_resolver = (
+        snapshot_delete_resolver or SqliteSnapshotDeleteResolver.production()
+    )
+    delete_provider = (
+        snapshot_delete_provider or LocalSnapshotArtifactDeletionProvider()
+    )
+    deployment_resolver = (
+        development_source_deployment_resolver
+        or SqliteDevelopmentSourceDeploymentResolver.production()
+    )
+    deployment_provider = development_source_deployment_provider or cast(
+        DevelopmentSourceDeploymentProvider, provider
+    )
+    zip_resolver = (
+        addon_zip_installation_resolver
+        or SqliteAddonZipInstallationResolver.production()
+    )
+    zip_provider = addon_zip_installation_provider or cast(
+        AddonZipInstallationProvider, provider
+    )
+    log_resolver = kodi_log_resolver or SqliteKodiLogAuthorityResolver.production()
+    log_provider = kodi_log_provider or KodiLogWindowProvider()
+    smoke_resolver = smoke_log_resolver or SqliteSmokeLogAuthorityResolver.production()
+    register_reviewed_runtime_operations(registry, reviewed_worker)
 
     def capture_promotion_kodi_log_cursor(
         params: PromotionKodiLogParams,

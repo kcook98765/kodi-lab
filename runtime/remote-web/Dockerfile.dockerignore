@@ -23,6 +23,9 @@ bridge/service.kodi_lab_bridge/resources/language/**
 !bridge/service.kodi_lab_bridge/resources/language/resource.language.en_gb/
 bridge/service.kodi_lab_bridge/resources/language/resource.language.en_gb/**
 !bridge/service.kodi_lab_bridge/resources/language/resource.language.en_gb/strings.po
+!bridge/managed_v2/
+bridge/managed_v2/**
+!bridge/managed_v2/service.py
 !pyproject.toml
 !uv.lock
 !migrations/

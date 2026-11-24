@@ -111,6 +111,17 @@ def _probe(socket_path: Path) -> None:
         _remaining(deadline)
 
 
+def _managed_listener(path: Path) -> None:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(RESPONSE_DEADLINE_SECONDS)
+        connection.connect(str(path))
+        _, uid, _ = struct.unpack(
+            "3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+        )
+        if uid != 1000 or connection.recv(1):
+            raise ValueError("managed broker did not reject the root peer")
+
+
 def main() -> int:
     """Succeed only when the real listener gives root its expected strict denial."""
 
@@ -122,6 +133,7 @@ def main() -> int:
         return 1
     try:
         _probe(SOCKET_PATH)
+        _managed_listener(SOCKET_PATH.parent / "managed/control.sock")
     except TimeoutError:
         print("broker health check response timed out", file=sys.stderr)
         return 1

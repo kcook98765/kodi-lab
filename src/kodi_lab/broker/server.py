@@ -27,7 +27,11 @@ from kodi_lab.broker.errors import (
     TruncatedFrameError,
 )
 from kodi_lab.broker.novnc import DisplayLane
-from kodi_lab.broker.operations import OperationRegistry, build_foundation_registry
+from kodi_lab.broker.operations import (
+    OperationRegistry,
+    build_foundation_registry,
+    build_reviewed_runtime_registry,
+)
 from kodi_lab.broker.protocol import (
     Response,
     decode_request,
@@ -125,27 +129,10 @@ class BrokerServer:
         """Resolve the approved root/kodi-lab production policy."""
 
         configuration = ProductionBrokerConfiguration.resolve()
-        from kodi_lab.config import Settings
-
-        settings = Settings(_env_file=None)  # type: ignore[call-arg]
-        from kodi_lab.broker.novnc_service import HumanDisplayService
-        from kodi_lab.storage.engine import (
-            create_database_engine,
-            create_session_factory,
-        )
-
-        sessions = create_session_factory(
-            create_database_engine(
-                "sqlite:///file:"
-                + str(settings.data_root / "database/kodi-lab.db")
-                + "?mode=ro&uri=true"
-            )
-        )
-        lane = HumanDisplayService(settings, sessions).lane(configuration)
         return cls(
             socket_config=configuration.socket,
             authorization=configuration.authorization,
-            display_lane=lane,
+            registry=build_reviewed_runtime_registry(),
         )
 
     @property

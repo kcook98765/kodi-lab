@@ -6,7 +6,7 @@ import base64
 import binascii
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.templating import Jinja2Templates
@@ -14,6 +14,8 @@ from starlette.templating import Jinja2Templates
 from kodi_lab.auth.service import AuthenticatedWebSession
 from kodi_lab.managed.broker import BrokerClient
 from kodi_lab.managed.protocol import Refusal
+
+from .managed_view import stream_view
 
 WEB_OPERATIONS = frozenset(
     {
@@ -43,12 +45,17 @@ def managed_router(
     templates: Jinja2Templates,
     current_session: Callable[..., AuthenticatedWebSession],
     mutation_session: Callable[..., AuthenticatedWebSession],
+    *,
+    resolve_session: Callable[[str | None], AuthenticatedWebSession | None],
+    cookie_name: str,
+    same_origin: Callable[[WebSocket], bool],
+    require_https: bool,
 ) -> APIRouter:
     router = APIRouter()
     session = Depends(current_session)
     mutation = Depends(mutation_session)
 
-    @router.get("/managed-kodi", response_class=HTMLResponse)
+    @router.get("/managed-kodi", response_class=HTMLResponse, name="managed_kodi_page")
     def page(
         request: Request,
         authenticated: AuthenticatedWebSession = session,
@@ -108,6 +115,12 @@ def managed_router(
             raise HTTPException(502, "Invalid managed screenshot")
         return Response(
             image, media_type="image/png", headers={"Cache-Control": "no-store"}
+        )
+
+    @router.websocket("/api/managed-kodi/omega/view")
+    async def viewer(websocket: WebSocket) -> None:
+        await stream_view(
+            websocket, broker, resolve_session, cookie_name, same_origin, require_https
         )
 
     return router

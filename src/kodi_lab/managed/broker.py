@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
 import fcntl
 import json
 import logging
 import os
+import signal
 import socket
 import socketserver
 import stat
@@ -14,10 +14,12 @@ import struct
 from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
+from threading import Event
 from typing import Protocol, cast
 
 from .controller import Controller
 from .protocol import OperationReply, Refusal, actor_key, validate
+from .viewer import display_lane
 
 MAX_REQUEST = 810_000
 MAX_REPLY = 2_000_000
@@ -114,10 +116,12 @@ class Handler(socketserver.StreamRequestHandler):
             self.wfile.write(frame(reply))
 
 
-def serve(root: Path, path: Path, frontend_uid: int, frontend_gid: int) -> None:
+def serve(
+    root: Path, path: Path, frontend_uid: int, frontend_gid: int, daemon_root: Path
+) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
-    controller = Controller(root)
+    controller = Controller(root, daemon_root=daemon_root)
     parent = path.parent.stat()
     if parent.st_uid != os.getuid() or parent.st_mode & 0o022:
         raise Refusal("broker_socket_parent_not_owned")
@@ -135,20 +139,18 @@ def serve(root: Path, path: Path, frontend_uid: int, frontend_gid: int) -> None:
             try:
                 os.chown(path, -1, frontend_gid)
                 path.chmod(0o660)
-                broker.serve_forever()
+                stopped = Event()
+                signal.signal(signal.SIGTERM, lambda *_: stopped.set())
+                signal.signal(signal.SIGINT, lambda *_: stopped.set())
+                lane = display_lane(
+                    controller, path.parent / "display.sock", frontend_uid, frontend_gid
+                )
+                lane.start(stopped)
+                try:
+                    broker.timeout = 0.2
+                    while not stopped.is_set():
+                        broker.handle_request()
+                finally:
+                    lane.close()
             finally:
                 path.unlink(missing_ok=True)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("root", type=Path)
-    parser.add_argument("socket", type=Path)
-    parser.add_argument("--frontend-uid", type=int, required=True)
-    parser.add_argument("--frontend-gid", type=int, required=True)
-    args = parser.parse_args()
-    serve(args.root, args.socket, args.frontend_uid, args.frontend_gid)
-
-
-if __name__ == "__main__":
-    main()
