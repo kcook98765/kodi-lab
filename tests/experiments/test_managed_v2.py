@@ -49,6 +49,15 @@ def test_zip_rejects_traversal() -> None:
         read_zip(package("script.v2fixture/../default.py"))
 
 
+def test_managed_logging_does_not_inherit_daemon_local_compression(tmp_path: Path) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    args = Runtime(root).args()
+    assert args[args.index("--log-driver") + 1] == "json-file"
+    assert "max-file=1" in args
+    assert "max-size=2m" in args
+
+
 def test_strict_writer_and_active_gate(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)

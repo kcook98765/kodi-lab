@@ -224,6 +224,8 @@ class Runtime:
             "no-new-privileges",
             "--restart",
             "no",
+            "--log-driver",
+            "json-file",
             "--log-opt",
             "max-size=2m",
             "--log-opt",

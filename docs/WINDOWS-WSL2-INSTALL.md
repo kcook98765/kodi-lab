@@ -120,6 +120,13 @@ state, grants or credentials.
 
 ## Install
 
+For the managed-v2 development candidate, download the PowerShell installer
+from the reviewed candidate commit and pass that same full commit with
+`-Revision`. The unqualified command below selects `main`, which still contains
+the retired architecture until the coordinated merge. Existing historical
+databases require a fresh installation; successor/upgrade instructions in this
+guide are historical and are not a managed-v2 migration procedure.
+
 Download [the PowerShell installer](https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install-windows.ps1)
 to Windows, then run it as your ordinary Windows user:
 
@@ -460,12 +467,12 @@ with sanitized versions/endpoints; do not relax trust checks or grants.
 
 From **Overview** (`/kodi`), open **Managed Kodi** (`/managed-kodi`) for Kodi hosted
 by the Lab. Follow [first-run setup](HOST-INSTALLER.md#first-run-and-authorized-inspection):
-choose Omega's **Create Managed Kodi for this version…**, select **Install and
-prepare**, return to the version page and select **Start Kodi**. Setup leaves
-Kodi stopped by default. When **Running** and **View Screen** are available,
-choose **View Screen → Start Viewing**. Viewing starts view-only and needs no
-agent, workspace or Bridge pairing. **Stop Kodi** retains that version's profile;
-**Reset Kodi** under **Advanced options** deliberately discards its settings and
+open **Advanced → Reviewed runtime installations**, select Omega 21.3, then
+review and approve **Install**. Once Ready, open **Managed Kodi**, select Omega,
+then **Prepare** and **Start**. Preparation leaves Kodi stopped. Select **View**
+for live noVNC; it starts view-only. **Take Control** enables human input and
+**Release Control** returns to viewing. No workspace or Bridge pairing is
+needed. **Stop** retains that version's profile; **Reset** deliberately discards its settings and
 installed add-ons. See [retention and recovery](MANAGED-V2-FRESH-INSTALL.md).
 
 For add-on work, grant an agent **Trusted Managed Lab** in **Agents** and follow
