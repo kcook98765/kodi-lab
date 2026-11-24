@@ -12,10 +12,10 @@ import posixpath
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -39,6 +39,88 @@ from kodi_lab.storage.snapshot_recovery import (
     values,
 )
 
+UVICORN_0530_SOURCES = {
+    "uvicorn/__init__.py": (
+        "6330ecb843b39a91aaedb219f3d2ad68a7fe623ce49e8be6cda2257a4f5f903b"
+    ),
+    "uvicorn/server.py": (
+        "c1be9d133467a42ab88d7168e408ef5a90257661a901899426214a3d1fc2d026"
+    ),
+}
+
+
+class WebGracefulSigtermProof(BaseModel):
+    """Derived fresh helper observations; raw143 is never rewritten to zero."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    kind: Literal["uvicorn_0530_graceful_sigterm"]
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    boot_id: str = Field(min_length=36, max_length=36)
+    source_digests: dict[str, str] = Field(min_length=7, max_length=7)
+    init_pid: int = Field(gt=0)
+    init_start: str = Field(min_length=1, max_length=32)
+    server_host_pid: int = Field(gt=0)
+    server_namespace_pid: int = Field(gt=1)
+    server_start: str = Field(min_length=1, max_length=32)
+    stop_timeout: Literal[-1]
+    signal: Literal[15]
+    raw_exit_code: Literal[143]
+    stop_started_ns: int = Field(gt=0)
+    shutdown_started_ns: int = Field(gt=0)
+    shutdown_finished_ns: int = Field(gt=0)
+    container_finished_ns: int = Field(gt=0)
+    container_finished_at: str = Field(min_length=20, max_length=40)
+    stop_completed_ns: int = Field(gt=0)
+    event_proof_scope: Literal["lifecycle_controls_only"]
+    events_observation_until_ns: int = Field(gt=0)
+    events_observation_completed_ns: int = Field(gt=0)
+    signal_event_ns: int = Field(gt=0)
+    stop_event_ns: int = Field(gt=0)
+    die_event_ns: int = Field(gt=0)
+    out_of_window_event_records: int = Field(ge=0, le=128)
+    noncontrol_event_records: int = Field(ge=0, le=128)
+    before_log_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    final_log_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    engine_events_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def ordered(self) -> Self:
+        if (
+            not self.stop_started_ns
+            <= self.shutdown_started_ns
+            <= self.shutdown_finished_ns
+            <= self.container_finished_ns
+            <= self.stop_completed_ns
+            or not self.stop_completed_ns
+            <= self.events_observation_until_ns
+            <= self.events_observation_completed_ns
+            <= self.stop_completed_ns + 10_000_000_000
+            or self.events_observation_until_ns
+            != self.stop_completed_ns + 2_000_000_000
+            or not self.stop_started_ns
+            <= self.signal_event_ns
+            <= min(self.stop_event_ns, self.die_event_ns)
+            <= max(self.stop_event_ns, self.die_event_ns)
+            <= self.events_observation_until_ns
+            or any(
+                self.source_digests.get(key) != value
+                for key, value in UVICORN_0530_SOURCES.items()
+            )
+            or set(self.source_digests)
+            != {
+                *UVICORN_0530_SOURCES,
+                "launcher",
+                "admin_cli.py",
+                "web/run.py",
+                "admin_console",
+                "web_console",
+            }
+            or any(len(value) != 64 for value in self.source_digests.values())
+        ):
+            raise ValueError("Web graceful SIGTERM evidence is inconsistent")
+        return self
+
 
 class ServiceRetirement(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -48,7 +130,7 @@ class ServiceRetirement(BaseModel):
     cgroup: str = Field(min_length=1, max_length=1024)
     final_pid: int = Field(ge=0, le=0)
     final_status: str = Field(pattern="^exited$")
-    exit_code: int = Field(ge=0, le=0)
+    exit_code: int = Field(ge=0, le=143)
     restart_count_before: int = Field(ge=0)
     restart_count_after: int = Field(ge=0)
     cgroup_populated: int = Field(ge=0, le=0)
@@ -56,6 +138,27 @@ class ServiceRetirement(BaseModel):
     application_start: str | None = None
     application_namespace_pid: int | None = None
     application_owner_digest: str | None = None
+    web_graceful_sigterm: WebGracefulSigtermProof | None = None
+
+    @model_validator(mode="after")
+    def supported_exit(self) -> Self:
+        proof = self.web_graceful_sigterm
+        if self.exit_code == 0 and proof is None:
+            return self
+        if (
+            self.exit_code != 143
+            or proof is None
+            or proof.container_id != self.container_id
+            or proof.init_pid != self.initial_pid
+            or proof.init_start != self.initial_start
+            or proof.server_start != self.application_start
+            or proof.server_namespace_pid != self.application_namespace_pid
+            or proof.container_finished_at != self.finished_at
+            or self.restart_count_before != 0
+            or self.restart_count_after != 0
+        ):
+            raise ValueError("Nonzero service exit lacks exact Web SIGTERM evidence")
+        return self
 
 
 class ReviewedStateConsumer(BaseModel):
@@ -105,6 +208,12 @@ class RecoveryDrainSeal(BaseModel):
     def validate_chain(self) -> None:
         if (
             self.web.container_id == self.broker.container_id
+            or self.broker.exit_code != 0
+            or self.broker.web_graceful_sigterm is not None
+            or (
+                self.web.web_graceful_sigterm is not None
+                and self.web.web_graceful_sigterm.boot_id != self.boot_id
+            )
             or set(self.state_consumers.retired_services)
             != {self.web.container_id, self.broker.container_id}
             or len({c.container_id for c in self.state_consumers.ancillary})

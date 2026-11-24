@@ -117,6 +117,49 @@ require renewed independent review; do not automatically adopt a new topology.
 The guard proves the correct stable view, not immunity to arbitrary privileged
 host changes throughout a maintenance epoch.
 
+### Web graceful SIGTERM retirement
+
+Zero remains the normal service exit contract. The installed helper also supports
+one narrowly proven Web outcome: the exact supported Uvicorn0.53.0 stack completes
+graceful shutdown and then re-raises its captured SIGTERM, leaving raw Docker
+exit143. That value stays143 in the retirement; it is never relabelled exit0.
+
+This requires a derived optional `web_graceful_sigterm` proof in the existing seal
+JSON. Before Stop the helper reads the fixed launcher, closed packaging-generated
+entrypoint wrappers, supported installed application sources and exact Uvicorn
+source hashes. Read-only image/configuration, default SIGTERM, no code/environment
+overrides and unchanged restart identity are mandatory. Version text, filename,
+image name or caller-supplied boolean cannot establish the proof.
+
+The complete timestamped Web capture must identify one current-boot startup PID.
+That namespace PID is independently matched to its stable process/start identity
+inside the previously verified full-CID init/cgroup process tree and exact Web
+command. After this helper's actual infinite-timeout graceful Stop, the full log
+must preserve its earlier prefix and end with the exact ordered successful
+shutdown sequence for that same PID. Bounded exact-CID Engine events must prove
+one SIGTERM, one stop and one die143. The integer-second API query is explicitly
+filtered to a precise nanosecond observation window. SIGTERM must precede both
+terminal event timestamps; stop/die may arrive in either order. The real SDK
+Stop-return timestamp stays distinct from event emission and observation times:
+the event window extends two seconds beyond that return, and actual observation
+completion must be recorded within ten seconds of it. Later event emission is
+never relabelled as preceding the API return. Source/metadata/boot,
+PID0/exited, no OOM/Error/restart and complete kernel exhaustion are rechecked.
+The seal stores bounded process observations, exact event times/window, full
+capture digest and excluded-record counts. This is a **lifecycle-control-only**
+event proof: exec/health observations are outside its scope, not declared safe,
+successful, readonly or absent. It does not prove worker/dispatch quiescence;
+the separate process/cgroup/log completion and complete broker audit remain
+mandatory. Surrounding out-of-window records are explicitly excluded.
+
+Unknown stacks, PID/source/sequence mismatch, truncated or ambiguous completion,
+forced/custom/repeated signals, exit137/other nonzero outcomes, concurrent or
+unclassified in-window lifecycle controls and incomplete physical evidence refuse.
+The broker still requires **exit0 and complete closed audit proof after Web retirement**;
+it cannot borrow the Web exception. Old zero-exit seals remain parseable without
+the optional proof. A partial stop or helper failure emits no completed seal and
+does not authorize resume, retry, a replacement receipt or manual seal completion.
+
 ### Retained ancillary consumers
 
 `kodi-lab-snapshot-recovery-maintenance APPROVED_PLAN --inspect-consumers` is a

@@ -8350,6 +8350,18 @@ baseline adoption or history cleanup. Exact legacy diagnostic exceptions require
 verified installed-code/authorization policy and preserve raw false/error outcomes;
 generic incomplete work and uncertain dispatch still refuse.
 
+The zero-exit retirement contract has one Web-only compatibility case: exact
+supported Uvicorn graceful shutdown followed by SIGTERM re-raise may retain raw
+exit143 only with fresh derived stack/process/startup/shutdown/signal-event proof
+and the unchanged physical cgroup/owner checks. Optional typed evidence stays in
+seal JSON; broker retirement remains zero with complete closed audit coverage.
+Partial helper failure never authorizes resume or retrospective seal completion.
+Event evidence is explicitly control-only: second-expanded query noise is filtered
+to exact nanosecond bounds, stop/die scheduling order is not presumed, and later
+event emission/completion is recorded separately from actual SDK Stop return.
+Exec/health observations make no worker/dispatch claim; the independent mandatory
+physical/log and complete broker-audit boundaries remain unchanged.
+
 Restart, transport uncertainty and ownership loss never resend or clear fences;
 the first terminal failure remains truthful. Migration 0019 is additive, preserves
 predecessor state and refuses used-history/new-kind-lease downgrade. No new MCP

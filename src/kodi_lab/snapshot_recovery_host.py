@@ -8,6 +8,7 @@ container creation, native profile access, archive extraction or cleanup exists.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import io
 import json
@@ -19,6 +20,9 @@ import stat
 import struct
 import tarfile
 import time
+from contextlib import suppress
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -35,11 +39,13 @@ from kodi_lab.application.snapshot_recovery_evidence import (
     digest,
 )
 from kodi_lab.application.snapshot_recovery_maintenance import (
+    UVICORN_0530_SOURCES,
     InertStateConsumer,
     RecoveryDrainSeal,
     ReviewedStateConsumer,
     ServiceRetirement,
     StateConsumerProof,
+    WebGracefulSigtermProof,
     consumer_metadata_digest,
     discover_state_consumers,
     require_inert_consumer,
@@ -305,6 +311,420 @@ def _metadata_file(client: Any, cid: str, path: str) -> bytes:
         if stream is None:
             raise RecoveryRefused("recovery_broker_policy_metadata_invalid")
         return stream.read(1024 * 1024)
+
+
+_LEGACY_WEB_APPLICATION = {
+    "admin_cli.py": "f5a5d4830c3194434c8e0e78d78a6a0131677dd2b4f91b1adca4e966f7024f56",
+    "web/run.py": "28c156e335bd8415c1f81240fc2f671dca4f21f739357a65417e8f5295250eed",
+}
+_WEB_LAUNCHER = "09ac5a9a8dc0a91eb605b969318de0696fccd6960f5034dd5daefe9f22c0611c"
+
+
+def _console_wrapper(raw: bytes, module: str) -> None:
+    # Only fixed packaging-generated wrappers, not arbitrary code that happens
+    # to import the right function. Ignore syntax locations, not statements.
+    if not raw.startswith(b"#!/usr/local/bin/python\n"):
+        raise RecoveryRefused("recovery_web_shutdown_stack_unproven")
+    templates = [
+        f"import sys\nfrom {module} import main\nif __name__ == '__main__':\n"
+        "    sys.exit(main())\n",
+        f"import sys\nfrom {module} import main\nif __name__ == '__main__':\n"
+        "    if sys.argv[0].endswith('.exe'):\n        sys.argv[0] = sys.argv[0][:-4]\n"
+        "    sys.exit(main())\n",
+        f"import re\nimport sys\nfrom {module} import main\n"
+        "if __name__ == '__main__':\n"
+        "    sys.argv[0] = re.sub(r'(-script\\.pyw|\\.exe)?$', '', sys.argv[0])\n"
+        "    sys.exit(main())\n",
+    ]
+    if ast.dump(ast.parse(raw)) not in {
+        ast.dump(ast.parse(text)) for text in templates
+    }:
+        raise RecoveryRefused("recovery_web_shutdown_stack_unproven")
+
+
+def _web_stack(client: Any, state: dict[str, Any]) -> dict[str, str]:
+    config, host = state["Config"], state["HostConfig"]
+    env = dict(value.split("=", 1) for value in config.get("Env", []) if "=" in value)
+    if (
+        config.get("Entrypoint") != ["/usr/local/bin/kodi-lab-remote-web"]
+        or config.get("Cmd") not in (None, [])
+        or config.get("WorkingDir") not in (None, "", "/")
+        or config.get("StopSignal") not in (None, "", "SIGTERM", "15")
+        or state.get("Path") != "/usr/local/bin/kodi-lab-remote-web"
+        or state.get("Args") != []
+        or host.get("ReadonlyRootfs") is not True
+        or host.get("Init") is not True
+        or host.get("RestartPolicy", {}).get("Name") != "no"
+        or state["RestartCount"] != 0
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", state["Image"]) is None
+        or env.get("PATH")
+        != "/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        or any(
+            key.startswith(("LD_", "UVICORN_"))
+            or key
+            in {
+                "PYTHONPATH",
+                "PYTHONHOME",
+                "PYTHONSTARTUP",
+                "PYTHONUSERBASE",
+                "PYTHONINSPECT",
+                "WEB_CONCURRENCY",
+            }
+            for key in env
+        )
+        or any(
+            mount["Destination"] == "/"
+            or any(
+                mount["Destination"] == path
+                or path.startswith(mount["Destination"].rstrip("/") + "/")
+                or mount["Destination"].startswith(path + "/")
+                for path in ("/usr", "/bin", "/lib", "/etc")
+            )
+            for mount in state["Mounts"]
+        )
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_stack_unproven")
+    paths = {
+        "launcher": "/usr/local/bin/kodi-lab-remote-web",
+        "admin_console": "/usr/local/bin/kodi-lab-admin",
+        "web_console": "/usr/local/bin/kodi-lab-web",
+        **{
+            name: "/usr/local/lib/python3.12/site-packages/" + name
+            for name in UVICORN_0530_SOURCES
+        },
+        **{
+            name: "/usr/local/lib/python3.12/site-packages/kodi_lab/" + name
+            for name in _LEGACY_WEB_APPLICATION
+        },
+    }
+    files = {
+        name: _metadata_file(client, state["Id"], path) for name, path in paths.items()
+    }
+    observed = {name: hashlib.sha256(raw).hexdigest() for name, raw in files.items()}
+    current = {
+        name: hashlib.sha256(
+            resources.files("kodi_lab").joinpath(name).read_bytes()
+        ).hexdigest()
+        for name in _LEGACY_WEB_APPLICATION
+    }
+    if (
+        observed["launcher"] != _WEB_LAUNCHER
+        or any(observed[name] != value for name, value in UVICORN_0530_SOURCES.items())
+        or {name: observed[name] for name in _LEGACY_WEB_APPLICATION}
+        not in (_LEGACY_WEB_APPLICATION, current)
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_stack_unproven")
+    _console_wrapper(files["admin_console"], "kodi_lab.admin_cli")
+    _console_wrapper(files["web_console"], "kodi_lab.web.run")
+    return observed
+
+
+def _utc_ns(value: str) -> int:
+    matched = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?Z", value)
+    if matched is None:
+        raise RecoveryRefused("recovery_web_shutdown_time_unproven")
+    seconds = int(
+        datetime.strptime(matched[1], "%Y-%m-%dT%H:%M:%S")
+        .replace(tzinfo=UTC)
+        .timestamp()
+    )
+    return seconds * 1_000_000_000 + int((matched[2] or "").ljust(9, "0"))
+
+
+def _web_log(raw: bytes, started_at: str) -> list[tuple[int, str]]:
+    if (
+        not isinstance(raw, bytes)
+        or not raw
+        or len(raw) > 4 * 1024 * 1024
+        or not raw.endswith(b"\n")
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_log_unproven")
+    boot = _utc_ns(started_at)
+    records: list[tuple[int, str]] = []
+    for line in raw.decode().splitlines():
+        stamp, separator, message = line.partition(" ")
+        if not separator:
+            raise RecoveryRefused("recovery_web_shutdown_log_unproven")
+        when = _utc_ns(stamp)
+        if when < boot or (records and when < records[-1][0]):
+            raise RecoveryRefused("recovery_web_shutdown_log_unproven")
+        if re.match(r"(?:ERROR|WARNING|CRITICAL):|Traceback", message):
+            raise RecoveryRefused("recovery_web_shutdown_log_unproven")
+        records.append((when, message))
+    return records
+
+
+def _web_start_pid(raw: bytes, started_at: str) -> int:
+    records = _web_log(raw, started_at)
+    starts = [
+        (index, re.fullmatch(r"INFO:\s+Started server process \[(\d+)\]", message))
+        for index, (_, message) in enumerate(records)
+        if "server process" in message
+    ]
+    if len(starts) != 1 or starts[0][1] is None:
+        raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+    index, matched = starts[0]
+    assert matched is not None
+    if (
+        int(matched[1]) <= 1
+        or [
+            re.sub(r"^INFO:\s+", "", message)
+            for _, message in records[index + 1 : index + 3]
+        ]
+        != ["Waiting for application startup.", "Application startup complete."]
+        or any(
+            "Shutting down" in message or "shutdown" in message.lower()
+            for _, message in records
+        )
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+    return int(matched[1])
+
+
+def _web_shutdown_suffix(
+    before: bytes,
+    final: bytes,
+    started_at: str,
+    namespace_pid: int,
+    stop_started_ns: int,
+    finished_ns: int,
+) -> tuple[int, int]:
+    if not final.startswith(before):
+        raise RecoveryRefused("recovery_web_shutdown_log_changed")
+    records = _web_log(final, started_at)
+    messages = [re.sub(r"^INFO:\s+", "", message) for _, message in records]
+    suffix = [
+        "Shutting down",
+        "Waiting for application shutdown.",
+        "Application shutdown complete.",
+        f"Finished server process [{namespace_pid}]",
+    ]
+    if (
+        messages[-4:] != suffix
+        or sum("Started server process" in message for message in messages) != 1
+        or sum("Finished server process" in message for message in messages) != 1
+        or any(
+            "shutdown" in message.lower() or "Shutting down" in message
+            for message in messages[:-4]
+        )
+        or not stop_started_ns <= records[-4][0] <= records[-1][0] <= finished_ns
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_completion_unproven")
+    return records[-4][0], records[-1][0]
+
+
+@dataclass(frozen=True)
+class _WebStopEventEvidence:
+    digest: str
+    signal_ns: int
+    stop_ns: int
+    die_ns: int
+    out_of_window_records: int
+    noncontrol_records: int
+
+
+def _web_stop_events(
+    events: Any, cid: str, stop_started_ns: int, observation_until_ns: int
+) -> _WebStopEventEvidence:
+    """Exact-window lifecycle proof, NOT an absence-of-exec/dispatch claim.
+
+    The API query is second-expanded. Preserve/digest it in full, but classify
+    only the precise observed window. Exec/health observations establish no
+    worker outcome here; physical retirement and final broker audit are separate
+    mandatory proofs. Unknown lifecycle controls still refuse.
+    """
+    if (
+        not isinstance(events, list)
+        or len(events) > 128
+        or len(json.dumps(events)) > 256 * 1024
+    ):
+        raise RecoveryRefused("recovery_web_stop_events_unproven")
+    controls: dict[str, int] = {}
+    outside = noncontrol = 0
+    for entry in events:
+        if not isinstance(entry, dict) or type(entry.get("timeNano")) is not int:
+            raise RecoveryRefused("recovery_web_stop_events_unproven")
+        stamp = entry["timeNano"]
+        if not stop_started_ns <= stamp <= observation_until_ns:
+            outside += 1
+            continue
+        if entry.get("Type") != "container" or entry.get("Actor", {}).get("ID") != cid:
+            raise RecoveryRefused("recovery_web_stop_events_unproven")
+        action = entry.get("Action")
+        if not isinstance(action, str):
+            raise RecoveryRefused("recovery_web_stop_events_unproven")
+        if action in {
+            "exec_create",
+            "exec_start",
+            "exec_die",
+            "exec_detach",
+        } or action.startswith(("exec_create: ", "exec_start: ", "health_status: ")):
+            # Deliberately out of this control-only proof, NOT declared safe,
+            # successful, readonly, complete or absent concurrent dispatch.
+            noncontrol += 1
+            continue
+        if action not in {"kill", "stop", "die"} or action in controls:
+            raise RecoveryRefused("recovery_web_stop_events_unproven")
+        attributes = entry["Actor"].get("Attributes", {})
+        if (action == "kill" and attributes.get("signal") != "15") or (
+            action == "die" and attributes.get("exitCode") != "143"
+        ):
+            raise RecoveryRefused("recovery_web_stop_events_unproven")
+        controls[action] = stamp
+    if set(controls) != {"kill", "stop", "die"} or controls["kill"] > min(
+        controls["stop"], controls["die"]
+    ):
+        raise RecoveryRefused("recovery_web_stop_events_unproven")
+    return _WebStopEventEvidence(
+        digest(events),
+        controls["kill"],
+        controls["stop"],
+        controls["die"],
+        outside,
+        noncontrol,
+    )
+
+
+@dataclass(frozen=True)
+class _WebStopObservation:
+    state: dict[str, Any]
+    sources: dict[str, str]
+    raw_log: bytes
+    host_pid: int
+    namespace_pid: int
+    start: str
+    boot_id: str
+    init_start: str
+
+
+def _observe_web_stop(client: Any, state: dict[str, Any]) -> _WebStopObservation:
+    sources = _web_stack(client, state)
+    raw = client.logs(state["Id"], stdout=True, stderr=True, timestamps=True)
+    namespace_pid = _web_start_pid(raw, state["State"]["StartedAt"])
+    matches = [
+        row
+        for row in _application_processes(state["State"]["Pid"], state["Id"])
+        if row[2] == namespace_pid
+    ]
+    if len(matches) != 1:
+        raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+    pid, start, _ = matches[0]
+    if (
+        os.readlink(f"/proc/{pid}/exe") != "/usr/local/bin/python3.12"
+        or Path(f"/proc/{pid}/cmdline").read_bytes()
+        != b"/usr/local/bin/python\0/usr/local/bin/kodi-lab-web\0"
+        or _cgroup(pid, state["Id"])[1] != start
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+    return _WebStopObservation(
+        state,
+        sources,
+        raw,
+        pid,
+        namespace_pid,
+        start,
+        Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+        _cgroup(state["State"]["Pid"], state["Id"])[1],
+    )
+
+
+def _prove_web_stop(
+    client: Any,
+    observed: _WebStopObservation,
+    after: dict[str, Any],
+    stop_started_ns: int,
+    stop_completed_ns: int,
+) -> WebGracefulSigtermProof:
+    before, status = observed.state, after["State"]
+    if (
+        any(
+            before[key] != after[key]
+            for key in ("Id", "Image", "Config", "HostConfig", "Mounts", "RestartCount")
+        )
+        or after["RestartCount"] != 0
+        or status["ExitCode"] != 143
+        or status["Pid"] != 0
+        or status["Status"] != "exited"
+        or any(
+            status.get(key) is not False
+            for key in ("Running", "Restarting", "OOMKilled", "Dead", "Paused")
+        )
+        or status.get("Error") != ""
+        or status["StartedAt"] != before["State"]["StartedAt"]
+        or _web_stack(client, after) != observed.sources
+        or Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        != observed.boot_id
+    ):
+        raise RecoveryRefused("recovery_web_shutdown_identity_changed")
+    final = client.logs(before["Id"], stdout=True, stderr=True, timestamps=True)
+    finished_ns = _utc_ns(status["FinishedAt"])
+    first, last = _web_shutdown_suffix(
+        observed.raw_log,
+        final,
+        status["StartedAt"],
+        observed.namespace_pid,
+        stop_started_ns,
+        finished_ns,
+    )
+    # This bounded observation may legitimately extend past the actual SDK Stop
+    # return. Never substitute its cutoff/completion time for that return time.
+    observation_until_ns = stop_completed_ns + 2_000_000_000
+    stream = client.events(
+        since=stop_started_ns // 1_000_000_000,
+        until=(observation_until_ns + 999_999_999) // 1_000_000_000,
+        filters={"container": before["Id"], "type": "container"},
+        decode=True,
+    )
+    events = []
+    try:
+        for entry in stream:
+            events.append(entry)
+            if len(events) > 128:
+                raise RecoveryRefused("recovery_web_stop_events_unproven")
+    finally:
+        stream.close()
+    observation_completed_ns = time.time_ns()
+    if (
+        not observation_until_ns
+        <= observation_completed_ns
+        <= stop_completed_ns + 10_000_000_000
+    ):
+        raise RecoveryRefused("recovery_web_stop_event_observation_unproven")
+    event_proof = _web_stop_events(
+        events, before["Id"], stop_started_ns, observation_until_ns
+    )
+    return WebGracefulSigtermProof(
+        kind="uvicorn_0530_graceful_sigterm",
+        container_id=before["Id"],
+        image_id=before["Image"],
+        boot_id=observed.boot_id,
+        source_digests=observed.sources,
+        init_pid=before["State"]["Pid"],
+        init_start=observed.init_start,
+        server_host_pid=observed.host_pid,
+        server_namespace_pid=observed.namespace_pid,
+        server_start=observed.start,
+        stop_timeout=-1,
+        signal=15,
+        raw_exit_code=143,
+        stop_started_ns=stop_started_ns,
+        shutdown_started_ns=first,
+        shutdown_finished_ns=last,
+        container_finished_ns=finished_ns,
+        container_finished_at=status["FinishedAt"],
+        stop_completed_ns=stop_completed_ns,
+        event_proof_scope="lifecycle_controls_only",
+        events_observation_until_ns=observation_until_ns,
+        events_observation_completed_ns=observation_completed_ns,
+        signal_event_ns=event_proof.signal_ns,
+        stop_event_ns=event_proof.stop_ns,
+        die_event_ns=event_proof.die_ns,
+        out_of_window_event_records=event_proof.out_of_window_records,
+        noncontrol_event_records=event_proof.noncontrol_records,
+        before_log_digest=hashlib.sha256(observed.raw_log).hexdigest(),
+        final_log_digest=hashlib.sha256(final).hexdigest(),
+        engine_events_digest=event_proof.digest,
+    )
 
 
 def inspect_broker_log_policy(client: Any, cid: str) -> BrokerLogPolicy:
@@ -579,18 +999,10 @@ def _cgroup(pid: int, container_id: str) -> tuple[str, str]:
     return unified[0], start
 
 
-def _application_owner(init_pid: int, cid: str, owner_json: str) -> dict[str, Any]:
-    owner = json.loads(owner_json)
-    _, init_start = _cgroup(init_pid, cid)
-    if (
-        owner["init_start"] != init_start
-        or not cid.startswith(owner["hostname"])
-        or owner["boot"] != Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    ):
-        raise RecoveryRefused("recovery_application_init_mismatch")
+def _application_processes(init_pid: int, cid: str) -> list[tuple[int, str, int]]:
     pending = [init_pid]
     seen: set[int] = set()
-    matches: list[int] = []
+    result = []
     while pending:
         pid = pending.pop()
         if pid in seen or len(seen) >= 128:
@@ -601,12 +1013,30 @@ def _application_owner(init_pid: int, cid: str, owner_json: str) -> dict[str, An
         namespace_pid = next(
             (line.split()[-1] for line in status if line.startswith("NSpid:")), None
         )
-        if start == owner["start"] and namespace_pid == str(owner["pid"]):
-            matches.append(pid)
+        if namespace_pid is None or not namespace_pid.isdecimal():
+            raise RecoveryRefused("recovery_application_owner_unproven")
+        result.append((pid, start, int(namespace_pid)))
         pending.extend(
             int(value)
             for value in Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
         )
+    return result
+
+
+def _application_owner(init_pid: int, cid: str, owner_json: str) -> dict[str, Any]:
+    owner = json.loads(owner_json)
+    _, init_start = _cgroup(init_pid, cid)
+    if (
+        owner["init_start"] != init_start
+        or not cid.startswith(owner["hostname"])
+        or owner["boot"] != Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    ):
+        raise RecoveryRefused("recovery_application_init_mismatch")
+    matches = [
+        pid
+        for pid, start, namespace_pid in _application_processes(init_pid, cid)
+        if start == owner["start"] and namespace_pid == owner["pid"]
+    ]
     if len(matches) != 1:
         raise RecoveryRefused("recovery_application_owner_unproven")
     return {
@@ -737,6 +1167,18 @@ def drain(plan: InstallationPlan, client: Any) -> RecoveryDrainSeal:
 
     verify_log(client.logs(plan.broker_container_id, stdout=True, stderr=True))
     _retained_consumers(plan, client, initial)
+    web_observation = None
+    # Optional only for the unchanged zero-exit contract. Missing proof can
+    # NEVER authorize143 after Stop or be supplied by an installation plan.
+    with suppress(
+        RecoveryRefused,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        docker.errors.DockerException,
+    ):
+        web_observation = _observe_web_stop(client, initial["web"][0])
     retirements: dict[str, ServiceRetirement] = {}
     for role, cid in (
         ("web", plan.web_container_id),
@@ -754,7 +1196,15 @@ def drain(plan: InstallationPlan, client: Any) -> RecoveryDrainSeal:
             raise RecoveryRefused("recovery_service_changed_before_stop")
         # Same SDK connection/Engine, full approved CID, no ambient CLI/context.
         # Docker stop is manual stop; -1 permits no timeout-to-SIGKILL fallback.
+        if (
+            role == "web"
+            and web_observation is not None
+            and _cgroup(web_observation.host_pid, cid)[1] != web_observation.start
+        ):
+            raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+        stop_started_ns = time.time_ns()
         client.stop(cid, timeout=-1)
+        stop_completed_ns = time.time_ns()
         after = client.inspect_container(cid)
         status = after["State"]
         if (
@@ -766,6 +1216,23 @@ def drain(plan: InstallationPlan, client: Any) -> RecoveryDrainSeal:
             or not _empty_cgroup(cgroup)
         ):
             raise RecoveryRefused("recovery_complete_service_exit_unproven")
+        web_proof = None
+        if status["ExitCode"] != 0:
+            if role != "web" or status["ExitCode"] != 143 or web_observation is None:
+                raise RecoveryRefused("recovery_nonzero_service_exit_unproven")
+            web_proof = _prove_web_stop(
+                client, web_observation, after, stop_started_ns, stop_completed_ns
+            )
+            if applications[role] and (
+                applications[role]["application_start"] != web_proof.server_start
+                or applications[role]["application_namespace_pid"]
+                != web_proof.server_namespace_pid
+            ):
+                raise RecoveryRefused("recovery_web_shutdown_pid_unproven")
+            applications[role].update(
+                application_start=web_proof.server_start,
+                application_namespace_pid=web_proof.server_namespace_pid,
+            )
         retirements[role] = ServiceRetirement(
             container_id=cid,
             initial_pid=before["State"]["Pid"],
@@ -778,6 +1245,7 @@ def drain(plan: InstallationPlan, client: Any) -> RecoveryDrainSeal:
             restart_count_after=after["RestartCount"],
             cgroup_populated=0,
             finished_at=status["FinishedAt"],
+            web_graceful_sigterm=web_proof,
             **applications[role],
         )
     # After complete broker process exit a successful synchronous request cannot
