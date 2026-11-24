@@ -429,7 +429,7 @@ by the project installer.
   Web/Kodi the Docker socket, add privileged containers, or replace the fixed
   route mount with a stale file. Collect bounded broker/worker errors.
 - **Interrupted installation/update:** retain the receipt and files; use the
-  [failure and recovery procedure](HOST-INSTALLER.md#failure-upgrade-and-recovery).
+  [failure and recovery procedure](HOST-INSTALLER.md#failure-and-recovery).
   Copying a live Docker Desktop virtual disk or deleting volumes is not a
   consistent application backup.
 

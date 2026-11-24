@@ -723,7 +723,6 @@ def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_ch
         "log_scan",
         "remote_action",
         "screenshot_capture",
-        "screenshot_retrieve",
         "system_info",
         "target_list",
         "target_status",
@@ -733,9 +732,10 @@ def test_inspection_catalog_exposes_screenshots_but_retains_trust_and_control_ch
         env.authorization.authorize_target(
             env.principal, "screenshot_capture", env.target_id
         )
-    for tool_name in ("screenshot_retrieve", "remote_action"):
-        with pytest.raises(McpAuthorizationError, match="permission_denied"):
-            env.authorization.authorize_target(env.principal, tool_name, env.target_id)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        env.authorization.authorize_target(
+            env.principal, "remote_action", env.target_id
+        )
 
     other = env.administration.create_client(
         display_name="Credential mismatch",
@@ -1004,7 +1004,7 @@ def test_registry_allows_only_reviewed_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 46
+    assert len(registry.names()) == 13
     assert eligible == {
         "target_list",
         "target_status",
