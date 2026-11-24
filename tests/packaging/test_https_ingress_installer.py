@@ -281,11 +281,14 @@ def test_merged_compose_exposes_only_loopback_and_two_ingress_members(
             m["target"] == "/var/run/docker.sock" for m in service.get("volumes", [])
         )
     } == {"broker"}
-    assert next(
-        mount["source"]
-        for mount in services["broker"]["volumes"]
-        if mount["target"] == "/var/run/docker.sock"
-    ) == "/var/run/docker.sock.raw"
+    assert (
+        next(
+            mount["source"]
+            for mount in services["broker"]["volumes"]
+            if mount["target"] == "/var/run/docker.sock"
+        )
+        == "/var/run/docker.sock.raw"
+    )
     for name in ("web", "repository"):
         assert all(port["host_ip"] == "127.0.0.1" for port in services[name]["ports"])
 
