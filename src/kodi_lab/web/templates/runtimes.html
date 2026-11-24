@@ -6,31 +6,28 @@
 {% endblock %}
 {% block content %}
       <h1>Runtime installations</h1>
-      <p>Advanced · Reviewed canonical installations are separate from your selected development environment.</p>
       <p><a href="/managed-kodi">Managed Kodi</a></p>
       <section aria-labelledby="managed-setup-heading">
         <h2 id="managed-setup-heading">Install Kodi files</h2>
         <ol>
-          <li>Choose a reviewed version below and review its canonical instance name.</li>
-          <li>Review and approve installation. The runtime is downloaded and validated; stable versions create their stopped instance automatically. Preview offers a separate Create managed instance step after validation.</li>
-          <li>Open <a href="/managed-kodi">Managed Kodi</a> for everyday Start, Stop and View Screen controls.</li>
+          <li>Choose a reviewed Kodi version.</li>
+          <li>Approve installation to download and validate the runtime.</li>
+          <li>Open <a href="/managed-kodi">Managed Kodi</a> once Omega is ready. Prepare its working profile, then start Kodi.</li>
         </ol>
         <p>For agent development, connect your coding agent in <a href="/mcp-clients">Agents</a> and grant Trusted Managed Lab. It manages its projects without Web workspace selection.</p>
         <label>1. Kodi version <select data-setup-version><option value="">Choose a version…</option>{% for item in installations %}<option value="{{ item.generation }}">{{ item.display_name }} · {{ item.version }}</option>{% endfor %}</select></label>
-        <p data-setup-name role="status">Choose a version to review the instance name.</p>
-        <p>Names for this installation are fixed by the reviewed recipe. Existing instances retain their exact identity and runtime pin. Installation does not rename or replace them.</p>
+        <p data-setup-name role="status">Choose a version to review the runtime.</p>
         <button type="button" data-setup-show>Show version and next step</button>
       </section>
       <section data-install-review aria-labelledby="install-review-heading" tabindex="-1" hidden>
         <h2 id="install-review-heading">2. Review this setup action</h2>
         <p data-install-review-summary></p>
         <p class="notice">Installation may download several GB. It does not start your managed Kodi or grant an agent access. A partial or failed setup remains available for inspection; no mutation is retried automatically.</p>
-        <label><input type="checkbox" data-install-approved> I reviewed this version, canonical name and action.</label>
+        <label><input type="checkbox" data-install-approved> I reviewed this runtime and action.</label>
         <button type="button" data-install-confirm>Approve this setup action</button>
         <button type="button" data-install-cancel>Cancel review</button>
       </section>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
-      <p>Installation makes the reviewed Kodi files and a stopped managed profile available after the required approval and creation steps. It does not start Kodi or authorize an agent.</p>
       <p>The technical matrix describes recorded runtime eligibility. Installation also requires a compatible, reachable broker and verified local runtime files.</p>
       <p class="error" role="alert" data-runtime-install-error hidden></p>
       <div class="runtime-install-grid" data-runtime-installations>
@@ -44,28 +41,24 @@
           <p class="secondary">Stock TagLib has a known Matroska metadata limitation.</p>
           <p class="secondary" data-install-duration{% if item.status in ('pending', 'acquiring', 'assembling', 'validating', 'ready') %} hidden{% endif %}>Initial runtime installation usually takes several minutes. Estimated time: 5–15 minutes, a provisional estimate supported by two cold-installation measurements. Kodi Lab downloads, verifies, builds and validates the runtime.</p>
           <p class="secondary" data-install-progress{% if item.status not in ('pending', 'acquiring', 'assembling', 'validating') %} hidden{% endif %}>Installation is in progress. This page updates automatically. You can leave and return later; installation continues even if you close the browser.</p>
-          <p class="secondary">Additional managed instances use the installed runtime image; Kodi is not downloaded again.</p>
           <details><summary>Exact Preview release and recipe</summary><dl>
             <dt>Release and tier</dt><dd data-preview-release>{{ item.preview_acknowledgement.release }} · {{ item.preview_acknowledgement.support_tier }}</dd>
             <dt>Recipe</dt><dd data-preview-recipe>{{ item.preview_acknowledgement.recipe_id }} · revision {{ item.preview_acknowledgement.recipe_revision }}</dd>
             <dt>Recipe digest</dt><dd data-preview-digest>{{ item.preview_acknowledgement.recipe_digest }}</dd>
           </dl></details>
           <label><input type="checkbox" autocomplete="off" data-preview-acknowledgement data-scope='{{ item.preview_acknowledgement|tojson }}'> I understand {{ item.display_name }} is prerelease development software. I approve only the action under review for this exact release and recipe.</label>
-          <p class="secondary">Open the action review, then check this box. Each Install, Retry, Reacquire or Create action needs a fresh confirmation. Status and history do not grant approval.</p>
+          <p class="secondary">Open the action review, then check this box. Each Install, Retry or Reacquire action needs a fresh confirmation. Status and history do not grant approval.</p>
           {% endif %}
           <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>
           <p class="runtime-install-message">{{ item.failure_message or '' }}</p>
           {% if item.eligibility_reason %}<p>Eligibility review: {{ item.eligibility_reason|replace('_', ' ') }}</p>{% endif %}
           <p class="runtime-install-note">{{ item.note or '' }}</p>
-          <p>Canonical name: <strong>{{ item.managed_instance_name }}</strong></p>
           <button type="button" data-install-recover hidden>Inspect saved setup before another action</button>
           <div class="runtime-install-action">
-            {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open managed instance</a>
+            {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open Managed Kodi</a>
             {% elif item.action in ('install', 'retry', 'reacquire') %}<button type="button" data-install-action="{{ item.action }}">{{ item.action|capitalize }}</button>{% endif %}
-            {% if item.action == 'create' %}<button type="button" data-install-action="create">Create managed instance</button>{% endif %}
-            {% if item.managed_instance_url and item.action != 'open' %}<a href="{{ item.managed_instance_url }}">View existing pinned instance</a>{% endif %}
           </div>
-          <details><summary>Saved setup and recovery</summary><p>Operation: <code data-install-operation>{{ item.operation_id or 'No operation recorded' }}</code></p><p>Return to this page to inspect saved installation progress. If a request was interrupted, inspect the original operation and its current phase before approving another action. Failed preparation or start is reviewed on the exact instance's status and history page.</p></details>
+          <details><summary>Saved setup and recovery</summary><p>Operation: <code data-install-operation>{{ item.operation_id or 'No operation recorded' }}</code></p><p>Return to this page to inspect saved installation progress. If a request was interrupted, inspect the original operation and its current phase before approving another action. Check profile preparation and start on the Managed Kodi page.</p></details>
           {% if item.technical_details %}
           <details>
             <summary>Technical details</summary>
@@ -81,7 +74,7 @@
       </div>
       <details id="installation-records"{% if history_before %} open{% endif %}>
         <summary>Recent installation records and separately reviewed variants</summary>
-        <p>These records retain their exact recipe and runtime identity. They do not select Current Managed Kodi or authorize a new installation.</p>
+        <p>Each entry records the reviewed recipe and resulting runtime image.</p>
         {% for record in installation_records %}
         <article>
           <h3>{{ record.managed_instance_name }}</h3>
@@ -89,7 +82,6 @@
           {% if record.failure_message %}<p class="error">{{ record.failure_message }}</p>{% endif %}
           {% if record.eligibility_reason %}<p>Eligibility review: {{ record.eligibility_reason|replace('_', ' ') }}</p>{% endif %}
           <p>Recorded operation: <code>{{ record.operation_id }}</code></p>
-          {% if record.managed_instance_url %}<p><a href="{{ record.managed_instance_url }}">Review this exact registration in Advanced</a></p>{% endif %}
           <dl>{% for label, value in (record.technical_details or {}).items() %}<dt>{{ label|replace('_', ' ')|capitalize }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
         </article>
         {% else %}<p>No installation records.</p>{% endfor %}

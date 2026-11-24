@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import stat
 import sys
 from collections.abc import Callable, Iterator
@@ -17,19 +18,12 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab import __version__
-from kodi_lab.application.managed_instances import (
-    ExactRevisionSelection,
-    ManagedInstanceService,
-)
 from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
-    ConnectionState,
-    HealthStatus,
-    InstanceType,
     RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeExecutionProfile,
@@ -38,10 +32,9 @@ from kodi_lab.domain import (
     RuntimeSupportTier,
     RuntimeValidationEvidence,
     RuntimeValidationResult,
-    Target,
-    TargetAvailability,
-    TargetType,
 )
+from kodi_lab.managed import REVIEWED_IMAGE_FILE
+from kodi_lab.managed.runtime import atomic
 from kodi_lab.remote_lifecycle import validate as remote_validate
 from kodi_lab.runtime.assembly import AssemblyResult, assemble_reviewed_image
 from kodi_lab.runtime.attestation_integrity import (
@@ -49,7 +42,6 @@ from kodi_lab.runtime.attestation_integrity import (
     installed_package_digest,
     seal_attestation,
 )
-from kodi_lab.runtime.managed_network import ensure_managed_network
 from kodi_lab.runtime.ostree_installation import (
     OstreeInstallationAssembly,
     ostree_attestation,
@@ -76,14 +68,12 @@ from kodi_lab.runtime.validation import ValidationResult, validate_reviewed_imag
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import RuntimeRecipeInstallationRow
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRecipeInstallationRepository,
     RuntimeRevisionRepository,
     RuntimeValidationEvidenceRepository,
-    TargetRepository,
 )
 
 
@@ -496,64 +486,6 @@ def _commit_ready(
     return {"runtime_revision_id": str(revision_id)}
 
 
-def register_recipe_target(session: Session, reviewed: ReviewedRecipe) -> UUID:
-    """Register only the reviewed canonical target; never adopt or repin a profile."""
-    target_id = recipe_target_id(reviewed)
-    expected = Target(
-        id=target_id,
-        name=f"{reviewed.recipe.display_generation} Lab"
-        + (" · experimental noVNC" if reviewed.digest == NOVNC_PHASE1_DIGEST else ""),
-        target_type=TargetType.MANAGED,
-        kodi_version=reviewed.recipe.kodi_version,
-        availability=TargetAvailability.UNAVAILABLE,
-        health=HealthStatus.WARNING,
-        connection_state=ConnectionState.DISCONNECTED,
-    )
-    targets = TargetRepository(session)
-    current = targets.get(target_id)
-    if current is None:
-        if any(item.name == expected.name for item in targets.list()):
-            raise RecipeInstallationError("managed generation target name conflicts")
-        targets.create(expected)
-    elif (
-        current.name != expected.name
-        or current.target_type is not TargetType.MANAGED
-        or current.kodi_version != expected.kodi_version
-    ):
-        raise RecipeInstallationError("managed generation target conflicts")
-    return target_id
-
-
-def bootstrap_recipe_instance(
-    factory: sessionmaker[Session], reviewed: ReviewedRecipe, revision_id: UUID
-) -> dict[str, str]:
-    """Create a stopped managed pin once; never rebind an existing instance."""
-
-    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
-        return {"created": "false"}
-    with factory.begin() as session:
-        target_id = register_recipe_target(session, reviewed)
-        instance = ManagedInstanceRepository(session).get(target_id)
-        if instance is not None:
-            pinned = RuntimeRevisionRepository(session).get(
-                instance.runtime_revision_id
-            )
-            if (
-                pinned is None
-                or pinned.runtime_definition_id != reviewed.recipe.definition_id
-            ):
-                raise RecipeInstallationError("managed generation pin conflicts")
-            return {"target_id": str(target_id), "created": "false"}
-    ManagedInstanceService(
-        factory, novnc_phase1=reviewed.digest == NOVNC_PHASE1_DIGEST
-    ).create(
-        target_id=target_id,
-        selection=ExactRevisionSelection(reviewed.recipe.definition_id, revision_id),
-        instance_type=InstanceType.DISPOSABLE,
-    )
-    return {"target_id": str(target_id), "created": "true"}
-
-
 def _database_call(
     settings: Settings, action: Callable[[sessionmaker[Session]], dict[str, str]]
 ) -> dict[str, str]:
@@ -684,6 +616,17 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
         client.close()
 
 
+def _publish_managed_image(
+    runtime_root: Path, reviewed: ReviewedRecipe, image_id: str
+) -> None:
+    """Pass only the current approved Omega recipe's validated, immutable ID."""
+    if reviewed.digest != load_installation_recipe("omega").digest:
+        return
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None:
+        raise RecipeInstallationError("validated managed image identity is invalid")
+    atomic(runtime_root / REVIEWED_IMAGE_FILE, image_id.encode(), mode=0o644)
+
+
 def install_reviewed_runtime(
     generation: str,
     *,
@@ -738,12 +681,6 @@ def install_reviewed_runtime(
     ):
         import docker
 
-        if generation != "piers":
-            network_client = docker.from_env(timeout=30)
-            try:
-                ensure_managed_network(network_client.api)
-            finally:
-                network_client.close()
         prior = _database_call(
             settings, lambda factory: _ready_installation(factory, reviewed)
         )
@@ -753,12 +690,7 @@ def install_reviewed_runtime(
             and _exact_existing_image(reviewed, prior["image_id"])
         ):
             revision_id = UUID(prior["runtime_revision_id"])
-            _database_call(
-                settings,
-                lambda factory: bootstrap_recipe_instance(
-                    factory, reviewed, revision_id
-                ),
-            )
+            _publish_managed_image(settings.runtime_root, reviewed, prior["image_id"])
             return InstallOutcome(
                 UUID(prior["operation_id"]), revision_id, prior["image_id"], True
             )
@@ -902,9 +834,6 @@ def install_reviewed_runtime(
                 f"reviewed {generation} installation failed ({code})"
             ) from error
         revision_id = UUID(committed["runtime_revision_id"])
-        _database_call(
-            settings,
-            lambda factory: bootstrap_recipe_instance(factory, reviewed, revision_id),
-        )
+        _publish_managed_image(settings.runtime_root, reviewed, assembly.image_id)
         report("ready")
         return InstallOutcome(operation_id, revision_id, assembly.image_id, False)

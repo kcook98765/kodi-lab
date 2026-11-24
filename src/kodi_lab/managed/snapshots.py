@@ -13,7 +13,7 @@ from uuid import uuid4
 from xml.etree import ElementTree as ET
 
 from .protocol import Checkpoint, Document
-from .runtime import BRIDGE, IMAGE, Refusal, atomic, sync_dir
+from .runtime import BRIDGE, Refusal, atomic, sync_dir
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
@@ -67,8 +67,11 @@ def validate_profile(path: Path) -> None:
 class ProfileVolumes(Protocol):
     root: Path
 
+    @property
+    def image(self) -> str: ...
+
     def require_stopped(self) -> None: ...
-    def capacity(self) -> None: ...
+    def capacity(self) -> str: ...
     def stage(self, clean: bool) -> str: ...
     def profile(self, slot: str | None = None) -> Path: ...
     def exchange(self, slot: str) -> None: ...
@@ -164,7 +167,7 @@ class Snapshots:
             sync_dir(path.parent)
             atomic(
                 path.with_suffix(".json"),
-                json.dumps({"image": IMAGE, "sha256": digest}).encode(),
+                json.dumps({"image": self.runtime.image, "sha256": digest}).encode(),
             )
         finally:
             staging.unlink(missing_ok=True)
@@ -184,7 +187,7 @@ class Snapshots:
         if not meta.is_file() or meta.is_symlink() or meta.stat().st_size > 1024:
             raise Refusal("snapshot_metadata_invalid")
         if json.loads(meta.read_text()) != {
-            "image": IMAGE,
+            "image": self.runtime.image,
             "sha256": archive_digest(path),
         }:
             raise Refusal("snapshot_identity_mismatch")
@@ -238,7 +241,7 @@ class Snapshots:
         if not meta.exists():
             path.unlink(missing_ok=True)
         elif json.loads(meta.read_text()) != {
-            "image": IMAGE,
+            "image": self.runtime.image,
             "sha256": archive_digest(path),
         }:
             raise Refusal("snapshot_identity_mismatch")

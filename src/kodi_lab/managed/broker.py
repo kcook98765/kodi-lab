@@ -17,6 +17,7 @@ from pathlib import Path
 from threading import Event
 from typing import Protocol, cast
 
+from . import REVIEWED_IMAGE_FILE
 from .controller import Controller
 from .protocol import OperationReply, Refusal, actor_key, validate
 from .viewer import display_lane
@@ -121,7 +122,11 @@ def serve(
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
-    controller = Controller(root, daemon_root=daemon_root)
+    controller = Controller(
+        root,
+        daemon_root=daemon_root,
+        reviewed_image=path.parent.parent / REVIEWED_IMAGE_FILE,
+    )
     parent = path.parent.stat()
     if parent.st_uid != os.getuid() or parent.st_mode & 0o022:
         raise Refusal("broker_socket_parent_not_owned")

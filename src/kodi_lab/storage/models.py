@@ -7981,47 +7981,6 @@ class McpRemoteActionReceiptRow(Base):
     )
 
 
-class McpRemoteObservationRow(Base):
-    """Optional UI evidence and exact-frame binding for a managed action."""
-
-    __tablename__ = "mcp_remote_observations"
-    __table_args__ = (
-        CheckConstraint(
-            "ui_status IN ('pending','succeeded','failed')",
-            name="mcp_remote_observation_state",
-        ),
-        CheckConstraint(
-            "ui_json IS NULL OR length(ui_json) <= 16384",
-            name="mcp_remote_observation_bounded",
-        ),
-        CheckConstraint(
-            "ui_status <> 'succeeded' OR "
-            "(ui_json IS NOT NULL AND observed_at IS NOT NULL)",
-            name="mcp_remote_observation_complete",
-        ),
-        CheckConstraint(
-            "capture_id IS NULL OR (captured_at IS NOT NULL AND "
-            "runtime_revision_id IS NOT NULL AND "
-            "runtime_state_revision IS NOT NULL AND container_id IS NOT NULL)",
-            name="mcp_remote_observation_capture_bound",
-        ),
-    )
-    receipt_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("mcp_remote_action_receipts.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    ui_status: Mapped[str] = mapped_column(String(16), nullable=False)
-    observed_at: Mapped[str | None] = mapped_column(String(27))
-    error_code: Mapped[str | None] = mapped_column(String(64))
-    ui_json: Mapped[str | None] = mapped_column(Text)
-    runtime_revision_id: Mapped[str | None] = mapped_column(String(36))
-    runtime_state_revision: Mapped[int | None] = mapped_column(Integer)
-    container_id: Mapped[str | None] = mapped_column(String(64))
-    capture_id: Mapped[str | None] = mapped_column(String(36))
-    captured_at: Mapped[str | None] = mapped_column(String(27))
-
-
 class McpProductionRemoteReceiptBindingRow(Base):
     """Immutable production authority snapshot for one base remote receipt."""
 

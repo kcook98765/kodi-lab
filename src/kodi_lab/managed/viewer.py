@@ -15,7 +15,7 @@ from kodi_lab.broker.socket_path import SocketPathConfig
 
 from .controller import Controller
 from .protocol import Refusal
-from .runtime import IMAGE, docker
+from .runtime import docker
 
 
 def display_lane(
@@ -34,7 +34,7 @@ def display_lane(
             runtime.check_live_profile(obj)
             binding = ViewBinding(
                 container=obj["Id"],
-                image=IMAGE,
+                image=runtime.image,
                 started=obj["State"]["StartedAt"],
                 identity=(runtime.read_pointer(),),
             )

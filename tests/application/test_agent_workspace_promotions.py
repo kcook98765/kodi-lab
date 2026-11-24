@@ -1975,8 +1975,6 @@ def _request_pruning_services(
     )
     development = McpWorkspaceDevelopmentService(
         harness.factory,
-        cast(Any, object()),
-        cast(Any, object()),
         harness.workspaces,
         data_root=harness.data_root,
         clock=harness.clock,

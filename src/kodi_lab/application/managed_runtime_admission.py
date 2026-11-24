@@ -27,15 +27,19 @@ APPROVED_OMEGA_VIEW_IMAGE = (
 
 
 def development_target_ids() -> frozenset[UUID]:
-    from kodi_lab.runtime.lab import KNOWN_SELECTORS, canonical_id
     from kodi_lab.runtime.recipes import (
         load_display_candidate_recipe,
         load_novnc_phase1_recipe,
+        load_reviewed_recipe,
         recipe_target_id,
+        supported_generations,
     )
 
     return frozenset(
-        {canonical_id(selector) for selector in KNOWN_SELECTORS}
+        {
+            recipe_target_id(load_reviewed_recipe(name))
+            for name in supported_generations()
+        }
         | {
             recipe_target_id(load_novnc_phase1_recipe()),
             recipe_target_id(load_display_candidate_recipe("piers")),

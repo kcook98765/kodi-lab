@@ -25,6 +25,7 @@ from kodi_lab.broker.reviewed_installations import (
     worker_name,
 )
 from kodi_lab.domain import RuntimeRecipeInstallationState
+from kodi_lab.managed import REVIEWED_IMAGE_FILE
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
     load_installation_recipe,
@@ -362,6 +363,12 @@ def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
         "Architecture": "amd64",
         "Config": {"Labels": {"io.kodi-lab.recipe-digest": image_digest}},
     }
+    if generation == "omega":
+        assert not worker.image_present(operation_id)
+        pin = worker._runtime_root / REVIEWED_IMAGE_FILE
+        pin.write_text("sha256:" + "b" * 64)
+        assert not worker.image_present(operation_id)
+        pin.write_text(IMAGE)
     assert worker.image_present(operation_id)
     row.recipe_digest = "sha256:" + "b" * 64
     assert not worker.image_present(operation_id)

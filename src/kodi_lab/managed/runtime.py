@@ -29,7 +29,6 @@ from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
 
-IMAGE = "sha256:7f779626cd56fb3bf86e14e39657fee5e8c5299a8f6f7abf59449a1163e7aa8e"
 BRIDGE = "service.kodi_lab_bridge"
 ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
@@ -38,11 +37,11 @@ DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
 OPENER = build_opener(ProxyHandler({}))
 
 
-def atomic(path: Path, data: bytes) -> None:
+def atomic(path: Path, data: bytes, *, mode: int = 0o600) -> None:
     temporary = path.with_name(".stage-" + uuid4().hex)
     try:
         with temporary.open("xb") as stream:
-            os.fchmod(stream.fileno(), 0o600)
+            os.fchmod(stream.fileno(), mode)
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
@@ -133,6 +132,7 @@ class Runtime:
         checkpoint: Checkpoint | None = None,
         *,
         daemon_root: Path | None = None,
+        reviewed_image: Path | None = None,
     ) -> None:
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
@@ -141,6 +141,8 @@ class Runtime:
         if mode.st_mode & 0o077 or mode.st_uid != os.getuid():
             raise Refusal("private_owner_root_required")
         self.pointer = self.root / "profile"
+        self.image_pin = self.root / "image"
+        self.reviewed_image = reviewed_image
         self.material = self.root / "baseline"
         self.credentials = self.root / "live"
         self.feed = self.root / "feed"
@@ -178,11 +180,28 @@ class Runtime:
                 raise Refusal("managed_busy") from error
             yield
 
-    def capacity(self) -> None:
+    def capacity(self) -> str:
         if shutil.disk_usage(self.root).free < 8 * 1024**3 + 128 * 1024**2:
             raise Refusal("disk_headroom")
-        if docker("image", "inspect", "--format", "{{.Id}}", IMAGE) != IMAGE:
+        image = self.image
+        try:
+            observed = docker("image", "inspect", "--format", "{{.Id}}", image)
+        except subprocess.CalledProcessError as error:
+            raise Refusal("reviewed_image_required") from error
+        if observed != image:
             raise Refusal("reviewed_image_required")
+        return image
+
+    @property
+    def image(self) -> str:
+        path = self.image_pin if self.pointer.exists() else self.reviewed_image
+        try:
+            image = path.read_text().strip() if path is not None else ""
+        except FileNotFoundError as error:
+            raise Refusal("reviewed_image_required") from error
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", image) is None:
+            raise Refusal("reviewed_image_required")
+        return image
 
     def args(self) -> list[str]:
         return [
@@ -211,7 +230,7 @@ class Runtime:
         if (
             len(ids) != 1
             or obj["Name"] != "/" + name
-            or obj["Image"] != IMAGE
+            or obj["Image"] != self.image
             or obj["Config"]["Labels"].get(LABEL) != str(self.target)
         ):
             raise Refusal("container_identity")
@@ -321,10 +340,10 @@ class Runtime:
         if self.pointer.exists():
             self.profile()
             return {"state": "prepared", "profile": "omega"}
-        self.capacity()
+        image = self.capacity()
         build = self.root / ("baseline-" + uuid4().hex)
         build.mkdir(mode=0o700)
-        image_seed = docker("create", *self.args(), "--network", "none", IMAGE)
+        image_seed = docker("create", *self.args(), "--network", "none", image)
         try:
             docker(
                 "cp",
@@ -377,6 +396,7 @@ class Runtime:
         if self.material.exists():
             shutil.rmtree(self.material)
         build.rename(self.material)
+        atomic(self.image_pin, image.encode())
         self.exchange(self.stage(clean=True))
         return {"state": "prepared", "profile": "omega"}
 
@@ -540,7 +560,7 @@ class Runtime:
                 f"type=bind,src={self.daemon_path(self.feed)},dst=/feed,readonly",
                 "--entrypoint",
                 "/usr/bin/python3",
-                IMAGE,
+                self.image,
                 "-u",
                 "-B",
                 "-m",
@@ -586,7 +606,7 @@ class Runtime:
             "--mount",
             f"type=bind,src={self.daemon_path(self.material / 'repository')},"
             f"dst=/usr/share/kodi/addons/{REPO},readonly",
-            IMAGE,
+            self.image,
         )
         self.checkpoint("runtime_created")
         result = wait_until(self.ready, 35, "bridge_readiness_unconfirmed")

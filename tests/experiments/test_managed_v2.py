@@ -11,7 +11,7 @@ import pytest
 
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
-from kodi_lab.managed.runtime import IMAGE, Refusal
+from kodi_lab.managed.runtime import Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
 
 
@@ -77,6 +77,8 @@ def test_workspace_package_preserves_files(tmp_path: Path) -> None:
 
 
 class Volumes:
+    image = "sha256:" + "a" * 64
+
     def __init__(self, root: Path) -> None:
         self.root = root
         self.source = root / "current"
@@ -88,8 +90,8 @@ class Volumes:
     def require_stopped(self) -> None:
         pass
 
-    def capacity(self) -> None:
-        pass
+    def capacity(self) -> str:
+        return self.image
 
     def stage(self, clean: bool) -> str:
         assert not clean
@@ -137,7 +139,7 @@ def test_invalid_snapshot_never_replaces_active_profile(tmp_path: Path) -> None:
         tar.addfile(info, io.BytesIO(b"x"))
     path = snapshots.path("Unsafe")
     path.with_suffix(".json").write_text(
-        json.dumps({"image": IMAGE, "sha256": archive_digest(path)})
+        json.dumps({"image": native.image, "sha256": archive_digest(path)})
     )
     with pytest.raises(Refusal, match="unsafe_snapshot_archive"):
         snapshots.load("Unsafe")
@@ -165,6 +167,24 @@ def test_controller_refuses_nonempty_initial_state(tmp_path: Path) -> None:
     with pytest.raises(Refusal, match="fresh_state_directory_required"):
         Controller(root)
     assert (root / "preexisting").read_text() == "leave in place"
+
+
+def test_profile_keeps_reviewed_image_when_catalog_changes(tmp_path: Path) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    catalog = tmp_path / "reviewed-image"
+    runtime = Runtime(root, reviewed_image=catalog)
+    with pytest.raises(Refusal, match="reviewed_image_required"):
+        _ = runtime.image
+    first = "sha256:" + "a" * 64
+    catalog.write_text(first)
+    assert runtime.image == first
+    runtime.image_pin.write_text(first)
+    runtime.pointer.write_text("a" * 32)
+    catalog.write_text("sha256:" + "b" * 64)
+    assert runtime.image == first
+    catalog.unlink()
+    assert runtime.image == first
 
 
 def test_stopped_skin_rewrite_preserves_other_settings(

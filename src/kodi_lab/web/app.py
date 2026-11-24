@@ -225,7 +225,6 @@ from kodi_lab.application.lifecycle_operations import (
 from kodi_lab.application.local_projects import (
     LocalProjectOnboardingService,
 )
-from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_resources import (
     ManagedResourceProtected,
 )
@@ -1332,11 +1331,8 @@ def create_app(
     )
     mcp_workspace_development = McpWorkspaceDevelopmentService(
         session_factory,
-        broker,
-        addon_inventory,
         agent_workspaces,
         data_root=settings.data_root,
-        readiness_registry=task_registry,
     )
     mcp_workspace_retention = McpWorkspaceRetentionService(
         session_factory,
@@ -1387,13 +1383,6 @@ def create_app(
             else settings.external_target_master_key.get_secret_value()
         ),
         key_version=settings.external_target_master_key_version,
-    )
-    mcp_workspace_development.configure_managed_noop_verifier(
-        ManagedLaunchBridgeService(
-            session_factory,
-            external_bridge_secret_store,
-            client=ExternalBridgeClient(transport=external_target_transport),
-        ).verify_identity
     )
     external_bridges = external_bridge_service or ExternalBridgeService(
         session_factory,

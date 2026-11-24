@@ -34,7 +34,7 @@
   choice?.addEventListener("change", () => {
     resetReview();
     const card = cardFor(choice.value);
-    name.textContent = card ? `Canonical instance name: ${card.dataset.instanceName}` : "Choose a version to review the instance name.";
+    name.textContent = card ? `Runtime: ${card.dataset.instanceName}` : "Choose a version to review the runtime.";
   });
   document.querySelector("[data-setup-show]")?.addEventListener("click", () => {
     const card = cardFor(choice.value);
@@ -106,19 +106,14 @@
     if (item.action === "open" && item.managed_instance_url) {
       const link = document.createElement("a");
       link.href = item.managed_instance_url;
-      link.textContent = "Open managed instance";
+      link.textContent = "Open Managed Kodi";
       actions.append(link);
-    } else if (item.managed_instance_url) {
-      const link = document.createElement("a");
-      link.href = item.managed_instance_url;
-      link.textContent = "View existing pinned instance";
-      actions.append(link);
-    } else if (["install", "retry", "reacquire", "create"].includes(item.action)) {
+    } else if (["install", "retry", "reacquire"].includes(item.action)) {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.installAction = item.action;
       button.disabled = card.dataset.uncertain === "true";
-      button.textContent = item.action === "create" ? "Create managed instance" : item.action[0].toUpperCase() + item.action.slice(1);
+      button.textContent = item.action[0].toUpperCase() + item.action.slice(1);
       actions.append(button);
     }
     if (restoreFocus) {
@@ -163,7 +158,7 @@
     catch (_) { showError("Refresh the page to review the exact Preview recipe."); return; }
     pending = {generation:card.dataset.generation, action:button.dataset.installAction,
       status:card.dataset.state, operationId:card.dataset.operationId || "", acknowledgement:scope};
-    document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Canonical instance name: ${card.dataset.instanceName} · Action: ${pending.action}.`;
+    document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Runtime: ${card.dataset.instanceName} · Action: ${pending.action}.`;
     review.hidden = false;
     review.focus();
     review.scrollIntoView({block:"center"});
@@ -193,7 +188,7 @@
     showError("");
     try {
       const response = await fetch(
-        button.dataset.installAction === "create" ? `/api/runtime-installations/${card.dataset.generation}/instances` : `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
+        `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
         { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token, ...(acknowledgement ? {"Content-Type": "application/json"} : {}) }, ...(acknowledgement ? {body: JSON.stringify({action:selected.action, approved:true, acknowledgement:selected.acknowledgement})} : {}) },
       );
       if (response.ok) {

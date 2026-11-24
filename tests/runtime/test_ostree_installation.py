@@ -36,7 +36,6 @@ from kodi_lab.runtime.install import (
     _commit_ready,
     _create_operation,
     acquisition_attestation,
-    bootstrap_recipe_instance,
 )
 from kodi_lab.runtime.ostree import OstreeVerificationEvidence
 from kodi_lab.runtime.ostree_assembly import OstreeAssemblyEvidence
@@ -281,10 +280,7 @@ def test_preview_is_sealed_exact_and_not_automatically_provisioned(
             ),
         ).eligible
         assert "hmac-sha256:" in (row.attestation_json or "")
-        revision_id = revision.id
-    assert bootstrap_recipe_instance(factory, reviewed, revision_id) == {
-        "created": "false"
-    }
+
     with factory() as session:
         assert ManagedInstanceRepository(session).list() == []
 

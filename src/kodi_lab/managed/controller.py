@@ -42,9 +42,15 @@ class Controller:
         root: Path,
         *,
         daemon_root: Path | None = None,
+        reviewed_image: Path | None = None,
         interrupt: Callable[[str], None] | None = None,
     ) -> None:
-        self.runtime = Runtime(root, self.checkpoint, daemon_root=daemon_root)
+        self.runtime = Runtime(
+            root,
+            self.checkpoint,
+            daemon_root=daemon_root,
+            reviewed_image=reviewed_image,
+        )
         self.input_attempt: UUID | None = None
         self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
