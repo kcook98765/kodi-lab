@@ -191,6 +191,7 @@ from kodi_lab.storage.models import (
     RuntimeValidationEvidenceRow,
     SnapshotCreateOperationRow,
     SnapshotDeleteOperationRow,
+    SnapshotRecoveryEpochRow,
     SnapshotRestoreOperationRow,
     SnapshotRow,
     TargetRow,
@@ -233,6 +234,7 @@ _RUNTIME_INVALIDATING_MUTATIONS = frozenset(
         ManagedInstanceMutationKind.RECONSTRUCTION,
         ManagedInstanceMutationKind.SNAPSHOT_CREATE,
         ManagedInstanceMutationKind.SNAPSHOT_RESTORE,
+        ManagedInstanceMutationKind.SNAPSHOT_RECOVERY,
         ManagedInstanceMutationKind.INSTANCE_DELETE,
         ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
         ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
@@ -349,7 +351,9 @@ class ManagedRuntimeProjectionRepository:
         self._session.flush()
         return ManagedRuntimeProjectionResult.APPLIED
 
-    def has_blocking_runtime_reconciliation(self, instance_id: UUID) -> bool:
+    def has_blocking_runtime_reconciliation(
+        self, instance_id: UUID, *, snapshot_recovery_id: UUID | None = None
+    ) -> bool:
         reason = "broker_runtime_dispatch_unconfirmed"
         lifecycle = self._session.scalar(
             select(ManagedInstanceLifecycleOperationRow.id)
@@ -390,10 +394,6 @@ class ManagedRuntimeProjectionRepository:
                 ManagedRuntimeReconstructionRow.managed_instance_id,
             ),
             (
-                SnapshotRestoreOperationRow,
-                SnapshotRestoreOperationRow.managed_instance_id,
-            ),
-            (
                 PromotionVerificationOperationRow,
                 PromotionVerificationOperationRow.original_target_instance_id,
             ),
@@ -421,6 +421,28 @@ class ManagedRuntimeProjectionRepository:
             .limit(1)
         )
         if snapshot_create is not None:
+            return True
+        from kodi_lab.storage.snapshot_recovery import (
+            require_claim_admission,
+            verified_resolution,
+        )
+
+        for failed in self._session.scalars(
+            select(SnapshotRestoreOperationRow).where(
+                SnapshotRestoreOperationRow.managed_instance_id == str(instance_id),
+                SnapshotRestoreOperationRow.state == "reconciliation_required",
+            )
+        ):
+            if verified_resolution(self._session, failed.id):
+                continue
+            if (
+                snapshot_recovery_id is not None
+                and require_claim_admission(
+                    self._session, str(snapshot_recovery_id), str(instance_id)
+                )
+                == failed.id
+            ):
+                continue
             return True
         deployment = self._session.scalar(
             select(McpWorkspaceDeploymentOperationRow.id)
@@ -5598,7 +5620,7 @@ class SnapshotRestoreOperationRepository:
         return None if row is None else _snapshot_restore_operation_from_row(row)
 
     def reconciliation_for_instance(
-        self, instance_id: UUID, *, limit: int = 2
+        self, instance_id: UUID, *, limit: int | None = 2
     ) -> list[SnapshotRestoreOperation]:
         rows = self._session.scalars(
             select(SnapshotRestoreOperationRow)
@@ -6632,11 +6654,20 @@ class ManagedInstanceMutationLeaseRepository:
             kind in _RUNTIME_INVALIDATING_MUTATIONS
             and ManagedRuntimeProjectionRepository(
                 self._session
-            ).has_blocking_runtime_reconciliation(instance_id)
+            ).has_blocking_runtime_reconciliation(
+                instance_id,
+                snapshot_recovery_id=operation_id
+                if kind is ManagedInstanceMutationKind.SNAPSHOT_RECOVERY
+                else None,
+            )
         ):
             raise ManagedRuntimeReconciliationBlockedError(
                 "Runtime reconciliation is unresolved for this managed instance."
             )
+        if kind is ManagedInstanceMutationKind.SNAPSHOT_RECOVERY:
+            from kodi_lab.storage.snapshot_recovery import require_claim_admission
+
+            require_claim_admission(self._session, str(operation_id), str(instance_id))
         require_no_active_browser_remote(instance_id)
         self._session.add(
             ManagedInstanceMutationLeaseRow(
@@ -8297,6 +8328,7 @@ class DevelopmentSourceDeploymentOperationRepository(
         return int(getattr(result, "rowcount", 0)) == 1
 
     def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        copy_row = DevelopmentSourceDeploymentOperationRow
         rows = list(
             self._session.scalars(
                 select(DevelopmentSourceDeploymentOperationRow.id)
@@ -8314,6 +8346,20 @@ class DevelopmentSourceDeploymentOperationRepository(
                             DevelopmentSourceDeploymentRow.last_successful_operation_id
                         )
                     ),
+                    ~select(SnapshotRecoveryEpochRow.id)
+                    .where(
+                        func.json_extract(
+                            SnapshotRecoveryEpochRow.evidence_json,
+                            "$.receipt.old_container_id",
+                        )
+                        == copy_row.expected_container_id,
+                        func.json_extract(
+                            SnapshotRecoveryEpochRow.evidence_json,
+                            "$.receipt.managed_instance_id",
+                        )
+                        == copy_row.original_managed_instance_id,
+                    )
+                    .exists(),
                 )
                 .order_by(
                     DevelopmentSourceDeploymentOperationRow.requested_at.desc(),

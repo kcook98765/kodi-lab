@@ -7,6 +7,7 @@
       {% for item in activity %}
       <article id="activity-{{ item.operation_uuid }}">
         <h2>{{ item.summary }}</h2>
+        {% if item.recovery_receipt_url %}<p><a href="{{ item.recovery_receipt_url }}">Authenticated recovery receipt</a></p>{% endif %}
         <dl>
           <dt>Kind</dt><dd>{{ item.kind }}</dd>
           <dt>Operation UUID</dt><dd>{{ item.operation_uuid }}</dd>

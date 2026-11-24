@@ -120,8 +120,14 @@ class ManagedCapacityAdmission:
         instance_id: str,
         revision_id: str,
         dispatch: Callable[[], ProvisionedManagedContainerRecord],
+        parent_operation_id: str | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+        validate_completion: Callable[
+            [Session, ProvisionedManagedContainerRecord], None
+        ]
+        | None = None,
     ) -> ProvisionedManagedContainerRecord:
-        operation_id = str(uuid4())
+        operation_id = parent_operation_id or str(uuid4())
         generation: int | None = None
         expected_container: str | None = None
         retained = False
@@ -181,6 +187,8 @@ class ManagedCapacityAdmission:
         except SQLAlchemyError as error:
             raise ManagedCapacityError("managed_capacity_unavailable") from error
         try:
+            if before_dispatch is not None:
+                before_dispatch()
             result = dispatch()
             if (
                 result.managed_instance_id != instance_id
@@ -228,7 +236,12 @@ class ManagedCapacityAdmission:
                     or selected_records[0].image_id != result.image_id
                 ):
                     raise ManagedCapacityError("managed_provision_result_unverified")
-            self._finish_provision(instance_id, operation_id, result)
+            self._finish_provision(
+                instance_id,
+                operation_id,
+                result,
+                validate_completion=validate_completion,
+            )
             return result
         except (
             ManagedNetworkUnavailableError,
@@ -249,11 +262,18 @@ class ManagedCapacityAdmission:
         result: ProvisionedManagedContainerRecord | None,
         *,
         safe_failure: bool = False,
+        validate_completion: Callable[
+            [Session, ProvisionedManagedContainerRecord], None
+        ]
+        | None = None,
     ) -> None:
         with self._sessions.begin() as session:
+            session.execute(text("BEGIN IMMEDIATE"))
             row = session.get(ManagedProvisionReservationRow, instance_id)
             if row is None or row.operation_id != operation_id:
                 raise ManagedCapacityError("managed_provision_requires_reconciliation")
+            if result is not None and validate_completion is not None:
+                validate_completion(session, result)
             current = (
                 None
                 if row.session_generation is None

@@ -8317,3 +8317,42 @@ force/adoption/deletion operation or native acceptance is introduced.
 Migration 0018 adds bounded retained review history without changing prior rows;
 lossy downgrade refuses populated history. Details and administrator limitations
 are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).
+
+## D-0505: New one-use recovery linked to an immutable legacy restore
+
+Issue #403 adds an administrator-only recovery for independently proven exact
+retirement followed by definite before-create admission refusal. Missing historical
+admission/dispatch remains `not_recorded`. Retained primary captures, complete-row
+attribution/commitments and exact original artifacts establish eligibility for a
+new authorization, never retroactive authority or old-receipt success.
+
+An explicitly verified offline Web/broker drain creates a durable SQLite epoch.
+Existing Web security/startup machinery runs in restricted mode; paired broker
+attestation, exact dual leases and consumed actual wire/attempt identities guard
+one stopped successor through normal session/capacity admission. Independent
+full supported readback includes ownership and safe modes. Only complete closure
+adds a narrow typed relation recognized by both reconciliation/mutation gates.
+Original receipts, generations and linked copy/review history remain preserved.
+
+The installed helper first derives actual direct-dockerd response credentials
+from the exact SDK Unix socket, handling systemd listener creation independently
+of the actual writer. Stable daemon/helper PID/mount/root and mount-table context
+is mandatory before classification or Stop. PID/cgroup visibility alone is not
+filesystem provenance. This supports only the reviewed local topology, not a
+general kernel bind-alias mapper or new remote/namespace/proxy authority.
+
+Drain proof covers every state-volume consumer, including read-only mounts and
+bind aliases. Retained ancillary containers need explicit exact-CID/metadata
+review and independently derived stable preincident kernel-inactivity proof;
+unresolved bind sources remain potential consumers with honest null aliases.
+Their frozen bounded proof is sealed and rechecked by the paired broker without
+baseline adoption or history cleanup. Exact legacy diagnostic exceptions require
+verified installed-code/authorization policy and preserve raw false/error outcomes;
+generic incomplete work and uncertain dispatch still refuse.
+
+Restart, transport uncertainty and ownership loss never resend or clear fences;
+the first terminal failure remains truthful. Migration 0019 is additive, preserves
+predecessor state and refuses used-history/new-kind-lease downgrade. No new MCP
+force capability, generic maintenance platform or backup evidence tree exists.
+See [the bounded contract](LEGACY-SNAPSHOT-RECOVERY.md). Production installation,
+native qualification and exact recovery remain separately authorized procedures.

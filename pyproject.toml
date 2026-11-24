@@ -46,6 +46,7 @@ Issues = "https://github.com/kcook98765/kodi-lab/issues"
 
 [project.scripts]
 kodi-lab-admin = "kodi_lab.admin_cli:main"
+kodi-lab-snapshot-recovery-maintenance = "kodi_lab.snapshot_recovery_host:main"
 kodi-lab-mcp-stdio = "kodi_lab.mcp.stdio_proxy:main"
 kodi-lab-web = "kodi_lab.web.run:main"
 kodi-lab-broker = "kodi_lab.broker.run:main"

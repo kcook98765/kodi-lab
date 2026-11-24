@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import math
+import os
 import socket
 from contextlib import ExitStack
 from copy import deepcopy
@@ -107,6 +109,18 @@ def main() -> None:
     configure_diagnostics()
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
     engine = create_database_engine(settings.database_url)
+    from kodi_lab.application.snapshot_recovery_maintenance import startup_epoch
+
+    startup_epoch(create_session_factory(engine), require_schema=True)
+    if os.getenv("KODI_LAB_SNAPSHOT_RECOVERY_EPOCH"):
+        fd = int(os.environ.get("KODI_LAB_LIFECYCLE_LOCK_FD", "-1"))
+        opened = os.fstat(fd)
+        expected = (settings.data_root / ".lifecycle.lock").stat(follow_symlinks=False)
+        if (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino):
+            raise RuntimeError(
+                "Recovery Web requires the installed lifetime lifecycle lock"
+            )
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     app = create_app(
         settings=settings,
         session_factory=create_session_factory(engine),

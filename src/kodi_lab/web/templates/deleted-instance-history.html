@@ -21,6 +21,7 @@
         {% for item in history.activity %}
         <article id="activity-{{ item.operation_uuid }}">
           <h3>{{ item.summary }}</h3>
+          {% if item.recovery_receipt_url %}<p><a href="{{ item.recovery_receipt_url }}">Authenticated recovery receipt</a></p>{% endif %}
           <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
           {% if item.snapshot_uuid %}<p>Snapshot UUID: {{ item.snapshot_uuid }}</p>{% endif %}
           {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import fcntl
 import os
 import socket
 import stat
@@ -13,6 +14,53 @@ from kodi_lab.broker.errors import BrokerStartupError
 
 PRODUCTION_RUNTIME_DIRECTORY = Path("/run/kodi-lab")
 PRODUCTION_SOCKET_PATH = PRODUCTION_RUNTIME_DIRECTORY / "broker.sock"
+
+
+def acquire_broker_lifetime_lock(config: SocketPathConfig) -> int:
+    """Validate the full directory chain before creating a relative lock inode."""
+    _validate_config_paths(config)
+    directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    lock: int | None = None
+    try:
+        for component in config.runtime_directory.parts[1:]:
+            child = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=directory,
+            )
+            os.close(directory)
+            directory = child
+        metadata = os.fstat(directory)
+        if not _runtime_has_expected_metadata(metadata, config):
+            raise BrokerStartupError("broker runtime directory has unsafe metadata")
+        lock = os.open(
+            "broker-runtime.lock",
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=directory,
+        )
+        item = os.fstat(lock)
+        if (
+            not stat.S_ISREG(item.st_mode)
+            or item.st_nlink != 1
+            or item.st_uid != config.directory_owner_uid
+            or stat.S_IMODE(item.st_mode) != 0o600
+        ):
+            raise BrokerStartupError("broker lifetime lock metadata is unsafe")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lock
+    except OSError as error:
+        if lock is not None:
+            os.close(lock)
+        raise BrokerStartupError(
+            "broker lifetime lock or directory is unavailable"
+        ) from error
+    except BaseException:
+        if lock is not None:
+            os.close(lock)
+        raise
+    finally:
+        os.close(directory)
 
 
 @dataclass(frozen=True, slots=True)

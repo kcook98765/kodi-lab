@@ -115,7 +115,7 @@ policy or adoption row exists. See [production operations](../docs/PRODUCTION-OP
 preserves existing rows, triggers, grants and reviewed identities. Downgrade
 refuses when either a pairing or a reviewed build uses the new capability.
 Native-only `system_info` requires no Bridge upgrade or new permission.
-The current application requires schema head `0018_source_addition_reviews`
+The current application requires schema head `0019_snapshot_recovery`
 at startup, even when no Bridge enrichment will be used. The earlier Phase A-only
 implementation did not require this migration.
 
@@ -124,3 +124,11 @@ history for exact added regular files before an ordinary source copy. It changes
 no prior authority or baseline rows, and refuses lossy downgrade once review
 history exists. Matching Web/broker/schema must be upgraded together. See
 [the administrator workflow](../docs/SOURCE-ADDITION-REVIEW.md).
+
+`0019_snapshot_recovery` retains operation-specific offline epoch/evidence,
+expiring review/consent, one-use broker dispatch/events and typed legacy-restore
+resolution in SQLite. It backfills no historical authority and changes no prior
+rows/grants/policies. Frozen lease vocabularies are checked before extending them;
+original restore/session/copy/review history is protected. Downgrade refuses any
+new history or new-kind lease before destructive DDL. Web and broker require the
+same exact head. See [legacy snapshot recovery](../docs/LEGACY-SNAPSHOT-RECOVERY.md).

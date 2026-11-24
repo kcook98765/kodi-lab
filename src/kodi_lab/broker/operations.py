@@ -1384,6 +1384,7 @@ class OperationDefinition:
     handler: OperationHandler
     requires_authorized_peer: bool = True
     audit_builder: OperationAuditBuilder | None = None
+    request_handler: Callable[[BaseModel, Request], BaseModel] | None = None
 
 
 ParamsT = TypeVar("ParamsT", bound=BaseModel)
@@ -1405,6 +1406,7 @@ class OperationRegistry:
         handler: Callable[[ParamsT], ResultT],
         requires_authorized_peer: bool = True,
         audit_builder: Callable[[ResultT], dict[str, object]] | None = None,
+        request_handler: Callable[[ParamsT, Request], ResultT] | None = None,
     ) -> None:
         """Register one fixed operation; duplicates are programming errors."""
 
@@ -1417,6 +1419,9 @@ class OperationRegistry:
             handler=cast(OperationHandler, handler),
             requires_authorized_peer=requires_authorized_peer,
             audit_builder=cast(OperationAuditBuilder | None, audit_builder),
+            request_handler=cast(
+                Callable[[BaseModel, Request], BaseModel] | None, request_handler
+            ),
         )
 
     @property
@@ -1462,7 +1467,11 @@ class OperationRegistry:
             ) from error
 
         try:
-            result = definition.handler(params)
+            result = (
+                definition.request_handler(params, request)
+                if definition.request_handler is not None
+                else definition.handler(params)
+            )
             return definition.result_model.model_validate(
                 result.model_dump(mode="python")
             )

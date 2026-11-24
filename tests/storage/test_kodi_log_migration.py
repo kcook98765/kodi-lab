@@ -161,6 +161,6 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()
             == before
         )
-    assert _revision(database) == "0018_source_addition_reviews"
+    assert _revision(database) == "0019_snapshot_recovery"
     assert _triggers(database) == current_triggers
     engine.dispose()

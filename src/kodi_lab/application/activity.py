@@ -5,7 +5,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
@@ -58,6 +58,7 @@ from kodi_lab.storage.workspace_deployments import failed_verified_workspace_cop
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    SNAPSHOT_RECOVERY = "snapshot_recovery"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
     MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
     REPOSITORY_REPLACEMENT = "repository_replacement"
@@ -99,9 +100,11 @@ class ManagedInstanceActivityItem(BaseModel):
         DevelopmentSourceAttachmentOperationKind | None
     ) = None
     addon_zip_artifact_uuid: UUID | None = None
+    recovery_receipt_url: str | None = Field(default=None, max_length=128)
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.SNAPSHOT_RECOVERY: 19,
     ManagedInstanceActivityKind.MCP_WORKSPACE_DEPLOYMENT: 18,
     ManagedInstanceActivityKind.MCP_WORKSPACE_LAUNCH: 17,
     ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT: 16,
@@ -164,6 +167,49 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        if inspect(session.get_bind()).has_table("snapshot_recoveries"):
+            from kodi_lab.storage.models import (
+                SnapshotRecoveryResolutionRow,
+                SnapshotRecoveryRow,
+            )
+
+            for recovery in session.scalars(
+                select(SnapshotRecoveryRow).where(
+                    SnapshotRecoveryRow.target_id == str(instance_id),
+                    SnapshotRecoveryRow.consumed_at.is_not(None),
+                )
+            ):
+                resolution = session.get(
+                    SnapshotRecoveryResolutionRow, recovery.incident_id
+                )
+                result.append(
+                    ManagedInstanceActivityItem(
+                        kind=ManagedInstanceActivityKind.SNAPSHOT_RECOVERY,
+                        operation_uuid=UUID(recovery.id),
+                        original_managed_instance_id=instance_id,
+                        requested_at=datetime.fromisoformat(
+                            recovery.created_at.replace("Z", "+00:00")
+                        ),
+                        started_at=datetime.fromisoformat(
+                            recovery.consumed_at.replace("Z", "+00:00")
+                        )
+                        if recovery.consumed_at
+                        else None,
+                        completed_at=datetime.fromisoformat(
+                            resolution.completed_at.replace("Z", "+00:00")
+                        )
+                        if resolution
+                        else None,
+                        state=recovery.state,
+                        summary=(
+                            f"Legacy snapshot recovery: {_outcome(recovery.state)}. "
+                            "Original failure preserved."
+                        ),
+                        reconciliation_required=recovery.state
+                        == "reconciliation_required",
+                        recovery_receipt_url=f"/api/snapshot-recovery/{recovery.id}",
+                    )
+                )
         for workspace_deployment in session.scalars(
             select(McpWorkspaceDeploymentOperationRow).where(
                 McpWorkspaceDeploymentOperationRow.target_id == str(instance_id)

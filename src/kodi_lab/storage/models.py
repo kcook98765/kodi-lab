@@ -5643,6 +5643,122 @@ class SnapshotRestoreOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class SnapshotRecoveryEpochRow(Base):
+    """Offline, independently observed application-service retirement boundary."""
+
+    __tablename__ = "snapshot_recovery_epochs"
+    __table_args__ = (
+        CheckConstraint("active IS NULL OR active=1"),
+        CheckConstraint(
+            "(state='closed' AND active IS NULL) OR (state<>'closed' AND active IS 1)"
+        ),
+        CheckConstraint("state IN ('sealed','serving','blocked','closed')"),
+        CheckConstraint("length(evidence_json) BETWEEN 2 AND 262144"),
+        CheckConstraint("length(seal_json) BETWEEN 2 AND 65536"),
+        Index("uq_snapshot_recovery_epoch_active", "active", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    incident_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    seal_json: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    active: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    web_owner: Mapped[str | None] = mapped_column(Text)
+    broker_owner: Mapped[str | None] = mapped_column(Text)
+
+
+class SnapshotRecoveryRow(Base):
+    """New reviewed authorization and receipt; never a reopened restore."""
+
+    __tablename__ = "snapshot_recoveries"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('preview','revoked','claimed','provisioned','applied',"
+            "'verified','succeeded','reconciliation_required')"
+        ),
+        CheckConstraint("length(proof_json) BETWEEN 2 AND 262144"),
+        Index(
+            "uq_snapshot_recovery_incident_claim",
+            "incident_id",
+            unique=True,
+            sqlite_where=text("consumed_at IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    epoch_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot_recovery_epochs.id", ondelete="RESTRICT"), nullable=False
+    )
+    incident_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    actor_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    proof_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    consumed_at: Mapped[str | None] = mapped_column(String(32))
+    lease_digest: Mapped[str | None] = mapped_column(String(64))
+    successor_generation: Mapped[int | None] = mapped_column(Integer)
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class SnapshotRecoveryDispatchRow(Base):
+    __tablename__ = "snapshot_recovery_dispatches"
+    __table_args__ = (
+        UniqueConstraint("recovery_id", "step"),
+        CheckConstraint("step IN ('provision','apply','verify')"),
+        CheckConstraint("state IN ('prepared','consumed','completed','uncertain')"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recovery_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot_recoveries.id", ondelete="RESTRICT"), nullable=False
+    )
+    step: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    intent_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    deadline: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    result_json: Mapped[str | None] = mapped_column(Text)
+
+
+class SnapshotRecoveryEventRow(Base):
+    __tablename__ = "snapshot_recovery_events"
+    __table_args__ = (UniqueConstraint("recovery_id", "event"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recovery_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot_recoveries.id", ondelete="RESTRICT"), nullable=False
+    )
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    detail_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class SnapshotRecoveryResolutionRow(Base):
+    __tablename__ = "snapshot_recovery_resolutions"
+    __table_args__ = (
+        CheckConstraint("relation = 'verified_original_snapshot_stopped_successor'"),
+    )
+
+    incident_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recovery_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot_recoveries.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    relation: Mapped[str] = mapped_column(String(64), nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    proof_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
 class SnapshotDeleteOperationRow(Base):
     """Durable explicit snapshot deletion history independent of Snapshot rows."""
 

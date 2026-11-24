@@ -426,6 +426,7 @@ def validate_restored_snapshot_source(
     *,
     source_chunks: Iterable[bytes],
     expected_members: tuple[SnapshotMemberRecord, ...],
+    expected_owner: tuple[int, int] | None = None,
 ) -> int:
     """Verify the fixed restored profile readback against the trusted manifest."""
 
@@ -441,6 +442,13 @@ def validate_restored_snapshot_source(
                 source_member = _safe_source_member(info)
                 if source_member is None:
                     continue
+                if expected_owner is not None and (
+                    (info.uid, info.gid) != expected_owner or info.mode & ~0o777
+                ):
+                    raise SnapshotStorageError(
+                        "snapshot_restore_verification_failed",
+                        "Restored profile ownership or safe mode differs.",
+                    )
                 if expected_index >= len(expected_members):
                     raise SnapshotStorageError(
                         "snapshot_restore_verification_failed",

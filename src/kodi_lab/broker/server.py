@@ -9,6 +9,7 @@ import pwd
 import socket
 import struct
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -29,6 +30,7 @@ from kodi_lab.broker.errors import (
 from kodi_lab.broker.novnc import DisplayLane
 from kodi_lab.broker.operations import OperationRegistry, build_foundation_registry
 from kodi_lab.broker.protocol import (
+    Request,
     Response,
     decode_request,
     encode_model,
@@ -109,6 +111,8 @@ class BrokerServer:
         read_timeout: float = READ_TIMEOUT_SECONDS,
         write_timeout: float = WRITE_TIMEOUT_SECONDS,
         display_lane: DisplayLane | None = None,
+        request_guard: Callable[[Request], None] | None = None,
+        on_open: Callable[[], None] | None = None,
     ) -> None:
         self._socket_config = socket_config
         self._authorization = authorization
@@ -119,6 +123,9 @@ class BrokerServer:
         self._write_timeout = write_timeout
         self._prepared: PreparedUnixListener | None = None
         self._display_lane = display_lane
+        self._request_guard = request_guard
+        self._runtime_lock: int | None = None
+        self._on_open = on_open
 
     @classmethod
     def production(cls) -> BrokerServer:
@@ -142,10 +149,92 @@ class BrokerServer:
             )
         )
         lane = HumanDisplayService(settings, sessions).lane(configuration)
+        from kodi_lab.application.snapshot_recovery_evidence import RecoveryRefused
+        from kodi_lab.application.snapshot_recovery_maintenance import (
+            bind_owner,
+            process_owner,
+            startup_epoch,
+        )
+        from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
+        from kodi_lab.broker.errors import OperationError
+        from kodi_lab.broker.snapshot_recovery import (
+            RecoveryAttestation,
+            RecoveryAttestationParams,
+            RecoveryStepExecutor,
+            RecoveryStepParams,
+            RecoveryStepResult,
+            require_mode_operation,
+        )
+
+        writable = create_session_factory(create_database_engine(settings.database_url))
+        recovery_epoch = startup_epoch(writable, require_schema=True)
+        registry = build_foundation_registry()
+        if recovery_epoch is not None:
+            owner = process_owner()
+            executor = RecoveryStepExecutor(
+                writable,
+                DockerManagedContainerAdapter(),
+                settings.data_root,
+                configuration.socket.directory_group_gid,
+                recovery_epoch,
+                owner,
+            )
+
+            def execute(
+                params: RecoveryStepParams, request: Request
+            ) -> RecoveryStepResult:
+                try:
+                    return executor.execute(params, request.request_id)
+                except RecoveryRefused as error:
+                    raise OperationError(
+                        str(error), "Snapshot recovery refused."
+                    ) from error
+
+            def missing_context(_params: RecoveryStepParams) -> RecoveryStepResult:
+                raise OperationError(
+                    "recovery_wire_context_required", "Exact wire context is required."
+                )
+
+            registry.register(
+                name="execute_legacy_snapshot_recovery_step",
+                params_model=RecoveryStepParams,
+                result_model=RecoveryStepResult,
+                handler=missing_context,
+                request_handler=execute,
+            )
+
+            def attest(params: RecoveryAttestationParams) -> RecoveryAttestation:
+                try:
+                    return executor.attest(params)
+                except RecoveryRefused as error:
+                    raise OperationError(
+                        str(error), "Live recovery broker proof refused."
+                    ) from error
+
+            registry.register(
+                name="inspect_legacy_snapshot_recovery",
+                params_model=RecoveryAttestationParams,
+                result_model=RecoveryAttestation,
+                handler=attest,
+            )
+
+        def guard(request: Request) -> None:
+            try:
+                require_mode_operation(writable, recovery_epoch, request.operation)
+            except RecoveryRefused as error:
+                raise RequestError(
+                    str(error), "Recovery maintenance is active."
+                ) from error
+
         return cls(
             socket_config=configuration.socket,
             authorization=configuration.authorization,
-            display_lane=lane,
+            display_lane=lane if recovery_epoch is None else None,
+            registry=registry,
+            request_guard=guard,
+            on_open=(lambda: bind_owner(writable, recovery_epoch, "broker", owner))
+            if recovery_epoch is not None
+            else None,
         )
 
     @property
@@ -163,7 +252,20 @@ class BrokerServer:
 
         if self._prepared is not None:
             raise BrokerStartupError("broker listener is already open")
-        self._prepared = prepare_unix_listener(self._socket_config)
+        from kodi_lab.broker.socket_path import acquire_broker_lifetime_lock
+
+        fd = acquire_broker_lifetime_lock(self._socket_config)
+        try:
+            self._prepared = prepare_unix_listener(self._socket_config)
+            if self._on_open is not None:
+                self._on_open()
+            self._runtime_lock = fd
+        except BaseException:
+            if self._prepared is not None:
+                self._prepared.close()
+                self._prepared = None
+            os.close(fd)
+            raise
 
     def close(self) -> None:
         """Close the listener and safely remove only its socket inode."""
@@ -174,6 +276,9 @@ class BrokerServer:
         self._prepared = None
         if prepared is not None:
             prepared.close()
+        if self._runtime_lock is not None:
+            os.close(self._runtime_lock)
+            self._runtime_lock = None
 
     def serve_forever(self, stop_event: Event | None = None) -> None:
         """Serve sequential bounded requests until explicitly stopped."""
@@ -247,6 +352,8 @@ class BrokerServer:
             request_id = request.request_id
             operation = request.operation
             protocol_version = request.version
+            if self._request_guard is not None:
+                self._request_guard(request)
             result = self._registry.dispatch(request)
             operation_audit_fields = self._registry.audit_fields_for(
                 request.operation, result

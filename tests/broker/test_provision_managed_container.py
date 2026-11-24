@@ -607,6 +607,11 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         and callable(getattr(DockerManagedContainerAdapter, name))
     }
     assert public == {
+        # Operation-specific read-only attestation/preflight, not mutation authority.
+        "recovery_engine_id",
+        "recovery_environment",
+        "recovery_runtime_preflight",
+        "review_source_additions",
         "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",

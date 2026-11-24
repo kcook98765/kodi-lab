@@ -116,3 +116,41 @@ def test_restored_readback_checks_recognized_sqlite_without_modification() -> No
                 ),
             ),
         )
+
+
+@pytest.mark.parametrize("fault", [None, "file_uid", "directory_gid", "special_mode"])
+def test_recovery_readback_requires_actual_file_and_directory_owner_and_safe_mode(
+    fault: str | None,
+) -> None:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        for name, directory in (
+            (".kodi", True),
+            (".kodi/userdata", True),
+            (".kodi/userdata/guisettings.xml", False),
+        ):
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE if directory else tarfile.REGTYPE
+            info.uid = 0 if fault == "file_uid" and not directory else 1000
+            info.gid = 0 if fault == "directory_gid" and directory else 1000
+            info.mode = (
+                0o755 if directory else (0o4600 if fault == "special_mode" else 0o600)
+            )
+            info.size = 0 if directory else len(b"settings")
+            archive.addfile(info, None if directory else io.BytesIO(b"settings"))
+    if fault is None:
+        assert (
+            validate_restored_snapshot_source(
+                source_chunks=[output.getvalue()],
+                expected_members=expected(),
+                expected_owner=(1000, 1000),
+            )
+            == 0
+        )
+    else:
+        with pytest.raises(SnapshotStorageError, match="ownership or safe mode"):
+            validate_restored_snapshot_source(
+                source_chunks=[output.getvalue()],
+                expected_members=expected(),
+                expected_owner=(1000, 1000),
+            )

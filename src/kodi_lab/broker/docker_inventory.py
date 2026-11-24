@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
-from typing import IO, Literal, Protocol, cast
+from typing import IO, Any, Literal, Protocol, cast
 from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
@@ -1459,7 +1459,10 @@ class DockerManagedContainerAdapter:
         return True
 
     def provision_managed_container(
-        self, spec: ManagedContainerProvisioningSpec
+        self,
+        spec: ManagedContainerProvisioningSpec,
+        *,
+        recovery_guard: Callable[[], None] | None = None,
     ) -> ProvisionedManagedContainerRecord:
         """Create or verify one disposable container from trusted fixed policy."""
 
@@ -1547,6 +1550,8 @@ class DockerManagedContainerAdapter:
             )
             endpoint = client.create_endpoint_config()
             networking = client.create_networking_config({spec.network_name: endpoint})
+            if recovery_guard is not None:
+                recovery_guard()
             try:
                 if spec.python_bytecode_policy is PythonBytecodePolicy.SUPPRESS:
                     assert isinstance(expected_environment, list)
@@ -1591,9 +1596,10 @@ class DockerManagedContainerAdapter:
                         "Created container is not stopped"
                     )
             except Exception as error:
-                self._rollback_created_container(
-                    client, created_id=created_id, spec=spec
-                )
+                if recovery_guard is None:
+                    self._rollback_created_container(
+                        client, created_id=created_id, spec=spec
+                    )
                 raise PostCreateVerificationError(
                     "Created container did not pass verification"
                 ) from error
@@ -2964,10 +2970,86 @@ class DockerManagedContainerAdapter:
                 with suppress(DockerException, OSError):
                     client.close()
 
+    def recovery_engine_id(self) -> str:
+        """Bind operation-specific maintenance to the actual broker Engine."""
+        client = cast(Any, self._client_factory())
+        try:
+            result = client.info()
+            value = result.get("ID") if isinstance(result, dict) else None
+            if not isinstance(value, str) or not value:
+                raise DockerInventoryReadError("Engine identity is unavailable")
+            return value
+        finally:
+            client.close()
+
+    def recovery_environment(
+        self,
+        installation: str,
+        state_volume: str,
+        web_hostname: str,
+        consumer_proof: Any,
+    ) -> dict[str, Any]:
+        import socket
+
+        from kodi_lab.application.snapshot_recovery_maintenance import (
+            check_state_consumers,
+            service_binding,
+            volume_identity,
+        )
+
+        client = cast(Any, self._client_factory())
+        try:
+            hostname = socket.gethostname()
+            if re.fullmatch(r"[0-9a-f]{12,64}", hostname) is None:
+                raise DockerInventoryReadError("Broker container identity unavailable")
+            broker = service_binding(
+                client, hostname, installation, state_volume, "broker"
+            )
+            web = service_binding(
+                client, web_hostname, installation, state_volume, "web"
+            )
+            if (
+                not broker["running"]
+                or not web["running"]
+                or broker["hostname"] != hostname
+                or web["hostname"] != web_hostname
+            ):
+                raise DockerInventoryReadError(
+                    "Paired application services unavailable"
+                )
+            return {
+                "engine_id": client.info()["ID"],
+                "state_volume_digest": volume_identity(client, state_volume),
+                "broker_container_id": broker["container_id"],
+                "web_container_id": web["container_id"],
+                "state_consumers_digest": check_state_consumers(
+                    client,
+                    state_volume,
+                    consumer_proof,
+                    {broker["container_id"], web["container_id"]},
+                ),
+            }
+        finally:
+            client.close()
+
+    def recovery_runtime_preflight(self, image_id: str) -> None:
+        client = cast(_ProvisioningDockerClient, self._client_factory())
+        try:
+            self._validate_managed_network(client)
+            self._inspect_required_image(client, image_id)
+        finally:
+            client.close()
+
     def apply_managed_instance_snapshot(
-        self, *, spec: SnapshotRestoreSpec, expected_container_id: str
+        self,
+        *,
+        spec: SnapshotRestoreSpec,
+        expected_container_id: str,
+        recovery_verification: bool = False,
+        verify_only: bool = False,
+        recovery_guard: Callable[[], None] | None = None,
     ) -> AppliedManagedInstanceSnapshotRecord:
-        """Revalidate and apply one UUID-resolved artifact to the fixed profile root."""
+        """Revalidate/apply, or independently verify the same fixed stopped profile."""
 
         context = spec.context
         managed_instance_id = str(context.source_managed_instance_id)
@@ -3032,7 +3114,7 @@ class DockerManagedContainerAdapter:
             snapshot_inventory = {
                 (member.path, member.member_type) for member in validated.members
             }
-            if any(
+            if not verify_only and any(
                 (member.path, member.member_type) not in allowed
                 or (member.path, member.member_type) not in snapshot_inventory
                 for member in fresh_members
@@ -3045,19 +3127,43 @@ class DockerManagedContainerAdapter:
             archive_path = (
                 snapshot_directory(spec.data_root, context.snapshot_id) / "state.tar"
             )
-            with archive_path.open("rb") as archive_file:
-                applied = client.put_archive(
-                    selected_id, "/home/kodi/.kodi", archive_file
-                )
-            if applied is not True:
-                raise DockerSnapshotRestoreError(
-                    "snapshot_apply_failed",
-                    "Docker did not confirm snapshot application",
-                )
+            if not verify_only:
+                with os.fdopen(
+                    os.open(archive_path, os.O_RDONLY | os.O_NOFOLLOW), "rb"
+                ) as archive_file:
+                    if recovery_verification:
+                        metadata = os.fstat(archive_file.fileno())
+                        if (
+                            not stat.S_ISREG(metadata.st_mode)
+                            or metadata.st_nlink != 1
+                            or metadata.st_uid != spec.owner_uid
+                            or metadata.st_gid != spec.owner_gid
+                            or stat.S_IMODE(metadata.st_mode) != 0o440
+                            or metadata.st_size != spec.artifact.archive_size
+                            or "sha256:"
+                            + hashlib.file_digest(archive_file, "sha256").hexdigest()
+                            != spec.artifact.archive_digest
+                        ):
+                            raise DockerSnapshotRestoreError(
+                                "snapshot_identity_mismatch",
+                                "Snapshot opened identity differs",
+                            )
+                        archive_file.seek(0)
+                    if recovery_guard is not None:
+                        recovery_guard()
+                    applied = client.put_archive(
+                        selected_id, "/home/kodi/.kodi", archive_file
+                    )
+                if applied is not True:
+                    raise DockerSnapshotRestoreError(
+                        "snapshot_apply_failed",
+                        "Docker did not confirm snapshot application",
+                    )
             readback_stream, _ = client.get_archive(selected_id, "/home/kodi/.kodi")
             databases_checked = validate_restored_snapshot_source(
                 source_chunks=cast(Iterable[bytes], readback_stream),
                 expected_members=validated.members,
+                expected_owner=(1000, 1000) if recovery_verification else None,
             )
             final = _require_mapping(client.inspect_container(selected_id))
             self._validate_deprovision_candidate(

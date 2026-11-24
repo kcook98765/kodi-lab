@@ -25,6 +25,7 @@ def test_exact_prerelease_head_contract_and_safe_reinitialization(
     config = migration_config(database)
     graph = ScriptDirectory.from_config(config)
     assert [(r.revision, r.down_revision) for r in graph.walk_revisions()] == [
+        ("0019_snapshot_recovery", "0018_source_addition_reviews"),
         ("0018_source_addition_reviews", "0017_system_snapshot_capability"),
         ("0017_system_snapshot_capability", "0016_reviewed_bridge_updates"),
         ("0016_reviewed_bridge_updates", "0015_log_scan_capability"),

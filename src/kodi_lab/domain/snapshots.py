@@ -115,6 +115,7 @@ class SnapshotDeleteReconciliationState(StrEnum):
 
 
 class ManagedInstanceMutationKind(StrEnum):
+    SNAPSHOT_RECOVERY = "snapshot_recovery"
     RESET = "reset"
     RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -143,6 +144,7 @@ class ManagedInstanceMutationKind(StrEnum):
 
 
 class GlobalHeavyOperationKind(StrEnum):
+    SNAPSHOT_RECOVERY = "snapshot_recovery"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"

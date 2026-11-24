@@ -88,6 +88,7 @@ from kodi_lab.broker.operations import (
     InspectMcpWorkspaceDeploymentResult,
     InspectRepositoryReplacementParams,
     InspectRepositoryReplacementResult,
+    ManagedContainerInventoryEntry,
     ManagedContainerInventoryParams,
     ManagedContainerInventoryResult,
     NativeZipObservationParams,
@@ -1281,6 +1282,42 @@ class BrokerClient:
             raise ClientProtocolError("ZIP smoke destination result identity differs")
         return result
 
+    def recovery_inventory(self) -> tuple[ManagedContainerInventoryEntry, ...]:
+        return tuple(self.managed_container_inventory().containers)
+
+    def snapshot_recovery_attestation(self, epoch_id: str, challenge: str) -> object:
+        from kodi_lab.broker.snapshot_recovery import (
+            RecoveryAttestation,
+            RecoveryAttestationParams,
+        )
+
+        return self._call(
+            "inspect_legacy_snapshot_recovery",
+            RecoveryAttestationParams.model_validate(
+                {"epoch_id": epoch_id, "challenge": challenge}
+            ),
+            RecoveryAttestation,
+        )
+
+    def snapshot_recovery_step(
+        self, recovery_id: str, step: str, attempt_id: str, request_id: str
+    ) -> object:
+        from kodi_lab.broker.snapshot_recovery import (
+            RecoveryStepParams,
+            RecoveryStepResult,
+        )
+
+        params = RecoveryStepParams.model_validate(
+            {"recovery_id": recovery_id, "step": step, "attempt_id": attempt_id}
+        )
+        return self._call(
+            "execute_legacy_snapshot_recovery_step",
+            params,
+            RecoveryStepResult,
+            response_timeout=120,
+            fixed_request_id=request_id,
+        )
+
     def _call(
         self,
         operation: str,
@@ -1288,8 +1325,9 @@ class BrokerClient:
         result_model: type[ResultT],
         *,
         response_timeout: float | None = None,
+        fixed_request_id: str | None = None,
     ) -> ResultT:
-        request_id = str(uuid4())
+        request_id = fixed_request_id or str(uuid4())
         try:
             serialized_params = params.model_dump(mode="json")
             if isinstance(params, StartManagedContainerParams):

@@ -42,6 +42,11 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     prior = set(inspect(engine).get_table_names())
     command.upgrade(config, "head")
     assert set(inspect(engine).get_table_names()) == prior | {
+        "snapshot_recovery_epochs",
+        "snapshot_recoveries",
+        "snapshot_recovery_dispatches",
+        "snapshot_recovery_events",
+        "snapshot_recovery_resolutions",
         "managed_bridge_preparations",
         "managed_bridge_preparation_children",
         "agent_projects",
@@ -74,13 +79,18 @@ def test_novnc_predecessor_transition_has_real_arbitration_and_refuses_active_lo
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0018_source_addition_reviews"
+            == "0019_snapshot_recovery"
         )
         assert connection.scalar(text("SELECT count(*) FROM novnc_sessions")) == 1
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
     ownership.revoke(INSTANCE_ID, attempt, owner)
     assert set(inspect(engine).get_table_names()) == prior | {
+        "snapshot_recovery_epochs",
+        "snapshot_recoveries",
+        "snapshot_recovery_dispatches",
+        "snapshot_recovery_events",
+        "snapshot_recovery_resolutions",
         "managed_bridge_preparations",
         "managed_bridge_preparation_children",
         "agent_projects",

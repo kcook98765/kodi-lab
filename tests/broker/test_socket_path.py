@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import stat
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -51,6 +52,33 @@ def test_server_creates_no_tcp_listener(socket_config: SocketPathConfig) -> None
         assert server.listener_family == socket.AF_UNIX
     finally:
         server.close()
+
+
+@pytest.mark.parametrize("fault", ["owner", "group", "mode", "symlink"])
+def test_lifetime_lock_is_not_created_before_runtime_directory_validation(
+    socket_config: SocketPathConfig,
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    config = socket_config
+    actual = config.runtime_directory
+    if fault == "owner":
+        config = replace(config, directory_owner_uid=os.getuid() + 1)
+    elif fault == "group":
+        config = replace(config, directory_group_gid=os.getgid() + 1)
+    elif fault == "mode":
+        actual.chmod(0o700)
+    else:
+        renamed = tmp_path / "outside-refused-path"
+        actual.rename(renamed)
+        actual.symlink_to(renamed, target_is_directory=True)
+        actual = renamed
+    server = BrokerServer(
+        socket_config=config, authorization=ExactUidAuthorizationPolicy(os.getuid())
+    )
+    with pytest.raises(BrokerStartupError):
+        server.open()
+    assert not (actual / "broker-runtime.lock").exists()
 
 
 def test_existing_symlink_is_refused(

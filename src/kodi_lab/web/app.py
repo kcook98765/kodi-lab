@@ -1573,6 +1573,22 @@ def create_app(
     managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
+    from kodi_lab.application.snapshot_recovery import SnapshotRecoveryService
+    from kodi_lab.application.snapshot_recovery_evidence import RecoveryRefused
+    from kodi_lab.application.snapshot_recovery_maintenance import (
+        bind_owner,
+        process_owner,
+        startup_epoch,
+    )
+
+    recovery_epoch_id = startup_epoch(session_factory)
+    recovery_service = (
+        SnapshotRecoveryService(
+            session_factory, broker, settings.data_root, os.getgid()
+        )
+        if recovery_epoch_id
+        else None
+    )
     if novnc_viewer is None:
         from kodi_lab.web.novnc_optin import build_viewer
 
@@ -2421,6 +2437,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         nonlocal development_repository_error
+        if recovery_service is not None and recovery_epoch_id is not None:
+            bind_owner(session_factory, recovery_epoch_id, "web", process_owner())
+            recovery_service.interrupted()
+            yield
+            return
         bundle_pin = os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", "")
         _app.state.official_bridge_recognition = "unconfigured"
         if repository_base_url and bundle_pin:
@@ -2617,7 +2638,8 @@ def create_app(
         ):
             return JSONResponse({"detail": "web_requires_https"}, status_code=403)
         response = await call_next(request)
-        context.mcp_workspace_retention.sweep()
+        if recovery_service is None:
+            context.mcp_workspace_retention.sweep()
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
@@ -3537,7 +3559,9 @@ def create_app(
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
         if context.auth.resolve(token) is not None:
-            return RedirectResponse("/kodi", status_code=303)
+            return RedirectResponse(
+                "/snapshot-recovery" if recovery_service else "/kodi", status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "login.html",
@@ -3562,7 +3586,9 @@ def create_app(
             return _login_failure(templates, request, context, status_code=401)
         context.throttler.record_success(source)
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
-        response = RedirectResponse("/kodi", status_code=303)
+        response = RedirectResponse(
+            "/snapshot-recovery" if recovery_service else "/kodi", status_code=303
+        )
         response.set_cookie(
             settings.web_session_cookie_name,
             created.token,
@@ -9406,6 +9432,50 @@ def create_app(
             McpAuthenticationService(session_factory),
         )
     )
+    if recovery_service is None:
+
+        @app.get("/api/snapshot-recovery/{recovery_id}")
+        def snapshot_recovery_receipt(
+            recovery_id: UUID,
+            _authenticated: AuthenticatedWebSession = Depends(current_session),
+        ) -> dict[str, Any]:
+            return SnapshotRecoveryService(
+                session_factory, broker, settings.data_root, os.getgid()
+            ).status(str(recovery_id))
+
+    if recovery_service is not None and recovery_epoch_id is not None:
+        from kodi_lab.web.snapshot_recovery import recovery_router
+
+        app.state.snapshot_recovery = recovery_service
+        # include_router composes child lifespans independently of route lists.
+        # Restore the operation-specific parent lifespan so no ordinary router
+        # sweeper (including native ZIP) starts in recovery mode.
+        app.router.lifespan_context = lifespan
+        app.router.routes[:] = [
+            route
+            for route in app.router.routes
+            if getattr(route, "path", None)
+            in {"/login", "/logout", "/static", "/favicon.ico"}
+        ]
+        app.include_router(
+            recovery_router(
+                recovery_service,
+                recovery_epoch_id,
+                current_session,
+                mutation_session,
+                context.auth,
+                settings.web_session_cookie_name,
+            )
+        )
+
+    @app.exception_handler(RecoveryRefused)
+    async def recovery_refused(
+        _request: Request, error: RecoveryRefused
+    ) -> JSONResponse:
+        return _json_error(
+            409, str(error), "Snapshot recovery refused; inspect its durable receipt."
+        )
+
     return app
 
 

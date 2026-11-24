@@ -90,6 +90,7 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     McpWorkspaceLaunchRow,
+    SnapshotRecoveryRow,
     WorkspaceExecutionRecoveryOperationRow,
 )
 from kodi_lab.storage.repositories import (
@@ -168,6 +169,7 @@ class ReconciliationOperationKind(StrEnum):
     RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
+    SNAPSHOT_RECOVERY = "snapshot_recovery"
     SNAPSHOT_DELETE = "snapshot_delete"
     INSTANCE_DELETE = "instance_delete"
     MULTIPLE = "multiple_reconciliation_records"
@@ -290,6 +292,12 @@ def _timestamp(value: str | None) -> datetime | None:
     return (
         None if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
     )
+
+
+def _snapshot_recovery_resolved(session: Session, incident_id: str) -> bool:
+    from kodi_lab.storage.snapshot_recovery import verified_resolution
+
+    return verified_resolution(session, incident_id)
 
 
 def _timestamp_text(value: datetime) -> str:
@@ -418,6 +426,19 @@ class StaleOperationReconciliationDispatcher:
             ) from error
         digest = row.lease_token_digest
         assert digest is not None
+        if kind is ManagedInstanceMutationKind.SNAPSHOT_RECOVERY:
+            snapshot_recovery = session.get(SnapshotRecoveryRow, str(operation_id))
+            if (
+                snapshot_recovery is None
+                or snapshot_recovery.target_id != str(instance_id)
+                or snapshot_recovery.lease_digest != digest
+            ):
+                raise CoordinationCorruptionError("Recovery ownership is inconsistent.")
+            if snapshot_recovery.state not in {"succeeded", "reconciliation_required"}:
+                snapshot_recovery.state = "reconciliation_required"
+                snapshot_recovery.failure_code = "recovery_exact_lease_lost"
+            # Recovery's leases are fences, never expiry-based drain proof.
+            return operation_id, 0
         operation: (
             ResetOperation
             | SnapshotCreateOperation
@@ -1132,6 +1153,25 @@ class StaleOperationReconciliationDispatcher:
             ) from error
         digest = row.lease_token_digest
         assert digest is not None
+        if kind is GlobalHeavyOperationKind.SNAPSHOT_RECOVERY:
+            recovery = session.get(SnapshotRecoveryRow, str(operation_id))
+            mutation = (
+                None
+                if recovery is None
+                else session.get(ManagedInstanceMutationLeaseRow, recovery.target_id)
+            )
+            if (
+                mutation is None
+                or mutation.operation_id != str(operation_id)
+                or mutation.lease_token_digest != digest
+                or mutation.operation_kind
+                != ManagedInstanceMutationKind.SNAPSHOT_RECOVERY
+            ):
+                raise CoordinationCorruptionError(
+                    "Recovery dual ownership is inconsistent."
+                )
+            self._dispatch_mutation(session, mutation, now)
+            return operation_id, 0
         if kind is GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION:
             promotion = AgentWorkspacePromotionOperationRepository(session).get(
                 operation_id
@@ -1523,6 +1563,29 @@ class ManagedInstanceReconciliationService:
             else nullcontext(read_session)
         ) as session:
             records: list[tuple[ReconciliationOperationKind, object]] = []
+            recovery_rows = (
+                session.scalars(
+                    select(SnapshotRecoveryRow).where(
+                        SnapshotRecoveryRow.target_id == str(instance_id),
+                        SnapshotRecoveryRow.state == "reconciliation_required",
+                    )
+                )
+                if inspect(session.get_bind()).has_table("snapshot_recoveries")
+                else ()
+            )
+            for recovery in recovery_rows:
+                return ManagedInstanceReconciliationStatus(
+                    required=True,
+                    blocking=True,
+                    operation_kind=ReconciliationOperationKind.SNAPSHOT_RECOVERY,
+                    operation_uuid=UUID(recovery.id),
+                    operation_state=recovery.state,
+                    last_phase="one_use_recovery",
+                    safe_reason=(
+                        "Snapshot recovery requires independent reconciliation."
+                    ),
+                    blocked_actions=INSTANCE_MUTATIONS,
+                )
             records.extend(
                 (ReconciliationOperationKind.LIFECYCLE, item)
                 for item in ManagedInstanceLifecycleOperationRepository(
@@ -1588,7 +1651,8 @@ class ManagedInstanceReconciliationService:
                 (ReconciliationOperationKind.SNAPSHOT_RESTORE, item)
                 for item in SnapshotRestoreOperationRepository(
                     session
-                ).reconciliation_for_instance(instance_id)
+                ).reconciliation_for_instance(instance_id, limit=None)
+                if not _snapshot_recovery_resolved(session, str(item.id))
             )
             records.extend(
                 (ReconciliationOperationKind.INSTANCE_DELETE, item)

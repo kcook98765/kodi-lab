@@ -109,6 +109,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
                 "0016_reviewed_bridge_updates.py",
                 "0017_system_snapshot_capability.py",
                 "0018_source_addition_reviews.py",
+                "0019_snapshot_recovery.py",
             }
         )
         for kind in ("templates", "static"):

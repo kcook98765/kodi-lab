@@ -80,6 +80,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     recover_parser.add_argument("backup_id")
     recover_parser.add_argument("--confirm", required=True, metavar="BACKUP_ID")
     subcommands.add_parser("serve", help=argparse.SUPPRESS)
+    recovery_seal = subcommands.add_parser(
+        "snapshot-recovery-seal",
+        help="seal reviewed legacy recovery after offline service drain",
+    )
+    recovery_seal.add_argument("review", type=Path)
+    recovery_seal.add_argument("drain", type=Path)
+    recovery_leave = subcommands.add_parser(
+        "snapshot-recovery-leave",
+        help="leave a completed, fully drained recovery epoch",
+    )
+    recovery_leave.add_argument("epoch_id")
+    recovery_leave.add_argument("drain", type=Path)
+    recovery_status = subcommands.add_parser(
+        "snapshot-recovery-status",
+        help="inspect bounded recovery epoch/process identities",
+    )
+    recovery_status.add_argument("epoch_id")
     arguments = parser.parse_args(argv)
     if arguments.command == "version":
         print(installed_identity())
@@ -89,6 +106,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
         if settings.data_root != data_root:
             raise HostBootstrapError("configured data root does not match environment")
+        if arguments.command == "snapshot-recovery-status":
+            import json
+
+            from kodi_lab.storage.models import SnapshotRecoveryEpochRow
+
+            sessions = create_session_factory(
+                create_database_engine(settings.database_url)
+            )
+            with sessions() as session:
+                boundary = session.get(SnapshotRecoveryEpochRow, arguments.epoch_id)
+                if boundary is None:
+                    raise HostBootstrapError("recovery epoch not found")
+                print(
+                    json.dumps(
+                        {
+                            "epoch_id": boundary.id,
+                            "state": boundary.state,
+                            "owners": {
+                                role: getattr(boundary, role + "_owner")
+                                for role in ("web", "broker")
+                            },
+                        },
+                        sort_keys=True,
+                    )
+                )
+            return 0
+        if arguments.command in {"snapshot-recovery-seal", "snapshot-recovery-leave"}:
+            from kodi_lab.application.snapshot_recovery_evidence import (
+                LegacyCaptureReview,
+            )
+            from kodi_lab.application.snapshot_recovery_maintenance import (
+                RecoveryDrainSeal,
+                leave_epoch,
+                seal_epoch,
+            )
+
+            sessions = create_session_factory(
+                create_database_engine(settings.database_url)
+            )
+            drain = RecoveryDrainSeal.model_validate_json(arguments.drain.read_bytes())
+            with lifecycle_lock(data_root):
+                if arguments.command == "snapshot-recovery-seal":
+                    review = LegacyCaptureReview.model_validate_json(
+                        arguments.review.read_bytes()
+                    )
+                    print(seal_epoch(sessions, review, drain))
+                else:
+                    leave_epoch(sessions, arguments.epoch_id, drain)
+            return 0
         if arguments.command == "serve":
             if not (data_root / ".state.json").is_file():
                 raise HostBootstrapError(
@@ -115,6 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     (data_root / "master-key").read_text(encoding="ascii").strip()
                 )
                 os.set_inheritable(lock_fd, True)
+                os.environ["KODI_LAB_LIFECYCLE_LOCK_FD"] = str(lock_fd)
                 os.execvp("kodi-lab-web", ["kodi-lab-web"])
         if arguments.command == "initialize":
             revision = remote_initialize(data_root, settings.database_url)

@@ -43,7 +43,7 @@ def test_existing_head_accepts_preview_and_refuses_terminal_mutation(
                 connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar()
-                == "0018_source_addition_reviews"
+                == "0019_snapshot_recovery"
             )
         with (
             pytest.raises(IntegrityError, match="terminal_immutable"),

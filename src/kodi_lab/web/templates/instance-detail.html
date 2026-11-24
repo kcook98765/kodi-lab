@@ -323,6 +323,7 @@
         {% for item in detail.recent_activity %}
         <article id="activity-{{ item.operation_uuid }}">
           <h3>{{ item.summary }}</h3>
+          {% if item.recovery_receipt_url %}<p><a href="{{ item.recovery_receipt_url }}">Authenticated recovery receipt</a></p>{% endif %}
           <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
           {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
           {% if item.deployment_recovery_available %}<p>A verified copy from this failed deployment needs explicit tree inspection. <a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ item.operation_uuid }}">Review recovery for this operation</a>.</p>{% endif %}
