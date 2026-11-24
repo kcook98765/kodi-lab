@@ -159,3 +159,41 @@ def test_controller_refuses_nonempty_initial_state(tmp_path):
     with pytest.raises(Refusal, match="fresh_state_directory_required"):
         Controller(root)
     assert (root / "preexisting").read_text() == "leave in place"
+
+
+def test_stopped_skin_rewrite_preserves_other_settings(tmp_path, monkeypatch):
+    from xml.etree import ElementTree as ET
+
+    from experiments.managed_v2.runtime import Runtime
+
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    native = Runtime(root)
+    profile = root / "volumes" / ("a" * 32)
+    userdata = profile / "userdata"
+    userdata.mkdir(parents=True)
+    native.pointer.write_text("a" * 32)
+    file = userdata / "guisettings.xml"
+    file.write_text(
+        "<settings><setting id='lookandfeel.skin'>skin.fixture</setting>"
+        "<setting id='lookandfeel.skinzoom'>7</setting>"
+        "<setting id='general.addonupdates'>2</setting></settings>"
+    )
+    monkeypatch.setattr(native, "require_stopped", lambda: None)
+    _, saved = native.skin_settings()
+    entries = [
+        ET.tostring(e)
+        for e in saved.getroot()
+        if e.get("id", "").startswith("lookandfeel.")
+    ]
+    native.write_skin("skin.estuary")
+    active = ET.parse(file).getroot()
+    assert active.find("setting[@id='lookandfeel.skin']").text == "skin.estuary"
+    active.find("setting[@id='lookandfeel.skinzoom']").text = "0"
+    ET.ElementTree(active).write(file)
+    native.write_skin("skin.fixture", saved=entries)
+    assert {e.attrib["id"]: e.text for e in ET.parse(file).getroot()} == {
+        "general.addonupdates": "2",
+        "lookandfeel.skin": "skin.fixture",
+        "lookandfeel.skinzoom": "7",
+    }

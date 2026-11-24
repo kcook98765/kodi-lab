@@ -232,6 +232,9 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
                         == native["native"]["final_skin"]
                         == SKIN
                     )
+                    await launch(
+                        "same-version 1.1.0 before=snapshot-sentinel deps=a+leaf,b"
+                    )
 
                 if skin_only:
                     await call("managed_prepare")

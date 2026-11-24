@@ -7,7 +7,6 @@ import re
 import sqlite3
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import narrow_bridge as bridge
@@ -22,7 +21,6 @@ PROFILE = Path("/home/kodi/.kodi")
 OPERATIONS = {
     "bridge_identity",
     "managed_v2_install",
-    "managed_v2_skin",
     "managed_v2_setting",
 }
 LOCK = threading.Lock()
@@ -137,60 +135,6 @@ class Native:
         self.wait(lambda: self.window() != 12000, "dependency_consent_unconfirmed")
         return True
 
-    def skin(self, target):
-        need(bool(re.fullmatch(r"skin\.[a-z0-9_.-]+", target)), "invalid_skin")
-        if self.gui()["skin"]["id"] == target:
-            return
-        need(self.window() in (10000, 10040), "unexpected_window_before_skin")
-        self.actions.append("set_skin:" + target)
-        # A Kodi setting write may wait for the native keep-skin confirmation.
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                self.rpc,
-                "Settings.SetSettingValue",
-                setting="lookandfeel.skin",
-                value=target,
-            )
-
-            def switched():
-                gui = self.gui()
-                window = gui.get("currentwindow", {}).get("id")
-                current = gui.get("skin", {}).get("id")
-                if window == 10100:
-                    heading, body, yes = (
-                        "Control.GetLabel(1)",
-                        "Control.GetLabel(9)",
-                        "Control.GetLabel(11)",
-                    )
-                    labels = self.labels(heading, body, yes)
-                    if not labels[body] or current != target:
-                        return False
-                    need(
-                        labels[heading] == "Keep skin?"
-                        and labels[yes] == "Yes"
-                        and labels[body] == "Would you like to keep this change?",
-                        "unexpected_skin_dialog",
-                    )
-                    self.act("keep_skin", "SendClick(10100,11)")
-                    self.wait(lambda: self.window() != 10100, "skin_dialog_pending")
-                    return True
-                return False
-
-            self.wait(switched, 12, "skin_switch_unconfirmed")
-            need(future.result(timeout=5), "skin_setting_refused")
-        self.wait(
-            lambda: self.gui().get("currentwindow", {}).get("id") in (10000, 10040),
-            "skin_foreground_unconfirmed",
-        )
-        need(
-            self.gui()["skin"]["id"] == target
-            and self.rpc("Settings.GetSettingValue", setting="lookandfeel.skin")[
-                "value"
-            ]
-            == target,
-            "skin_readback_mismatch",
-        )
-
     def matches(self, intent):
         root = PROFILE / "addons" / intent["addon"]
         try:
@@ -236,33 +180,15 @@ class Native:
             == 2,
             "automatic_updates_enabled",
         )
-        prior = self.gui()["skin"]["id"]
-        changed = prior != ESTUARY
+        need(self.gui()["skin"]["id"] == ESTUARY, "estuary_required")
         error = None
-        restore_error = None
         try:
-            if changed:
-                self.skin(ESTUARY)
             self.repository_install(intent)
         except (Refusal, OSError, TimeoutError) as exc:
             error = (
                 str(exc) if isinstance(exc, Refusal) else "native_observation_failed"
             )
-        finally:
-            if changed and self.gui()["skin"]["id"] != prior:
-                try:
-                    self.skin(prior)
-                except (Refusal, OSError, TimeoutError) as exc:
-                    restore_error = (
-                        str(exc) if isinstance(exc, Refusal) else "skin_restore_timeout"
-                    )
-        return {
-            "prior_skin": prior,
-            "final_skin": self.gui()["skin"]["id"],
-            "actions": self.actions,
-            "error": error,
-            "restore_error": restore_error,
-        }
+        return {"actions": self.actions, "error": error}
 
     def repository_install(self, intent):
         self.act("refresh", "UpdateAddonRepos")
@@ -471,13 +397,6 @@ class ManagedHandler(bridge.Handler):
                         "state": "verified"
                         if addon.getSetting(value["key"]) == value["value"]
                         else "unconfirmed"
-                    }
-                else:
-                    need(set(request["payload"]) == {"skin"}, "invalid_skin_intent")
-                    native.skin(request["payload"]["skin"])
-                    result = {
-                        "skin": native.gui()["skin"]["id"],
-                        "actions": native.actions,
                     }
             except (Refusal, OSError, TimeoutError) as exc:
                 result = {

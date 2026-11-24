@@ -14,17 +14,17 @@ uv run --locked ruff check experiments/managed_v2 tests/experiments/test_managed
 install -d -m 700 /path/to/empty-trial
 umask 077
 uv run --locked python -m experiments.managed_v2.native_check \
-  /path/to/empty-trial /path/to/prior-native-install-experiment/artifacts --no-skin
+  /path/to/empty-trial /path/to/prior-native-install-experiment/artifacts
 ```
 
-The native check needs the synthetic Program, its three module ZIPs, the missing-dependency control and two synthetic decoy versions from the prior comparison. It uses the installed MCP SDK to make authenticated Streamable HTTP calls on an ephemeral loopback port. The experimental skin lane uses a separate fresh state directory with the same command and the --skin-only option. Kodi installed and began loading the variant skin, and the Bridge failed to confirm the transition. Automatic restoration and updating the previously active skin remain unqualified. The fixture and skin bytes stay outside Git. The test driver retains a named compressed profile snapshot, independent workspaces and scoped output. It removes owned containers, volumes, the network and transient credentials.
+The native check needs the synthetic Program, its three module ZIPs, the missing-dependency control and two synthetic decoy versions from the prior comparison. It uses the installed MCP SDK to make authenticated Streamable HTTP calls on an ephemeral loopback port. The skin lane uses a variant derived from the reviewed runtime's Estuary assets. Use the --skin-only option to run that lane by itself in a fresh state directory. Fixture and skin bytes stay outside Git. The test driver retains a named compressed profile snapshot, independent workspaces and scoped output. It removes owned containers, volumes, the network and transient credentials.
 
 ## Operation model
 
 - Prepare creates the one clean working profile for Omega. Start creates a new container of the reviewed image with that volume. Graceful Stop verifies exit and retires the container. Reset stages a clean replacement volume.
 - Snapshot calls list, save, load and delete names. Save and Load require confirmed stopped Kodi. Archive identity records the exact runtime and compressed SHA-256. Load verifies the bytes, tar members and Kodi database checks before switching the profile pointer. Kodi temp data and Bridge authority are omitted.
 - Import a bounded ZIP or package an owned workspace. A trusted operator can pre-admit bytes captured from an approved repository. Installation selects an exact ID, version and digest and stages it in the private managed feed. Kodi resolves dependencies. Direct deployment of the same installed add-on operates on a stopped volume and preserves userdata.
-- Calls are serialized through the controller. The Bridge accepts only managed installation, skin, setting and identity operations, with fresh credentials for each boot. Native install refuses unexpected state. If the outcome is uncertain, the next mutation requires a confirmed Stop.
+- Calls are serialized through the controller. The Bridge accepts managed installation, add-on setting and identity operations, with fresh credentials for each boot. If the active skin differs from Estuary, the controller cleanly stops Kodi, writes the targeted skin setting and starts an authenticated replacement container on the same volume. After installation it repeats this cycle to restore the prior skin and its look-and-feel values. Native install refuses unexpected state. If the outcome is uncertain, the next mutation requires a confirmed Stop.
 
 ## Prototype limits
 

@@ -23,6 +23,7 @@ from kodi_lab.kodi.bridge import ExternalBridgeClient, ValidatedExternalEndpoint
 
 IMAGE = "sha256:7f779626cd56fb3bf86e14e39657fee5e8c5299a8f6f7abf59449a1163e7aa8e"
 BRIDGE = "service.kodi_lab_bridge"
+ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
 LABEL = "io.kodi-lab.managed-v2"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
@@ -85,7 +86,6 @@ class ManagedBridgeClient(ExternalBridgeClient):
         if operation not in {
             "bridge_identity",
             "managed_v2_install",
-            "managed_v2_skin",
             "managed_v2_setting",
         }:
             raise Refusal("invalid_managed_bridge_operation")
@@ -482,7 +482,7 @@ class Runtime:
         if (self.root / "unclean").exists():
             raise Refusal("native_exit_unconfirmed")
 
-    def stop(self):
+    def stop(self, *, clear_fence=True):
         obj = self.inspect()
         if obj is None:
             self.require_stopped()
@@ -503,8 +503,71 @@ class Runtime:
         else:
             raise Refusal("already_exited_without_confirmed_stop")
         (self.credentials / "state.json").unlink(missing_ok=True)
-        (self.root / "uncertain").unlink(missing_ok=True)
+        if clear_fence:
+            (self.root / "uncertain").unlink(missing_ok=True)
         return {"state": "stopped"}
+
+    def active_skin(self):
+        return self.rpc("GUI.GetProperties", properties=["skin"])["skin"]["id"]
+
+    def skin_settings(self):
+        self.require_stopped()
+        file = self.profile() / "userdata/guisettings.xml"
+        if (
+            file.is_symlink()
+            or file.parent.is_symlink()
+            or file.stat().st_size > 1024 * 1024
+        ):
+            raise Refusal("skin_settings_path_invalid")
+        tree = ET.parse(file)
+        if tree.getroot().tag != "settings":
+            raise Refusal("skin_settings_invalid")
+        return file, tree
+
+    def write_skin(self, addon, saved=None):
+        if not re.fullmatch(r"skin\.[a-z0-9_.-]+", addon):
+            raise Refusal("invalid_skin")
+        file, tree = self.skin_settings()
+        root = tree.getroot()
+        if saved is not None:
+            for entry in list(root):
+                if entry.get("id", "").startswith("lookandfeel."):
+                    root.remove(entry)
+            root.extend(ET.fromstring(value) for value in saved)
+        entries = root.findall("setting[@id='lookandfeel.skin']")
+        if len(entries) > 1:
+            raise Refusal("duplicate_skin_settings")
+        setting = (
+            entries[0]
+            if entries
+            else ET.SubElement(root, "setting", id="lookandfeel.skin")
+        )
+        setting.attrib.pop("default", None)
+        setting.text = addon
+        atomic(file, ET.tostring(root, encoding="utf-8", xml_declaration=True))
+
+    def start_with_skin(self, addon):
+        self.start()
+
+        def activated():
+            gui = self.rpc("GUI.GetProperties", properties=["skin", "currentwindow"])
+            if (
+                gui.get("skin", {}).get("id") != addon
+                or gui.get("currentwindow", {}).get("id") != 10000
+            ):
+                return False
+            current = self.rpc("Settings.GetSettingValue", setting="lookandfeel.skin")
+            if current.get("value") != addon:
+                return False
+            log = self.profile() / "temp/kodi.log"
+            with log.open(errors="replace") as stream:
+                return any(
+                    "load skin from:" in line and "/" + addon + "/" in line
+                    for line in stream
+                )
+
+        wait_until(activated, 8, "skin_boot_readback_unconfirmed")
+        return addon
 
     def reset(self):
         self.require_stopped()

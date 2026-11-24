@@ -10,7 +10,7 @@ import time
 from uuid import uuid4
 
 from .packages import Packages, addon_id, manifest, sha, workspace_files
-from .runtime import REPO, Refusal, Runtime, atomic
+from .runtime import ESTUARY, REPO, Refusal, Runtime, atomic
 from .snapshots import Snapshots
 
 
@@ -186,19 +186,17 @@ class Controller:
         )
         fence = self.runtime.root / "uncertain"
         atomic(fence, b"native install dispatched")
-        response = self.runtime.signed(
-            "managed_v2_install",
-            {
-                "addon": addon,
-                "version": version,
-                "category": pkg.category,
-                "name": pkg.node.attrib["name"],
-                "replace": bool(old and old["version"] == version),
-                "files": pkg.members,
-                "dependencies": sorted(allowed),
-                "catalog": checksum,
-            },
-        )
+        intent = {
+            "addon": addon,
+            "version": version,
+            "category": pkg.category,
+            "name": pkg.node.attrib["name"],
+            "replace": bool(old and old["version"] == version),
+            "files": pkg.members,
+            "dependencies": sorted(allowed),
+            "catalog": checksum,
+        }
+        response = self.install_on_estuary(intent)
         if response.get("error") or response.get("restore_error"):
             if response.get("error") in {
                 "missing_dependency",
@@ -217,6 +215,61 @@ class Controller:
             "dependencies": deps,
             "native": response,
         }
+
+    def install_on_estuary(self, intent):
+        native = self.runtime
+        prior = native.active_skin()
+        if prior == ESTUARY:
+            result = native.signed("managed_v2_install", intent)
+            return {"prior_skin": prior, "final_skin": native.active_skin(), **result}
+
+        gui = native.rpc("GUI.GetProperties", properties=["currentwindow"])
+        if gui["currentwindow"]["id"] not in (10000, 10040):
+            return {
+                "error": "unexpected_window_before_install",
+                "prior_skin": prior,
+                "final_skin": prior,
+            }
+
+        actions = []
+        saved = None
+        result = {}
+        try:
+            native.stop(clear_fence=False)
+            _, tree = native.skin_settings()
+            saved = [
+                ET_bytes(entry)
+                for entry in tree.getroot()
+                if entry.get("id", "").startswith("lookandfeel.")
+            ]
+            native.write_skin(ESTUARY)
+            native.start_with_skin(ESTUARY)
+            actions.append("stop_edit_start:" + ESTUARY)
+            result = native.signed("managed_v2_install", intent)
+            actions.extend(result.pop("actions", []))
+        except Exception as exc:
+            result["error"] = (
+                str(exc)
+                if isinstance(exc, Refusal)
+                else "native_install_outcome_unconfirmed"
+            )
+        if saved is not None:
+            try:
+                native.stop(clear_fence=False)
+                native.write_skin(prior, saved=saved)
+                native.start_with_skin(prior)
+                actions.append("stop_edit_start:" + prior)
+            except Exception as exc:
+                result["restore_error"] = (
+                    str(exc) if isinstance(exc, Refusal) else "skin_restore_unconfirmed"
+                )
+        else:
+            result["restore_error"] = "prior_skin_state_unconfirmed"
+        try:
+            skin = native.active_skin()
+        except Exception:
+            skin = None
+        return {"prior_skin": prior, "final_skin": skin, "actions": actions, **result}
 
     def launch(self, addon):
         addon_id(addon)
@@ -246,10 +299,11 @@ class Controller:
             raise Refusal("skin_not_enabled")
         fence = self.runtime.root / "uncertain"
         atomic(fence, b"native skin change dispatched")
-        result = self.runtime.signed("managed_v2_skin", {"skin": addon})
-        if result.get("skin") == addon and not result.get("error"):
-            fence.unlink()
-        return result
+        self.runtime.stop(clear_fence=False)
+        self.runtime.write_skin(addon)
+        result = self.runtime.start_with_skin(addon)
+        fence.unlink()
+        return {"skin": result, "actions": ["stop_edit_start:" + addon]}
 
     def deploy(self, addon):
         addon_id(addon)
