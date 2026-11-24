@@ -208,7 +208,7 @@ def test_merged_compose_exposes_only_loopback_and_two_ingress_members(
 ) -> None:
     site = tmp_path / "site"
     (site / "bundle").mkdir(parents=True)
-    for name in ("compose.release.yaml", "compose.lab.yaml"):
+    for name in ("compose.release.yaml",):
         shutil.copyfile(ROOT / name, site / "bundle" / name)
     (site / "compose.windows.yaml").write_text(install.windows_overlay(18121, config()))
     (site / "Caddyfile").write_text(install.caddyfile(config()))
@@ -220,7 +220,7 @@ def test_merged_compose_exposes_only_loopback_and_two_ingress_members(
         "KODI_LAB_REPOSITORY_BUNDLE_SHA256=" + "c" * 64 + "\n"
     )
     command = install.compose(
-        site, {"project": "kodi-lab-012345abcdef", "host": "windows-wsl2"}, managed=True
+        site, {"project": "kodi-lab-012345abcdef", "host": "windows-wsl2"}
     )
     rendered = json.loads(
         install.run(
