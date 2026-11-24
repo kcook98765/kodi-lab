@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
-from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -420,10 +419,6 @@ def test_mcp_external_screenshot_requires_pairing_grant_permission_and_policy(
         )
         adapters = KodiTargetAdapterService(
             factory,
-            managed_status=cast(Any, None),
-            managed_inventory=cast(Any, None),
-            managed_remote=cast(Any, None),
-            managed_authority=cast(Any, None),
             endpoint_policy=policy,
             credential_store=ExternalCredentialStore(
                 tmp_path / "native-secrets", master_key=None, key_version=1
@@ -467,9 +462,6 @@ def test_mcp_external_screenshot_requires_pairing_grant_permission_and_policy(
         tools = McpTargetToolService(
             factory,
             authorization,
-            cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
             target_adapters=adapters,
         )
         capture = tools.screenshot_capture(principal_a, target_id=target_id)

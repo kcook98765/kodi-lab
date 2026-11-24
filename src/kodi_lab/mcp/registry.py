@@ -147,138 +147,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
-            name="addon_settings_set",
-            schema_revision=1,
-            permissions=frozenset({"development.settings.write", "workspace.inspect"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"workspace_execution"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
-            adapter="agent_workspace.selected_addon_settings",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="addon_settings_result",
-            schema_revision=1,
-            permissions=frozenset({"development.settings.write", "workspace.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"workspace_execution"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_READ,
-            adapter="agent_workspace.selected_settings_receipt",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
-        )
-    )
-    for name, effect in (
-        ("managed_selection_preview", ToolEffect.READ_ONLY),
-        ("managed_select", ToolEffect.MUTATING),
-    ):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset({"managed.lifecycle", "workspace.inspect"}),
-                effect=effect,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset(),
-                required_states=frozenset(),
-                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
-                adapter="managed_runtime." + name,
-                production_eligible=False,
-                target_scope_required=False,
-                scope=ToolScope.WORKSPACE_TARGET,
-            )
-        )
-    for name in ("managed_status", "managed_start", "managed_stop", "managed_reset"):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset({"managed.versions", "managed.reset"})
-                if name == "managed_reset"
-                else frozenset({"managed.versions"}),
-                effect=ToolEffect.READ_ONLY
-                if name == "managed_status"
-                else ToolEffect.MUTATING,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset(),
-                required_states=frozenset(),
-                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
-                adapter="managed_versions." + name,
-                production_eligible=False,
-                target_scope_required=name != "managed_status",
-                scope=ToolScope.GLOBAL
-                if name == "managed_status"
-                else ToolScope.TARGET,
-            )
-        )
-    for name in ("managed_ensure_ready", "managed_release"):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset({"managed.lifecycle"}),
-                effect=ToolEffect.MUTATING,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset(),
-                required_states=frozenset({"reconciled"}),
-                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
-                adapter="managed_runtime." + name,
-                production_eligible=False,
-                target_scope_required=True,
-                scope=ToolScope.TARGET,
-            )
-        )
-    for name, effect, rate in (
-        (
-            "workspace_import_preview",
-            ToolEffect.READ_ONLY,
-            ToolRateClass.DEVELOPMENT_READ,
-        ),
-        ("workspace_import", ToolEffect.MUTATING, ToolRateClass.DEVELOPMENT_EDIT),
-    ):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset({"workspace.edit", "development_source.inspect"}),
-                effect=effect,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset({"registered_development_source"}),
-                required_states=frozenset(),
-                rate_class=rate,
-                adapter="agent_workspace." + name,
-                production_eligible=False,
-                target_scope_required=False,
-                scope=ToolScope.WORKSPACE,
-            )
-        )
-    registry.register(
-        McpToolDefinition(
-            name="screenshot_retrieve",
-            schema_revision=1,
-            permissions=frozenset({"target.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"screenshot"}),
-            required_states=frozenset({"reconciled"}),
-            rate_class=ToolRateClass.READ_BOUNDED,
-            adapter="kodi_target.screenshot.retrieve_exact_managed_capture",
-            production_eligible=False,
-            target_scope_required=True,
-            scope=ToolScope.TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
             name="log_read",
             schema_revision=1,
             permissions=frozenset({"target.inspect"}),
@@ -347,9 +215,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"development.request_promotion"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
-            ),
+            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
             required_capabilities=frozenset(
                 {"workspace_deployment", "workspace_execution"}
             ),
@@ -369,7 +235,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             effect=ToolEffect.MUTATING,
             allowed_target_classes=frozenset(
                 {
-                    TargetClass.INTERNAL_LAB,
                     TargetClass.EXTERNAL_DEVELOPMENT,
                     TargetClass.EXTERNAL_PRODUCTION,
                 }
@@ -391,7 +256,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
                 {
-                    TargetClass.INTERNAL_LAB,
                     TargetClass.EXTERNAL_DEVELOPMENT,
                     TargetClass.EXTERNAL_PRODUCTION,
                 }
@@ -417,7 +281,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
                 {
-                    TargetClass.INTERNAL_LAB,
                     TargetClass.EXTERNAL_DEVELOPMENT,
                     TargetClass.EXTERNAL_PRODUCTION,
                 }
@@ -439,7 +302,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
                 {
-                    TargetClass.INTERNAL_LAB,
                     TargetClass.EXTERNAL_DEVELOPMENT,
                     TargetClass.EXTERNAL_PRODUCTION,
                 }
@@ -461,7 +323,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
                 {
-                    TargetClass.INTERNAL_LAB,
                     TargetClass.EXTERNAL_DEVELOPMENT,
                     TargetClass.EXTERNAL_PRODUCTION,
                 }
@@ -477,183 +338,11 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
-            name="development_source_list",
-            schema_revision=1,
-            permissions=frozenset({"workspace.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"registered_development_source"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_READ,
-            adapter="development_source.list_granted",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.DEVELOPMENT_SOURCE,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="project_status",
-            schema_revision=1,
-            permissions=frozenset({"workspace.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset(),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_READ,
-            adapter="agent_project.owned_status",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.GLOBAL,
-        )
-    )
-    for name, read_only, scoped in (
-        ("package_import", False, False),
-        ("package_status", True, False),
-        ("package_install", False, True),
-        ("package_install_status", True, False),
-    ):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset(
-                    {"workspace.inspect" if read_only else "workspace.edit"}
-                ),
-                effect=ToolEffect.READ_ONLY if read_only else ToolEffect.MUTATING,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset(),
-                required_states=frozenset(),
-                rate_class=ToolRateClass.DEVELOPMENT_READ
-                if read_only
-                else ToolRateClass.DEVELOPMENT_EDIT,
-                adapter="agent_package.reviewed_native_zip",
-                production_eligible=False,
-                target_scope_required=scoped,
-                scope=ToolScope.TARGET if scoped else ToolScope.GLOBAL,
-            )
-        )
-    registry.register(
-        McpToolDefinition(
-            name="project_create",
-            schema_revision=1,
-            permissions=frozenset({"workspace.edit"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset(),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
-            adapter="agent_project.create_owned",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.GLOBAL,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="project_import",
-            schema_revision=1,
-            permissions=frozenset({"workspace.edit"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset(),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
-            adapter="agent_project.import_owned",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.GLOBAL,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="project_transfer",
-            schema_revision=1,
-            permissions=frozenset({"workspace.edit"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset(),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
-            adapter="agent_project.transfer_source",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.GLOBAL,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_create",
-            schema_revision=1,
-            permissions=frozenset({"workspace.edit"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"registered_development_source"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
-            adapter="agent_workspace.create_replay_safe",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.DEVELOPMENT_SOURCE,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_edit",
-            schema_revision=1,
-            permissions=frozenset({"workspace.edit"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"agent_workspace"}),
-            required_states=frozenset({"ready", "present"}),
-            rate_class=ToolRateClass.DEVELOPMENT_EDIT,
-            adapter="agent_workspace.edit_generation_bound",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_source_scan",
-            schema_revision=1,
-            permissions=frozenset({"development_source.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"registered_development_source"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_READ,
-            adapter="agent_workspace.scan_registered_source",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_capture",
-            schema_revision=1,
-            permissions=frozenset({"workspace.capture"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"registered_development_source"}),
-            required_states=frozenset({"ready", "present"}),
-            rate_class=ToolRateClass.DEVELOPMENT_EDIT,
-            adapter="agent_workspace.capture_registered_source",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
             name="workspace_deploy_preflight",
             schema_revision=1,
             permissions=frozenset({"workspace.deploy"}),
             effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
-            ),
+            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
             required_capabilities=frozenset(),
             required_states=frozenset(),
             rate_class=ToolRateClass.DEVELOPMENT_READ,
@@ -669,9 +358,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"workspace.deploy"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
-            ),
+            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
             required_capabilities=frozenset({"workspace_deployment"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_DEPLOY,
@@ -687,9 +374,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"development.execute"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
-            ),
+            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
             required_capabilities=frozenset({"workspace_execution"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
@@ -699,97 +384,4 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             scope=ToolScope.WORKSPACE_TARGET,
         )
     )
-    registry.register(
-        McpToolDefinition(
-            name="development_launch",
-            schema_revision=1,
-            permissions=frozenset({"development.launch", "workspace.inspect"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"workspace_execution"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
-            adapter="agent_workspace.launch_manifest_entry",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_launch",
-            schema_revision=1,
-            permissions=frozenset({"target.control", "development.execute"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"workspace_execution"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
-            adapter="agent_workspace.launch_manifest_entry",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_execution_recover",
-            schema_revision=1,
-            permissions=frozenset({"target.control", "development.execute"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"workspace_execution"}),
-            required_states=frozenset(),
-            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
-            adapter="agent_workspace.recover_ambiguous_smoke",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="workspace_validate",
-            schema_revision=1,
-            permissions=frozenset({"workspace.inspect"}),
-            effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"agent_workspace"}),
-            required_states=frozenset({"ready", "present"}),
-            rate_class=ToolRateClass.DEVELOPMENT_VALIDATE,
-            adapter="agent_workspace.validate_structure",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE,
-        )
-    )
-    for name, adapter, states in (
-        (
-            "workspace_read",
-            "agent_workspace.read_text",
-            frozenset({"ready", "present"}),
-        ),
-        ("workspace_status", "agent_workspace.status", frozenset()),
-        (
-            "workspace_tree",
-            "agent_workspace.inspect_directory",
-            frozenset({"ready", "present"}),
-        ),
-    ):
-        registry.register(
-            McpToolDefinition(
-                name=name,
-                schema_revision=1,
-                permissions=frozenset({"workspace.inspect"}),
-                effect=ToolEffect.READ_ONLY,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset({"agent_workspace"}),
-                required_states=states,
-                rate_class=ToolRateClass.DEVELOPMENT_READ,
-                adapter=adapter,
-                production_eligible=False,
-                target_scope_required=False,
-                scope=ToolScope.WORKSPACE,
-            )
-        )
     return registry

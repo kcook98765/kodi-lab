@@ -1,5 +1,7 @@
 # Kodi Lab
 
+For this development branch, see [Managed-v2 fresh installation](docs/MANAGED-V2-FRESH-INSTALL.md).
+
 **Agent-operated Kodi add-on development and testing, with a simple operator Web UI.**
 
 Kodi Lab provides a Web interface and a permission-controlled Model Context
@@ -54,7 +56,7 @@ Managed setup downloads and validates a reviewed runtime when needed. Starting
 and viewing Managed Kodi needs no agent, workspace or Bridge pairing. Trusted
 agents manage their own projects through MCP without Web workspace selection.
 Legacy selected-project workflows remain under **Advanced → Development tools**;
-see the [walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough).
+see the [walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md).
 
 The external pages offer **Connect External Production Kodi** or **Connect External
 Development Kodi** through the existing connection and pairing workflow. Kodi Lab
@@ -255,7 +257,7 @@ their documented limits.
 The existing manually selected workflow remains under **Advanced → Development
 tools → Current Managed Kodi**. Its [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development),
 [project onboarding](docs/LOCAL-PROJECT-ONBOARDING.md) and
-[walkthrough](docs/DEVELOPMENT-SESSION.md#everyday-walkthrough) retain their
+[walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md) retain their
 separate source, workspace and client permissions.
 
 ## Connect Your AI Agent
@@ -368,7 +370,7 @@ for the Matrix r4 and historical Piers RC1 native development paths. The
   [Linux manual installation and capacity](docs/LINUX-SOURCE-INSTALL.md),
   [Windows/WSL2 setup](docs/WINDOWS-WSL2-INSTALL.md), and
   [Web access and optional HTTPS](docs/WEB-NETWORKING.md).
-- **Kodi and add-on development:** [Current Managed Kodi walkthrough](docs/DEVELOPMENT-SESSION.md),
+- **Kodi and add-on development:** [Current Managed Kodi walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md),
   [external Kodi and repository setup](docs/LINUX-V1-INSTALL.md),
   [managed development workflow](docs/MANAGED-AGENT-LOOP.md), and
   [UI inspection](docs/UI-OBSERVATION.md).

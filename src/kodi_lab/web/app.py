@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import ipaddress
 import json
@@ -25,7 +24,6 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
-    Form,
     HTTPException,
     Query,
     Request,
@@ -63,9 +61,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from kodi_lab.application.activity import (
-    ManagedInstanceActivityService,
-)
 from kodi_lab.application.addon_inventory import (
     InventoryAdapterFactory,
     ManagedInstanceAddonInventoryService,
@@ -83,11 +78,8 @@ from kodi_lab.application.addon_repositories import (
     AddonRepositoryServiceError,
     AddonRepositorySourceRead,
 )
-from kodi_lab.application.addon_settings import AddonSettingsService
 from kodi_lab.application.addon_zip_enablements import (
     AddonZipEnablementError,
-    AddonZipEnablementOperationCoordinator,
-    AddonZipEnablementService,
 )
 from kodi_lab.application.addon_zip_imports import (
     AddonZipImportConflictError,
@@ -95,15 +87,8 @@ from kodi_lab.application.addon_zip_imports import (
     AddonZipImportExecutor,
 )
 from kodi_lab.application.addon_zip_installations import (
-    AddonZipInstallationCoordinator,
     AddonZipInstallationError,
-    AddonZipInstallationExecutor,
-    AddonZipInstallationService,
-    AddonZipInstallationServiceFactory,
     AddonZipInstallationStatus,
-)
-from kodi_lab.application.addon_zip_installations import (
-    ReadinessCoordinatorFactory as AddonZipReadinessCoordinatorFactory,
 )
 from kodi_lab.application.addon_zip_presentation import (
     AddonZipArtifactSummary,
@@ -113,14 +98,9 @@ from kodi_lab.application.addon_zip_presentation import (
 from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestConflictError,
     AddonZipSmokeTestError,
-    AddonZipSmokeTestExecutor,
     AddonZipSmokeTestNotFoundError,
-    AddonZipSmokeTestOperationCoordinator,
-    AddonZipSmokeTestService,
-    AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
-from kodi_lab.application.agent_packages import AgentPackageService
 from kodi_lab.application.agent_workspace_cleanup import (
     AgentWorkspaceCleanupError,
     AgentWorkspaceCleanupExecutor,
@@ -151,37 +131,20 @@ from kodi_lab.application.agent_workspaces import (
 from kodi_lab.application.browser_remote import (
     BrowserRemoteError,
     BrowserRemoteRateLimiter,
-    BrowserRemoteService,
-    RemoteAdapterFactory,
 )
 from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentError,
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
 )
-from kodi_lab.application.development_session_workflow import (
-    DevelopmentSessionWorkflow,
-)
-from kodi_lab.application.development_sessions import (
-    DevelopmentSessionService,
-)
-from kodi_lab.application.development_source_attachments import (
-    DevelopmentSourceAttachmentService,
-)
 from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
     DevelopmentSourceDeploymentError,
-    DevelopmentSourceDeploymentExecutor,
-    DevelopmentSourceDeploymentOperationCoordinator,
-    DevelopmentSourceDeploymentService,
-    DevelopmentSourceDeploymentServiceFactory,
     DevelopmentSourceDeploymentStatus,
     DevelopmentSourceDeploymentUnsupportedError,
 )
 from kodi_lab.application.development_source_enablements import (
     DevelopmentSourceEnablementError,
-    DevelopmentSourceEnablementOperationCoordinator,
-    DevelopmentSourceEnablementService,
 )
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourceDetail,
@@ -191,11 +154,7 @@ from kodi_lab.application.development_source_presentation import (
 from kodi_lab.application.development_source_smoke_tests import (
     DevelopmentSourceSmokeTestConflictError,
     DevelopmentSourceSmokeTestError,
-    DevelopmentSourceSmokeTestExecutor,
     DevelopmentSourceSmokeTestNotFoundError,
-    DevelopmentSourceSmokeTestOperationCoordinator,
-    DevelopmentSourceSmokeTestService,
-    DevelopmentSourceSmokeTestServiceFactory,
     DevelopmentSourceSmokeTestStatus,
 )
 from kodi_lab.application.development_sources import (
@@ -245,7 +204,6 @@ from kodi_lab.application.external_targets import (
 )
 from kodi_lab.application.historical_workspace_execution_containment import (
     HistoricalContainmentError,
-    HistoricalWorkspaceExecutionContainmentService,
 )
 from kodi_lab.application.household_onboarding import (
     HouseholdKodiOnboardingService,
@@ -256,54 +214,20 @@ from kodi_lab.application.household_onboarding import (
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteConflictError,
     ManagedInstanceDeleteNotFoundError,
-    ManagedInstanceDeleteOperationCoordinator,
-    ManagedInstanceDeleteStatus,
     ManagedInstanceDeleteUnsupportedError,
-)
-from kodi_lab.application.instance_deletions import (
-    DisposableManagedInstanceDeletionService,
-    ManagedInstanceDeleteExecutor,
-    ManagedInstanceDeleteServiceFactory,
 )
 from kodi_lab.application.instance_history import (
     DeletedManagedInstanceHistoryNotFoundError,
-    DeletedManagedInstanceHistoryService,
-    ManagedInstanceDetailService,
 )
 from kodi_lab.application.lifecycle_operations import (
     LifecycleOperationConflictError,
-    ManagedInstanceLifecycleOperationCoordinator,
-)
-from kodi_lab.application.live_display import (
-    ManagedLiveDisplayService,
 )
 from kodi_lab.application.local_projects import (
     LocalProjectOnboardingService,
 )
-from kodi_lab.application.managed_agent_lifecycle import (
-    ManagedAgentLifecycleService,
-)
-from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
-from kodi_lab.application.managed_capability_prerequisites import (
-    CapabilityPrerequisitesUnavailable,
-    ManagedCapabilityPrerequisites,
-    ManagedCapabilityPrerequisiteService,
-)
-from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
-from kodi_lab.application.managed_kodi_prerequisites import (
-    ManagedKodiPrerequisiteService,
-)
 from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
-from kodi_lab.application.managed_observation_bridge import (
-    ManagedObservationBridgeService,
-)
 from kodi_lab.application.managed_resources import (
     ManagedResourceProtected,
-    ManagedResourceService,
-    PlaybackFactory,
-)
-from kodi_lab.application.managed_versions import (
-    ManagedVersionLifecycleService,
 )
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
@@ -344,7 +268,6 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
-from kodi_lab.application.native_zip_installations import NativeZipInstallationService
 from kodi_lab.application.official_bridge_builds import recognize_official_bridge
 from kodi_lab.application.production_capability_amendments import (
     ProductionCapabilityAmendmentError,
@@ -375,34 +298,15 @@ from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationRequiredError,
     ManagedInstanceReconciliationService,
     ReconciliationAction,
-    SnapshotReconciliationService,
     StaleOperationReconciliationDispatcher,
 )
 from kodi_lab.application.repository_replacements import (
-    RepositoryReplacementCoordinator,
     RepositoryReplacementError,
-    RepositoryReplacementExecutor,
-    RepositoryReplacementService,
-    RepositoryReplacementServiceFactory,
     RepositoryReplacementStatus,
     RepositoryReplacementUnsupportedError,
 )
-from kodi_lab.application.reset import DisposableInstanceResetService
-from kodi_lab.application.reset_activity import ResetActivityRegistry
 from kodi_lab.application.reset_operations import (
-    ResetExecutor,
     ResetOperationConflictError,
-    ResetOperationCoordinator,
-    ResetServiceFactory,
-)
-from kodi_lab.application.reset_status import (
-    ResetStatusService,
-)
-from kodi_lab.application.retained_diagnostics import (
-    DiagnosticCaptureSummary,
-    DiagnosticDiscardInput,
-    RetainedDiagnosticsError,
-    RetainedDiagnosticsService,
 )
 from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
@@ -416,7 +320,6 @@ from kodi_lab.application.runtime_installations import (
 )
 from kodi_lab.application.runtime_lifecycle import (
     LifecycleConflictError,
-    ManagedRuntimeLifecycleService,
     ReadinessCoordinatorFactory,
 )
 from kodi_lab.application.runtime_matrix import (
@@ -425,8 +328,6 @@ from kodi_lab.application.runtime_matrix import (
     TargetRuntimeSelection,
 )
 from kodi_lab.application.runtime_reconstruction import (
-    ManagedRuntimeReconstructionCoordinator,
-    ManagedRuntimeReconstructionExecutor,
     ReconstructionConflictError,
 )
 from kodi_lab.application.runtime_status import (
@@ -439,48 +340,25 @@ from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceUpdate,
 )
 from kodi_lab.application.screenshots import (
-    ManagedScreenshotService,
     ScreenshotServiceError,
 )
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
     SnapshotDeleteNotFoundError,
-    SnapshotDeleteOperationCoordinator,
     SnapshotDeleteStatus,
     SnapshotDeleteUnsupportedError,
 )
-from kodi_lab.application.snapshot_deletions import (
-    DisposableSnapshotDeletionService,
-    SnapshotDeleteExecutor,
-    SnapshotDeleteServiceFactory,
-)
 from kodi_lab.application.snapshot_operations import (
     SnapshotCreateConflictError,
-    SnapshotCreateOperationCoordinator,
     SnapshotCreateStatus,
     SnapshotCreateUnsupportedError,
 )
 from kodi_lab.application.snapshot_restore_operations import (
     SnapshotRestoreConflictError,
-    SnapshotRestoreOperationCoordinator,
     SnapshotRestoreStatus,
     SnapshotRestoreUnsupportedError,
     SnapshotSourceInstanceDeletedError,
 )
-from kodi_lab.application.snapshot_restores import (
-    DisposableSnapshotRestoreService,
-    SnapshotRestoreExecutor,
-    SnapshotRestoreServiceFactory,
-)
-from kodi_lab.application.snapshot_status import (
-    SnapshotStatusService,
-)
-from kodi_lab.application.snapshots import (
-    DisposableSnapshotCreationService,
-    SnapshotCreateExecutor,
-    SnapshotServiceFactory,
-)
-from kodi_lab.application.ui_state import ManagedUiObservationService
 from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
@@ -489,9 +367,6 @@ from kodi_lab.application.workspace_deployment_preflight import (
     DeploymentPreflightInput,
     DeploymentPreflightResult,
     WorkspaceDeploymentPreflightService,
-)
-from kodi_lab.application.workspace_launch import (
-    WorkspaceLaunchService,
 )
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
@@ -537,11 +412,10 @@ from kodi_lab.kodi.bridge import (
 )
 from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
-from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.window_resolver import WindowResolver
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
 from kodi_lab.mcp.authorization import (
-    InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
 )
 from kodi_lab.mcp.lan import McpLanStatus, check_http_proxy, check_lan_endpoint
@@ -556,19 +430,13 @@ from kodi_lab.repository.development import (
 )
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
-from kodi_lab.storage.managed_activity import (
-    read_resource_policy as managed_resource_policy,
-)
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     ExternalSecretRetirementRow,
-    ManagedInstanceMutationLeaseRow,
-    ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
     RepositoryWorkspaceDeploymentRow,
     TargetRow,
 )
-from kodi_lab.storage.repositories import ManagedInstanceRepository
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
     ExternalCredentialStore,
@@ -580,17 +448,10 @@ from kodi_lab.web.admin_views import (
     admin_view_context,
     admin_view_return_path,
 )
-from kodi_lab.web.current_kodi import CurrentKodiPresentation
 from kodi_lab.web.development_targets import development_target_view
 from kodi_lab.web.environment_identity import environment_identity
 from kodi_lab.web.kodi_views import KodiViews
-from kodi_lab.web.live_preview import preview_owner
 from kodi_lab.web.managed import managed_router
-from kodi_lab.web.native_zip_installations import (
-    NativeZipBodyLimitMiddleware,
-    native_zip_router,
-)
-from kodi_lab.web.novnc import PrototypeViewer
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
     STATE_LABELS,
@@ -1323,64 +1184,21 @@ class WebApplicationContext:
     auth: WebAuthenticationService
     throttler: LoginThrottler
     status: ManagedRuntimeStatusService
-    retained_diagnostics: RetainedDiagnosticsService
-    lifecycle: ManagedRuntimeLifecycleService
-    managed_resources: ManagedResourceService
-    managed_agent_lifecycle: ManagedAgentLifecycleService
-    managed_versions: ManagedVersionLifecycleService
-    managed_idle_worker: ManagedIdleWorker
     matrix: RuntimeMatrixService
     readiness: ReadinessTaskRegistry
-    reset_activity: ResetActivityRegistry
-    reset_status: ResetStatusService
-    reset_operations: ResetOperationCoordinator
-    reset_executor: ResetExecutor
-    reconstruction: ManagedRuntimeReconstructionCoordinator
-    reconstruction_executor: ManagedRuntimeReconstructionExecutor
-    snapshot_status: SnapshotStatusService
-    snapshot_operations: SnapshotCreateOperationCoordinator
-    snapshot_executor: SnapshotCreateExecutor
-    snapshot_restore_operations: SnapshotRestoreOperationCoordinator
-    snapshot_restore_executor: SnapshotRestoreExecutor
-    snapshot_delete_operations: SnapshotDeleteOperationCoordinator
-    snapshot_delete_executor: SnapshotDeleteExecutor
-    instance_delete_operations: ManagedInstanceDeleteOperationCoordinator
-    instance_delete_executor: ManagedInstanceDeleteExecutor
     reconciliation: ManagedInstanceReconciliationService
-    snapshot_reconciliation: SnapshotReconciliationService
     stale_dispatcher: StaleOperationReconciliationDispatcher
-    lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
-    activity: ManagedInstanceActivityService
     addon_inventory: ManagedInstanceAddonInventoryService
-    instance_detail: ManagedInstanceDetailService
-    deleted_history: DeletedManagedInstanceHistoryService
     development_sources: DevelopmentSourcePresentationService
     development_source_administration: DevelopmentSourceAdministrationService
-    development_source_attachments: DevelopmentSourceAttachmentService
-    development_source_deployment_operations: (
-        DevelopmentSourceDeploymentOperationCoordinator
-    )
-    development_source_deployment_executor: DevelopmentSourceDeploymentExecutor
-    development_source_enablement: DevelopmentSourceEnablementService
-    development_source_smoke_test_operations: (
-        DevelopmentSourceSmokeTestOperationCoordinator
-    )
-    development_source_smoke_test_executor: DevelopmentSourceSmokeTestExecutor
     addon_zips: AddonZipPresentationService
     addon_zip_imports: AddonZipImportCoordinator
     addon_zip_import_executor: AddonZipImportExecutor
-    addon_zip_installations: AddonZipInstallationCoordinator
-    addon_zip_installation_executor: AddonZipInstallationExecutor
-    addon_zip_enablement: AddonZipEnablementService
-    addon_zip_smoke_test_operations: AddonZipSmokeTestOperationCoordinator
-    addon_zip_smoke_test_executor: AddonZipSmokeTestExecutor
     addon_repositories: AddonRepositoryAdministrationService
     addon_repository_refreshes: AddonRepositoryRefreshCoordinator
     addon_repository_refresh_executor: AddonRepositoryExecutor
     addon_repository_fetches: AddonRepositoryFetchCoordinator
     addon_repository_fetch_executor: AddonRepositoryExecutor
-    repository_replacements: RepositoryReplacementCoordinator
-    repository_replacement_executor: RepositoryReplacementExecutor
     agent_workspaces: AgentWorkspaceService
     workspace_source_captures: WorkspaceSourceCaptureService | None
     workspace_capture_presentation: WorkspaceCapturePresentationService | None
@@ -1388,20 +1206,12 @@ class WebApplicationContext:
     agent_workspace_cleanups: AgentWorkspaceCleanupService
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
-    workspace_launch: WorkspaceLaunchService
-    addon_settings: AddonSettingsService
     mcp_workspace_development: McpWorkspaceDevelopmentService
     local_projects: LocalProjectOnboardingService
-    historical_workspace_execution_containment: (
-        HistoricalWorkspaceExecutionContainmentService
-    )
     mcp_promotion_requests: McpPromotionRequestService
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
-    screenshots: ManagedScreenshotService
-    browser_remote: BrowserRemoteService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
-    live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
     external_onboarding: ExternalKodiOnboardingService
     household_onboarding: HouseholdKodiOnboardingService
@@ -1412,8 +1222,6 @@ class WebApplicationContext:
     external_bridges: ExternalBridgeService
     screenshot_preferences: ScreenshotPreferenceService
     navigation_preferences: ProductionNavigationPreferenceService
-    managed_observation_bridges: ManagedObservationBridgeService
-    managed_bridge_trust: ManagedBridgeTrustService
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
     )
@@ -1427,66 +1235,31 @@ def create_app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     broker: Any,
-    novnc_viewer: PrototypeViewer | None = None,
     readiness: ReadinessTaskRegistry | None = None,
-    reset_activity: ResetActivityRegistry | None = None,
     auth: WebAuthenticationService | None = None,
     throttler: LoginThrottler | None = None,
     coordinator_factory: ReadinessCoordinatorFactory | None = None,
-    reset_service_factory: ResetServiceFactory | None = None,
-    snapshot_service_factory: SnapshotServiceFactory | None = None,
-    snapshot_restore_service_factory: SnapshotRestoreServiceFactory | None = None,
-    snapshot_delete_service_factory: SnapshotDeleteServiceFactory | None = None,
-    instance_delete_service_factory: ManagedInstanceDeleteServiceFactory | None = None,
-    development_source_deployment_service_factory: (
-        DevelopmentSourceDeploymentServiceFactory | None
-    ) = None,
     addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
-    development_source_enablement_service: DevelopmentSourceEnablementService
-    | None = None,
-    development_source_smoke_test_service_factory: (
-        DevelopmentSourceSmokeTestServiceFactory | None
-    ) = None,
-    addon_zip_installation_service_factory: (
-        AddonZipInstallationServiceFactory | None
-    ) = None,
-    addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
-    addon_zip_enablement_service: AddonZipEnablementService | None = None,
-    addon_zip_smoke_test_service_factory: AddonZipSmokeTestServiceFactory | None = None,
     development_source_administration_service: (
         DevelopmentSourceAdministrationService | None
     ) = None,
-    development_source_attachment_service: DevelopmentSourceAttachmentService
-    | None = None,
     addon_repository_administration_service: (
         AddonRepositoryAdministrationService | None
     ) = None,
     addon_repository_refresh_coordinator: AddonRepositoryRefreshCoordinator
     | None = None,
     addon_repository_fetch_coordinator: AddonRepositoryFetchCoordinator | None = None,
-    repository_replacement_service_factory: (
-        RepositoryReplacementServiceFactory | None
-    ) = None,
     agent_workspace_service: AgentWorkspaceService | None = None,
     agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
     promotion_verification_service: PromotionVerificationService | None = None,
     agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
-    managed_screenshot_service: ManagedScreenshotService | None = None,
-    browser_remote_service: BrowserRemoteService | None = None,
     browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
-    browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
-    managed_live_display_service: ManagedLiveDisplayService | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
     production_target_service: ExternalTargetAdministrationService | None = None,
     external_bridge_service: ExternalBridgeService | None = None,
     external_target_transport: httpx.BaseTransport | None = None,
-    managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
-    if novnc_viewer is None:
-        from kodi_lab.web.novnc_optin import build_viewer
-
-        novnc_viewer = build_viewer(settings, session_factory)
     repository_data_root = Path(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
@@ -1500,7 +1273,6 @@ def create_app(
         )
 
     task_registry = readiness or ReadinessTaskRegistry()
-    reset_registry = reset_activity or ResetActivityRegistry()
     stale_dispatcher = StaleOperationReconciliationDispatcher(
         session_factory,
         broker=broker,
@@ -1513,19 +1285,6 @@ def create_app(
         data_root=settings.data_root,
         readiness=task_registry,
     )
-    snapshot_reconciliation = SnapshotReconciliationService(
-        session_factory, data_root=settings.data_root
-    )
-    lifecycle_operations = ManagedInstanceLifecycleOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    reset_operations = ResetOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
     status_service = ManagedRuntimeStatusService(
         session_factory,
         broker,
@@ -1536,25 +1295,10 @@ def create_app(
             coordinator_factory or KodiReadinessCoordinator
         )(broker, profile),
     )
-    screenshots = managed_screenshot_service or ManagedScreenshotService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        data_root=settings.data_root,
-    )
     addon_inventory = ManagedInstanceAddonInventoryService(
         session_factory,
         broker,
         adapter_factory=addon_inventory_adapter_factory,
-    )
-    browser_remote = browser_remote_service or BrowserRemoteService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        screenshots,
-        adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
     )
     remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
     agent_workspaces = agent_workspace_service or AgentWorkspaceService(
@@ -1706,41 +1450,14 @@ def create_app(
         verifier=NativeExternalKodiVerifier(transport=external_target_transport),
     )
     mcp_registry = build_mcp_tool_registry()
-    managed_target_authority = InternalManagedTargetAuthorityProvider(
-        session_factory,
-        reconciliation=reconciliation,
-        screenshots=screenshots,
-        status=status_service,
-    )
-    managed_observation_bridges = ManagedObservationBridgeService(
-        session_factory,
-        external_bridge_secret_store,
-    )
-    managed_bridge_trust = ManagedBridgeTrustService(
-        session_factory, broker, external_bridge_secret_store
-    )
     window_resolver = WindowResolver(local_root=settings.data_root / "window-mappings")
-    managed_ui_state = ManagedUiObservationService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        bridges=managed_observation_bridges,
-        window_resolver=window_resolver,
-    )
 
     mcp_target_adapters = KodiTargetAdapterService(
         session_factory,
-        managed_status=status_service,
-        managed_inventory=addon_inventory,
-        managed_remote=browser_remote,
-        managed_screenshots=screenshots,
-        managed_authority=managed_target_authority,
         external_bridges=external_bridges,
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
         external_transport=external_target_transport,
-        managed_ui_state=managed_ui_state,
         window_resolver=window_resolver,
     )
     mcp_workspace_development.configure_external(
@@ -1766,93 +1483,6 @@ def create_app(
     production_native_control_acknowledgements = (
         ProductionNativeControlAcknowledgementService(session_factory)
     )
-    live_display = managed_live_display_service or ManagedLiveDisplayService(
-        broker, status_service, reconciliation, screenshots
-    )
-    reset_status_service = ResetStatusService(
-        session_factory, broker, reset_registry, reset_operations
-    )
-    service_factory = reset_service_factory or (
-        lambda observer: DisposableInstanceResetService(
-            session_factory, broker, activity=observer
-        )
-    )
-    reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
-    reconstruction = ManagedRuntimeReconstructionCoordinator(session_factory, broker)
-    reconstruction_executor = ManagedRuntimeReconstructionExecutor(
-        reconstruction, session_factory, broker
-    )
-    snapshot_operations = SnapshotCreateOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    snapshot_factory = snapshot_service_factory or (
-        lambda lease: DisposableSnapshotCreationService(
-            session_factory,
-            broker,
-            snapshot_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_executor = SnapshotCreateExecutor(snapshot_operations, snapshot_factory)
-    snapshot_restore_operations = SnapshotRestoreOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    snapshot_restore_factory = snapshot_restore_service_factory or (
-        lambda lease: DisposableSnapshotRestoreService(
-            session_factory,
-            broker,
-            snapshot_restore_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_restore_executor = SnapshotRestoreExecutor(
-        snapshot_restore_operations, snapshot_restore_factory
-    )
-    snapshot_delete_operations = SnapshotDeleteOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    snapshot_delete_factory = snapshot_delete_service_factory or (
-        lambda lease: DisposableSnapshotDeletionService(
-            session_factory,
-            broker,
-            snapshot_delete_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_delete_executor = SnapshotDeleteExecutor(
-        snapshot_delete_operations, snapshot_delete_factory
-    )
-    instance_delete_operations = ManagedInstanceDeleteOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    instance_delete_factory = instance_delete_service_factory or (
-        lambda lease: DisposableManagedInstanceDeletionService(
-            session_factory,
-            broker,
-            task_registry,
-            instance_delete_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    instance_delete_executor = ManagedInstanceDeleteExecutor(
-        instance_delete_operations, instance_delete_factory
-    )
-    activity = ManagedInstanceActivityService(session_factory)
-    snapshot_status = SnapshotStatusService(session_factory)
     development_sources = DevelopmentSourcePresentationService(session_factory)
     development_source_validator = DevelopmentSourceValidator(settings.development_root)
     development_source_administration = (
@@ -1861,75 +1491,6 @@ def create_app(
             session_factory, development_source_validator
         )
     )
-    development_source_attachments = (
-        development_source_attachment_service
-        or DevelopmentSourceAttachmentService(
-            session_factory,
-            development_source_validator,
-            mutation_coordinator=ManagedInstanceMutationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    development_source_deployment_operations = (
-        DevelopmentSourceDeploymentOperationCoordinator(
-            session_factory,
-            broker,
-            development_source_validator,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        )
-    )
-    development_source_deployment_factory = (
-        development_source_deployment_service_factory
-        or (
-            lambda lease: DevelopmentSourceDeploymentService(
-                broker, development_source_deployment_operations, lease
-            )
-        )
-    )
-    development_source_deployment_executor = DevelopmentSourceDeploymentExecutor(
-        development_source_deployment_operations,
-        development_source_deployment_factory,
-    )
-    development_source_enablement = (
-        development_source_enablement_service
-        or DevelopmentSourceEnablementService(
-            session_factory,
-            broker,
-            development_source_validator,
-            coordinator=DevelopmentSourceEnablementOperationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    development_source_smoke_test_operations = (
-        DevelopmentSourceSmokeTestOperationCoordinator(
-            session_factory,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        )
-    )
-    development_source_smoke_test_factory = (
-        development_source_smoke_test_service_factory
-        or (
-            lambda lease: DevelopmentSourceSmokeTestService(
-                session_factory,
-                broker,
-                development_source_validator,
-                development_source_smoke_test_operations,
-                lease,
-            )
-        )
-    )
-    development_source_smoke_test_executor = DevelopmentSourceSmokeTestExecutor(
-        development_source_smoke_test_operations,
-        development_source_smoke_test_factory,
-    )
     addon_zips = AddonZipPresentationService(session_factory)
     addon_zip_imports = AddonZipImportCoordinator(
         session_factory,
@@ -1937,51 +1498,6 @@ def create_app(
         stale_dispatcher=stale_dispatcher,
     )
     addon_zip_import_executor = AddonZipImportExecutor(addon_zip_imports)
-    addon_zip_installations = AddonZipInstallationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    addon_zip_installation_factory = addon_zip_installation_service_factory or (
-        lambda lease: AddonZipInstallationService(
-            session_factory,
-            broker,
-            addon_zip_installations,
-            lease,
-            inventory_adapter_factory=addon_inventory_adapter_factory,
-            readiness_factory=addon_zip_readiness_factory or KodiReadinessCoordinator,
-        )
-    )
-    addon_zip_installation_executor = AddonZipInstallationExecutor(
-        addon_zip_installations, addon_zip_installation_factory
-    )
-    addon_zip_enablement = addon_zip_enablement_service or AddonZipEnablementService(
-        session_factory,
-        broker,
-        coordinator=AddonZipEnablementOperationCoordinator(
-            session_factory,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        ),
-        inventory_adapter_factory=addon_inventory_adapter_factory,
-    )
-    addon_zip_smoke_test_operations = AddonZipSmokeTestOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    addon_zip_smoke_test_factory = addon_zip_smoke_test_service_factory or (
-        lambda lease: AddonZipSmokeTestService(
-            session_factory,
-            broker,
-            addon_zip_smoke_test_operations,
-            lease,
-            inventory_adapter_factory=addon_inventory_adapter_factory,
-        )
-    )
-    addon_zip_smoke_test_executor = AddonZipSmokeTestExecutor(
-        addon_zip_smoke_test_operations, addon_zip_smoke_test_factory
-    )
     addon_repositories = (
         addon_repository_administration_service
         or AddonRepositoryAdministrationService(
@@ -2008,24 +1524,6 @@ def create_app(
     )
     addon_repository_fetch_executor = AddonRepositoryExecutor(
         addon_repository_fetches, thread_name="repository-fetch"
-    )
-    repository_replacements = RepositoryReplacementCoordinator(
-        session_factory,
-        broker,
-        inventory_factory=addon_inventory_adapter_factory,
-        reconciliation=reconciliation,
-    )
-    repository_replacement_factory = repository_replacement_service_factory or (
-        lambda lease: RepositoryReplacementService(
-            session_factory,
-            broker,
-            repository_replacements,
-            lease,
-            inventory_factory=addon_inventory_adapter_factory,
-        )
-    )
-    repository_replacement_executor = RepositoryReplacementExecutor(
-        repository_replacements, repository_replacement_factory
     )
 
     def require_promotion_verification_reconciliation(instance_id: UUID) -> None:
@@ -2063,55 +1561,8 @@ def create_app(
     mcp_promotion_requests = McpPromotionRequestService(
         session_factory, agent_workspace_promotions
     )
-    lifecycle_service = ManagedRuntimeLifecycleService(
-        session_factory,
-        broker,
-        task_registry,
-        status_service,
-        coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
-        reset_operations=reset_operations,
-        lifecycle_operations=lifecycle_operations,
-        bridge_trust=managed_bridge_trust,
-        data_root=settings.data_root,
-    )
-    resources = ManagedResourceService(
-        session_factory,
-        broker,
-        lifecycle_service,
-        playback_factory=managed_playback_factory or KodiBrowserRemoteAdapter,
-    )
-    agent_lifecycle = ManagedAgentLifecycleService(
-        session_factory,
-        resources,
-        lifecycle_service,
-        status_service,
-        lock_root=settings.data_root / "locks/managed-agent-lifecycle",
-    )
     runtime_installations = RuntimeInstallationService(
         session_factory, broker, data_root=settings.data_root
-    )
-    managed_versions = ManagedVersionLifecycleService(
-        session_factory,
-        lifecycle_service,
-        resources,
-        status_service,
-        runtime_installations,
-        agent_lifecycle,
-        broker.managed_container_inventory,
-        data_root=settings.data_root,
-    )
-    idle_worker = ManagedIdleWorker(resources)
-    workspace_launch = WorkspaceLaunchService(
-        session_factory,
-        mcp_workspace_development,
-        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
-        data_root=settings.data_root,
-    )
-    addon_settings = AddonSettingsService(
-        session_factory,
-        mcp_workspace_development,
-        workspace_launch,
-        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
     )
     lan_endpoints = [
         urlsplit(url)
@@ -2130,48 +1581,20 @@ def create_app(
             else (endpoint.netloc,)
         )
     ]
-    session_service = DevelopmentSessionService(
-        session_factory,
-        broker.managed_container_inventory,
-        data_root=settings.data_root,
-    )
-    native_packages = NativeZipInstallationService(
-        session_factory,
-        broker,
-        mcp_authorization,
-        data_root=settings.data_root,
-        base_url=settings.native_zip_base_url,
-        inventory_factory=addon_inventory_adapter_factory,
-    )
     managed = ManagedBrokerClient(settings.runtime_root / "managed/control.sock")
     mcp_transport = build_mcp_http_transport(
         managed=managed,
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
-        registry=mcp_registry,
         tools=McpTargetToolService(
             session_factory,
             mcp_authorization,
-            status_service,
-            addon_inventory,
-            screenshots,
             remote_receipts,
-            agent_workspaces,
-            mcp_workspace_creation,
-            mcp_workspace_retention,
             mcp_workspace_development,
             mcp_promotion_requests,
             target_adapters=mcp_target_adapters,
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
-            workspace_source_captures=workspace_source_captures,
-            managed_lifecycle=agent_lifecycle,
-            managed_versions=managed_versions,
-            retained_sessions=session_service,
-            workspace_launch=workspace_launch,
-            addon_settings=addon_settings,
-            packages=AgentPackageService(session_factory, settings.data_root),
-            native_packages=native_packages,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -2186,86 +1609,29 @@ def create_app(
         )
         + tuple(f"{scheme}://{authority}" for scheme, authority in lan_authorities),
     )
-    instance_detail = ManagedInstanceDetailService(
-        session_factory,
-        status_service,
-        snapshot_status,
-        activity,
-        reconciliation,
-        development_sources,
-        addon_inventory,
-    )
-    deleted_history = DeletedManagedInstanceHistoryService(
-        session_factory, activity, snapshot_status
-    )
     context = WebApplicationContext(
-        retained_diagnostics=RetainedDiagnosticsService(
-            session_factory, broker, data_root=settings.data_root
-        ),
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
         status=status_service,
-        lifecycle=lifecycle_service,
-        managed_resources=resources,
-        managed_agent_lifecycle=agent_lifecycle,
-        managed_versions=managed_versions,
-        managed_idle_worker=idle_worker,
         matrix=RuntimeMatrixService(
             session_factory,
             trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
         ),
         readiness=task_registry,
-        reset_activity=reset_registry,
-        reset_status=reset_status_service,
-        reset_operations=reset_operations,
-        reset_executor=reset_executor,
-        reconstruction=reconstruction,
-        reconstruction_executor=reconstruction_executor,
-        snapshot_status=snapshot_status,
-        snapshot_operations=snapshot_operations,
-        snapshot_executor=snapshot_executor,
-        snapshot_restore_operations=snapshot_restore_operations,
-        snapshot_restore_executor=snapshot_restore_executor,
-        snapshot_delete_operations=snapshot_delete_operations,
-        snapshot_delete_executor=snapshot_delete_executor,
-        instance_delete_operations=instance_delete_operations,
-        instance_delete_executor=instance_delete_executor,
         reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
         stale_dispatcher=stale_dispatcher,
-        lifecycle_operations=lifecycle_operations,
-        activity=activity,
         addon_inventory=addon_inventory,
-        instance_detail=instance_detail,
-        deleted_history=deleted_history,
         development_sources=development_sources,
         development_source_administration=development_source_administration,
-        development_source_attachments=development_source_attachments,
-        development_source_deployment_operations=(
-            development_source_deployment_operations
-        ),
-        development_source_deployment_executor=(development_source_deployment_executor),
-        development_source_enablement=development_source_enablement,
-        development_source_smoke_test_operations=(
-            development_source_smoke_test_operations
-        ),
-        development_source_smoke_test_executor=(development_source_smoke_test_executor),
         addon_zips=addon_zips,
         addon_zip_imports=addon_zip_imports,
         addon_zip_import_executor=addon_zip_import_executor,
-        addon_zip_installations=addon_zip_installations,
-        addon_zip_installation_executor=addon_zip_installation_executor,
-        addon_zip_enablement=addon_zip_enablement,
-        addon_zip_smoke_test_operations=addon_zip_smoke_test_operations,
-        addon_zip_smoke_test_executor=addon_zip_smoke_test_executor,
         addon_repositories=addon_repositories,
         addon_repository_refreshes=addon_repository_refreshes,
         addon_repository_refresh_executor=addon_repository_refresh_executor,
         addon_repository_fetches=addon_repository_fetches,
         addon_repository_fetch_executor=addon_repository_fetch_executor,
-        repository_replacements=repository_replacements,
-        repository_replacement_executor=repository_replacement_executor,
         agent_workspaces=agent_workspaces,
         workspace_source_captures=workspace_source_captures,
         workspace_capture_presentation=workspace_capture_presentation,
@@ -2273,20 +1639,12 @@ def create_app(
         agent_workspace_cleanups=agent_workspace_cleanups,
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
-        workspace_launch=workspace_launch,
-        addon_settings=addon_settings,
         mcp_workspace_development=mcp_workspace_development,
         local_projects=local_projects,
-        historical_workspace_execution_containment=(
-            HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
-        ),
         mcp_promotion_requests=mcp_promotion_requests,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
-        screenshots=screenshots,
-        browser_remote=browser_remote,
         browser_remote_rate_limiter=remote_rate_limiter,
-        live_display=live_display,
         external_targets=external_targets,
         external_onboarding=external_onboarding,
         household_onboarding=household_onboarding,
@@ -2297,8 +1655,6 @@ def create_app(
         screenshot_preferences=screenshot_preferences,
         navigation_preferences=navigation_preferences,
         external_bridges=external_bridges,
-        managed_observation_bridges=managed_observation_bridges,
-        managed_bridge_trust=managed_bridge_trust,
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
         ),
@@ -2362,7 +1718,6 @@ def create_app(
         context.agent_workspace_promotions.sweep_startup()
         context.promotion_verifications.sweep_startup()
         context.mcp_workspace_development.sweep_startup()
-        context.stale_dispatcher.sweep_startup()
         context.addon_zip_import_executor.start()
         context.addon_repository_refresh_executor.start()
         context.addon_repository_fetch_executor.start()
@@ -2370,36 +1725,15 @@ def create_app(
         context.agent_workspace_cleanup_executor.start()
         context.mcp_workspace_retention.sweep(force=True)
         async with context.mcp_transport.server.session_manager.run():
-
-            async def expire_novnc_tickets() -> None:
-                while True:
-                    if novnc_viewer is not None:
-                        with suppress(Exception):
-                            await novnc_viewer.mutate(novnc_viewer.sweep)
-                    await asyncio.sleep(0.25)
-
-            novnc_sweeper = (
-                asyncio.create_task(expire_novnc_tickets())
-                if novnc_viewer is not None
-                else None
-            )
             try:
                 yield
             finally:
-                if novnc_viewer is not None:
-                    await asyncio.to_thread(novnc_viewer.close)
-                if novnc_sweeper is not None:
-                    novnc_sweeper.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await novnc_sweeper
                 context.addon_zip_import_executor.close()
                 context.addon_repository_refresh_executor.close()
                 context.addon_repository_fetch_executor.close()
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()
                 context.readiness.close()
-                context.managed_observation_bridges.close()
-                context.managed_bridge_trust.close()
 
     app = FastAPI(
         title="Kodi Lab",
@@ -2407,9 +1741,6 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
-    )
-    ManagedKodiPrerequisiteService(
-        runtime_installations, context.managed_resources, data_root=settings.data_root
     )
     app.state.kodi_lab = context
     app.add_middleware(
@@ -2422,39 +1753,10 @@ def create_app(
         ],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
-    app.add_middleware(NativeZipBodyLimitMiddleware)
     templates = Jinja2Templates(
         directory=_WEB_ROOT / "templates", context_processors=[admin_view_context]
     )
-    # Older host processes can share the templates without these new routes.
-    templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
-    templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
-    templates.env.globals["viewer_clock_ms"] = (
-        novnc_viewer.attempts.clock_ms if novnc_viewer is not None else lambda: 0
-    )
-
-    def novnc_instance_enabled(instance: object) -> bool:
-        if novnc_viewer is None:
-            return False
-        identity = UUID(str(instance))
-        if novnc_viewer.enabled_instances is not None:
-            return identity in novnc_viewer.enabled_instances
-        from kodi_lab.runtime.display_capabilities import admitted_display_capability
-
-        with session_factory() as db:
-            managed = ManagedInstanceRepository(db).get(identity)
-            return (
-                managed is not None
-                and admitted_display_capability(
-                    db,
-                    managed.runtime_revision_id,
-                    experimental=identity in settings.experimental_novnc_instances,
-                )
-                is not None
-            )
-
-    templates.env.globals["novnc_instance_enabled"] = novnc_instance_enabled
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
@@ -3401,8 +2703,7 @@ def create_app(
             created.token,
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             samesite="strict",
             path="/",
         )
@@ -3430,8 +2731,7 @@ def create_app(
         response.delete_cookie(
             ADMIN_VIEW_COOKIE,
             httponly=True,
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             samesite="strict",
             path="/",
         )
@@ -3446,19 +2746,13 @@ def create_app(
         csrf_token = csrf_value if isinstance(csrf_value, str) else None
         if not context.auth.csrf_matches(authenticated, csrf_token):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
-        context.live_display.retire_owner(preview_owner(authenticated.csrf_token))
         context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
-        if novnc_viewer is not None:
-            await asyncio.to_thread(
-                novnc_viewer.retire_owner, preview_owner(authenticated.csrf_token)
-            )
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(
             settings.web_session_cookie_name,
             path="/",
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             httponly=True,
             samesite="strict",
         )
@@ -3543,64 +2837,6 @@ def create_app(
             f"{request.url.path.lstrip('/')}.html",
             {"csrf_token": authenticated.csrf_token},
         )
-
-    def managed_resource_data(*, cleanup_review: bool = False) -> dict[str, Any]:
-        with session_factory.begin() as session:
-            policy = managed_resource_policy(session)
-            saved_policy = {
-                "max_running": policy.max_running,
-                "idle_minutes": policy.idle_minutes,
-            }
-            targets = list(
-                session.scalars(
-                    select(TargetRow)
-                    .join(
-                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
-                    )
-                    .where(TargetRow.target_type == TargetType.MANAGED)
-                    .order_by(TargetRow.name)
-                )
-            )
-        try:
-            capacity = context.managed_resources.capacity().model_dump(mode="json")
-        except Exception:
-            capacity = None
-        runtime_statuses = {
-            item.managed_instance_id: item
-            for item in (context.status.list_statuses() if cleanup_review else [])
-        }
-        with session_factory() as session:
-            busy_instances = {
-                UUID(item.managed_instance_id)
-                for item in (
-                    session.scalars(select(ManagedInstanceMutationLeaseRow))
-                    if cleanup_review
-                    else []
-                )
-            }
-        return {
-            "policy": saved_policy,
-            "capacity": capacity,
-            "instances": [
-                {
-                    "id": item.id,
-                    "name": item.name,
-                    "status": context.managed_resources.status(UUID(item.id)),
-                    **(
-                        {
-                            "runtime": runtime_statuses.get(UUID(item.id)),
-                            "mutation_active": UUID(item.id) in busy_instances,
-                            "snapshots": context.snapshot_status.list_for_instance(
-                                UUID(item.id)
-                            ),
-                        }
-                        if cleanup_review
-                        else {}
-                    ),
-                }
-                for item in targets
-            ],
-        }
 
     @app.get("/mcp-clients", response_class=HTMLResponse)
     async def mcp_clients_page(
@@ -3929,7 +3165,6 @@ def create_app(
             "runtimes.html",
             {
                 "matrix": matrix,
-                "current_kodi": current_kodi.identity(),
                 "installation_records": history[:256],
                 "history_before": history_before,
                 "history_next": history[255].operation_id
@@ -4010,25 +3245,6 @@ def create_app(
             ) from error
         return JSONResponse(asdict(item), status_code=202)
 
-    @app.post("/api/runtime-installations/piers/instances")
-    def create_preview_managed_instance(
-        request: Request,
-        approval: PreviewActionApproval,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, object]:
-        try:
-            return asdict(
-                runtime_installations.create_preview_instance(approval=approval)
-            )
-        except RuntimeInstallationActionConflict:
-            raise HTTPException(
-                status_code=409, detail="installation_action_conflict"
-            ) from None
-        except RuntimeInstallationUnavailable:
-            raise HTTPException(
-                status_code=503, detail="installation_unavailable"
-            ) from None
-
     @app.get("/development-sources", response_class=HTMLResponse)
     async def development_source_list_page(request: Request) -> Response:
         try:
@@ -4063,15 +3279,6 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
             },
         )
-
-    session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
-    current_kodi = CurrentKodiPresentation(
-        session_factory,
-        session_workflow,
-        session_service,
-        status_service,
-        reconciliation,
-    )
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
     async def agent_workspace_list_page(request: Request) -> Response:
@@ -4123,38 +3330,11 @@ def create_app(
                 .order_by(RepositoryWorkspaceDeploymentRow.created_at.desc())
                 .limit(20)
             )
-        # Catalog identities only: selecting a preflight target must not probe or
-        # converge runtime state, acquire a lease, or change the selected session.
-        from kodi_lab.domain import InstanceType
-
-        with session_factory() as session:
-            preflight_targets = list(
-                session.scalars(
-                    select(TargetRow)
-                    .join(
-                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
-                    )
-                    .where(
-                        TargetRow.target_type == TargetType.MANAGED,
-                        ManagedInstanceRow.instance_type == InstanceType.DISPOSABLE,
-                    )
-                    .order_by(TargetRow.name, TargetRow.id)
-                )
-            )
-        selected_session = session_service.status()
-        preflight_target_id = (
-            str(selected_session.target_id)
-            if selected_session is not None
-            and selected_session.workspace_id == workspace_id
-            else None
-        )
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
             {
                 "workspace": workspace,
-                "preflight_targets": preflight_targets,
-                "preflight_target_id": preflight_target_id,
                 "capture_status": capture_status,
                 "entries": entries,
                 "changes": changes,
@@ -6339,158 +5519,6 @@ def create_app(
     ) -> DevelopmentSourceDetail:
         return context.development_sources.get_source(source_id)
 
-    @app.get(
-        "/api/instance-delete-operations/{operation_id}",
-        response_model=ManagedInstanceDeleteStatus,
-    )
-    def instance_delete_operation(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedInstanceDeleteStatus:
-        operation = context.instance_delete_operations.get(operation_id)
-        if operation is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        result = context.instance_delete_operations.to_status(operation)
-        if operation.reconciliation_required:
-            result = result.model_copy(
-                update={
-                    "reconciliation": (
-                        context.instance_delete_operations.inspect_reconciliation(
-                            operation, broker=broker, data_root=settings.data_root
-                        )
-                    )
-                }
-            )
-        return result
-
-    capability_prerequisites = ManagedCapabilityPrerequisiteService(session_factory)
-
-    def inspect_capability_prerequisites(
-        instance_id: UUID,
-    ) -> ManagedCapabilityPrerequisites:
-        try:
-            return capability_prerequisites.inspect(instance_id)
-        except CapabilityPrerequisitesUnavailable as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.exception_handler(RetainedDiagnosticsError)
-    async def retained_diagnostics_failure(
-        _request: Request, error: RetainedDiagnosticsError
-    ) -> Response:
-        return JSONResponse(
-            status_code=404 if error.code == "diagnostic_capture_not_found" else 409,
-            content={"detail": error.code},
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/api/diagnostic-captures", response_model=list[DiagnosticCaptureSummary])
-    def diagnostic_capture_list(
-        target_id: UUID | None = None,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[DiagnosticCaptureSummary]:
-        return context.retained_diagnostics.list(target_id)
-
-    @app.get(
-        "/api/diagnostic-captures/{capture_id}", response_model=DiagnosticCaptureSummary
-    )
-    def diagnostic_capture_status(
-        capture_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> DiagnosticCaptureSummary:
-        return context.retained_diagnostics.status(capture_id)
-
-    @app.get("/api/diagnostic-captures/{capture_id}/evidence")
-    def diagnostic_capture_evidence(
-        capture_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        evidence = context.retained_diagnostics.read(capture_id)
-        return JSONResponse(
-            evidence.model_dump(mode="json"),
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-        )
-
-    @app.post(
-        "/api/diagnostic-captures/{capture_id}/discard",
-        response_model=DiagnosticCaptureSummary,
-    )
-    def discard_diagnostic_capture(
-        capture_id: UUID,
-        body: DiagnosticDiscardInput,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DiagnosticCaptureSummary:
-        return context.retained_diagnostics.discard(capture_id, body)
-
-    @app.get("/diagnostics", response_class=HTMLResponse)
-    def diagnostic_capture_index(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "diagnostics.html",
-            {
-                "captures": context.retained_diagnostics.list(),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/diagnostics/{capture_id}", response_class=HTMLResponse)
-    def diagnostic_capture_page(request: Request, capture_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        capture = context.retained_diagnostics.status(capture_id)
-        evidence = (
-            context.retained_diagnostics.read(capture_id)
-            if capture.state == "retained"
-            else None
-        )
-        return templates.TemplateResponse(
-            request,
-            "diagnostic-evidence.html",
-            {
-                "capture": capture,
-                "evidence": evidence,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    def diagnostic_form_authority(
-        request: Request, authenticated: AuthenticatedWebSession, csrf: str
-    ) -> None:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, csrf):
-            raise HTTPException(status_code=403)
-
-    @app.post("/diagnostics/{capture_id}/discard")
-    def discard_diagnostic_capture_form(
-        request: Request,
-        capture_id: UUID,
-        body: DiagnosticDiscardForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        diagnostic_form_authority(request, authenticated, body.csrf_token)
-        context.retained_diagnostics.discard(
-            capture_id,
-            DiagnosticDiscardInput(
-                expected_state=body.expected_state,
-                expected_payload_sha256=body.expected_payload_sha256 or None,
-                confirm_discard=True,
-            ),
-        )
-        return RedirectResponse(f"/diagnostics/{capture_id}", status_code=303)
-
-    app.include_router(
-        native_zip_router(
-            native_packages,
-            McpAuthenticationService(session_factory),
-        )
-    )
     return app
 
 

@@ -5,7 +5,6 @@
 {% block content %}
     <p class="breadcrumb"><a href="/development">Development tools</a> / <a href="/agent-workspaces">Workspaces</a></p>
     <h1>{{ workspace.source_logical_name }}</h1>
-    <p><a class="button-link" href="/development-session">Open Current Managed Kodi</a></p>
     <dl>
       <dt>Workspace</dt><dd>{{ workspace.id }}</dd>
       <dt>Add-on</dt><dd>{{ workspace.source_addon_id }} — {{ workspace.source_observed_name }} {{ workspace.source_observed_version }}</dd>
@@ -38,22 +37,6 @@
       <button id="capture-workspace-source" type="button" {% if not capture_status.capture_available %}disabled{% endif %}>Capture current source</button>
       {% if capture_status.capture_unavailable_reason %}<p>Capture unavailable: {{ capture_status.capture_unavailable_reason }}.</p>{% endif %}
       <p id="source-capture-result" role="status"></p>
-    </section>
-    {% endif %}
-    {% if workspace.state.value == "ready" %}
-    <section id="workspace-deployment-preflight" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}">
-      <h2>Deployment prerequisites</h2>
-      <p>Check the stored setup for this workspace generation and one managed disposable Kodi. This does not deploy, start, stop or repair Kodi, or check an agent's permissions. Live readiness and installed bytes still need verification.</p>
-      {% if preflight_targets %}
-      <label>Kodi to assess <select data-preflight-target>
-        <option value="">Choose a managed disposable Kodi</option>
-        {% for target in preflight_targets %}<option value="{{ target.id }}" {% if target.id == preflight_target_id %}selected{% endif %}>{{ target.name }}</option>{% endfor %}
-      </select></label>
-      <button data-preflight-check type="button">Check deployment prerequisites</button>
-      <p data-preflight-status role="status">No assessment requested.</p>
-      <ul data-preflight-checks></ul>
-      <ul data-preflight-actions></ul>
-      {% else %}<p>No eligible Managed Kodi is available for this workflow. Review <a href="/development-session">Current Managed Kodi</a> setup.</p>{% endif %}
     </section>
     {% endif %}
     {% if repository_deployments %}<details class="navigation-group"{% if repository_deployments|selectattr("failure_code")|list %} open{% endif %}><summary>Recorded repository deployments</summary>
@@ -120,7 +103,6 @@
     </section>
     </details>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
-    <script src="{{ url_for('static', path='/workspace-deployment-preflight.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-retention.js') }}" defer></script>

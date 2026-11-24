@@ -222,10 +222,6 @@ def production_inspection(
 
     adapters = KodiTargetAdapterService(
         factory,
-        managed_status=cast(Any, None),
-        managed_inventory=cast(Any, None),
-        managed_remote=cast(Any, None),
-        managed_authority=cast(Any, None),
         endpoint_policy=endpoint_policy,
         credential_store=credential_store,
         external_transport=httpx.MockTransport(handler),
@@ -240,9 +236,6 @@ def production_inspection(
     tools = McpTargetToolService(
         factory,
         authorization,
-        cast(Any, None),
-        cast(Any, None),
-        cast(Any, None),
         target_adapters=adapters,
     )
     return _Environment(

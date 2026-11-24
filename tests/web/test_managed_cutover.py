@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from kodi_lab.managed.broker import BrokerClient
 from kodi_lab.managed.protocol import OperationReply
@@ -38,10 +39,30 @@ def test_managed_page_replaces_slot_receipts_and_uses_session_authority(
     page = client.get("/managed-kodi")
     assert "Take Control" in page.text
     assert "img-src 'self' blob: data:" in page.headers["content-security-policy"]
-    assert (
-        "img-src 'self' blob:;"
-        in client.get("/kodi").headers["content-security-policy"]
-    )
+    overview = client.get("/kodi")
+    assert overview.status_code == 200
+    assert "Open Managed Kodi" in overview.text
+    assert "img-src 'self' blob:;" in overview.headers["content-security-policy"]
     assert "Legacy Current Managed" not in page.text
     assert client.get("/managed-kodi/omega/development").status_code == 404
     assert client.get("/api/managed-kodi/requests/old").status_code == 404
+
+
+def test_managed_view_rejects_cross_origin_before_contacting_broker(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def rejected(*args: object, **kwargs: object) -> OperationReply:
+        pytest.fail("The broker received an unauthorized viewer request")
+
+    monkeypatch.setattr(BrokerClient, "request", rejected)
+    login(client)
+    with (
+        pytest.raises(WebSocketDisconnect) as denial,
+        client.websocket_connect(
+            "wss://127.0.0.1/api/managed-kodi/omega/view",
+            headers={"Origin": "https://unrelated.example"},
+            subprotocols=["novnc"],
+        ),
+    ):
+        pass
+    assert denial.value.code == 4403

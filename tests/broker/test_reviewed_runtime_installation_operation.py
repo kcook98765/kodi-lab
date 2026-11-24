@@ -13,7 +13,10 @@ import pytest
 from docker.errors import DockerException  # type: ignore[import-untyped]
 
 from kodi_lab.broker.errors import RequestError
-from kodi_lab.broker.operations import build_foundation_registry
+from kodi_lab.broker.operations import (
+    OperationRegistry,
+    register_reviewed_runtime_operations,
+)
 from kodi_lab.broker.protocol import Request
 from kodi_lab.broker.reviewed_installations import (
     DockerReviewedInstallationWorker,
@@ -280,7 +283,8 @@ def test_protocol_is_closed_to_three_generations_and_semantic_fields(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
 ) -> None:
     worker, _ = backend
-    registry = build_foundation_registry(reviewed_installation_worker=worker)
+    registry = OperationRegistry()
+    register_reviewed_runtime_operations(registry, worker)
     operation_id = str(uuid4())
     for params in (
         {"generation": "piers", "operation_id": operation_id},

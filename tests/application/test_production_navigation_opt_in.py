@@ -50,9 +50,6 @@ def _tools(env: Any, remote: Any, *, transient: Any = None) -> McpTargetToolServ
     return McpTargetToolService(
         env.factory,
         env.authorization,
-        cast(Any, None),
-        cast(Any, None),
-        cast(Any, None),
         remote_actions=receipts,
         production_transient_approvals=transient,
     )
@@ -509,10 +506,6 @@ def test_native_dispatch_proves_exact_action_support_and_identity(
 
     adapters = KodiTargetAdapterService(
         env.factory,
-        managed_status=cast(Any, None),
-        managed_inventory=cast(Any, None),
-        managed_remote=cast(Any, None),
-        managed_authority=cast(Any, None),
         endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
         credential_store=cast(Any, None),
         external_bridges=cast(Any, Bridge()),

@@ -11,7 +11,10 @@ from uuid import uuid4
 import pytest
 from docker.errors import DockerException  # type: ignore[import-untyped]
 
-from kodi_lab.broker.operations import build_foundation_registry
+from kodi_lab.broker.operations import (
+    OperationRegistry,
+    register_reviewed_runtime_operations,
+)
 from kodi_lab.broker.protocol import Request
 from kodi_lab.broker.reviewed_installations import (
     DockerReviewedInstallationWorker,
@@ -65,7 +68,8 @@ def test_actual_desktop_broker_preflight_then_exact_worker_entrypoint(
     )
     assert contract[3] is not None
     assert (contract[3].socket, contract[3].route) == (DESKTOP_SOCKET, DESKTOP_ROUTE)
-    registry = build_foundation_registry(reviewed_installation_worker=worker)
+    registry = OperationRegistry()
+    register_reviewed_runtime_operations(registry, worker)
     before = registry.dispatch(request("active_reviewed_runtime_installation", {}))
     assert before.model_dump() == {
         "operation_id": None,

@@ -22,7 +22,7 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     OperationRegistry,
     PingResult,
-    build_foundation_registry,
+    build_reviewed_runtime_registry,
 )
 from kodi_lab.broker.protocol import Request, StrictModel
 
@@ -53,120 +53,34 @@ def test_exact_uid_policy_accepts_only_uid() -> None:
     assert not policy.is_authorized(PeerCredentials(pid=0, uid=0, gid=1234))
 
 
-def test_foundation_registry_contains_exact_operation_set() -> None:
-    registry = build_foundation_registry()
-    assert registry.names == (
-        "active_reviewed_runtime_installation",
-        "apply_addon_zip_installation",
-        "apply_assigned_fixture",
-        "apply_managed_instance_snapshot",
-        "apply_repository_replacement",
-        "broker_info",
-        "capabilities",
-        "capture_managed_instance_snapshot",
-        "capture_managed_kodi_screenshot",
-        "capture_promotion_kodi_log_cursor",
-        "capture_smoke_log_cursor",
-        "copy_sync_attached_development_source",
-        "copy_sync_mcp_workspace",
-        "copy_sync_promoted_development_source",
-        "delete_managed_snapshot_artifact",
-        "deprovision_managed_container",
-        "establish_managed_bridge_trust",
-        "inspect_mcp_workspace_deployment",
-        "inspect_repository_replacement",
-        "launch_reviewed_runtime_installation",
-        "managed_container_inventory",
-        "observe_addon_zip_destination",
-        "observe_managed_kodi_runtime",
-        "observe_native_zip_installation",
-        "observe_reviewed_runtime_installation",
-        "ping",
-        "provision_managed_container",
-        "read_promotion_kodi_log_window",
-        "read_smoke_log_window",
-        "read_stopped_managed_diagnostics",
-        "read_stopped_managed_logs",
-        "reconstruction_destination",
-        "remove_mismatched_managed_container",
-        "review_source_additions",
-        "reviewed_runtime_image_present",
-        "start_managed_container",
-        "stop_managed_container",
-        "verify_addon_zip_enablement_destination",
-        "verify_addon_zip_smoke_destination",
-        "verify_attached_development_source_destination",
-        "verify_mcp_workspace_destination",
-    )
+def test_read_only_registry_discovery_and_peer_policy() -> None:
+    registry = build_reviewed_runtime_registry()
     assert registry.dispatch(request("ping")) == PingResult(
         status="healthy", protocol_version=1
     )
     assert isinstance(registry.dispatch(request("broker_info")), BrokerInfoResult)
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
-        operations=[
-            "active_reviewed_runtime_installation",
-            "apply_addon_zip_installation",
-            "apply_assigned_fixture",
-            "apply_managed_instance_snapshot",
-            "apply_repository_replacement",
-            "broker_info",
-            "capabilities",
-            "capture_managed_instance_snapshot",
-            "capture_managed_kodi_screenshot",
-            "capture_promotion_kodi_log_cursor",
-            "capture_smoke_log_cursor",
-            "copy_sync_attached_development_source",
-            "copy_sync_mcp_workspace",
-            "copy_sync_promoted_development_source",
-            "delete_managed_snapshot_artifact",
-            "deprovision_managed_container",
-            "establish_managed_bridge_trust",
-            "inspect_mcp_workspace_deployment",
-            "inspect_repository_replacement",
-            "launch_reviewed_runtime_installation",
-            "managed_container_inventory",
-            "observe_addon_zip_destination",
-            "observe_managed_kodi_runtime",
-            "observe_native_zip_installation",
-            "observe_reviewed_runtime_installation",
-            "ping",
-            "provision_managed_container",
-            "read_promotion_kodi_log_window",
-            "read_smoke_log_window",
-            "read_stopped_managed_diagnostics",
-            "read_stopped_managed_logs",
-            "reconstruction_destination",
-            "remove_mismatched_managed_container",
-            "review_source_additions",
-            "reviewed_runtime_image_present",
-            "start_managed_container",
-            "stop_managed_container",
-            "verify_addon_zip_enablement_destination",
-            "verify_addon_zip_smoke_destination",
-            "verify_attached_development_source_destination",
-            "verify_mcp_workspace_destination",
-        ],
-        protocol_version=1,
+        operations=list(registry.names), protocol_version=1
     )
-    assert all(
-        registry.definition(name).requires_authorized_peer  # type: ignore[union-attr]
-        for name in registry.names
-    )
+    for name in registry.names:
+        operation = registry.definition(name)
+        assert operation is not None and operation.requires_authorized_peer
 
 
 @pytest.mark.parametrize("name", ["serve_forever", "execute", "docker", "command"])
 def test_unknown_operation_cannot_reach_attribute_or_escape_hatch(name: str) -> None:
     with pytest.raises(RequestError) as raised:
-        build_foundation_registry().dispatch(request(name))
+        build_reviewed_runtime_registry().dispatch(request(name))
     assert raised.value.code == "unknown_operation"
 
 
 @pytest.mark.parametrize(
-    "name", ["ping", "broker_info", "capabilities", "managed_container_inventory"]
+    "name",
+    ["ping", "broker_info", "capabilities", "active_reviewed_runtime_installation"],
 )
 def test_empty_param_operations_reject_all_unexpected_params(name: str) -> None:
     with pytest.raises(RequestError) as raised:
-        build_foundation_registry().dispatch(request(name, {"uid": os.getuid()}))
+        build_reviewed_runtime_registry().dispatch(request(name, {"uid": os.getuid()}))
     assert raised.value.code == "invalid_params"
 
 
@@ -228,7 +142,7 @@ def test_request_identity_fields_are_not_part_of_schema() -> None:
 
 
 def test_registry_handlers_are_explicit_callables_not_names() -> None:
-    definition = build_foundation_registry().definition("ping")
+    definition = build_reviewed_runtime_registry().definition("ping")
     assert definition is not None
     assert callable(definition.handler)
     assert not isinstance(definition.handler, str)

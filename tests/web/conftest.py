@@ -746,7 +746,6 @@ def client(
     broker: FakeBroker,
     data_root: Path,
     external_kodi: FakeExternalKodi,
-    managed_native: FakeManagedKodiTransport,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
     development_root = data_root.parent / "development-root"
@@ -790,18 +789,9 @@ def client(
         addon_inventory_adapter_factory=(
             lambda _observation, _profile: FakeAddonInventoryAdapter(broker)
         ),
-        browser_remote_adapter_factory=(
-            lambda _observation, _profile: FakeRemoteAdapter(broker)
-        ),
-        managed_playback_factory=(
-            lambda _observation, _profile: FakeRemoteAdapter(broker)
-        ),
         browser_remote_rate_limiter=BrowserRemoteRateLimiter(clock=lambda: 100.0),
         external_target_transport=httpx.MockTransport(external_kodi.handle),
     )
-    # Lifecycle preparation has a separate native transport from external
-    # targets and the readiness coordinator. All three must stay inside fixtures.
-    app.state.kodi_lab.managed_bridge_trust.transport = managed_native
     with TestClient(app, base_url="https://127.0.0.1") as test_client:
         yield test_client
 

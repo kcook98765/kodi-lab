@@ -2,73 +2,22 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
-import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, overload
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
-from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
     AddonInventoryUnavailableReason,
     KodiAddonProvenanceClassification,
-    ManagedInstanceAddonInventoryService,
-)
-from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
-from kodi_lab.application.agent_packages import (
-    AgentPackageError,
-    AgentPackageService,
-    PackageImportInput,
-    PackageStatus,
-    PackageStatusInput,
-)
-from kodi_lab.application.agent_projects import (
-    AgentProjectError,
-    AgentProjectList,
-    AgentProjectResult,
-    AgentProjectService,
-    ProjectCreateInput,
-    ProjectImportInput,
-    ProjectStatusInput,
-)
-from kodi_lab.application.agent_workspaces import (
-    AgentWorkspaceConflictError,
-    AgentWorkspaceNotFoundError,
-    AgentWorkspaceRead,
-    AgentWorkspaceService,
-)
-from kodi_lab.application.development_sessions import (
-    DevelopmentSessionService,
-    RetainedSelectionPreview,
-    RetainedSelectionRequest,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
-from kodi_lab.application.managed_agent_lifecycle import (
-    ManagedAgentLifecycleError,
-    ManagedAgentLifecycleResult,
-    ManagedAgentLifecycleService,
-)
-from kodi_lab.application.managed_agent_reset import ManagedAgentResetService
-from kodi_lab.application.managed_clean_reset import (
-    ManagedCleanResetService,
-    ManagedResetInput,
-    ManagedResetResult,
-)
-from kodi_lab.application.managed_versions import (
-    ManagedStatusInput,
-    ManagedVersionError,
-    ManagedVersionInput,
-    ManagedVersionLifecycleService,
-    ManagedVersionResult,
-    ManagedVersionsStatus,
-)
 from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.mcp_promotion_requests import (
     McpPromotionRequestError,
@@ -91,18 +40,6 @@ from kodi_lab.application.mcp_workspace_development import (
     WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
-from kodi_lab.application.mcp_workspace_mutations import (
-    McpWorkspaceCreationService,
-    McpWorkspaceMutationError,
-    WorkspaceCreateResult,
-)
-from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
-from kodi_lab.application.native_zip_installations import (
-    NativeZipError,
-    NativeZipInstallationService,
-    NativeZipRequest,
-    NativeZipStatus,
-)
 from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_visual_state,
@@ -121,50 +58,14 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionTransientApprovalService,
     ProductionTransientResult,
 )
-from kodi_lab.application.project_transfers import (
-    ProjectTransferError,
-    ProjectTransferInput,
-    ProjectTransferStatus,
-)
-from kodi_lab.application.remote_observations import (
-    CaptureReuseError,
-    RemoteObservationService,
-)
-from kodi_lab.application.runtime_status import (
-    ManagedRuntimeStatus,
-    ManagedRuntimeStatusService,
-)
-from kodi_lab.application.screenshots import (
-    ManagedScreenshotService,
-    ScreenshotServiceError,
-)
 from kodi_lab.application.workspace_deployment_preflight import (
     DeploymentPreflightInput,
     DeploymentPreflightResult,
     WorkspaceDeploymentPreflightService,
 )
-from kodi_lab.application.workspace_execution_recovery import (
-    WorkspaceExecutionRecoveryError,
-    WorkspaceExecutionRecoveryResult,
-)
-from kodi_lab.application.workspace_imports import (
-    ImportApplyInput,
-    ImportInput,
-    ImportPreview,
-    ImportResult,
-    WorkspaceImportError,
-    WorkspaceImportService,
-)
-from kodi_lab.application.workspace_launch import (
-    WorkspaceLaunchError,
-    WorkspaceLaunchResult,
-    WorkspaceLaunchService,
-)
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
-    WorkspaceSourceCaptureService,
 )
-from kodi_lab.development.addon_zip import AddonZipValidationError
 from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.development.launch import ManifestLaunchEntry
 from kodi_lab.development.sources import (
@@ -172,17 +73,8 @@ from kodi_lab.development.sources import (
     DevelopmentSourceValidationError,
 )
 from kodi_lab.domain import (
-    AgentWorkspace,
-    AgentWorkspaceCreationState,
-    AgentWorkspaceState,
     TargetType,
 )
-from kodi_lab.kodi.addon_settings import (
-    AddonSettingsResultInput,
-    AddonSettingsSetInput,
-    AddonSettingsSetResult,
-)
-from kodi_lab.kodi.bridge import ExternalBridgeError
 from kodi_lab.kodi.logs import (
     KodiLogRequest,
     KodiLogResult,
@@ -197,12 +89,7 @@ from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.kodi.ui_state_native import MANAGED_BRIDGE_RECOVERY_REASONS
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
-from kodi_lab.storage.managed_clean_reset import CleanResetPending
 from kodi_lab.storage.models import (
-    DevelopmentSessionPolicyRow,
-    DevelopmentSessionRow,
-    ManagedInstanceRow,
-    McpClientTargetGrantRow,
     TargetRow,
 )
 from kodi_lab.workspace import AgentWorkspaceStorageError
@@ -813,13 +700,7 @@ class McpTargetToolService:
         self,
         session_factory: sessionmaker[Session],
         authorization: McpAuthorizationService,
-        status: ManagedRuntimeStatusService,
-        addon_inventory: ManagedInstanceAddonInventoryService,
-        screenshots: ManagedScreenshotService,
         remote_actions: McpRemoteActionReceiptService | None = None,
-        workspaces: AgentWorkspaceService | None = None,
-        workspace_creation: McpWorkspaceCreationService | None = None,
-        workspace_retention: McpWorkspaceRetentionService | None = None,
         workspace_development: McpWorkspaceDevelopmentService | None = None,
         promotion_requests: McpPromotionRequestService | None = None,
         target_adapters: KodiTargetAdapterService | None = None,
@@ -827,448 +708,15 @@ class McpTargetToolService:
         production_transient_approvals: (
             ProductionTransientApprovalService | None
         ) = None,
-        workspace_source_captures: WorkspaceSourceCaptureService | None = None,
-        managed_lifecycle: ManagedAgentLifecycleService | None = None,
-        managed_versions: ManagedVersionLifecycleService | None = None,
-        workspace_launch: WorkspaceLaunchService | None = None,
-        addon_settings: AddonSettingsService | None = None,
-        retained_sessions: DevelopmentSessionService | None = None,
-        packages: AgentPackageService | None = None,
-        native_packages: NativeZipInstallationService | None = None,
     ) -> None:
-        self._packages = packages
-        self._native_packages = native_packages
         self._session_factory = session_factory
         self._authorization = authorization
-        self._status = status
-        self._addon_inventory = addon_inventory
-        self._screenshots = screenshots
-        self._remote_observations = RemoteObservationService(
-            session_factory, screenshots
-        )
         self._remote_actions = remote_actions
-        self._workspaces = workspaces
-        self._workspace_creation = workspace_creation
-        self._projects = (
-            AgentProjectService(workspaces, workspace_creation)
-            if workspaces is not None and workspace_creation is not None
-            else None
-        )
-        self._workspace_retention = workspace_retention
         self._workspace_development = workspace_development
         self._promotion_requests = promotion_requests
         self._target_adapters = target_adapters
         self._production_screenshots = production_screenshots
         self._production_transient_approvals = production_transient_approvals
-        self._workspace_source_captures = workspace_source_captures
-        self._managed_lifecycle = managed_lifecycle
-        self._managed_versions = managed_versions
-        self._managed_reset = (
-            ManagedCleanResetService(managed_versions) if managed_versions else None
-        )
-        self._managed_agent_reset = (
-            ManagedAgentResetService(managed_versions) if managed_versions else None
-        )
-        self._workspace_launch = workspace_launch
-        self._addon_settings = addon_settings
-        self._retained_sessions = retained_sessions
-        self._workspace_imports = (
-            None if workspaces is None else WorkspaceImportService(workspaces)
-        )
-        self._active_edit_lock = threading.Lock()
-        self._active_edits: set[UUID] = set()
-        self._validation_lock = threading.Lock()
-        self._validation_slots = threading.BoundedSemaphore(2)
-        self._active_validation_clients: set[UUID] = set()
-        self._active_validation_workspaces: set[UUID] = set()
-
-    def _selection_authorize(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        name: str,
-        workspace_id: UUID,
-        target_id: UUID,
-    ) -> None:
-        self._authorization.recheck_retained_selection(
-            session,
-            principal,
-            name,
-            workspace_id,
-            target_id,
-        )
-        from kodi_lab.storage.development_sessions import active_session
-
-        current = active_session(session)
-        if current is None or current.workspace_id != str(workspace_id):
-            raise McpAuthorizationError("retained_workspace_requires_administrator")
-
-    def managed_selection_preview(
-        self, principal: McpPrincipal, operation: ManagedSelectionPreviewInput
-    ) -> RetainedSelectionPreview:
-        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
-
-        if self._retained_sessions is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._retained_sessions.selection_preview(
-                operation.target_id,
-                operation.workspace_id,
-                authorize=lambda session: self._selection_authorize(
-                    session,
-                    principal,
-                    "managed_selection_preview",
-                    operation.workspace_id,
-                    operation.target_id,
-                ),
-            )
-        except DevelopmentSessionConflict as error:
-            raise McpAuthorizationError(error.code) from error
-
-    def managed_select(
-        self, principal: McpPrincipal, operation: RetainedSelectionRequest
-    ) -> ManagedSelectionResult:
-        from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
-
-        if self._retained_sessions is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._retained_sessions.select_retained(
-                operation,
-                actor="mcp:" + str(principal.client_id),
-                authorize=lambda session: self._selection_authorize(
-                    session,
-                    principal,
-                    "managed_select",
-                    operation.workspace_id,
-                    operation.target_id,
-                ),
-            )
-        except DevelopmentSessionConflict as error:
-            raise McpAuthorizationError(error.code) from error
-        current = self._retained_sessions.status()
-        return ManagedSelectionResult(
-            request_id=operation.request_id,
-            generation=result.generation,
-            target_id=result.target_id,
-            workspace_id=result.workspace_id,
-            source_id=result.source_id,
-            phase=result.phase,
-            selected=current is not None and current.generation == result.generation,
-        )
-
-    def managed_status(
-        self,
-        principal: McpPrincipal,
-        _operation: ManagedStatusInput,
-    ) -> ManagedVersionsStatus:
-        with self._session_factory() as session:
-            self._authorization.recheck_managed_versions(
-                session, principal, "managed_status"
-            )
-        if self._managed_versions is None:
-            raise McpAuthorizationError("capability_unavailable")
-        result = self._managed_versions.status(
-            principal.client_id,
-            lambda session, target: self._authorization.recheck_managed_versions(
-                session, principal, "managed_status", target
-            ),
-        )
-        self._require_bounded(result)
-        return result
-
-    def managed_reset(
-        self, principal: McpPrincipal, operation: ManagedResetInput
-    ) -> ManagedResetResult:
-        if self._managed_reset is None:
-            raise McpAuthorizationError("capability_unavailable")
-        with self._session_factory() as session:
-            trusted = self._authorization.has_managed_lab_role(session, principal)
-
-        def authorize(session: Session, target: UUID) -> None:
-            self._authorization.recheck_managed_versions(
-                session, principal, "managed_reset", target
-            )
-            if trusted:
-                self._authorization.require_managed_lab_role(session, principal)
-
-        try:
-            reset = self._managed_agent_reset if trusted else self._managed_reset
-            assert reset is not None
-            result = reset.invoke(
-                principal.client_id,
-                operation,
-                authorize,
-            )
-        except (
-            ManagedVersionError,
-            ManagedAgentLifecycleError,
-            CleanResetPending,
-        ) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_bounded(result)
-        return result
-
-    def managed_version_action(
-        self,
-        principal: McpPrincipal,
-        operation: ManagedVersionInput,
-        *,
-        action: Literal["start", "stop"],
-    ) -> ManagedVersionResult:
-        if self._managed_versions is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._managed_versions.invoke(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                version=operation.version,
-                action=action,
-                authorize=lambda session, target: (
-                    self._authorization.recheck_managed_versions(
-                        session, principal, "managed_" + action, target
-                    )
-                ),
-            )
-        except (ManagedVersionError, ManagedAgentLifecycleError) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_bounded(result)
-        return result
-
-    def managed_ensure_ready(
-        self,
-        principal: McpPrincipal,
-        operation: ManagedEnsureReadyInput,
-    ) -> ManagedAgentLifecycleResult:
-        self._authorization.authorize_target(
-            principal, "managed_ensure_ready", operation.target_id
-        )
-        if self._managed_lifecycle is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._managed_lifecycle.ensure_ready(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                target_id=operation.target_id,
-                # Omission replays the saved duration of an older request;
-                # only a fresh omitted request takes the new zero default.
-                hold_minutes=operation.hold_minutes
-                if "hold_minutes" in operation.model_fields_set
-                else None,
-                authorize=lambda session: self._authorization.recheck_managed_lifecycle(
-                    session,
-                    principal,
-                    "managed_ensure_ready",
-                    operation.target_id,
-                ),
-            )
-        except ManagedAgentLifecycleError as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_bounded(result)
-        return result
-
-    def managed_release(
-        self,
-        principal: McpPrincipal,
-        operation: ManagedReleaseInput,
-    ) -> ManagedAgentLifecycleResult:
-        self._authorization.authorize_target(
-            principal, "managed_release", operation.target_id
-        )
-        if self._managed_lifecycle is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._managed_lifecycle.release(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                target_id=operation.target_id,
-                authorize=lambda session: self._authorization.recheck_managed_lifecycle(
-                    session,
-                    principal,
-                    "managed_release",
-                    operation.target_id,
-                ),
-            )
-        except ManagedAgentLifecycleError as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_bounded(result)
-        return result
-
-    def project_status(
-        self, principal: McpPrincipal, operation: ProjectStatusInput
-    ) -> AgentProjectList:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(session, principal, "project_status")
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._projects is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._projects.status(
-                principal.client_id, operation, authorize=authorize
-            )
-        except AgentProjectError as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
-    def project_create(
-        self, principal: McpPrincipal, operation: ProjectCreateInput
-    ) -> AgentProjectResult:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(session, principal, "project_create")
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._projects is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._projects.create(
-                principal.client_id, operation, authorize=authorize
-            )
-        except (AgentProjectError, McpWorkspaceMutationError) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
-    def project_import(
-        self, principal: McpPrincipal, operation: ProjectImportInput
-    ) -> AgentProjectResult:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(session, principal, "project_import")
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._projects is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._projects.import_project(
-                principal.client_id, operation, authorize=authorize
-            )
-        except (
-            AgentProjectError,
-            ProjectTransferError,
-            McpWorkspaceMutationError,
-        ) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
-    def project_transfer(
-        self, principal: McpPrincipal, operation: ProjectTransferInput
-    ) -> ProjectTransferStatus:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(
-                session, principal, "project_transfer"
-            )
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._projects is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._projects.transfer(
-                principal.client_id, operation, authorize=authorize
-            )
-        except (AgentProjectError, ProjectTransferError) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
-    def package_import(
-        self, principal: McpPrincipal, operation: PackageImportInput
-    ) -> PackageStatus:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(session, principal, "package_import")
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._packages is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._packages.import_package(
-                principal.client_id, operation, authorize=authorize
-            )
-        except (AgentPackageError, AddonZipValidationError) as error:
-            raise McpAuthorizationError(error.code) from error
-
-    def package_status(
-        self, principal: McpPrincipal, operation: PackageStatusInput
-    ) -> PackageStatus:
-        def authorize(session: Session) -> None:
-            self._authorization.authorize_project(session, principal, "package_status")
-
-        with self._session_factory() as session:
-            authorize(session)
-        if self._packages is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._packages.status(
-                principal.client_id, operation.artifact_id, authorize=authorize
-            )
-        except AgentPackageError as error:
-            raise McpAuthorizationError(error.code) from error
-
-    def package_install(
-        self, principal: McpPrincipal, operation: NativeZipRequest
-    ) -> NativeZipStatus:
-        # New MCP package workflow is role-only and must reference its own intake.
-        self.package_status(
-            principal, PackageStatusInput(artifact_id=operation.artifact_id)
-        )
-        if self._native_packages is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._native_packages.request(principal, operation)
-        except NativeZipError as error:
-            raise McpAuthorizationError(str(error)) from error
-
-    def package_install_status(
-        self, principal: McpPrincipal, operation: PackageInstallationStatusInput
-    ) -> NativeZipStatus:
-        with self._session_factory() as session:
-            self._authorization.require_managed_lab_role(session, principal)
-        if self._native_packages is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return (
-                self._native_packages.verify
-                if operation.verify
-                else self._native_packages.get
-            )(principal, operation.operation_id)
-        except NativeZipError as error:
-            raise McpAuthorizationError(str(error)) from error
-
-    def workspace_create(
-        self,
-        principal: McpPrincipal,
-        *,
-        request_id: UUID,
-        source_id: UUID,
-    ) -> WorkspaceCreateResult:
-        self._authorization.authorize_development_source(
-            principal, "workspace_create", source_id
-        )
-        if self._workspace_creation is None:
-            raise McpAuthorizationError("capability_unavailable")
-
-        def authorize_creation(session: Session) -> None:
-            self._authorization.authorize_development_source(
-                principal, "workspace_create", source_id, read_session=session
-            )
-
-        try:
-            result = self._workspace_creation.create(
-                client_id=principal.client_id,
-                request_id=request_id,
-                source_id=source_id,
-                authorize=authorize_creation,
-            )
-        except McpWorkspaceMutationError as error:
-            raise McpAuthorizationError(error.code, reason=error.reason) from error
-        self._require_development_bounded(result)
-        return result
 
     def promotion_request(
         self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
@@ -1294,123 +742,6 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
-    def workspace_edit(
-        self, principal: McpPrincipal, edit: WorkspaceEditInput
-    ) -> WorkspaceEditResult:
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_edit", edit.workspace_id
-        )
-        service = self._workspace_service()
-
-        def authorize_mutation(session: Session) -> None:
-            self._authorization.authorize_workspace(
-                principal, "workspace_edit", edit.workspace_id, read_session=session
-            )
-
-        with self._active_edit_lock:
-            if edit.workspace_id in self._active_edits:
-                raise McpAuthorizationError("workspace_generation_conflict")
-            self._active_edits.add(edit.workspace_id)
-        try:
-            try:
-                if edit.operation == "create":
-                    assert edit.content is not None
-                    mutation = service.create_text_file(
-                        edit.workspace_id,
-                        expected_generation=edit.expected_generation,
-                        authorize=authorize_mutation,
-                        relative_path=edit.relative_path,
-                        content=edit.content,
-                    )
-                    content = edit.content
-                elif edit.operation == "replace":
-                    assert edit.content is not None
-                    mutation = service.replace_text_file(
-                        edit.workspace_id,
-                        expected_generation=edit.expected_generation,
-                        authorize=authorize_mutation,
-                        relative_path=edit.relative_path,
-                        content=edit.content,
-                    )
-                    content = edit.content
-                else:
-                    assert edit.expected_text is not None
-                    assert edit.replacement_text is not None
-                    mutation = service.apply_exact_patch(
-                        edit.workspace_id,
-                        expected_generation=edit.expected_generation,
-                        authorize=authorize_mutation,
-                        relative_path=edit.relative_path,
-                        expected_text=edit.expected_text,
-                        replacement_text=edit.replacement_text,
-                    )
-                    content = edit.replacement_text
-            except (
-                AgentWorkspaceConflictError,
-                AgentWorkspaceNotFoundError,
-                AgentWorkspaceStorageError,
-            ) as error:
-                raise McpAuthorizationError(
-                    self._workspace_edit_error(error)
-                ) from error
-        finally:
-            with self._active_edit_lock:
-                self._active_edits.remove(edit.workspace_id)
-        result = WorkspaceEditResult(
-            workspace_id=mutation.workspace_id,
-            source_id=workspace.development_source_id,
-            relative_path=mutation.path,
-            operation=edit.operation,
-            prior_generation=edit.expected_generation,
-            new_generation=mutation.generation,
-            file_byte_size=len(content.encode("utf-8")),
-        )
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_source_scan(
-        self, principal: McpPrincipal, workspace_id: UUID
-    ) -> WorkspaceSourceScanToolResult:
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_source_scan", workspace_id
-        )
-        if self._workspace_source_captures is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            scan = self._workspace_source_captures.scan_source(workspace_id)
-        except (
-            WorkspaceSourceCaptureError,
-            DevelopmentTreeError,
-            AgentWorkspaceStorageError,
-            DevelopmentSourceValidationError,
-        ) as error:
-            raise McpAuthorizationError(
-                "development_source_scan_unsafe", reason=_source_capture_reason(error)
-            ) from error
-        except Exception as error:
-            raise McpAuthorizationError("development_source_scan_unsafe") from error
-        result = WorkspaceSourceScanToolResult(
-            workspace_id=workspace_id,
-            source_id=workspace.development_source_id,
-            addon_id=scan.addon_id,
-            addon_version=scan.addon_version,
-            source_tree_digest=scan.tree_digest,
-            scanned_at=scan.scanned_at,
-            active_capture_version=(
-                workspace.active_observed_version or workspace.source_observed_version
-            ),
-            active_capture_digest=workspace.baseline_manifest_digest,
-            workspace_generation=workspace.generation,
-            workspace_tree_digest=workspace.current_tree_digest,
-            source_matches_capture=scan.tree_digest
-            == workspace.baseline_manifest_digest,
-            private_workspace_edits=(
-                workspace.current_tree_digest != workspace.baseline_manifest_digest
-            ),
-        )
-        self._require_development_bounded(result)
-        return result
-
     def workspace_deploy_preflight(
         self, principal: McpPrincipal, operation: DeploymentPreflightInput
     ) -> DeploymentPreflightResult:
@@ -1427,192 +758,6 @@ class McpTargetToolService:
             operation, client_id=principal.client_id
         )
         authorize()
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_import_preview(
-        self,
-        principal: McpPrincipal,
-        operation: ImportInput,
-    ) -> ImportPreview:
-        def authorize() -> object:
-            return self._authorization.authorize_workspace(
-                principal,
-                "workspace_import_preview",
-                operation.workspace_id,
-            )
-
-        authorize()
-        if self._workspace_imports is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._workspace_imports.preview(operation, authorize=authorize)
-        except McpAuthorizationError:
-            raise
-        except Exception as error:
-            raise McpAuthorizationError(
-                "workspace_import_rejected",
-                reason=(
-                    str(error)
-                    if isinstance(error, WorkspaceImportError)
-                    else _source_capture_reason(error)
-                ),
-            ) from error
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_import(
-        self,
-        principal: McpPrincipal,
-        operation: ImportApplyInput,
-    ) -> ImportResult:
-        def authorize() -> object:
-            return self._authorization.authorize_workspace(
-                principal,
-                "workspace_import",
-                operation.workspace_id,
-            )
-
-        authorize()
-        if self._workspace_imports is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._workspace_imports.apply(
-                principal.client_id, operation, authorize=authorize
-            )
-        except McpAuthorizationError:
-            raise
-        except WorkspaceImportError as error:
-            raise McpAuthorizationError(
-                "workspace_import_rejected", reason=str(error)
-            ) from error
-        except Exception as error:
-            raise McpAuthorizationError(
-                "workspace_import_rejected",
-                reason=_source_capture_reason(error),
-            ) from error
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_capture(
-        self, principal: McpPrincipal, operation: WorkspaceCaptureToolInput
-    ) -> WorkspaceCaptureToolResult:
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_capture", operation.workspace_id
-        )
-        if self._workspace_source_captures is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            captured = self._workspace_source_captures.capture(
-                operation.workspace_id,
-                expected_generation=operation.expected_generation,
-            )
-        except (
-            WorkspaceSourceCaptureError,
-            DevelopmentTreeError,
-            AgentWorkspaceStorageError,
-            DevelopmentSourceValidationError,
-        ) as error:
-            reason = _source_capture_reason(error)
-            raise McpAuthorizationError(
-                "workspace_capture_rejected",
-                reason=reason,
-                capture_conflict_observed_generation=(
-                    error.observed_current_generation
-                    if isinstance(error, WorkspaceSourceCaptureError)
-                    and reason == "workspace_generation_conflict"
-                    else None
-                ),
-            ) from error
-        except Exception as error:
-            raise McpAuthorizationError("workspace_capture_rejected") from error
-        result = WorkspaceCaptureToolResult(
-            workspace_id=captured.workspace_id,
-            source_id=workspace.development_source_id,
-            operation_id=captured.operation_id,
-            generation=captured.generation,
-            tree_digest=captured.tree_digest,
-            changed=captured.changed,
-        )
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_validate(
-        self, principal: McpPrincipal, validation: WorkspaceValidateInput
-    ) -> WorkspaceValidateResult:
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_validate", validation.workspace_id
-        )
-        service = self._workspace_service()
-        with self._validation_lock:
-            if (
-                principal.client_id in self._active_validation_clients
-                or validation.workspace_id in self._active_validation_workspaces
-                or not self._validation_slots.acquire(blocking=False)
-            ):
-                raise McpAuthorizationError("validation_busy")
-            self._active_validation_clients.add(principal.client_id)
-            self._active_validation_workspaces.add(validation.workspace_id)
-        try:
-            try:
-                observed = service.validate_structure(
-                    validation.workspace_id,
-                    expected_generation=validation.expected_generation,
-                )
-            except (
-                AgentWorkspaceConflictError,
-                AgentWorkspaceNotFoundError,
-                AgentWorkspaceStorageError,
-            ) as error:
-                raise McpAuthorizationError(
-                    self._workspace_validation_error(error)
-                ) from error
-        finally:
-            with self._validation_lock:
-                self._active_validation_clients.remove(principal.client_id)
-                self._active_validation_workspaces.remove(validation.workspace_id)
-                self._validation_slots.release()
-        paths = tuple(
-            WorkspaceValidatedPath(path=item.path, change_kind=item.change_kind)
-            for item in observed.changes[:64]
-        )
-        added = sum(item.change_kind == "added" for item in observed.changes)
-        modified = len(observed.changes) - added
-        result = WorkspaceValidateResult(
-            workspace_id=observed.workspace_id,
-            source_id=workspace.development_source_id,
-            observed_generation=observed.observed_generation,
-            validated_at=observed.validated_at,
-            addon_id=observed.addon_id,
-            addon_version=observed.addon_version,
-            extension_types=observed.extension_types,
-            launch_entries=observed.launch_entries,
-            fixed_smoke_eligible=observed.fixed_smoke_eligible,
-            fixed_smoke_unsupported_reason=observed.fixed_smoke_unsupported_reason,
-            identity_classification=(
-                "changed" if observed.addon_id_classification == "changed" else "stable"
-            ),
-            addon_id_classification=observed.addon_id_classification,
-            version_classification=observed.version_classification,
-            extension_type_classification=observed.extension_type_classification,
-            changed_file_count=len(observed.changes),
-            added_file_count=added,
-            modified_file_count=modified,
-            promotable=observed.promotable,
-            promotable_classification=observed.promotable_classification,
-            changed_paths=paths,
-            truncated=len(paths) < len(observed.changes),
-        )
-        if self._workspace_development is not None:
-            self._workspace_development.record_validation(
-                workspace_id=result.workspace_id,
-                source_id=result.source_id,
-                generation=result.observed_generation,
-                addon_id=result.addon_id,
-                addon_version=result.addon_version,
-                extension_types=result.extension_types,
-                validated_at=result.validated_at,
-            )
         self._require_development_bounded(result)
         return result
 
@@ -1657,115 +802,6 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
-    def addon_settings_result(
-        self, principal: McpPrincipal, request: AddonSettingsResultInput
-    ) -> AddonSettingsSetResult:
-        if self._addon_settings is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._addon_settings.result(
-                client_id=principal.client_id,
-                request_id=request.request_id,
-                authorize=lambda session, workspace, target: (
-                    self._authorization.recheck_workspace_launch(
-                        session,
-                        principal,
-                        workspace,
-                        target,
-                        tool_name="addon_settings_result",
-                    )
-                ),
-            )
-        except AddonSettingsError as error:
-            raise McpAuthorizationError(error.code) from None
-
-    def addon_settings_set(
-        self, principal: McpPrincipal, request: AddonSettingsSetInput
-    ) -> AddonSettingsSetResult:
-        if self._addon_settings is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            return self._addon_settings.set(
-                client_id=principal.client_id,
-                request=request,
-                authorize=lambda session, workspace, target: (
-                    self._authorization.recheck_workspace_launch(
-                        session,
-                        principal,
-                        workspace,
-                        target,
-                        tool_name="addon_settings_set",
-                    )
-                ),
-            )
-        except (
-            AddonSettingsError,
-            WorkspaceLaunchError,
-            McpWorkspaceDevelopmentError,
-            ExternalBridgeError,
-        ) as error:
-            raise McpAuthorizationError(error.code) from None
-
-    def workspace_launch(
-        self, principal: McpPrincipal, operation: WorkspaceLaunchInput
-    ) -> WorkspaceLaunchResult:
-        return self._launch_workspace(
-            principal, operation, tool_name="workspace_launch"
-        )
-
-    def development_launch(
-        self, principal: McpPrincipal, operation: WorkspaceLaunchInput
-    ) -> WorkspaceLaunchResult:
-        return self._launch_workspace(
-            principal, operation, tool_name="development_launch"
-        )
-
-    def _launch_workspace(
-        self,
-        principal: McpPrincipal,
-        operation: WorkspaceLaunchInput,
-        *,
-        tool_name: Literal["workspace_launch", "development_launch"],
-    ) -> WorkspaceLaunchResult:
-        if tool_name == "development_launch":
-            with self._session_factory() as session:
-                self._authorization.recheck_workspace_launch(
-                    session,
-                    principal,
-                    operation.workspace_id,
-                    operation.target_id,
-                    tool_name=tool_name,
-                )
-        self._authorization.authorize_workspace_target(
-            principal, tool_name, operation.workspace_id, operation.target_id
-        )
-        if self._workspace_launch is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            result = self._workspace_launch.launch(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                workspace_id=operation.workspace_id,
-                expected_generation=operation.expected_generation,
-                target_id=operation.target_id,
-                extension_ordinal=operation.extension_ordinal,
-                authorize=lambda session: self._authorization.recheck_workspace_launch(
-                    session,
-                    principal,
-                    operation.workspace_id,
-                    operation.target_id,
-                    tool_name=tool_name,
-                ),
-            )
-        except (
-            WorkspaceLaunchError,
-            ExternalBridgeError,
-            McpWorkspaceDevelopmentError,
-        ) as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
     def workspace_execute(
         self, principal: McpPrincipal, operation: WorkspaceExecuteInput
     ) -> WorkspaceExecutionResult:
@@ -1800,251 +836,6 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
-    def workspace_execution_recover(
-        self, principal: McpPrincipal, operation: WorkspaceExecutionRecoverInput
-    ) -> WorkspaceExecutionRecoveryResult:
-        if self._workspace_development is None:
-            raise McpAuthorizationError("capability_unavailable")
-        try:
-            workspace_id, target_id = self._workspace_development.recovery_context(
-                principal.client_id, operation.execution_operation_id
-            )
-            self._authorization.authorize_workspace_target(
-                principal, "workspace_execution_recover", workspace_id, target_id
-            )
-            result = self._workspace_development.recover_execution(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                execution_operation_id=operation.execution_operation_id,
-            )
-        except WorkspaceExecutionRecoveryError as error:
-            raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
-
-    def development_source_list(
-        self,
-        principal: McpPrincipal,
-        *,
-        cursor: str | None = None,
-        limit: int = 50,
-    ) -> DevelopmentSourceListResult:
-        if limit < 1 or limit > 100:
-            raise McpAuthorizationError("permission_denied")
-        cursor_id = self._uuid_cursor(cursor)
-        sources, has_more = self._authorization.granted_development_sources(
-            principal,
-            "development_source_list",
-            cursor=cursor_id,
-            limit=limit,
-        )
-        result = DevelopmentSourceListResult(
-            sources=tuple(
-                DevelopmentSourceSummary(
-                    source_id=source.id,
-                    logical_name=source.logical_name,
-                    source_type=source.source_kind.value,
-                    addon_id=source.addon_id,
-                    addon_name=source.observed_name,
-                    version=source.observed_version,
-                    extension_types=source.extension_types,
-                    registration_observed_at=source.validated_at,
-                )
-                for source in sources
-            ),
-            next_cursor=str(sources[-1].id) if has_more and sources else None,
-        )
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_status(
-        self,
-        principal: McpPrincipal,
-        *,
-        workspace_id: UUID | None = None,
-        cursor: str | None = None,
-        limit: int = 50,
-    ) -> WorkspaceStatusResult:
-        service = self._workspace_service()
-        if (
-            limit < 1
-            or limit > 100
-            or (workspace_id is not None and cursor is not None)
-        ):
-            raise McpAuthorizationError("permission_denied")
-        has_more = False
-        authorized: tuple[AgentWorkspace, ...]
-        if workspace_id is not None:
-            authorized = (
-                self._authorization.authorize_workspace(
-                    principal, "workspace_status", workspace_id
-                ),
-            )
-        else:
-            authorized, has_more = self._authorization.owned_workspaces(
-                principal,
-                "workspace_status",
-                cursor=self._uuid_cursor(cursor),
-                limit=limit,
-            )
-        # Publish only the bound session generation for an already-authorized
-        # owned workspace whose exact selected target grant remains current.
-        # This lets an agent supply the settings assertion using ordinary MCP
-        # status, without requiring Web administration or another identity tool.
-        with self._session_factory() as session:
-            selected = session.scalar(
-                select(DevelopmentSessionRow)
-                .join(
-                    DevelopmentSessionPolicyRow,
-                    DevelopmentSessionPolicyRow.active_generation
-                    == DevelopmentSessionRow.generation,
-                )
-                .join(
-                    McpClientTargetGrantRow,
-                    McpClientTargetGrantRow.target_id
-                    == DevelopmentSessionRow.target_id,
-                )
-                .where(
-                    DevelopmentSessionPolicyRow.id == 1,
-                    DevelopmentSessionRow.phase == "bound",
-                    McpClientTargetGrantRow.client_id == str(principal.client_id),
-                    DevelopmentSessionRow.workspace_id.in_(
-                        [str(workspace.id) for workspace in authorized]
-                    ),
-                )
-            )
-            generations = {
-                workspace.id: selected.generation
-                for workspace in authorized
-                if selected is not None
-                and selected.workspace_id == str(workspace.id)
-                and selected.source_id == str(workspace.development_source_id)
-            }
-        summaries = tuple(
-            self._workspace_summary(
-                service.get(workspace.id), workspace.updated_at
-            ).model_copy(
-                update={"selected_session_generation": generations.get(workspace.id)}
-            )
-            for workspace in authorized
-        )
-        result = WorkspaceStatusResult(
-            workspaces=summaries,
-            next_cursor=(str(authorized[-1].id) if has_more and authorized else None),
-        )
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_tree(
-        self,
-        principal: McpPrincipal,
-        *,
-        workspace_id: UUID,
-        relative_path: str = "",
-        cursor: str | None = None,
-        limit: int = 100,
-    ) -> WorkspaceTreeResult:
-        service = self._workspace_service()
-        if limit < 1 or limit > 200:
-            raise McpAuthorizationError("permission_denied")
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_tree", workspace_id
-        )
-        try:
-            items = service.inspect_directory(workspace_id, relative_path)
-        except (
-            AgentWorkspaceConflictError,
-            AgentWorkspaceNotFoundError,
-            AgentWorkspaceStorageError,
-        ) as error:
-            raise McpAuthorizationError(self._workspace_error(error)) from error
-        cursor_name = self._decode_tree_cursor(cursor)
-        eligible = [
-            item
-            for item in items
-            if cursor_name is None
-            or item.name.encode("utf-8") > cursor_name.encode("utf-8")
-        ]
-        selected = eligible[:limit]
-        prefix = f"{relative_path}/" if relative_path else ""
-        result = WorkspaceTreeResult(
-            workspace_id=workspace.id,
-            source_id=workspace.development_source_id,
-            directory=relative_path,
-            observed_generation=workspace.generation,
-            entries=tuple(
-                WorkspaceTreeEntrySummary(
-                    path=f"{prefix}{item.name}",
-                    entry_type=item.entry_type,
-                    byte_size=item.size,
-                )
-                for item in selected
-            ),
-            next_cursor=(
-                self._encode_tree_cursor(selected[-1].name)
-                if len(eligible) > limit and selected
-                else None
-            ),
-        )
-        self._require_development_bounded(result)
-        return result
-
-    def workspace_read(
-        self,
-        principal: McpPrincipal,
-        *,
-        workspace_id: UUID,
-        relative_path: str,
-        start_line: int = 1,
-        max_lines: int = 200,
-    ) -> WorkspaceReadResult:
-        service = self._workspace_service()
-        if start_line < 1 or max_lines < 1 or max_lines > 2000:
-            raise McpAuthorizationError("permission_denied")
-        workspace = self._authorization.authorize_workspace(
-            principal, "workspace_read", workspace_id
-        )
-        try:
-            read = service.read_file(workspace_id, relative_path)
-        except (
-            AgentWorkspaceConflictError,
-            AgentWorkspaceNotFoundError,
-            AgentWorkspaceStorageError,
-        ) as error:
-            raise McpAuthorizationError(self._workspace_error(error)) from error
-        payload = read.content.encode("utf-8")
-        lines = read.content.splitlines(keepends=True)
-        offset = start_line - 1
-        candidates = lines[offset : offset + max_lines]
-        selected: list[str] = []
-        selected_bytes = 0
-        for line in candidates:
-            line_bytes = len(line.encode("utf-8"))
-            if selected_bytes + line_bytes > MAX_MCP_DEVELOPMENT_TEXT_BYTES:
-                break
-            selected.append(line)
-            selected_bytes += line_bytes
-        if candidates and not selected:
-            raise McpAuthorizationError("response_too_large")
-        next_line = (
-            start_line + len(selected) if offset + len(selected) < len(lines) else None
-        )
-        result = WorkspaceReadResult(
-            workspace_id=workspace.id,
-            source_id=workspace.development_source_id,
-            path=relative_path,
-            text="".join(selected),
-            observed_generation=workspace.generation,
-            sha256=hashlib.sha256(payload).hexdigest(),
-            start_line=start_line,
-            returned_line_count=len(selected),
-            next_line=next_line,
-            total_file_bytes=len(payload),
-            truncated=start_line > 1 or next_line is not None,
-        )
-        self._require_development_bounded(result)
-        return result
-
     def remote_action(
         self,
         principal: McpPrincipal,
@@ -2057,9 +848,7 @@ class McpTargetToolService:
         if self._remote_actions is None:
             raise McpAuthorizationError("capability_unavailable")
         if observe_ui:
-            with self._session_factory() as session:
-                if session.get(ManagedInstanceRow, str(target_id)) is None:
-                    raise McpAuthorizationError("capability_unavailable")
+            raise McpAuthorizationError("capability_unavailable")
 
         if self._authorization.is_production_target(target_id):
             action_class = classify_production_action(action)
@@ -2104,13 +893,6 @@ class McpTargetToolService:
             return result
 
         self._authorization.authorize_target(principal, "remote_action", target_id)
-        prepared = (
-            self._remote_observations.prepare(
-                principal.client_id, target_id, request_id
-            )
-            if observe_ui
-            else None
-        )
 
         def reauthorize() -> None:
             self._authorization.authorize_target(principal, "remote_action", target_id)
@@ -2126,71 +908,8 @@ class McpTargetToolService:
             )
         except McpRemoteActionReceiptError as error:
             raise McpAuthorizationError(error.code) from error
-        if prepared is not None:
-            new_action, before = prepared
-            observation = self._remote_observations.complete(
-                result,
-                new_action=new_action,
-                before=before,
-                inspect=lambda: self.inspect_ui_state(principal, target_id=target_id),
-                authorize_inspect=lambda: self._authorization.authorize_target(
-                    principal, "inspect_ui_state", target_id
-                ),
-            )
-            result = result.model_copy(update={"post_action_observation": observation})
         self._require_bounded(result)
         return result
-
-    def screenshot_retrieve(
-        self,
-        principal: McpPrincipal,
-        *,
-        target_id: UUID,
-        request_id: UUID,
-        capture_id: UUID,
-    ) -> ScreenshotToolResult:
-        def authorize() -> object:
-            return self._authorization.authorize_target(
-                principal, "screenshot_retrieve", target_id
-            )
-
-        authorize()
-        try:
-            status, png, age, generation = self._remote_observations.retrieve(
-                principal.client_id, target_id, request_id, capture_id
-            )
-        except CaptureReuseError as error:
-            raise McpAuthorizationError(
-                "screenshot_capture_unavailable", reason=str(error)
-            ) from error
-        except ScreenshotServiceError as error:
-            raise McpAuthorizationError(
-                "screenshot_capture_unavailable", reason=error.code
-            ) from error
-        except Exception as error:
-            raise McpAuthorizationError("screenshot_capture_unavailable") from error
-        authorize()
-        if (
-            status.captured_at is None
-            or status.width is None
-            or status.height is None
-            or status.byte_size != len(png)
-        ):
-            raise McpAuthorizationError("screenshot_capture_unavailable")
-        metadata = ScreenshotRetrievalMetadata(
-            target_id=target_id,
-            request_id=request_id,
-            capture_id=capture_id,
-            captured_at=status.captured_at,
-            width=status.width,
-            height=status.height,
-            mime_type=PNG_MIME_TYPE,
-            byte_size=len(png),
-            age_seconds=age,
-            runtime_state_revision=generation,
-        )
-        self._require_bounded(metadata)
-        return ScreenshotToolResult(metadata=metadata, png=png)
 
     def scan_log(
         self, principal: McpPrincipal, *, target_id: UUID, request: KodiLogScanRequest
@@ -2329,14 +1048,10 @@ class McpTargetToolService:
             or (cursor is not None and len(cursor) > 128)
         ):
             raise McpAuthorizationError("permission_denied")
+        if self._target_adapters is None:
+            raise McpAuthorizationError("capability_unavailable")
         try:
-            inventory = (
-                self._addon_inventory.get(target_id)
-                if self._target_adapters is None
-                else self._target_adapters.addon_inventory(target_id)
-            )
-        except ManagedInstanceNotFoundError as error:
-            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
+            inventory = self._target_adapters.addon_inventory(target_id)
         except KodiTargetAdapterError as error:
             raise McpAuthorizationError(error.code) from error
         if inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE:
@@ -2474,24 +1189,7 @@ class McpTargetToolService:
             png = adapted.png
             byte_size = adapted.byte_size
         else:
-            try:
-                result = self._screenshots.capture_image(target_id)
-            except ManagedInstanceNotFoundError as error:
-                raise McpAuthorizationError(
-                    "target_not_found_or_not_authorized"
-                ) from error
-            except ScreenshotServiceError as error:
-                raise McpAuthorizationError(
-                    self._screenshot_error(error.code)
-                ) from error
-            status = result.capture.screenshot
-            capture_id = result.capture.capture_id
-            captured_at = status.captured_at
-            width = status.width
-            height = status.height
-            mime_type = status.mime_type
-            png = result.png
-            byte_size = status.byte_size
+            raise McpAuthorizationError("screenshot_capture_unavailable")
         if (
             captured_at is None
             or width is None
@@ -2584,374 +1282,30 @@ class McpTargetToolService:
         return result
 
     def _summary(self, target_id: UUID) -> TargetSummary:
-        if self._target_adapters is not None:
-            try:
-                item = self._target_adapters.summary(target_id, fresh=True)
-            except KodiTargetAdapterError as error:
-                raise McpAuthorizationError(error.code) from error
-            return TargetSummary(
-                **{field: getattr(item, field) for field in TargetSummary.model_fields}
-            )
+        if self._target_adapters is None:
+            raise McpAuthorizationError("capability_unavailable")
         try:
-            status = self._status.get(target_id)
-        except ManagedInstanceNotFoundError as error:
-            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
-        with self._session_factory() as session:
-            instance = session.get(ManagedInstanceRow, str(target_id))
-            if instance is None:
-                raise McpAuthorizationError("target_not_found_or_not_authorized")
-            profile = f"managed_{instance.instance_type.value}"
-        return self._summary_from_status(status, profile)
+            item = self._target_adapters.summary(target_id, fresh=True)
+        except KodiTargetAdapterError as error:
+            raise McpAuthorizationError(error.code) from error
+        return TargetSummary(
+            **{field: getattr(item, field) for field in TargetSummary.model_fields}
+        )
 
     def _summaries(self, target_ids: list[UUID]) -> tuple[TargetSummary, ...]:
         if not target_ids:
             return ()
-        if self._target_adapters is not None:
-            try:
-                items = self._target_adapters.summaries(target_ids)
-            except KodiTargetAdapterError as error:
-                raise McpAuthorizationError(error.code) from error
-            return tuple(
-                TargetSummary(
-                    **{
-                        field: getattr(item, field)
-                        for field in TargetSummary.model_fields
-                    }
-                )
-                for item in items
-            )
-        statuses = {
-            item.managed_instance_id: item for item in self._status.list_statuses()
-        }
-        with self._session_factory() as session:
-            instances = session.scalars(
-                select(ManagedInstanceRow).where(
-                    ManagedInstanceRow.target_id.in_(
-                        [str(target_id) for target_id in target_ids]
-                    )
-                )
-            ).all()
-            profiles = {
-                UUID(instance.target_id): f"managed_{instance.instance_type.value}"
-                for instance in instances
-            }
-        try:
-            return tuple(
-                self._summary_from_status(statuses[target_id], profiles[target_id])
-                for target_id in target_ids
-            )
-        except KeyError as error:
-            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
-
-    def _workspace_service(self) -> AgentWorkspaceService:
-        if self._workspaces is None:
+        if self._target_adapters is None:
             raise McpAuthorizationError("capability_unavailable")
-        return self._workspaces
-
-    def _workspace_summary(
-        self, workspace: AgentWorkspaceRead, updated_at: datetime
-    ) -> WorkspaceSummary:
-        creation = self._workspace_service().creation_status_for_workspace(workspace.id)
-        creation_state = "reconciliation_required"
-        if (
-            creation is not None
-            and creation.workspace_id == workspace.id
-            and creation.development_source_id == workspace.development_source_id
-        ):
-            if creation.state is AgentWorkspaceCreationState.SUCCEEDED:
-                if workspace.captured_at is not None and workspace.state not in {
-                    AgentWorkspaceState.CREATING,
-                    AgentWorkspaceState.CAPTURING,
-                }:
-                    creation_state = "ready"
-            elif creation.state is AgentWorkspaceCreationState.FAILED:
-                if (
-                    workspace.state is AgentWorkspaceState.ABANDONED
-                    and workspace.captured_at is None
-                ):
-                    creation_state = "abandoned"
-            elif (
-                creation.state
-                in {
-                    AgentWorkspaceCreationState.QUEUED,
-                    AgentWorkspaceCreationState.RUNNING,
-                }
-                and workspace.state
-                in {AgentWorkspaceState.CREATING, AgentWorkspaceState.CAPTURING}
-                and workspace.captured_at is None
-            ):
-                creation_state = "pending"
-        projection = (
-            None
-            if self._workspace_retention is None
-            else self._workspace_retention.projection(workspace.id)
-        )
-        development = (
-            None
-            if self._workspace_development is None
-            else self._workspace_development.projection(workspace.id)
-        )
-        promotion = (
-            None
-            if self._promotion_requests is None
-            else self._promotion_requests.projection(workspace.id)
-        )
-        return WorkspaceSummary(
-            workspace_id=workspace.id,
-            source_id=workspace.development_source_id,
-            lifecycle_state=workspace.state.value,
-            bytes_state=workspace.bytes_state.value,
-            generation=workspace.generation,
-            creation_state=creation_state,
-            created_at=workspace.created_at,
-            updated_at=updated_at,
-            latest_promotion_state=(
-                None
-                if workspace.promotion_outcome is None
-                else workspace.promotion_outcome.value
-            ),
-            latest_verification_state=(
-                None
-                if workspace.verification_outcome is None
-                else workspace.verification_outcome.value
-            ),
-            retention_classification=(
-                "active" if projection is None else projection.classification
-            ),
-            retention_deadline_at=(
-                None if projection is None else projection.deadline_at
-            ),
-            automatic_cleanup_blocked=(
-                False if projection is None else projection.automatic_cleanup_blocked
-            ),
-            latest_validation_id=(
-                None if development is None else development.validation_id
-            ),
-            latest_validation_state=(
-                None if development is None else development.validation_state
-            ),
-            latest_validation_generation=(
-                None if development is None else development.validation_generation
-            ),
-            latest_deployment_id=(
-                None if development is None else development.deployment_id
-            ),
-            latest_deployment_state=(
-                None if development is None else development.deployment_state
-            ),
-            latest_deployment_mode=(
-                None if development is None else development.deployment_mode
-            ),
-            latest_deployment_phase=(
-                None if development is None else development.deployment_phase
-            ),
-            latest_deployment_publication_id=(
-                None if development is None else development.deployment_publication_id
-            ),
-            latest_deployment_installation_kind=(
-                None
-                if development is None
-                else development.deployment_installation_kind
-            ),
-            latest_deployment_next_action=(
-                None if development is None else development.deployment_next_action
-            ),
-            latest_deployment_generation=(
-                None if development is None else development.deployment_generation
-            ),
-            latest_deployment_target_id=(
-                None if development is None else development.deployment_target_id
-            ),
-            latest_execution_id=(
-                None if development is None else development.execution_id
-            ),
-            latest_execution_state=(
-                None if development is None else development.execution_state
-            ),
-            latest_execution_generation=(
-                None if development is None else development.execution_generation
-            ),
-            latest_execution_target_id=(
-                None if development is None else development.execution_target_id
-            ),
-            latest_launch_id=None if development is None else development.launch_id,
-            latest_launch_request_id=None
-            if development is None
-            else development.launch_request_id,
-            latest_launch_state=None
-            if development is None
-            else development.launch_state,
-            latest_launch_generation=None
-            if development is None
-            else development.launch_generation,
-            latest_launch_target_id=None
-            if development is None
-            else development.launch_target_id,
-            latest_launch_extension_ordinal=None
-            if development is None
-            else development.launch_extension_ordinal,
-            latest_promotion_plan_id=(None if promotion is None else promotion.plan_id),
-            latest_promotion_review_state=(
-                None if promotion is None else promotion.review_state
-            ),
-            latest_promotion_operation_id=(
-                None if promotion is None else promotion.promotion_operation_id
-            ),
-            latest_promotion_operation_state=(
-                None if promotion is None else promotion.promotion_operation_state
-            ),
-            latest_promotion_verification_id=(
-                None if promotion is None else promotion.verification_id
-            ),
-            latest_promotion_verification_state=(
-                None if promotion is None else promotion.verification_state
-            ),
-            latest_promotion_final_classification=(
-                None if promotion is None else promotion.final_classification
-            ),
-        )
-
-    @staticmethod
-    def _uuid_cursor(cursor: str | None) -> UUID | None:
-        if cursor is None:
-            return None
         try:
-            parsed = UUID(cursor)
-        except (ValueError, AttributeError) as error:
-            raise McpAuthorizationError("permission_denied") from error
-        if str(parsed) != cursor:
-            raise McpAuthorizationError("permission_denied")
-        return parsed
-
-    @staticmethod
-    def _encode_tree_cursor(name: str) -> str:
-        return (
-            base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii").rstrip("=")
-        )
-
-    @staticmethod
-    def _decode_tree_cursor(cursor: str | None) -> str | None:
-        if cursor is None:
-            return None
-        if not cursor or len(cursor) > 512:
-            raise McpAuthorizationError("path_not_allowed")
-        try:
-            payload = base64.b64decode(
-                cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True
+            items = self._target_adapters.summaries(target_ids)
+        except KodiTargetAdapterError as error:
+            raise McpAuthorizationError(error.code) from error
+        return tuple(
+            TargetSummary(
+                **{field: getattr(item, field) for field in TargetSummary.model_fields}
             )
-            name = payload.decode("utf-8", "strict")
-        except (ValueError, UnicodeDecodeError) as error:
-            raise McpAuthorizationError("path_not_allowed") from error
-        if not name or "/" in name or "\\" in name or "\x00" in name:
-            raise McpAuthorizationError("path_not_allowed")
-        return name
-
-    @staticmethod
-    def _workspace_error(error: Exception) -> str:
-        code = getattr(error, "code", "")
-        if code in {"workspace_bytes_cleaned"}:
-            return "workspace_bytes_cleaned"
-        if code in {"agent_workspace_not_ready", "workspace_reconciliation_blocked"}:
-            return "workspace_not_ready"
-        if code in {
-            "agent_workspace_path_invalid",
-            "agent_workspace_path_unavailable",
-        }:
-            return "path_not_allowed"
-        if code in {
-            "agent_workspace_entry_unsafe",
-            "agent_workspace_file_unsafe",
-            "agent_workspace_file_not_text",
-        }:
-            return "unsupported_file_type"
-        if code == "agent_workspace_file_too_large":
-            return "file_too_large"
-        if code == "agent_workspace_directory_too_large":
-            return "response_too_large"
-        if code == "agent_workspace_not_found":
-            return "workspace_integrity_changed"
-        return "workspace_integrity_changed"
-
-    @staticmethod
-    def _workspace_edit_error(error: Exception) -> str:
-        code = getattr(error, "code", "")
-        if code == "agent_workspace_generation_conflict":
-            return "workspace_generation_conflict"
-        if code in {
-            "agent_workspace_not_ready",
-            "workspace_reconciliation_blocked",
-            "agent_workspace_promotion_active",
-        }:
-            return "workspace_not_ready"
-        if code in {
-            "agent_workspace_path_invalid",
-            "agent_workspace_path_unavailable",
-            "agent_workspace_parent_unsafe",
-            "agent_workspace_create_conflict",
-            "agent_workspace_replace_missing",
-        }:
-            return "path_not_allowed"
-        if code == "agent_workspace_patch_preimage_mismatch":
-            return "workspace_patch_preimage_mismatch"
-        if code in {
-            "agent_workspace_entry_unsafe",
-            "agent_workspace_file_unsafe",
-            "agent_workspace_file_not_text",
-            "agent_workspace_addon_xml_invalid",
-        }:
-            return "unsupported_file_type"
-        if code in {
-            "agent_workspace_file_too_large",
-            "agent_workspace_content_too_large",
-        }:
-            return "file_too_large"
-        return "workspace_integrity_changed"
-
-    @staticmethod
-    def _workspace_validation_error(error: Exception) -> str:
-        code = getattr(error, "code", "")
-        if code == "agent_workspace_generation_conflict":
-            return "workspace_generation_conflict"
-        if code in {
-            "agent_workspace_not_ready",
-            "workspace_reconciliation_blocked",
-            "agent_workspace_promotion_active",
-        }:
-            return "workspace_not_ready"
-        if code == "agent_workspace_busy":
-            return "validation_busy"
-        if code == "agent_workspace_baseline_entry_missing":
-            return "unsupported_deletion"
-        if code in {
-            "agent_workspace_type_transition",
-            "agent_workspace_mode_transition",
-        }:
-            return "unsupported_type_transition"
-        if code in {
-            "agent_workspace_changed_binary",
-            "agent_workspace_tree_unsafe",
-            "development_source_unsafe_entry",
-        }:
-            return "unsupported_file_type"
-        if code == "agent_workspace_addon_xml_invalid":
-            return "validation_failed"
-        return "workspace_integrity_changed"
-
-    @staticmethod
-    def _summary_from_status(
-        status: ManagedRuntimeStatus, profile: str
-    ) -> TargetSummary:
-        return TargetSummary(
-            target_id=status.managed_instance_id,
-            display_name=status.name,
-            kodi_version=status.kodi_version,
-            runtime_profile=profile,
-            provision_state=status.provision_state.value,
-            runtime_state=status.container_state.value,
-            process_state=status.process_state.value,
-            jsonrpc_state=status.jsonrpc_state.value,
-            usability_state=status.usability_state.value,
-            readiness_state=status.readiness_state.value,
+            for item in items
         )
 
     @staticmethod

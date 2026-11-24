@@ -51,7 +51,6 @@ from kodi_lab.kodi.external import ExternalProbeError
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
-from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.transport import (
     BoundedTokenBucketLimiter,
     ModernMcpAuthMiddleware,
@@ -1553,7 +1552,7 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
     transport = build_mcp_http_transport(
         authentication=McpAuthenticationService(database),
         authorization=list_closure["authorization"],
-        registry=build_mcp_tool_registry(),
+        managed=call_closure["managed"],
         tools=call_closure["tools"],
         additional_allowed_hosts=(
             "10.251.0.10",

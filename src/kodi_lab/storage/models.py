@@ -9265,58 +9265,6 @@ for _reset_trigger in RESET_TRIGGERS:
         DDL(_reset_trigger).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )
 
-
-class ManagedWebIntentRow(Base):
-    """Administrator browser confirmation, independent of any MCP principal."""
-
-    __tablename__ = "managed_web_intents"
-    __table_args__ = (
-        CheckConstraint(
-            "action IN ('start','stop','reset')", name="managed_web_action"
-        ),
-        CheckConstraint(
-            "generation IN ('matrix','nexus','omega','piers')",
-            name="managed_web_version",
-        ),
-        CheckConstraint(
-            "length(request_id)=36 AND length(snapshot_sha256)=64 "
-            "AND length(created_at)=27",
-            name="managed_web_binding",
-        ),
-        CheckConstraint(
-            "reset_confirmed IN (0,1) AND (action!='reset' OR reset_confirmed=1)",
-            name="managed_web_confirmation",
-        ),
-    )
-    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    generation: Mapped[str] = mapped_column(String(8), nullable=False)
-    action: Mapped[str] = mapped_column(String(8), nullable=False)
-    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    reset_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
-    prepare_bridge: Mapped[bool] = mapped_column(
-        Boolean,
-        CheckConstraint(
-            "prepare_bridge IN (0,1) AND "
-            "(prepare_bridge=0 OR (action='reset' AND reset_confirmed=1))",
-            name="managed_web_bridge_consent",
-        ),
-        nullable=False,
-        default=False,
-        server_default=text("0"),
-    )
-
-
-_WEB_INTENT_IMMUTABLE = """
-CREATE TRIGGER managed_web_intent_immutable BEFORE UPDATE ON managed_web_intents
-BEGIN SELECT RAISE(ABORT,'managed Web intent is immutable'); END
-"""
-event.listen(
-    ManagedWebIntentRow.__table__,
-    "after_create",
-    DDL(_WEB_INTENT_IMMUTABLE).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
-)
-
 for _bridge_table, _bridge_sql in (
     (ManagedBridgePreparationRow.__table__, BRIDGE_PREPARATION_IMMUTABLE),
     (ManagedBridgePreparationChildRow.__table__, BRIDGE_CHILD_IMMUTABLE),

@@ -7538,7 +7538,7 @@ is checkpointed before a child call, and missing receipts never permit another
 dispatch. Uncertain and completed history cannot be reset or retried by this
 foundation. Parent references protect lifecycle receipts from normal pruning.
 There is no executor or public API in milestone 1, and parent intent does not
-grant broker/lifecycle authority. See [the contract](CREATE-KODI-FOUNDATION.md).
+grant broker/lifecycle authority. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-FOUNDATION.md).
 
 ## Installation-only Create integration (issue #196, milestone 2A)
 
@@ -7550,7 +7550,7 @@ explicit recovery retains the original UUID: undispatched refusals can continue,
 and uncertainty can consume only a verified original terminal receipt. Verified
 failures remain final; new attempts need a separate retained-history design.
 No schema, broker contract/authority, runner, Web API or later Create execution
-is added. See [the contract](CREATE-KODI-INSTALLATION.md).
+is added. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-INSTALLATION.md).
 
 ## Exact Create registration and provision (issue #196, milestone 2B)
 
@@ -7561,7 +7561,7 @@ ownership remains active; parent success and the terminal child receipt commit
 together, retaining the precise post-release projection revision. Uncertainty
 never authorizes another child or container adoption. No schema, broker authority,
 Start/readiness, API, wizard or generic workflow changes are added. See
-[the contract](CREATE-KODI-REGISTRATION-PROVISIONING.md).
+[the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-REGISTRATION-PROVISIONING.md).
 
 ## Exact Create managed Start (issue #196, milestone 2C)
 
@@ -7573,7 +7573,7 @@ and uncertainty never permits another Start or UUID. Retained mode or an existin
 legacy broker limit of one supplies atomic one-active admission. Start confirmation
 remains separate from final native readiness, viewing and optional Bridge/agent
 capability. No migration, broker authority/protocol, API, wizard or runner is added.
-See [the contract](CREATE-KODI-START.md).
+See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-START.md).
 
 ## Create first-install capacity compatibility (issue #196)
 
@@ -7597,7 +7597,7 @@ an explicit new versioned read-only probe of a Dispatched parent, retaining its
 fixed correlation and all mutation child IDs. Interrupted or nonusable probes
 never replay lifecycle work, and historical completion never starts Kodi again.
 No schema, broker authority, general retry engine, API, runner, wizard or Bridge
-preparation is added. See [the contract](CREATE-KODI-READINESS.md).
+preparation is added. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-READINESS.md).
 
 ## Authenticated Create intent and reconnect (issue #196, milestone 3A)
 
@@ -7610,7 +7610,7 @@ Status/reconnect expose fixed browser-safe fields and exact-instance inventory
 availability, not child receipts, proofs or runtime authority. GETs never execute
 or resolve a stage. There is no new schema, approval/session system, broker
 authority, runner, continuation endpoint or wizard. The future runner must retain
-the single approved Create scope. See [the API contract](CREATE-KODI-API.md).
+the single approved Create scope. See [the API contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-API.md).
 
 ## Bounded internal Create continuation (issue #196, milestone 3B1)
 
@@ -7622,7 +7622,7 @@ without another mutation or container-based success inference. Existing narrow
 read-only installation/registration confirmation and native readiness rechecks
 retain original identities. No refusal reset, general recovery, scheduler,
 schema, broker authority, endpoint or wizard is introduced. See
-[the runner contract](CREATE-KODI-RUNNER.md).
+[the runner contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-RUNNER.md).
 
 ## Protected Create continuation (issue #196, milestone 3B2)
 
@@ -7634,7 +7634,7 @@ status rather than redispatch. Snapshot next-action guidance never drives work.
 Verified runtime files without canonical registration are reusable prerequisites,
 not a demand to redownload; registration keeps its existing stage admission.
 No schema, broker authority, queue, scheduler, wizard or passive execution is
-added. See [the API contract](CREATE-KODI-API.md).
+added. See [the API contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-API.md).
 
 ## Guided ordinary Create Kodi (issue #196, milestone 4A)
 
@@ -7646,7 +7646,7 @@ other-tab changes and reloads pause for status/Resume; Needs attention never
 replays mutations. Native completion and current availability stay separate;
 Open screen uses the existing exact-instance viewer and stopped history links to
 normal Start controls. No scheduler, migration, authority, Bridge/agent preparation
-or development selection is added. See [the UI contract](CREATE-KODI-WIZARD.md).
+or development selection is added. See [the UI contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-WIZARD.md).
 
 
 ## Managed setup and running capacity (2026-11-05)
@@ -8033,7 +8033,7 @@ Start or Reset. Existing profiles retain ordinary lifecycle behavior; Reset
 still invalidates trust and has the explicit retained repair route. No agent
 permission, preset, policy, grant or external operation is added.
 
-See [architecture and native acceptance boundary](MANAGED-BRIDGE-PREPARATION.md).
+See [architecture and native acceptance boundary](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/MANAGED-BRIDGE-PREPARATION.md).
 
 ## D-0492: Trusted Managed Lab is an independent managed-only role
 

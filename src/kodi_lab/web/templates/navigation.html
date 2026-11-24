@@ -1,4 +1,3 @@
-{% if shared_navigation_enabled %}
 <header class="admin-sidebar" data-admin-sidebar>
   <div class="admin-brand-row">
     <a class="admin-brand" href="/kodi"{% if nav_section == 'kodi' %} aria-current="page"{% endif %}>Kodi Lab</a>
@@ -17,11 +16,3 @@
     </form>
   </nav>
 </header>
-{% else %}
-{# Older running processes share these templates but do not have the landing routes. #}
-<header>
-  <a href="/">Kodi Lab</a>
-  {% if csrf_token %}<form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Sign out</button></form>{% endif %}
-</header>
-<nav aria-label="Administration"><a href="/kodi-repository">Kodi Repository</a> · {% if add_kodi_enabled %}<a href="/add-kodi">Connect External Kodi</a> · {% endif %}<a href="/pair-kodi">Pair External Development Kodi</a> · <a href="/runtimes">Reviewed runtimes</a> · <a href="/mcp-clients">MCP clients</a> · <a href="/external-targets">External Development Kodi</a> · <a href="/production-targets">External Production Kodi</a> · <a href="/development-sources">Development Sources</a> · <a href="/development-session">Current Managed Kodi</a> · <a href="/agent-workspaces">Agent Workspaces</a> · <a href="/addon-repositories">Add-on repositories</a> · <a href="/addon-zips">Add-on ZIP testing</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
-{% endif %}

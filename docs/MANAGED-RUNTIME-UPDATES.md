@@ -112,7 +112,7 @@ Check advertised capabilities, exact release and live authenticated handshake vi
 If code changes are needed, review source, deterministic ZIP, inventories,
 fingerprints and wheel resources as a separate artifact; then qualify it natively.
 Do not silently reuse an incompatible overlay or patch a retained installation.
-See [Bridge preparation](MANAGED-BRIDGE-PREPARATION.md) and [Bridge reference](BRIDGE.md).
+See [Bridge preparation](MANAGED-V2-FRESH-INSTALL.md) and [Bridge reference](BRIDGE.md).
 
 ## Minimal native qualification
 

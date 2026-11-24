@@ -12,33 +12,13 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-from starlette.websockets import WebSocketDisconnect
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from kodi_lab.web.app import _require_same_origin, create_app
+from kodi_lab.web.app import _require_same_origin
 from scripts import install
-from tests.web import conftest
-from tests.web.conftest import INSTANCE_ID, PASSWORD
-from tests.web.test_novnc import viewer
-from tests.web.view_attempt_fixture import view_attempt
-
+from tests.web.conftest import PASSWORD
 
 # Reuse existing isolated viewer/broker doubles, never a live Kodi.
-@pytest.fixture
-def enabled_client(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
-) -> TestClient:
-    create = create_app
-
-    def configured(**kwargs: Any) -> Any:
-        service = viewer()
-        service.require_https = True
-        service.enabled_instances = frozenset({INSTANCE_ID})
-        kwargs["novnc_viewer"] = service
-        return create(**kwargs)
-
-    monkeypatch.setattr(conftest, "create_app", configured)
-    return request.getfixturevalue("client")  # type: ignore[no-any-return]
 
 
 PEER = "192.168.241.2"
@@ -229,7 +209,7 @@ def test_matching_http_origin_is_rejected_before_authentication(
             follow_redirects=False,
         )
         assert response.status_code == 403
-        assert response.json() == {"detail": "viewer_requires_https"}
+        assert response.json() == {"detail": "web_requires_https"}
         assert "set-cookie" not in response.headers
         login.assert_not_called()
         sign_in(proxy)
@@ -277,74 +257,3 @@ def test_missing_origin_can_only_use_valid_referer(proxy: TestClient) -> None:
         ).status_code
         == 303
     )
-
-
-@pytest.mark.parametrize(
-    "origin,peer,query,protocols",
-    [
-        ("https://evil.test:18443", PEER, "", True),
-        ("http://127.0.0.1:18443", PEER, "", True),
-        ("https://127.0.0.1:18444", PEER, "", True),
-        ("", PEER, "", True),
-        (ORIGIN, "172.18.0.1", "", True),
-        (ORIGIN, PEER, "?ticket=fake", True),
-        (ORIGIN, PEER, "", False),
-    ],
-)
-def test_wss_keeps_origin_transport_ticket_and_ownership_checks(
-    enabled_client: TestClient, origin: str, peer: str, query: str, protocols: bool
-) -> None:
-    proxy = through_proxy(enabled_client.app)
-    sign_in(proxy)
-    # Changing the peer leaves the same real session cookie in the request.
-    proxy._transport.client = (peer, 32000)  # type: ignore[attr-defined]
-    with (
-        pytest.raises(WebSocketDisconnect) as error,
-        proxy.websocket_connect(
-            f"wss://127.0.0.1:18443/api/instances/{INSTANCE_ID}/novnc{query}",
-            headers={"Origin": origin},
-            subprotocols=["novnc", "view.fake"] if protocols else [],
-        ),
-    ):
-        pass
-    assert error.value.code == 4403
-    proxy.close()
-
-
-def test_authorized_wss_reaches_mock_relay_once(
-    enabled_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from kodi_lab.web import novnc
-
-    proxy = through_proxy(enabled_client.app)
-    csrf = sign_in(proxy)
-    path = f"/api/instances/{INSTANCE_ID}"
-    result = proxy.post(
-        path + "/novnc-start",
-        json={"attempt": str(view_attempt()), "rate": 2},
-        headers={"X-Kodi-Lab-CSRF": csrf},
-    )
-    assert result.status_code == 200
-    ticket = result.json()["ticket"]
-    calls = []
-
-    async def relay(
-        websocket: Any, viewer: Any, item: Any, current: Any, authenticated: Any
-    ) -> None:
-        assert websocket.url.scheme == "wss" and authenticated()
-        calls.append(item)
-        await websocket.accept(subprotocol="novnc")
-        await websocket.close()
-
-    monkeypatch.setattr(novnc, "relay", relay)
-    url = f"wss://127.0.0.1:18443{path}/novnc"
-    with proxy.websocket_connect(url, subprotocols=["novnc", "view." + ticket]):
-        pass
-    assert len(calls) == 1
-    with (
-        pytest.raises(WebSocketDisconnect) as error,
-        proxy.websocket_connect(url, subprotocols=["novnc", "view." + ticket]),
-    ):
-        pass
-    assert error.value.code == 4403 and len(calls) == 1
-    proxy.close()

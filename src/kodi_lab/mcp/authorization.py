@@ -280,21 +280,6 @@ class McpAuthorizationService:
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
         names = {item.name for item in self._registry.discoverable(permissions)}
-        with self._session_factory() as session:
-            client = session.get(McpClientRow, str(principal.client_id))
-            if client is None or not self._managed_lab_role(session, principal, client):
-                names.difference_update(
-                    {
-                        "project_create",
-                        "project_status",
-                        "project_import",
-                        "project_transfer",
-                        "package_import",
-                        "package_status",
-                        "package_install",
-                        "package_install_status",
-                    }
-                )
         if (
             principal.preset_id
             in {
@@ -825,14 +810,13 @@ class McpAuthorizationService:
             )
             target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-            managed_role = self._managed_lab_target(
-                session, principal, client, target_id
-            )
-            if not managed_role and (
-                grant is None or target is None or assignment is None
+            if (
+                grant is None
+                or target is None
+                or assignment is None
+                or target.target_type is TargetType.MANAGED
             ):
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
-            assert target is not None
             if target.target_type is TargetType.EXTERNAL_PRODUCTION:
                 assert assignment is not None
                 self._evaluate_production_inspection(
@@ -846,19 +830,14 @@ class McpAuthorizationService:
                 if definition.name == "screenshot_capture":
                     self._screenshot_preference_revision(target_id)
                 return definition
-            if not managed_role and client.preset_id in {
+            if client.preset_id in {
                 str(PRODUCTION_INSPECTION_PRESET_ID),
                 str(PRODUCTION_REMOTE_KODI_PRESET_ID),
                 str(PRODUCTION_VISUAL_PRESET_ID),
             }:
                 raise McpAuthorizationError("permission_denied")
             client_permissions = self._permissions(session, client.preset_id)
-            if managed_role:
-                client_permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
-            target_permissions = TRUSTED_MANAGED_LAB_PERMISSIONS
-            if not managed_role:
-                assert assignment is not None
-                target_permissions = self._permissions(session, assignment.preset_id)
+            target_permissions = self._permissions(session, assignment.preset_id)
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):
@@ -1114,20 +1093,15 @@ class McpAuthorizationService:
                 is not None
             ):
                 raise McpAuthorizationError("promotion_not_allowed")
-            managed_role = self._managed_lab_target(
-                session, principal, client, target_id
-            )
-            if managed_role:
-                target_permissions = TRUSTED_MANAGED_LAB_PERMISSIONS
-            if not managed_role and (
-                target_grant is None or target is None or assignment is None
+            if (
+                target_grant is None
+                or target is None
+                or assignment is None
+                or target.target_type is TargetType.MANAGED
             ):
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
-            assert target is not None
             self._enforce_workspace_production_veto(target, tool_name=tool_name)
             client_permissions = self._permissions(session, client.preset_id)
-            if managed_role:
-                client_permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):

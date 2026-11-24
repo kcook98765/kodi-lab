@@ -471,7 +471,7 @@ installed add-ons. See [retention and recovery](MANAGED-KODI-WEB.md#stop-and-res
 For add-on work, grant an agent **Trusted Managed Lab** in **Agents** and follow
 [agent-owned projects](AGENT-PROJECTS.md); this accepted workflow needs no Web
 workspace selection. **Advanced → Development tools → Current Managed Kodi**
-retains the [manually selected workflow](DEVELOPMENT-SESSION.md). To connect Kodi
+retains the [manually selected workflow](MANAGED-V2-FRESH-INSTALL.md). To connect Kodi
 on another device, use **External Kodi** and choose **External Production Kodi**
 or **External Development Kodi**. The Lab host and external device are separate.
 

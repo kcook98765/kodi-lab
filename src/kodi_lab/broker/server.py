@@ -29,7 +29,6 @@ from kodi_lab.broker.errors import (
 from kodi_lab.broker.novnc import DisplayLane
 from kodi_lab.broker.operations import (
     OperationRegistry,
-    build_foundation_registry,
     build_reviewed_runtime_registry,
 )
 from kodi_lab.broker.protocol import (
@@ -116,7 +115,7 @@ class BrokerServer:
     ) -> None:
         self._socket_config = socket_config
         self._authorization = authorization
-        self._registry = registry or build_foundation_registry()
+        self._registry = registry or build_reviewed_runtime_registry()
         self._credential_extractor = credential_extractor
         self._audit_logger = audit_logger or logging.getLogger(AUDIT_LOGGER_NAME)
         self._read_timeout = read_timeout

@@ -188,5 +188,5 @@ Web empty slots use **Create Managed Kodi → Install and prepare** so fresh Web
 profiles include the reviewed Bridge. The agent cached-runtime Start contract
 above retains its separate existing authority. Ordinary Web Start/Stop resumes
 existing profiles. Existing profiles and clean Reset results have the explicit
-[exact-target Bridge preparation/repair](MANAGED-BRIDGE-PREPARATION.md) route;
+[exact-target Bridge preparation/repair](MANAGED-V2-FRESH-INSTALL.md) route;
 ordinary Start does not silently replace invalidated or revoked trust.

@@ -127,10 +127,6 @@ def environment(tmp_path: Path) -> Iterator[_Environment]:
 
         adapters = KodiTargetAdapterService(
             paired.sessions,
-            managed_status=cast(Any, None),
-            managed_inventory=cast(Any, None),
-            managed_remote=cast(Any, None),
-            managed_authority=cast(Any, None),
             endpoint_policy=ExternalEndpointPolicy(
                 allowed_ports=(8080,), test_loopback_enabled=True
             ),
@@ -144,9 +140,6 @@ def environment(tmp_path: Path) -> Iterator[_Environment]:
         tools = McpTargetToolService(
             paired.sessions,
             authorization,
-            cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
             target_adapters=adapters,
             production_screenshots=ProductionScreenshotService(
                 paired.sessions, paired.bridges

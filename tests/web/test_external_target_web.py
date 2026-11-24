@@ -395,7 +395,7 @@ def test_mcp_cannot_list_or_use_registered_external_target(
     listed = _mcp_call(client, token, "target_list", {})
     assert [
         item["target_id"] for item in listed["result"]["structuredContent"]["targets"]
-    ] == [str(INSTANCE_ID)]
+    ] == []
     attempts = (
         ("target_status", {"target_id": target_id}),
         ("addon_list", {"target_id": target_id}),

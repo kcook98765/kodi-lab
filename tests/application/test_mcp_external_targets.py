@@ -86,10 +86,6 @@ def external_authority(
         )
     adapters = KodiTargetAdapterService(
         factory,
-        managed_status=cast(Any, None),
-        managed_inventory=cast(Any, None),
-        managed_remote=cast(Any, None),
-        managed_authority=cast(Any, None),
         endpoint_policy=ExternalEndpointPolicy(
             allowed_ports=(8080,), test_loopback_enabled=True
         ),
