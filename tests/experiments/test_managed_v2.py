@@ -289,8 +289,11 @@ def test_snapshot_strips_managed_rpc_password(tmp_path):
         "<settings><setting id='services.webserverpassword'>do-not-restore</setting>"
         "<setting id='lookandfeel.skin'>skin.fixture</setting></settings>"
     )
+    orphan = ".stage-" + ("a" * 32)
+    (userdata / orphan).write_text("credential from an interrupted atomic write")
     snapshots = Snapshots(native)
     snapshots.save("No authority")
     snapshots.load("No authority")
     content = (native.profile() / "userdata/guisettings.xml").read_text()
     assert "webserverpassword" not in content and "skin.fixture" in content
+    assert not (native.profile() / "userdata" / orphan).exists()

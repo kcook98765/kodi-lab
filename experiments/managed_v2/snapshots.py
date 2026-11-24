@@ -26,10 +26,15 @@ def name_ok(value):
 
 
 def excluded(name):
-    return name.parts[:1] == ("temp",) or name.parts[:3] == (
-        "userdata",
-        "addon_data",
-        BRIDGE,
+    parts = name.parts
+    return (
+        parts[:1] == ("temp",)
+        or parts[:3] == ("userdata", "addon_data", BRIDGE)
+        or (
+            len(parts) == 2
+            and parts[0] == "userdata"
+            and re.fullmatch(r"\.stage-[0-9a-f]{32}", parts[1])
+        )
     )
 
 
