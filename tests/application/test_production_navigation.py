@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -304,7 +305,13 @@ def _authority_environment(
     return _AuthorityEnvironment(
         factory=factory,
         administration=administration,
-        authorization=McpAuthorizationService(factory, build_mcp_tool_registry()),
+        authorization=McpAuthorizationService(
+            factory,
+            build_mcp_tool_registry(),
+            targets=SimpleNamespace(
+                resolve=lambda _: pytest.fail("Unexpected native probe")
+            ),
+        ),
         acknowledgement=acknowledgement,
         principal=principal,
         client_id=client.id,

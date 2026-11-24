@@ -35,7 +35,6 @@
           <dt>Extensions</dt><dd>{% if item.source.extension_types %}{{ item.source.extension_types|join(', ') }}{% else %}None observed{% endif %}</dd>
           <dt>Registered at</dt><dd>{{ item.source.registered_at }}</dd>
           <dt>Validated at</dt><dd>{{ item.source.validated_at }}</dd>
-          <dt>Attached live instances</dt><dd>{{ item.attached_instance_count }}</dd>
         </dl>
       </article>
       {% else %}<p>No development sources are registered.</p>{% endfor %}

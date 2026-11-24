@@ -180,4 +180,4 @@ refresh and Bridge availability afterward. Unchanged Bridge identity and
 credentials do not require re-pairing solely because the repository moved.
 
 See [backup/rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
-[managed state recovery](MANAGED-STATE-RECOVERY.md) before any publication change.
+[managed state recovery](MANAGED-V2-FRESH-INSTALL.md) before any publication change.

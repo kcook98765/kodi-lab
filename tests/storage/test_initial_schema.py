@@ -1,4 +1,4 @@
-"""Exact old-head parity, fresh initialization, and refusal without writes."""
+"""Fresh schema, SQLite invariants, and refusal of historical state."""
 
 import hashlib
 import json
@@ -15,33 +15,16 @@ from kodi_lab.storage.packaged_migrations import database_is_empty, migrate_data
 from tests.migration_support import migration_config
 from tests.schema_manifest import schema_manifest
 
-BASELINE = "0001_initial_release"
+BASELINE = "0001_foundation"
 
 
-def test_exact_prerelease_head_contract_and_safe_reinitialization(
+def test_fresh_contract_and_safe_reinitialization(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "new.db"
     config = migration_config(database)
     graph = ScriptDirectory.from_config(config)
     assert [(r.revision, r.down_revision) for r in graph.walk_revisions()] == [
-        ("0018_source_addition_reviews", "0017_system_snapshot_capability"),
-        ("0017_system_snapshot_capability", "0016_reviewed_bridge_updates"),
-        ("0016_reviewed_bridge_updates", "0015_log_scan_capability"),
-        ("0015_log_scan_capability", "0014_human_reset_bridge"),
-        ("0014_human_reset_bridge", "0013_agent_packages"),
-        ("0013_agent_packages", "0012_agent_project_intake"),
-        ("0012_agent_project_intake", "0011_agent_project_versions"),
-        ("0011_agent_project_versions", "0010_agent_projects"),
-        ("0010_agent_projects", "0009_trusted_managed_lab"),
-        ("0009_trusted_managed_lab", "0008_managed_bridge_preparation"),
-        ("0008_managed_bridge_preparation", "0007_production_navigation"),
-        ("0007_production_navigation", "0006_external_screenshots"),
-        ("0006_external_screenshots", "0005_managed_web"),
-        ("0005_managed_web", "0004_clean_reset"),
-        ("0004_clean_reset", "0003_managed_versions"),
-        ("0003_managed_versions", "0002_managed_setup"),
-        ("0002_managed_setup", BASELINE),
         (BASELINE, None),
     ]
     command.upgrade(config, BASELINE)
@@ -63,7 +46,7 @@ def test_exact_prerelease_head_contract_and_safe_reinitialization(
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     finally:
         engine.dispose()
-    with pytest.raises(RuntimeError, match="history must be preserved"):
+    with pytest.raises(RuntimeError, match="cannot be downgraded"):
         command.downgrade(config, "base")
     assert database.read_bytes() == before
 
@@ -74,6 +57,9 @@ def test_exact_prerelease_head_contract_and_safe_reinitialization(
         None,
         "",
         "0001_targets_instances",
+        "0001_initial_release",
+        "0001_managed_v2",
+        "0018_source_addition_reviews",
         "0036_mcp_core_foundation",
         "0076_managed_resource_policy",
         "0092_create_kodi_operations",

@@ -12,7 +12,7 @@ The original stable V1 runtime scope covered Matrix 19.4, Nexus 20.5, and
 Omega 21.3, with disposable managed instances. Current Kodi also supports
 explicitly retained per-version development profiles and a reviewed
 development-only Piers 22 RC1 option. Only one managed instance may run at a
-time. See the [Current Kodi workflow](DEVELOPMENT-SESSION.md) and
+time. See the [Current Kodi workflow](MANAGED-V2-FRESH-INSTALL.md) and
 [exact standard viewing recipes](STANDARD-NOVNC.md). Historical
 four-runtime/private-archive sections below are not installation instructions.
 

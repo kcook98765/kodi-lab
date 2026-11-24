@@ -55,13 +55,13 @@ python3 "$repository/scripts/canonicalize_docker_archive.py" \
   "$output/.docker-save-application-images.tar" \
   "$output/kodi-lab-application-images.tar"
 rm "$output/.docker-save-application-images.tar"
-cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" \
+cp "$repository/compose.release.yaml" \
   "$repository/compose.development.yaml" "$repository/compose.lan-http.yaml" "$output/"
 cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
 cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \
   "$output/UPGRADE-ROLLBACK.md"
-cp "$repository/docs/MANAGED-STATE-RECOVERY.md" \
+cp "$repository/docs/MANAGED-V2-FRESH-INSTALL.md" \
   "$output/MANAGED-STATE-RECOVERY.md"
 cp "$repository/docs/PRODUCTION-OPERATIONS.md" "$output/PRODUCTION-OPERATIONS.md"
 cp "$repository/docs/LINUX-V1-RELEASE.md" \

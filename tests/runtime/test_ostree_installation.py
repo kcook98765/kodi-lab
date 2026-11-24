@@ -19,14 +19,9 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application.runtime_eligibility import (
-    RuntimeRevisionEligibilityPolicy,
-    RuntimeSelectionPolicy,
-)
 from kodi_lab.broker.operations import ReviewedInstallationLaunchParams
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
-    KodiReleaseIdentity,
     RuntimeRecipeInstallationState,
     RuntimeSupportTier,
 )
@@ -36,7 +31,6 @@ from kodi_lab.runtime.install import (
     _commit_ready,
     _create_operation,
     acquisition_attestation,
-    bootstrap_recipe_instance,
 )
 from kodi_lab.runtime.ostree import OstreeVerificationEvidence
 from kodi_lab.runtime.ostree_assembly import OstreeAssemblyEvidence
@@ -56,7 +50,6 @@ from kodi_lab.runtime.recipes import (
 )
 from kodi_lab.runtime.validation import RecipeValidationError, ValidationResult
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeDefinitionRepository,
     RuntimeRecipeInstallationRepository,
     RuntimeRevisionRepository,
@@ -254,39 +247,7 @@ def test_preview_is_sealed_exact_and_not_automatically_provisioned(
         )
         assert definition
         assert definition.support_tier is RuntimeSupportTier.PREVIEW
-        policy = RuntimeRevisionEligibilityPolicy()
-        args: dict[str, Any] = dict(
-            required_release=definition.kodi_release,
-            definition=definition,
-            revision=revision,
-        )
-        assert not policy.evaluate_for_release(
-            session, **args, policy=RuntimeSelectionPolicy()
-        ).eligible
-        assert not policy.evaluate_for_release(
-            session, **args, policy=RuntimeSelectionPolicy(include_prerelease=True)
-        ).eligible
-        assert policy.evaluate_for_release(
-            session,
-            **args,
-            policy=RuntimeSelectionPolicy(
-                include_prerelease=True, preview_recipe_digest=reviewed.digest
-            ),
-        ).eligible
-        assert not policy.evaluate_for_release(
-            session,
-            **args,
-            policy=RuntimeSelectionPolicy(
-                include_prerelease=True, preview_recipe_digest="sha256:" + "f" * 64
-            ),
-        ).eligible
         assert "hmac-sha256:" in (row.attestation_json or "")
-        revision_id = revision.id
-    assert bootstrap_recipe_instance(factory, reviewed, revision_id) == {
-        "created": "false"
-    }
-    with factory() as session:
-        assert ManagedInstanceRepository(session).list() == []
 
 
 @pytest.mark.parametrize(
@@ -390,42 +351,6 @@ def test_native_rc2_final_or_malformed_identity_rejected(
                     "tagversion": ordinal,
                 },
             }
-        )
-
-
-def test_persisted_attestation_tamper_fails_hmac(
-    factory: sessionmaker[Session],
-) -> None:
-    operation = ready(factory)
-    reviewed = load_installation_recipe("piers")
-    with factory.begin() as session:
-        row = RuntimeRecipeInstallationRepository(session).get(operation)
-        assert row and row.attestation_json
-        data = json.loads(row.attestation_json)
-        data["assembly"]["build_log_digest"] = "sha256:" + "f" * 64
-        from kodi_lab.runtime.attestation_integrity import canonical_json
-
-        row.attestation_json = canonical_json(data)
-    with factory() as session:
-        row = RuntimeRecipeInstallationRepository(session).get(operation)
-        assert row and row.runtime_revision_id
-        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
-        definition = RuntimeDefinitionRepository(session).get(
-            reviewed.recipe.definition_id
-        )
-        assert revision and definition
-        assert (
-            not RuntimeRevisionEligibilityPolicy()
-            .evaluate_for_release(
-                session,
-                required_release=KodiReleaseIdentity.parse("22.0-rc.1"),
-                definition=definition,
-                revision=revision,
-                policy=RuntimeSelectionPolicy(
-                    include_prerelease=True, preview_recipe_digest=reviewed.digest
-                ),
-            )
-            .eligible
         )
 
 

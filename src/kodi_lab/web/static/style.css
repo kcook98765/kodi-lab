@@ -357,6 +357,7 @@ dd { margin: 0; }
 .current-kodi-state { font-size: 1.1rem; font-weight: 600; margin: .4rem 0; }
 .current-kodi-context { margin: .4rem 0; color: var(--admin-muted, inherit); }
 .current-screen { margin: 1.5rem 0; }
+#managed-viewer { width: 100%; height: min(60vh, 36rem); min-height: 15rem; background: #000; }
 .current-lifecycle, .viewer-actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
 .current-kodi-page button, .current-kodi-page .button-link { min-height: 2.75rem; }
 .current-more, .instance-maintenance { margin: 1.5rem 0; }

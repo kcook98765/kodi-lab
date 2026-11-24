@@ -24,26 +24,18 @@ from kodi_lab.domain import (
     AgentWorkspaceCreationState,
     AgentWorkspaceLifecycleEvent,
     AgentWorkspaceLifecycleEventKind,
-    AgentWorkspacePromotionOperationState,
     AgentWorkspaceState,
     GlobalHeavyOperationKind,
-    PromotionVerificationState,
 )
 from kodi_lab.storage.models import (
     AgentWorkspaceCaptureOperationRow,
-    DevelopmentSessionRow,
-    McpWorkspaceLaunchRow,
-    WorkspaceImportOperationRow,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCleanupOperationRepository,
     AgentWorkspaceCreationOperationRepository,
     AgentWorkspaceLifecycleEventRepository,
-    AgentWorkspacePromotionOperationRepository,
-    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     GlobalHeavyOperationLeaseRepository,
-    PromotionVerificationOperationRepository,
 )
 from kodi_lab.workspace import (
     AgentWorkspaceReconciliationRequired,
@@ -125,47 +117,6 @@ class AgentWorkspaceCleanupService:
             )
         if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
             return
-        if (
-            session.scalar(
-                select(DevelopmentSessionRow.generation)
-                .where(DevelopmentSessionRow.workspace_id == str(workspace_id))
-                .limit(1)
-            )
-            is not None
-        ):
-            raise AgentWorkspaceCleanupError(
-                "workspace_session_history_retained",
-                "Development session workspace evidence must be retained.",
-            )
-        if (
-            session.scalar(
-                select(WorkspaceImportOperationRow.id)
-                .where(WorkspaceImportOperationRow.workspace_id == str(workspace_id))
-                .limit(1)
-            )
-            is not None
-        ):
-            raise AgentWorkspaceCleanupError(
-                "workspace_import_history_retained",
-                "Workspace import evidence must be retained.",
-            )
-        if (
-            session.scalar(
-                select(McpWorkspaceLaunchRow.id)
-                .where(
-                    McpWorkspaceLaunchRow.workspace_id == str(workspace_id),
-                    McpWorkspaceLaunchRow.state.in_(
-                        ("pending", "dispatching", "ambiguous")
-                    ),
-                )
-                .limit(1)
-            )
-            is not None
-        ):
-            raise AgentWorkspaceCleanupError(
-                "launch_requires_reconciliation",
-                "Unresolved launch evidence must be retained.",
-            )
         # Captured baselines may be named by validation/deployment/publication
         # history. V1 has no per-generation reference-aware byte cleanup.
         if (
@@ -187,13 +138,10 @@ class AgentWorkspaceCleanupService:
                 "workspace_reconciliation_blocked",
                 "Workspace reconciliation is required before cleanup.",
             )
-        if workspace.state not in {
-            AgentWorkspaceState.ABANDONED,
-            AgentWorkspaceState.PROMOTED,
-        }:
+        if workspace.state is not AgentWorkspaceState.ABANDONED:
             raise AgentWorkspaceCleanupError(
                 "workspace_cleanup_not_eligible",
-                "Only an abandoned or promoted workspace may be cleaned.",
+                "Only an abandoned workspace may be cleaned.",
             )
         creation = AgentWorkspaceCreationOperationRepository(session).get_for_workspace(
             workspace_id
@@ -207,48 +155,6 @@ class AgentWorkspaceCleanupService:
                 "workspace_cleanup_creation_blocked",
                 "Workspace creation is not safely terminal.",
             )
-        plan = AgentWorkspacePromotionPlanRepository(session).active_for_workspace(
-            workspace_id, now=self._clock()
-        )
-        promotions = AgentWorkspacePromotionOperationRepository(session)
-        if (
-            plan is not None
-            or promotions.active_for_workspace(workspace_id) is not None
-        ):
-            raise AgentWorkspaceCleanupError(
-                "workspace_cleanup_promotion_active",
-                "Workspace promotion is active.",
-            )
-        if promotions.reconciliation_for_workspace(workspace_id):
-            raise AgentWorkspaceCleanupError(
-                "workspace_reconciliation_blocked",
-                "Workspace promotion requires reconciliation.",
-            )
-        verifications = PromotionVerificationOperationRepository(session)
-        if verifications.blocking_for_workspace(workspace_id):
-            raise AgentWorkspaceCleanupError(
-                "workspace_cleanup_verification_blocked",
-                "Workspace verification is active or requires reconciliation.",
-            )
-        if workspace.state is AgentWorkspaceState.PROMOTED:
-            promotion = promotions.latest_for_workspace(workspace_id)
-            verification = verifications.latest_for_workspace(workspace_id)
-            if (
-                promotion is None
-                or promotion.state
-                is not AgentWorkspacePromotionOperationState.SUCCEEDED
-                or verification is None
-                or verification.state
-                not in {
-                    PromotionVerificationState.SUCCEEDED,
-                    PromotionVerificationState.FAILED,
-                    PromotionVerificationState.INCOMPLETE,
-                }
-            ):
-                raise AgentWorkspaceCleanupError(
-                    "workspace_cleanup_verification_blocked",
-                    "Promoted workspace verification is not safely terminal.",
-                )
 
     def eligibility_code(self, workspace_id: UUID) -> str | None:
         """Return a bounded blocker without changing cleanup state."""

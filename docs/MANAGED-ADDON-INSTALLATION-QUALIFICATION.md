@@ -4,7 +4,7 @@
 `InstallAddon(id)` fails #339's noninteractive exact-package/update contract on
 all four approved versions. The campaign completed its unsupported-path closeout;
 [#339](https://github.com/kcook98765/kodi-lab/issues/339) remains open for a future
-supported installer architecture. The [agent workflow and technical decision](MANAGED-ADDON-INSTALLATION.md)
+supported installer architecture. The [agent workflow and technical decision](MANAGED-V2-FRESH-INSTALL.md)
 explain the supported alternative, publication/dependency limits and rejected
 shortcuts. No runtime feature, Bridge API, schema or installed Claw update was
 introduced. The independently useful change is a current unattended agent guide,

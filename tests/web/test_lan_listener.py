@@ -7,7 +7,6 @@ import threading
 import time
 from collections.abc import Iterator
 from typing import Any, cast
-from uuid import uuid4
 
 import httpx
 import pytest
@@ -20,8 +19,8 @@ from kodi_lab.config import Settings
 from kodi_lab.web import run
 from kodi_lab.web.app import create_app
 from tests.web import conftest
-from tests.web.conftest import INSTANCE_ID, PASSWORD, UNRELATED_INSTANCE_ID
-from tests.web.test_mcp import META, PROTOCOL, _administration, _authority
+from tests.web.conftest import PASSWORD
+from tests.web.test_mcp import META, PROTOCOL, _authority
 
 
 @pytest.fixture
@@ -129,69 +128,6 @@ def call(
         },
         json={"jsonrpc": "2.0", "id": 1, "method": method, "params": payload},
     )
-
-
-def test_local_mcp_auth_permissions_and_target_grants_survive_lan_mode(
-    listeners: tuple[TestClient, httpx.Client, httpx.Client],
-) -> None:
-    fixture, local, _ = listeners
-    principal, token = _authority(fixture)
-    for credential in ("", "invalid"):
-        denied = call(local, credential)
-        assert (
-            denied.status_code == 401 and denied.headers["WWW-Authenticate"] == "Bearer"
-        )
-    tools = call(local, token)
-    assert tools.status_code == 200
-    assert "target_status" in {tool["name"] for tool in tools.json()["result"]["tools"]}
-    result = call(local, token, "tools/call", {"name": "target_list", "arguments": {}})
-    targets = result.json()["result"]["structuredContent"]["targets"]
-    assert [item["target_id"] for item in targets] == [str(INSTANCE_ID)]
-    allowed = call(
-        local,
-        token,
-        "tools/call",
-        {"name": "target_status", "arguments": {"target_id": str(INSTANCE_ID)}},
-    )
-    assert allowed.status_code == 200
-    assert allowed.json()["result"]["structuredContent"]["target"]["target_id"] == str(
-        INSTANCE_ID
-    )
-    neighbor = call(
-        local,
-        token,
-        "tools/call",
-        {
-            "name": "target_status",
-            "arguments": {"target_id": str(UNRELATED_INSTANCE_ID)},
-        },
-    )
-    assert neighbor.json()["result"]["isError"] is True
-    forbidden = call(
-        local,
-        token,
-        "tools/call",
-        {
-            "name": "remote_action",
-            "arguments": {
-                "target_id": str(INSTANCE_ID),
-                "action": "home",
-                "request_id": str(uuid4()),
-            },
-        },
-    )
-    assert forbidden.json()["result"]["isError"] is True
-    assert forbidden.json()["result"]["content"][0]["text"] == "permission_denied"
-    admin = _administration(fixture)
-    admin.remove_target_grant(principal, INSTANCE_ID)
-    assert (
-        call(
-            local, token, "tools/call", {"name": "target_list", "arguments": {}}
-        ).json()["result"]["structuredContent"]["targets"]
-        == []
-    )
-    admin.set_client_enabled(principal, False)
-    assert call(local, token).status_code == 401
 
 
 def test_lan_listener_denies_mcp_even_with_token_and_forged_headers(

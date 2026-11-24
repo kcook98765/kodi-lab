@@ -19,7 +19,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.authorization import ExactUidAuthorizationPolicy
 from kodi_lab.broker.client import BrokerClient
-from kodi_lab.broker.operations import build_foundation_registry
+from kodi_lab.broker.operations import (
+    OperationRegistry,
+    register_reviewed_runtime_operations,
+)
 from kodi_lab.broker.reviewed_installations import DockerReviewedInstallationWorker
 from kodi_lab.broker.server import BrokerServer
 from kodi_lab.broker.socket_path import SocketPathConfig
@@ -107,7 +110,8 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
         client_factory=lambda **_kwargs: docker_client,
         runtime_root=runtime_root,
     )
-    registry = build_foundation_registry(reviewed_installation_worker=worker)
+    registry = OperationRegistry()
+    register_reviewed_runtime_operations(registry, worker)
     config = SocketPathConfig(
         runtime_directory=runtime_root,
         socket_path=socket_path,

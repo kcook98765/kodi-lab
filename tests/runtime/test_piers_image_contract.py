@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 
-from kodi_lab.broker.docker_inventory import DOCKER_STOP_TIMEOUT_SECONDS
 from kodi_lab.runtime.ostree_assembly import load_assembly_assets
 
 ROOT = (
@@ -26,6 +25,9 @@ def module(name: str) -> ModuleType:
     result = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(result)
     return result
+
+
+REVIEWED_SHUTDOWN_LIMIT_SECONDS = 30
 
 
 @pytest.mark.parametrize(
@@ -92,7 +94,7 @@ def test_stop_budget_below_managed_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     assert (
         supervisor.KODI_STOP_SECONDS + supervisor.XVFB_STOP_SECONDS
         < supervisor.TOTAL_STOP_BUDGET_SECONDS
-        < DOCKER_STOP_TIMEOUT_SECONDS
+        < REVIEWED_SHUTDOWN_LIMIT_SECONDS
     )
 
 

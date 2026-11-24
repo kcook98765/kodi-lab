@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol, cast, overload
+from typing import overload
 from uuid import UUID, uuid4
 
 import httpx
@@ -17,17 +17,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
+    ExternalAddonInventory,
     KodiAddonInventoryItem,
     KodiAddonProvenance,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
-    ManagedInstanceAddonInventory,
-    ManagedInstanceAddonInventoryService,
 )
 from kodi_lab.application.browser_remote import (
     BrowserRemoteError,
     BrowserRemoteResult,
-    BrowserRemoteService,
     RemoteActorContext,
     ScreenshotRefreshResult,
 )
@@ -41,12 +39,7 @@ from kodi_lab.application.production_inspection import (
 )
 from kodi_lab.application.production_navigation import PRODUCTION_NAVIGATION_ACTIONS
 from kodi_lab.application.production_policy import bind_external_production_transition
-from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
-from kodi_lab.application.screenshots import (
-    ManagedScreenshotService,
-    ScreenshotServiceError,
-)
-from kodi_lab.application.ui_state import ManagedUiObservationService, ObservationGate
+from kodi_lab.application.ui_state import ObservationGate
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ConnectionState,
@@ -108,7 +101,6 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
-    ManagedInstanceRow,
     TargetRow,
 )
 from kodi_lab.storage.secrets import (
@@ -225,12 +217,6 @@ class _ExternalOperationGate:
             self._global.release()
 
 
-class _ManagedAuthority(Protocol):
-    def resolve(self, target_id: UUID) -> TargetTechnicalAuthority: ...
-
-    def capabilities(self, target_id: UUID) -> frozenset[str]: ...
-
-
 class KodiTargetAdapterService:
     """Resolve target class once below MCP authorization and handlers."""
 
@@ -238,30 +224,18 @@ class KodiTargetAdapterService:
         self,
         session_factory: sessionmaker[Session],
         *,
-        managed_status: ManagedRuntimeStatusService,
-        managed_inventory: ManagedInstanceAddonInventoryService,
-        managed_remote: BrowserRemoteService,
-        managed_authority: _ManagedAuthority,
         endpoint_policy: ExternalEndpointPolicy,
         credential_store: ExternalCredentialStore,
-        managed_screenshots: ManagedScreenshotService | None = None,
         external_bridges: ExternalBridgeService | None = None,
         external_transport: httpx.BaseTransport | None = None,
-        managed_ui_state: ManagedUiObservationService | None = None,
         window_resolver: WindowResolver | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._sessions = session_factory
-        self._managed_status = managed_status
-        self._managed_inventory = managed_inventory
-        self._managed_remote = managed_remote
-        self._managed_screenshots = managed_screenshots
-        self._managed_authority = managed_authority
         self._external_bridges = external_bridges
         self._endpoint_policy = endpoint_policy
         self._credential_store = credential_store
         self._external_transport = external_transport
-        self._managed_ui_state = managed_ui_state
         self._window_resolver = window_resolver or builtin_resolver()
         self._window_hints = SkinObservationHints()
         self._observation_gate = ObservationGate()
@@ -271,8 +245,6 @@ class KodiTargetAdapterService:
 
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
         target_type = self._target_type(target_id)
-        if target_type is TargetType.MANAGED:
-            return self._managed_authority.resolve(target_id)
         if target_type is TargetType.EXTERNAL_PRODUCTION:
             snapshot = self._production_snapshot(
                 target_id,
@@ -315,24 +287,9 @@ class KodiTargetAdapterService:
         )
 
     def resolve_ui_state(self, target_id: UUID) -> TargetTechnicalAuthority:
-        if self._target_type(target_id) is TargetType.MANAGED:
-            resolver = getattr(self._managed_authority, "resolve_ui_state", None)
-            if callable(resolver):
-                return cast(Callable[[UUID], TargetTechnicalAuthority], resolver)(
-                    target_id
-                )
         return self.resolve(target_id)
 
     def summary(self, target_id: UUID, *, fresh: bool) -> KodiTargetSummaryData:
-        if self._target_type(target_id) is TargetType.MANAGED:
-            status = self._managed_status.get(target_id)
-            with self._sessions() as session:
-                instance = session.get(ManagedInstanceRow, str(target_id))
-            if instance is None:
-                raise KodiTargetAdapterError("target_not_found_or_not_authorized")
-            return self._managed_summary(
-                status, f"managed_{instance.instance_type.value}"
-            )
         if self._target_type(target_id) is TargetType.EXTERNAL_PRODUCTION:
             snapshot = self._production_snapshot(
                 target_id,
@@ -372,37 +329,10 @@ class KodiTargetAdapterService:
                     )
                 ).all()
             }
-            profiles = {
-                UUID(row.target_id): f"managed_{row.instance_type.value}"
-                for row in session.scalars(
-                    select(ManagedInstanceRow).where(
-                        ManagedInstanceRow.target_id.in_(
-                            [str(target_id) for target_id in target_ids]
-                        )
-                    )
-                ).all()
-            }
-        statuses = (
-            {
-                item.managed_instance_id: item
-                for item in self._managed_status.list_statuses()
-            }
-            if TargetType.MANAGED in target_types.values()
-            else {}
-        )
         results: list[KodiTargetSummaryData] = []
         for target_id in target_ids:
             target_type = target_types.get(target_id)
-            if target_type is TargetType.MANAGED:
-                try:
-                    results.append(
-                        self._managed_summary(statuses[target_id], profiles[target_id])
-                    )
-                except KeyError as error:
-                    raise KodiTargetAdapterError(
-                        "target_not_found_or_not_authorized"
-                    ) from error
-            elif target_type is TargetType.EXTERNAL_DEVELOPMENT:
+            if target_type is TargetType.EXTERNAL_DEVELOPMENT:
                 results.append(
                     self._external_summary(
                         self._external_snapshot(target_id, load_secret=False),
@@ -424,10 +354,8 @@ class KodiTargetAdapterService:
                 raise KodiTargetAdapterError("target_not_found_or_not_authorized")
         return tuple(results)
 
-    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+    def addon_inventory(self, target_id: UUID) -> ExternalAddonInventory:
         target_type = self._target_type(target_id)
-        if target_type is TargetType.MANAGED:
-            return self._managed_inventory.get(target_id)
         if target_type is TargetType.EXTERNAL_PRODUCTION:
             snapshot = self._production_snapshot(
                 target_id,
@@ -487,8 +415,6 @@ class KodiTargetAdapterService:
     def fixed_execute(
         self, target_id: UUID, addon_id: str, invocation_id: UUID
     ) -> KodiAddonSmokeResult:
-        if self._target_type(target_id) is TargetType.MANAGED:
-            raise KodiTargetAdapterError("execution_unsupported")
         snapshot = self._external_snapshot(
             target_id, required_capability="fixed_execution", load_secret=True
         )
@@ -512,15 +438,6 @@ class KodiTargetAdapterService:
         before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
         target_type = self._target_type(target_id)
-        if target_type is TargetType.MANAGED:
-            self._before_dispatch(before_dispatch)
-            return self._managed_remote.invoke(
-                target_id,
-                action,
-                actor=actor,
-                invocation_id=invocation_id,
-                before_dispatch=lambda: self._before_dispatch(before_dispatch),
-            )
         if invocation_id is None:
             raise BrowserRemoteError(
                 "remote_action_conflict", "Missing invocation identity."
@@ -641,10 +558,6 @@ class KodiTargetAdapterService:
     ) -> KodiLogResult | KodiLogScanResult:
         try:
             with self._gate.enter(target_id):
-                if self._target_type(target_id) is TargetType.MANAGED:
-                    if self._managed_ui_state is None:
-                        raise KodiTargetAdapterError("capability_unavailable")
-                    return self._managed_ui_state.read_log(target_id, request)
                 # Native identity is checked afresh before any sensitive Bridge read.
                 snapshot = (
                     self._production_snapshot(
@@ -685,10 +598,6 @@ class KodiTargetAdapterService:
         try:
             with self._observation_gate.enter(target_id):
                 target_type = self._target_type(target_id)
-                if target_type is TargetType.MANAGED:
-                    if self._managed_ui_state is None:
-                        raise KodiTargetAdapterError("capability_unavailable")
-                    return self._managed_ui_state.system_info(target_id)
                 production = target_type is TargetType.EXTERNAL_PRODUCTION
                 with (
                     self._gate.enter(target_id),
@@ -745,10 +654,6 @@ class KodiTargetAdapterService:
         try:
             with self._observation_gate.enter(target_id):
                 target_type = self._target_type(target_id)
-                if target_type is TargetType.MANAGED:
-                    if self._managed_ui_state is None:
-                        raise KodiTargetAdapterError("capability_unavailable")
-                    return self._managed_ui_state.inspect(target_id)
                 snapshot = (
                     self._production_snapshot(
                         target_id,
@@ -888,35 +793,6 @@ class KodiTargetAdapterService:
     def capture_screenshot(
         self, target_id: UUID, *, request_id: UUID | None = None
     ) -> KodiTargetScreenshotData:
-        if self._target_type(target_id) is TargetType.MANAGED:
-            managed_screenshots = self._managed_screenshots
-            if managed_screenshots is None:
-                raise KodiTargetAdapterError("screenshot_unsupported")
-            try:
-                result = managed_screenshots.capture_image(target_id)
-            except ScreenshotServiceError as error:
-                raise KodiTargetAdapterError(error.code) from error
-            status = result.capture.screenshot
-            if (
-                status.capture_id != result.capture.capture_id
-                or status.captured_at is None
-                or status.width is None
-                or status.height is None
-                or status.mime_type is None
-                or status.byte_size is None
-                or status.byte_size != len(result.png)
-            ):
-                raise KodiTargetAdapterError("screenshot_invalid")
-            return KodiTargetScreenshotData(
-                target_id=target_id,
-                capture_id=result.capture.capture_id,
-                captured_at=status.captured_at,
-                width=status.width,
-                height=status.height,
-                mime_type=status.mime_type,
-                byte_size=status.byte_size,
-                png=result.png,
-            )
         external_bridges = self._external_bridges
         if external_bridges is None:
             raise KodiTargetAdapterError("bridge_not_paired")
@@ -1306,12 +1182,12 @@ class KodiTargetAdapterService:
 
     def _normalized_external_inventory(
         self, target_id: UUID, result: KodiAddonInventoryResult
-    ) -> ManagedInstanceAddonInventory:
+    ) -> ExternalAddonInventory:
         unknown = KodiAddonProvenance(
             classification=KodiAddonProvenanceClassification.UNKNOWN,
             evidence_status=KodiAddonProvenanceEvidenceStatus.UNKNOWN,
         )
-        return ManagedInstanceAddonInventory(
+        return ExternalAddonInventory(
             instance_id=target_id,
             observed_at=self._now(),
             kodi_release=result.identity.kodi_release.canonical,
@@ -1328,23 +1204,4 @@ class KodiTargetAdapterService:
                 )
                 for item in result.items
             ],
-        )
-
-    def _managed_summary(self, status: object, profile: str) -> KodiTargetSummaryData:
-        capabilities = self._managed_authority.capabilities(
-            status.managed_instance_id  # type: ignore[attr-defined]
-        )
-        return KodiTargetSummaryData(
-            target_id=status.managed_instance_id,  # type: ignore[attr-defined]
-            display_name=status.name,  # type: ignore[attr-defined]
-            kodi_version=status.kodi_version,  # type: ignore[attr-defined]
-            target_class=TargetClass.INTERNAL_LAB.value,
-            runtime_profile=profile,
-            provision_state=status.provision_state.value,  # type: ignore[attr-defined]
-            runtime_state=status.container_state.value,  # type: ignore[attr-defined]
-            process_state=status.process_state.value,  # type: ignore[attr-defined]
-            jsonrpc_state=status.jsonrpc_state.value,  # type: ignore[attr-defined]
-            usability_state=status.usability_state.value,  # type: ignore[attr-defined]
-            readiness_state=status.readiness_state.value,  # type: ignore[attr-defined]
-            capabilities=_target_tool_capabilities(capabilities),
         )

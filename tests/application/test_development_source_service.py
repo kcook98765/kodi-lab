@@ -5,7 +5,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application import (
+from kodi_lab.application.development_sources import (
     DevelopmentSourceAdministrationService,
     DevelopmentSourceConflictError,
     DevelopmentSourceNotFoundError,

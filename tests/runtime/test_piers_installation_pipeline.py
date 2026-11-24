@@ -23,7 +23,6 @@ from kodi_lab.runtime.preview import admission_evidence
 from kodi_lab.runtime.recipes import load_installation_recipe
 from kodi_lab.runtime.validation import RecipeValidationError
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeRecipeInstallationRepository,
 )
 from tests.runtime.test_ostree_installation import acknowledgement, assembly, validation
@@ -98,7 +97,6 @@ def test_provider_uses_existing_phases_and_seals_ready(
             outcome.runtime_revision_id
         )
         assert "hmac-sha256:" in (row.attestation_json or "")
-        assert ManagedInstanceRepository(session).list() == []
 
 
 @pytest.mark.parametrize(
@@ -211,5 +209,4 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
         assert row.failure_code == code
         assert row.runtime_revision_id is None and row.image_id is None
         assert row.completed_at is not None
-        assert ManagedInstanceRepository(session).list() == []
     assert phases == ["acquiring"]

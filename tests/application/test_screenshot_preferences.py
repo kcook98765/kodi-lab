@@ -254,10 +254,6 @@ def test_mcp_authorization_and_final_publication_require_current_preference(
         assert isinstance(principal, McpPrincipal)
         adapters = KodiTargetAdapterService(
             env.sessions,
-            managed_status=cast(Any, None),
-            managed_inventory=cast(Any, None),
-            managed_remote=cast(Any, None),
-            managed_authority=cast(Any, None),
             endpoint_policy=ExternalEndpointPolicy(
                 allowed_ports=(8080,), test_loopback_enabled=True
             ),
@@ -270,9 +266,6 @@ def test_mcp_authorization_and_final_publication_require_current_preference(
         tools = McpTargetToolService(
             env.sessions,
             auth,
-            cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
             target_adapters=adapters,
             production_screenshots=ProductionScreenshotService(
                 env.sessions, env.bridges

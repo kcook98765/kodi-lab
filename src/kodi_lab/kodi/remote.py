@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import http.client
-import json
 from collections.abc import Callable
 from enum import StrEnum
-from typing import Protocol, cast
-from uuid import UUID, uuid4
-
-from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
-from kodi_lab.domain import RuntimeExecutionProfile
-from kodi_lab.kodi.readiness import MAX_JSONRPC_RESPONSE_BYTES
+from uuid import UUID
 
 REMOTE_RUNTIME_REVISION_IDS = frozenset(
     {
@@ -112,145 +105,6 @@ class RemoteNoActivePlayerError(RuntimeError):
 
 class RemoteActionAmbiguousError(RuntimeError):
     """The control request may have reached Kodi; it must not be retried."""
-
-
-class _Transport(Protocol):
-    def post(
-        self, *, host: str, port: int, path: str, body: bytes, timeout: float
-    ) -> bytes: ...
-
-
-class BoundedRemoteHttpTransport:
-    """One bounded HTTP attempt; transport failure after dispatch is ambiguous."""
-
-    def post(
-        self, *, host: str, port: int, path: str, body: bytes, timeout: float
-    ) -> bytes:
-        connection = http.client.HTTPConnection(host, port, timeout=timeout)
-        dispatched = False
-        try:
-            connection.connect()
-            dispatched = True
-            connection.request(
-                "POST",
-                path,
-                body=body,
-                headers={"Content-Type": "application/json"},
-            )
-            response = connection.getresponse()
-            if response.status < 200 or response.status >= 300:
-                raise RemoteKodiRejectedError("Kodi rejected the fixed request")
-            length = response.getheader("Content-Length")
-            if length is not None:
-                try:
-                    if int(length) > MAX_JSONRPC_RESPONSE_BYTES:
-                        raise RemoteKodiRejectedError("Kodi response is too large")
-                except ValueError as error:
-                    raise RemoteKodiRejectedError(
-                        "Kodi response length is invalid"
-                    ) from error
-            payload = response.read(MAX_JSONRPC_RESPONSE_BYTES + 1)
-            if len(payload) > MAX_JSONRPC_RESPONSE_BYTES:
-                raise RemoteKodiRejectedError("Kodi response is too large")
-            return payload
-        except RemoteKodiRejectedError:
-            raise
-        except (OSError, TimeoutError, http.client.HTTPException) as error:
-            if dispatched:
-                raise RemoteActionAmbiguousError(
-                    "Kodi acknowledgement was not received"
-                ) from error
-            raise RemoteActionUndispatchedError("Kodi is unavailable") from error
-        finally:
-            connection.close()
-
-
-class KodiBrowserRemoteAdapter:
-    """Build only the server-defined remote requests for one trusted endpoint."""
-
-    def __init__(
-        self,
-        observation: ObserveManagedKodiRuntimeResult,
-        profile: RuntimeExecutionProfile,
-        *,
-        transport: _Transport | None = None,
-    ) -> None:
-        if observation.runtime_revision_id != str(profile.runtime_revision_id):
-            raise ValueError("observation and profile revisions differ")
-        if observation.jsonrpc_port != profile.jsonrpc_port:
-            raise ValueError("observation and profile ports differ")
-        self._host = observation.ipv4_address
-        self._port = profile.jsonrpc_port
-        self._path = profile.jsonrpc_path
-        self._timeout = min(REMOTE_TIMEOUT_SECONDS, profile.http_timeout_seconds)
-        self._transport = transport or BoundedRemoteHttpTransport()
-
-    def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
-        dispatch_semantic_remote(self._semantic_request, action, invocation_id)
-
-    def playback_active(self) -> bool:
-        """Return false only for a valid, empty fixed active-player response."""
-        try:
-            _active_player(self._semantic_request, uuid4())
-        except RemoteNoActivePlayerError:
-            return False
-        return True
-
-    def _semantic_request(
-        self,
-        request_id: str,
-        method: str,
-        params: dict[str, object] | None,
-        mutation: bool,
-    ) -> object:
-        return self._request(
-            request_id, method, params, ambiguous_on_transport=mutation
-        )
-
-    def _request(
-        self,
-        request_id: str,
-        method: str,
-        params: dict[str, object] | None,
-        *,
-        ambiguous_on_transport: bool,
-    ) -> object:
-        request: dict[str, object] = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-        }
-        if params is not None:
-            request["params"] = params
-        try:
-            payload = self._transport.post(
-                host=self._host,
-                port=self._port,
-                path=self._path,
-                body=json.dumps(request, separators=(",", ":")).encode(),
-                timeout=self._timeout,
-            )
-        except RemoteActionAmbiguousError:
-            if ambiguous_on_transport:
-                raise
-            raise RemoteKodiRejectedError(
-                "Active-player query was not acknowledged"
-            ) from None
-        try:
-            document = json.loads(payload)
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RemoteKodiRejectedError("Kodi response is invalid") from error
-        if (
-            not isinstance(document, dict)
-            or document.get("jsonrpc") != "2.0"
-            or document.get("id") != request_id
-            or set(document)
-            not in ({"jsonrpc", "id", "result"}, {"jsonrpc", "id", "error"})
-        ):
-            raise RemoteKodiRejectedError("Kodi response envelope is invalid")
-        if "error" in document:
-            raise RemoteKodiRejectedError("Kodi rejected the remote action")
-        return cast(dict[str, object], document)["result"]
 
 
 def dispatch_semantic_remote(

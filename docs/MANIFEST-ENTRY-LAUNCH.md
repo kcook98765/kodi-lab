@@ -20,7 +20,7 @@ runtime, grant permissions, or run a caller's command/path/arguments.
 
 1. Discover/resume the owned workspace with `workspace_status`. Its latest launch
    fields retain the request UUID, generation, target, ordinal and receipt state.
-   If enabled by the administrator, use [managed ensure-ready](MANAGED-KODI-RESOURCES.md)
+   If enabled by the administrator, use [managed ensure-ready](MANAGED-V2-FRESH-INSTALL.md)
    to start an existing provisioned target and hold it awake for the work.
 2. Run `workspace_validate` at the current generation. `launch_entries` lists
    manifest extensions in their original order, starting at ordinal zero. Each

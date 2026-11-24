@@ -5,27 +5,25 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import ipaddress
 import json
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 from urllib.parse import urlsplit
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 from fastapi import (
     Body,
     Depends,
     FastAPI,
-    Form,
     HTTPException,
     Query,
     Request,
@@ -51,11 +49,8 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
-    StrictInt,
-    field_validator,
     model_validator,
 )
-from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
@@ -63,80 +58,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from kodi_lab.application.activity import (
-    ManagedInstanceActivityItem,
-    ManagedInstanceActivityService,
-)
-from kodi_lab.application.addon_inventory import (
-    InventoryAdapterFactory,
-    ManagedInstanceAddonInventory,
-    ManagedInstanceAddonInventoryService,
-)
-from kodi_lab.application.addon_repositories import (
-    AddonRepositoryAdministrationService,
-    AddonRepositoryCandidateRead,
-    AddonRepositoryConflictError,
-    AddonRepositoryExecutor,
-    AddonRepositoryFetchCoordinator,
-    AddonRepositoryFetchStatus,
-    AddonRepositoryNotFoundError,
-    AddonRepositoryRefreshCoordinator,
-    AddonRepositoryRefreshStatus,
-    AddonRepositoryServiceError,
-    AddonRepositorySourceRead,
-)
-from kodi_lab.application.addon_settings import AddonSettingsError, AddonSettingsService
-from kodi_lab.application.addon_zip_enablements import (
-    AddonZipEnablementError,
-    AddonZipEnablementOperationCoordinator,
-    AddonZipEnablementService,
-    AddonZipEnablementStatus,
-)
-from kodi_lab.application.addon_zip_imports import (
-    AddonZipImportConflictError,
-    AddonZipImportCoordinator,
-    AddonZipImportExecutor,
-)
-from kodi_lab.application.addon_zip_installations import (
-    AddonZipInstallationCoordinator,
-    AddonZipInstallationError,
-    AddonZipInstallationExecutor,
-    AddonZipInstallationService,
-    AddonZipInstallationServiceFactory,
-    AddonZipInstallationStatus,
-)
-from kodi_lab.application.addon_zip_installations import (
-    ReadinessCoordinatorFactory as AddonZipReadinessCoordinatorFactory,
-)
-from kodi_lab.application.addon_zip_presentation import (
-    AddonZipArtifactSummary,
-    AddonZipImportStatus,
-    AddonZipPresentationService,
-)
-from kodi_lab.application.addon_zip_smoke_tests import (
-    AddonZipSmokeTestConflictError,
-    AddonZipSmokeTestError,
-    AddonZipSmokeTestExecutor,
-    AddonZipSmokeTestNotFoundError,
-    AddonZipSmokeTestOperationCoordinator,
-    AddonZipSmokeTestService,
-    AddonZipSmokeTestServiceFactory,
-    AddonZipSmokeTestStatus,
-)
-from kodi_lab.application.agent_packages import AgentPackageService
 from kodi_lab.application.agent_workspace_cleanup import (
     AgentWorkspaceCleanupError,
     AgentWorkspaceCleanupExecutor,
     AgentWorkspaceCleanupService,
     AgentWorkspaceCleanupStatus,
-)
-from kodi_lab.application.agent_workspace_promotions import (
-    AgentWorkspacePromotionConflictError,
-    AgentWorkspacePromotionError,
-    AgentWorkspacePromotionOperationStatus,
-    AgentWorkspacePromotionPlanRead,
-    AgentWorkspacePromotionService,
-    AgentWorkspacePromotionTargetRead,
 )
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceActivityRead,
@@ -156,86 +82,25 @@ from kodi_lab.application.agent_workspaces import (
 from kodi_lab.application.browser_remote import (
     BrowserRemoteError,
     BrowserRemoteRateLimiter,
-    BrowserRemoteResult,
-    BrowserRemoteService,
-    RemoteActorContext,
-    RemoteAdapterFactory,
 )
-from kodi_lab.application.create_kodi import CreateKodiService
-from kodi_lab.application.create_kodi_installation import CreateKodiInstallationService
-from kodi_lab.application.create_kodi_provisioning import CreateKodiProvisioningService
-from kodi_lab.application.create_kodi_readiness import CreateKodiReadinessService
-from kodi_lab.application.create_kodi_registration import CreateKodiRegistrationService
-from kodi_lab.application.create_kodi_runner import CreateKodiRunner
-from kodi_lab.application.create_kodi_start import CreateKodiStartService
 from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentError,
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
-)
-from kodi_lab.application.development_session_workflow import (
-    DevelopmentSessionWorkflow,
-    SessionGenerationRequest,
-    SessionView,
-)
-from kodi_lab.application.development_sessions import (
-    DevelopmentSessionRequest,
-    DevelopmentSessionService,
-    DevelopmentSessionStatus,
-    RetainedPolicyRequest,
-    RetainedSelectionRequest,
-)
-from kodi_lab.application.development_source_attachments import (
-    AttachedDevelopmentSourceRead,
-    DevelopmentSourceAttachmentService,
-)
-from kodi_lab.application.development_source_deployments import (
-    DevelopmentSourceDeploymentConflictError,
-    DevelopmentSourceDeploymentError,
-    DevelopmentSourceDeploymentExecutor,
-    DevelopmentSourceDeploymentOperationCoordinator,
-    DevelopmentSourceDeploymentService,
-    DevelopmentSourceDeploymentServiceFactory,
-    DevelopmentSourceDeploymentStatus,
-    DevelopmentSourceDeploymentUnsupportedError,
-)
-from kodi_lab.application.development_source_enablements import (
-    DevelopmentSourceEnablementError,
-    DevelopmentSourceEnablementOperationCoordinator,
-    DevelopmentSourceEnablementService,
-    DevelopmentSourceEnablementStatus,
 )
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourceDetail,
     DevelopmentSourcePresentationService,
     DevelopmentSourceSummary,
 )
-from kodi_lab.application.development_source_smoke_tests import (
-    DevelopmentSourceSmokeTestConflictError,
-    DevelopmentSourceSmokeTestError,
-    DevelopmentSourceSmokeTestExecutor,
-    DevelopmentSourceSmokeTestNotFoundError,
-    DevelopmentSourceSmokeTestOperationCoordinator,
-    DevelopmentSourceSmokeTestService,
-    DevelopmentSourceSmokeTestServiceFactory,
-    DevelopmentSourceSmokeTestStatus,
-)
 from kodi_lab.application.development_sources import (
     DevelopmentSourceAdministrationService,
     DevelopmentSourceRead,
 )
 from kodi_lab.application.errors import (
-    DevelopmentSourceAddonConflictError,
-    DevelopmentSourceAlreadyAttachedError,
-    DevelopmentSourceAttachmentError,
-    DevelopmentSourceAttachmentValidationError,
     DevelopmentSourceConflictError,
     DevelopmentSourceDataValidationError,
-    DevelopmentSourceIdentityChangedError,
-    DevelopmentSourceNotAttachedError,
     DevelopmentSourceNotFoundError,
-    ManagedInstanceNotFoundError,
-    PersistentDevelopmentSourceAttachmentUnsupportedError,
     TargetNotFoundError,
 )
 from kodi_lab.application.external_bridges import (
@@ -265,75 +130,14 @@ from kodi_lab.application.external_targets import (
     ExternalTargetRead,
     ProductionMutationControlRead,
 )
-from kodi_lab.application.historical_workspace_execution_containment import (
-    HistoricalContainmentError,
-    HistoricalContainmentResult,
-    HistoricalWorkspaceExecutionContainmentService,
-)
 from kodi_lab.application.household_onboarding import (
     HouseholdKodiOnboardingService,
     HouseholdOnboardingResult,
     HouseholdResumeRequest,
     HouseholdStartRequest,
 )
-from kodi_lab.application.instance_delete_operations import (
-    ManagedInstanceDeleteConflictError,
-    ManagedInstanceDeleteNotFoundError,
-    ManagedInstanceDeleteOperationCoordinator,
-    ManagedInstanceDeleteStatus,
-    ManagedInstanceDeleteUnsupportedError,
-)
-from kodi_lab.application.instance_deletions import (
-    DisposableManagedInstanceDeletionService,
-    ManagedInstanceDeleteExecutor,
-    ManagedInstanceDeleteServiceFactory,
-)
-from kodi_lab.application.instance_history import (
-    DeletedManagedInstanceHistoryNotFoundError,
-    DeletedManagedInstanceHistoryService,
-    ManagedInstanceDetailService,
-)
-from kodi_lab.application.lifecycle_operations import (
-    LifecycleOperationConflictError,
-    ManagedInstanceLifecycleOperationCoordinator,
-)
-from kodi_lab.application.live_display import (
-    LiveDisplayError,
-    ManagedLiveDisplayService,
-)
 from kodi_lab.application.local_projects import (
     LocalProjectOnboardingService,
-    LocalProjectReadiness,
-    LocalProjectSelection,
-)
-from kodi_lab.application.managed_agent_lifecycle import (
-    ManagedAgentLifecycleService,
-)
-from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
-from kodi_lab.application.managed_capability_prerequisites import (
-    CapabilityPrerequisitesUnavailable,
-    ManagedCapabilityPrerequisites,
-    ManagedCapabilityPrerequisiteService,
-)
-from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
-from kodi_lab.application.managed_kodi_prerequisites import (
-    ManagedKodiPrerequisiteService,
-    PrerequisiteSnapshot,
-    SetupGeneration,
-)
-from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
-from kodi_lab.application.managed_observation_bridge import (
-    ManagedObservationBridgeService,
-)
-from kodi_lab.application.managed_resources import (
-    ManagedResourceProtected,
-    ManagedResourceService,
-    PlaybackFactory,
-    ResourcePolicyInput,
-)
-from kodi_lab.application.managed_versions import (
-    ManagedVersionError,
-    ManagedVersionLifecycleService,
 )
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
@@ -358,7 +162,6 @@ from kodi_lab.application.mcp_administration import (
     McpTargetPolicyRead,
     McpWorkspaceBindingRead,
 )
-from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.application.mcp_workspace_development import (
@@ -370,11 +173,6 @@ from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationSer
 from kodi_lab.application.mcp_workspace_retention import (
     McpWorkspaceRetentionService,
 )
-from kodi_lab.application.mutations import (
-    ManagedInstanceMutationConflictError,
-    ManagedInstanceMutationCoordinator,
-)
-from kodi_lab.application.native_zip_installations import NativeZipInstallationService
 from kodi_lab.application.official_bridge_builds import recognize_official_bridge
 from kodi_lab.application.production_capability_amendments import (
     ProductionCapabilityAmendmentError,
@@ -395,52 +193,6 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRead,
     ProductionTransientApprovalService,
 )
-from kodi_lab.application.promotion_verifications import (
-    PromotionVerificationError,
-    PromotionVerificationService,
-    PromotionVerificationStatus,
-)
-from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
-from kodi_lab.application.reconciliation import (
-    CoordinationCorruptionError,
-    ManagedInstanceReconciliationRequiredError,
-    ManagedInstanceReconciliationService,
-    ManagedInstanceReconciliationStatus,
-    ReconciliationAction,
-    SnapshotReconciliationService,
-    SnapshotReconciliationStatus,
-    StaleOperationReconciliationDispatcher,
-)
-from kodi_lab.application.repository_replacements import (
-    RepositoryReplacementCoordinator,
-    RepositoryReplacementError,
-    RepositoryReplacementExecutor,
-    RepositoryReplacementPlanRead,
-    RepositoryReplacementService,
-    RepositoryReplacementServiceFactory,
-    RepositoryReplacementStatus,
-    RepositoryReplacementUnsupportedError,
-)
-from kodi_lab.application.reset import DisposableInstanceResetService
-from kodi_lab.application.reset_activity import ResetActivityRegistry
-from kodi_lab.application.reset_operations import (
-    QueuedResetOperation,
-    ResetExecutor,
-    ResetOperationConflictError,
-    ResetOperationCoordinator,
-    ResetServiceFactory,
-)
-from kodi_lab.application.reset_status import (
-    ManagedInstanceResetStatus,
-    ResetStatusService,
-)
-from kodi_lab.application.retained_diagnostics import (
-    DiagnosticCaptureInput,
-    DiagnosticCaptureSummary,
-    DiagnosticDiscardInput,
-    RetainedDiagnosticsError,
-    RetainedDiagnosticsService,
-)
 from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
 )
@@ -451,30 +203,9 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationService,
     RuntimeInstallationUnavailable,
 )
-from kodi_lab.application.runtime_lifecycle import (
-    LifecycleConflictError,
-    ManagedRuntimeLifecycleService,
-    ReadinessCoordinatorFactory,
-)
 from kodi_lab.application.runtime_matrix import (
     RuntimeMatrixResponse,
     RuntimeMatrixService,
-    TargetRuntimeSelection,
-)
-from kodi_lab.application.runtime_reconstruction import (
-    ManagedRuntimeReconstructionCoordinator,
-    ManagedRuntimeReconstructionExecutor,
-    ReconstructionAccepted,
-    ReconstructionConflictError,
-    ReconstructionEligibility,
-    ReconstructionStatus,
-)
-from kodi_lab.application.runtime_retirement_receipts import (
-    RuntimeRetirementReceiptError,
-)
-from kodi_lab.application.runtime_status import (
-    ManagedRuntimeStatus,
-    ManagedRuntimeStatusService,
 )
 from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceError,
@@ -482,77 +213,6 @@ from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceService,
     ScreenshotPreferenceUpdate,
 )
-from kodi_lab.application.screenshots import (
-    ManagedScreenshotCaptureResult,
-    ManagedScreenshotService,
-    ManagedScreenshotStatus,
-    ScreenshotServiceError,
-)
-from kodi_lab.application.session_preparation import (
-    SessionPreparation,
-    SessionPreparationService,
-)
-from kodi_lab.application.session_replacement_reviews import (
-    ReplacementEvidenceSelection,
-    ReplacementReviewCancel,
-    ReplacementReviewRequest,
-    ReplacementReviewStatus,
-    ReplacementSelection,
-    SessionReplacementReviewError,
-    SessionReplacementReviewService,
-)
-from kodi_lab.application.session_replacements import (
-    SessionReplacementError,
-    SessionReplacementRequest,
-    SessionReplacementService,
-    SessionReplacementStatus,
-)
-from kodi_lab.application.session_source_copy import (
-    SessionSourceCopyAccepted,
-    SessionSourceCopyReceipt,
-    SessionSourceCopyService,
-)
-from kodi_lab.application.snapshot_delete_operations import (
-    SnapshotDeleteConflictError,
-    SnapshotDeleteNotFoundError,
-    SnapshotDeleteOperationCoordinator,
-    SnapshotDeleteStatus,
-    SnapshotDeleteUnsupportedError,
-)
-from kodi_lab.application.snapshot_deletions import (
-    DisposableSnapshotDeletionService,
-    SnapshotDeleteExecutor,
-    SnapshotDeleteServiceFactory,
-)
-from kodi_lab.application.snapshot_operations import (
-    SnapshotCreateConflictError,
-    SnapshotCreateOperationCoordinator,
-    SnapshotCreateStatus,
-    SnapshotCreateUnsupportedError,
-)
-from kodi_lab.application.snapshot_restore_operations import (
-    SnapshotRestoreConflictError,
-    SnapshotRestoreOperationCoordinator,
-    SnapshotRestoreStatus,
-    SnapshotRestoreUnsupportedError,
-    SnapshotSourceInstanceDeletedError,
-)
-from kodi_lab.application.snapshot_restores import (
-    DisposableSnapshotRestoreService,
-    SnapshotRestoreExecutor,
-    SnapshotRestoreServiceFactory,
-)
-from kodi_lab.application.snapshot_status import (
-    SnapshotHistoryItem,
-    SnapshotStatusService,
-)
-from kodi_lab.application.snapshots import (
-    DisposableSnapshotCreationService,
-    SnapshotCreateExecutor,
-    SnapshotServiceFactory,
-)
-from kodi_lab.application.source_addition_reviews import SourceAdditionReviewService
-from kodi_lab.application.ui_state import ManagedUiObservationService
 from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
@@ -561,11 +221,6 @@ from kodi_lab.application.workspace_deployment_preflight import (
     DeploymentPreflightInput,
     DeploymentPreflightResult,
     WorkspaceDeploymentPreflightService,
-)
-from kodi_lab.application.workspace_launch import (
-    WorkspaceLaunchError,
-    WorkspaceLaunchResult,
-    WorkspaceLaunchService,
 )
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
@@ -577,52 +232,35 @@ from kodi_lab.auth import (
     LoginThrottler,
     WebAuthenticationService,
 )
-from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.errors import (
     BrokerUnavailableError,
     ClientError,
     ClientTransportError,
     RemoteBrokerError,
 )
-from kodi_lab.broker.stopped_diagnostics import StoppedRuntimeDiagnostics
 from kodi_lab.config import Settings
 from kodi_lab.development import (
-    MAX_COMPRESSED_BYTES,
-    AddonRepositoryError,
-    AddonZipValidationError,
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
-    create_upload_stage,
-    finish_upload_stage,
-    remove_upload_stage,
-    write_upload_chunk,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
-from kodi_lab.development.projects import LocalProjectError
 from kodi_lab.domain import (
     MAX_DEVELOPMENT_SOURCE_LOCATOR,
     MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
     ExternalAuthenticationMode,
     ExternalProtocolKind,
-    ManagedInstanceDeleteOperationState,
-    SnapshotSourceBinding,
-    SnapshotState,
     TargetType,
-    normalize_development_source_logical_name,
 )
-from kodi_lab.kodi.addon_settings import AddonSettingsSetResult
 from kodi_lab.kodi.bridge import (
     BRIDGE_CAPABILITIES,
     SUPPORTED_V1_BRIDGE_ADDON_VERSION,
     ExternalBridgeClient,
 )
 from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
-from kodi_lab.kodi.readiness import KodiReadinessCoordinator
-from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
-from kodi_lab.kodi.ui_state import UiObservation
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.window_resolver import WindowResolver
+from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
 from kodi_lab.mcp.authorization import (
-    InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
 )
 from kodi_lab.mcp.lan import McpLanStatus, check_http_proxy, check_lan_endpoint
@@ -637,24 +275,12 @@ from kodi_lab.repository.development import (
 )
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
-from kodi_lab.storage.create_kodi import CreateKodiRepository
-from kodi_lab.storage.development_sessions import DevelopmentSessionConflict
-from kodi_lab.storage.managed_activity import (
-    read_resource_policy as managed_resource_policy,
-)
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     ExternalSecretRetirementRow,
-    ManagedInstanceMutationLeaseRow,
-    ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
     RepositoryWorkspaceDeploymentRow,
     TargetRow,
-)
-from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
-    SnapshotRepository,
-    TargetRepository,
 )
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
@@ -667,24 +293,13 @@ from kodi_lab.web.admin_views import (
     admin_view_context,
     admin_view_return_path,
 )
-from kodi_lab.web.create_kodi import CreateKodiAPI, create_kodi_router
-from kodi_lab.web.current_kodi import CurrentKodiPresentation, friendly_kodi_name
 from kodi_lab.web.development_targets import development_target_view
 from kodi_lab.web.environment_identity import environment_identity
 from kodi_lab.web.kodi_views import KodiViews
-from kodi_lab.web.live_preview import preview_owner, stream_preview
-from kodi_lab.web.managed_slots import ManagedSlotsWeb, WebSlotRequest
-from kodi_lab.web.managed_slots import friendly as managed_slot_message
-from kodi_lab.web.native_zip_installations import (
-    NativeZipBodyLimitMiddleware,
-    native_zip_router,
-)
-from kodi_lab.web.novnc import PrototypeViewer, binding_fingerprint
-from kodi_lab.web.novnc import install_routes as install_novnc_routes
+from kodi_lab.web.managed import managed_router
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
     STATE_LABELS,
-    managed_next_step,
     state_label,
 )
 from kodi_lab.workspace import AgentWorkspaceStorageError
@@ -751,40 +366,10 @@ class _WorkspaceMutationBodyLimitMiddleware:
         await response(scope, receive, send)
 
 
-class ManagedPreviewPolicyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: bool = Field(strict=True)
-    attempt_id: UUID
-    target_fps: Literal[1, 3] = 1
-
-
-class DevelopmentSourceEnablementRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    allow_service_start: StrictBool = False
-
-
 class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
     model_config = ConfigDict(extra="forbid")
-
-
-class ManagedEnrollmentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    enrolled: bool
-
-
-class ManagedKeepAwakeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    minutes: int = Field(ge=0, le=240)
-
-
-class BrowserRemoteRequest(BaseModel):
-    """One closed semantic action and no Kodi/network/runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: BrowserRemoteAction
 
 
 class DevelopmentSourceRegistrationRequest(BaseModel):
@@ -876,158 +461,6 @@ class AgentWorkspaceExactPatchRequest(BaseModel):
             if len(encoded) > 2 * 1024 * 1024:
                 raise ValueError("patch field exceeds the 2 MiB limit")
         return self
-
-
-class AddonRepositoryRegistrationRequest(BaseModel):
-    """Closed repository registration with no credentials or fetch controls."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    logical_name: str = Field(min_length=1, max_length=120)
-    index_url: str = Field(min_length=1, max_length=2304)
-
-
-class ResetConfirmationRequest(BaseModel):
-    """One explicit confirmation bit, with no runtime or Docker authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class ReconstructionConfirmationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmed: Literal[True]
-    observation_token: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class ReconstructionResolutionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmed: Literal[True]
-    expected_state: Literal[
-        "exact_old_container", "unprovisioned", "expected_fresh_stopped"
-    ]
-
-
-class DevelopmentSourceDeploymentAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: DevelopmentSourceDeploymentStatus
-    status_url: str
-
-
-class DevelopmentSourceSmokeTestAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: DevelopmentSourceSmokeTestStatus
-    status_url: str
-
-
-class AddonZipImportAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipImportStatus
-    status_url: str
-
-
-class AddonZipInstallationAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipInstallationStatus
-    status_url: str
-
-
-class AddonZipSmokeTestAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipSmokeTestStatus
-    status_url: str
-
-
-class AddonRepositoryRefreshAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonRepositoryRefreshStatus
-    status_url: str
-
-
-class AddonRepositoryFetchAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonRepositoryFetchStatus
-    status_url: str
-
-
-class RepositoryReplacementConfirmationRequest(BaseModel):
-    """One immediate confirmation bit and no replacement authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class RepositoryReplacementAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: RepositoryReplacementStatus
-    status_url: str
-
-
-class AgentWorkspacePromotionConfirmationRequest(BaseModel):
-    """One immediate confirmation bit and no source-write authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotCreateRequest(BaseModel):
-    """Optional display metadata with no storage or runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    label: str | None = None
-
-
-class SnapshotCreateAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotCreateStatus
-
-
-class SnapshotRestoreRequest(BaseModel):
-    """One destructive confirmation bit and no artifact or runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotRestoreAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotRestoreStatus
-
-
-class SnapshotDeleteRequest(BaseModel):
-    """One permanent-deletion confirmation bit and no storage authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotDeleteAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotDeleteStatus
-
-
-class ManagedInstanceDeleteRequest(BaseModel):
-    """Explicit destructive choice with no Snapshot-list or Docker authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-    preserve_snapshots: StrictBool
 
 
 class McpClientCreateRequest(BaseModel):
@@ -1164,6 +597,11 @@ class ExternalTargetConfirmationRequest(BaseModel):
 
     confirmed: Literal[True]
     observation_id: UUID
+
+
+class ExternalTargetRetirementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
 
 
 class ExternalTargetEnabledRequest(BaseModel):
@@ -1322,155 +760,14 @@ class ReviewedBridgeResumeRequest(BaseModel):
     expected_generation: int = Field(ge=1)
 
 
-class HistoricalContainmentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: UUID
-    expected_runtime_state_revision: int = Field(ge=0)
-    confirmed: Literal[True]
-
-
-class SourceAdditionPreviewForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    paths: str = Field(min_length=1, max_length=16416)
-
-    @field_validator("paths")
-    @classmethod
-    def bounded_paths(cls, value: str) -> str:
-        paths = value.splitlines()
-        if not 1 <= len(paths) <= 32 or any(not path for path in paths):
-            raise ValueError("Enter 1 to 32 nonempty file paths, one per line.")
-        return value
-
-
-class SourceAdditionApprovalForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    review_ack: Literal["yes"]
-    approved_paths: list[str] = Field(min_length=1, max_length=32)
-
-
-class SessionSourceCopyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    request_id: UUID
-    expected_generation: StrictInt = Field(ge=1)
-
-
-class SessionSourceCopyForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_generation: int = Field(ge=1)
-
-
-class DiagnosticCaptureForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_runtime_revision_id: UUID
-    expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    capture_ack: Literal["yes"]
-    deployment_operation_id: str = Field(default="", max_length=36)
-
-
-class DiagnosticDiscardForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    expected_state: Literal["capturing", "retained", "failed"]
-    expected_payload_sha256: str = Field(default="", max_length=64)
-    discard_ack: Literal["yes"]
-
-
-class SessionReplacementReviewForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    selection_json: str = Field(max_length=4096)
-    evidence: list[str] = Field(min_length=1, max_length=8)
-    review_ack: Literal["yes"]
-    crash_reports_ack: Literal["yes"]
-
-
-class SessionReplacementCancelForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    cancel_ack: Literal["yes"]
-
-
-class SessionReplacementActionForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    confirmation_ack: Literal["yes"]
-
-
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
     auth: WebAuthenticationService
     throttler: LoginThrottler
-    status: ManagedRuntimeStatusService
-    retained_diagnostics: RetainedDiagnosticsService
-    lifecycle: ManagedRuntimeLifecycleService
-    managed_resources: ManagedResourceService
-    managed_agent_lifecycle: ManagedAgentLifecycleService
-    managed_versions: ManagedVersionLifecycleService
-    managed_idle_worker: ManagedIdleWorker
     matrix: RuntimeMatrixService
-    readiness: ReadinessTaskRegistry
-    reset_activity: ResetActivityRegistry
-    reset_status: ResetStatusService
-    reset_operations: ResetOperationCoordinator
-    reset_executor: ResetExecutor
-    reconstruction: ManagedRuntimeReconstructionCoordinator
-    reconstruction_executor: ManagedRuntimeReconstructionExecutor
-    snapshot_status: SnapshotStatusService
-    snapshot_operations: SnapshotCreateOperationCoordinator
-    snapshot_executor: SnapshotCreateExecutor
-    snapshot_restore_operations: SnapshotRestoreOperationCoordinator
-    snapshot_restore_executor: SnapshotRestoreExecutor
-    snapshot_delete_operations: SnapshotDeleteOperationCoordinator
-    snapshot_delete_executor: SnapshotDeleteExecutor
-    instance_delete_operations: ManagedInstanceDeleteOperationCoordinator
-    instance_delete_executor: ManagedInstanceDeleteExecutor
-    reconciliation: ManagedInstanceReconciliationService
-    snapshot_reconciliation: SnapshotReconciliationService
-    stale_dispatcher: StaleOperationReconciliationDispatcher
-    lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
-    activity: ManagedInstanceActivityService
-    addon_inventory: ManagedInstanceAddonInventoryService
-    instance_detail: ManagedInstanceDetailService
-    deleted_history: DeletedManagedInstanceHistoryService
     development_sources: DevelopmentSourcePresentationService
     development_source_administration: DevelopmentSourceAdministrationService
-    development_source_attachments: DevelopmentSourceAttachmentService
-    development_source_deployment_operations: (
-        DevelopmentSourceDeploymentOperationCoordinator
-    )
-    development_source_deployment_executor: DevelopmentSourceDeploymentExecutor
-    development_source_enablement: DevelopmentSourceEnablementService
-    development_source_smoke_test_operations: (
-        DevelopmentSourceSmokeTestOperationCoordinator
-    )
-    development_source_smoke_test_executor: DevelopmentSourceSmokeTestExecutor
-    addon_zips: AddonZipPresentationService
-    addon_zip_imports: AddonZipImportCoordinator
-    addon_zip_import_executor: AddonZipImportExecutor
-    addon_zip_installations: AddonZipInstallationCoordinator
-    addon_zip_installation_executor: AddonZipInstallationExecutor
-    addon_zip_enablement: AddonZipEnablementService
-    addon_zip_smoke_test_operations: AddonZipSmokeTestOperationCoordinator
-    addon_zip_smoke_test_executor: AddonZipSmokeTestExecutor
-    addon_repositories: AddonRepositoryAdministrationService
-    addon_repository_refreshes: AddonRepositoryRefreshCoordinator
-    addon_repository_refresh_executor: AddonRepositoryExecutor
-    addon_repository_fetches: AddonRepositoryFetchCoordinator
-    addon_repository_fetch_executor: AddonRepositoryExecutor
-    repository_replacements: RepositoryReplacementCoordinator
-    repository_replacement_executor: RepositoryReplacementExecutor
     agent_workspaces: AgentWorkspaceService
     workspace_source_captures: WorkspaceSourceCaptureService | None
     workspace_capture_presentation: WorkspaceCapturePresentationService | None
@@ -1478,20 +775,9 @@ class WebApplicationContext:
     agent_workspace_cleanups: AgentWorkspaceCleanupService
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
-    workspace_launch: WorkspaceLaunchService
-    addon_settings: AddonSettingsService
     mcp_workspace_development: McpWorkspaceDevelopmentService
     local_projects: LocalProjectOnboardingService
-    historical_workspace_execution_containment: (
-        HistoricalWorkspaceExecutionContainmentService
-    )
-    mcp_promotion_requests: McpPromotionRequestService
-    agent_workspace_promotions: AgentWorkspacePromotionService
-    promotion_verifications: PromotionVerificationService
-    screenshots: ManagedScreenshotService
-    browser_remote: BrowserRemoteService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
-    live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
     external_onboarding: ExternalKodiOnboardingService
     household_onboarding: HouseholdKodiOnboardingService
@@ -1502,8 +788,6 @@ class WebApplicationContext:
     external_bridges: ExternalBridgeService
     screenshot_preferences: ScreenshotPreferenceService
     navigation_preferences: ProductionNavigationPreferenceService
-    managed_observation_bridges: ManagedObservationBridgeService
-    managed_bridge_trust: ManagedBridgeTrustService
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
     )
@@ -1517,66 +801,20 @@ def create_app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     broker: Any,
-    novnc_viewer: PrototypeViewer | None = None,
-    readiness: ReadinessTaskRegistry | None = None,
-    reset_activity: ResetActivityRegistry | None = None,
     auth: WebAuthenticationService | None = None,
     throttler: LoginThrottler | None = None,
-    coordinator_factory: ReadinessCoordinatorFactory | None = None,
-    reset_service_factory: ResetServiceFactory | None = None,
-    snapshot_service_factory: SnapshotServiceFactory | None = None,
-    snapshot_restore_service_factory: SnapshotRestoreServiceFactory | None = None,
-    snapshot_delete_service_factory: SnapshotDeleteServiceFactory | None = None,
-    instance_delete_service_factory: ManagedInstanceDeleteServiceFactory | None = None,
-    development_source_deployment_service_factory: (
-        DevelopmentSourceDeploymentServiceFactory | None
-    ) = None,
-    addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
-    development_source_enablement_service: DevelopmentSourceEnablementService
-    | None = None,
-    development_source_smoke_test_service_factory: (
-        DevelopmentSourceSmokeTestServiceFactory | None
-    ) = None,
-    addon_zip_installation_service_factory: (
-        AddonZipInstallationServiceFactory | None
-    ) = None,
-    addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
-    addon_zip_enablement_service: AddonZipEnablementService | None = None,
-    addon_zip_smoke_test_service_factory: AddonZipSmokeTestServiceFactory | None = None,
     development_source_administration_service: (
         DevelopmentSourceAdministrationService | None
     ) = None,
-    development_source_attachment_service: DevelopmentSourceAttachmentService
-    | None = None,
-    addon_repository_administration_service: (
-        AddonRepositoryAdministrationService | None
-    ) = None,
-    addon_repository_refresh_coordinator: AddonRepositoryRefreshCoordinator
-    | None = None,
-    addon_repository_fetch_coordinator: AddonRepositoryFetchCoordinator | None = None,
-    repository_replacement_service_factory: (
-        RepositoryReplacementServiceFactory | None
-    ) = None,
     agent_workspace_service: AgentWorkspaceService | None = None,
-    agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
-    promotion_verification_service: PromotionVerificationService | None = None,
     agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
-    managed_screenshot_service: ManagedScreenshotService | None = None,
-    browser_remote_service: BrowserRemoteService | None = None,
     browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
-    browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
-    managed_live_display_service: ManagedLiveDisplayService | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
     production_target_service: ExternalTargetAdministrationService | None = None,
     external_bridge_service: ExternalBridgeService | None = None,
     external_target_transport: httpx.BaseTransport | None = None,
-    managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
-    if novnc_viewer is None:
-        from kodi_lab.web.novnc_optin import build_viewer
-
-        novnc_viewer = build_viewer(settings, session_factory)
     repository_data_root = Path(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
@@ -1589,63 +827,6 @@ def create_app(
             "repository origin migration is incomplete; resume it before Web startup"
         )
 
-    task_registry = readiness or ReadinessTaskRegistry()
-    reset_registry = reset_activity or ResetActivityRegistry()
-    stale_dispatcher = StaleOperationReconciliationDispatcher(
-        session_factory,
-        broker=broker,
-        readiness=task_registry,
-        data_root=settings.data_root,
-    )
-    reconciliation = ManagedInstanceReconciliationService(
-        session_factory,
-        broker=broker,
-        data_root=settings.data_root,
-        readiness=task_registry,
-    )
-    snapshot_reconciliation = SnapshotReconciliationService(
-        session_factory, data_root=settings.data_root
-    )
-    lifecycle_operations = ManagedInstanceLifecycleOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    reset_operations = ResetOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    status_service = ManagedRuntimeStatusService(
-        session_factory,
-        broker,
-        task_registry,
-        reconciliation,
-        recover_running_readiness=True,
-        coordinator_factory=lambda _status_broker, profile: (
-            coordinator_factory or KodiReadinessCoordinator
-        )(broker, profile),
-    )
-    screenshots = managed_screenshot_service or ManagedScreenshotService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        data_root=settings.data_root,
-    )
-    addon_inventory = ManagedInstanceAddonInventoryService(
-        session_factory,
-        broker,
-        adapter_factory=addon_inventory_adapter_factory,
-    )
-    browser_remote = browser_remote_service or BrowserRemoteService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        screenshots,
-        adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
-    )
     remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
     agent_workspaces = agent_workspace_service or AgentWorkspaceService(
         session_factory,
@@ -1678,11 +859,8 @@ def create_app(
     )
     mcp_workspace_development = McpWorkspaceDevelopmentService(
         session_factory,
-        broker,
-        addon_inventory,
         agent_workspaces,
         data_root=settings.data_root,
-        readiness_registry=task_registry,
     )
     mcp_workspace_retention = McpWorkspaceRetentionService(
         session_factory,
@@ -1733,13 +911,6 @@ def create_app(
             else settings.external_target_master_key.get_secret_value()
         ),
         key_version=settings.external_target_master_key_version,
-    )
-    mcp_workspace_development.configure_managed_noop_verifier(
-        ManagedLaunchBridgeService(
-            session_factory,
-            external_bridge_secret_store,
-            client=ExternalBridgeClient(transport=external_target_transport),
-        ).verify_identity
     )
     external_bridges = external_bridge_service or ExternalBridgeService(
         session_factory,
@@ -1796,41 +967,14 @@ def create_app(
         verifier=NativeExternalKodiVerifier(transport=external_target_transport),
     )
     mcp_registry = build_mcp_tool_registry()
-    managed_target_authority = InternalManagedTargetAuthorityProvider(
-        session_factory,
-        reconciliation=reconciliation,
-        screenshots=screenshots,
-        status=status_service,
-    )
-    managed_observation_bridges = ManagedObservationBridgeService(
-        session_factory,
-        external_bridge_secret_store,
-    )
-    managed_bridge_trust = ManagedBridgeTrustService(
-        session_factory, broker, external_bridge_secret_store
-    )
     window_resolver = WindowResolver(local_root=settings.data_root / "window-mappings")
-    managed_ui_state = ManagedUiObservationService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        bridges=managed_observation_bridges,
-        window_resolver=window_resolver,
-    )
 
     mcp_target_adapters = KodiTargetAdapterService(
         session_factory,
-        managed_status=status_service,
-        managed_inventory=addon_inventory,
-        managed_remote=browser_remote,
-        managed_screenshots=screenshots,
-        managed_authority=managed_target_authority,
         external_bridges=external_bridges,
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
         external_transport=external_target_transport,
-        managed_ui_state=managed_ui_state,
         window_resolver=window_resolver,
     )
     mcp_workspace_development.configure_external(
@@ -1856,93 +1000,6 @@ def create_app(
     production_native_control_acknowledgements = (
         ProductionNativeControlAcknowledgementService(session_factory)
     )
-    live_display = managed_live_display_service or ManagedLiveDisplayService(
-        broker, status_service, reconciliation, screenshots
-    )
-    reset_status_service = ResetStatusService(
-        session_factory, broker, reset_registry, reset_operations
-    )
-    service_factory = reset_service_factory or (
-        lambda observer: DisposableInstanceResetService(
-            session_factory, broker, activity=observer
-        )
-    )
-    reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
-    reconstruction = ManagedRuntimeReconstructionCoordinator(session_factory, broker)
-    reconstruction_executor = ManagedRuntimeReconstructionExecutor(
-        reconstruction, session_factory, broker
-    )
-    snapshot_operations = SnapshotCreateOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    snapshot_factory = snapshot_service_factory or (
-        lambda lease: DisposableSnapshotCreationService(
-            session_factory,
-            broker,
-            snapshot_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_executor = SnapshotCreateExecutor(snapshot_operations, snapshot_factory)
-    snapshot_restore_operations = SnapshotRestoreOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    snapshot_restore_factory = snapshot_restore_service_factory or (
-        lambda lease: DisposableSnapshotRestoreService(
-            session_factory,
-            broker,
-            snapshot_restore_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_restore_executor = SnapshotRestoreExecutor(
-        snapshot_restore_operations, snapshot_restore_factory
-    )
-    snapshot_delete_operations = SnapshotDeleteOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    snapshot_delete_factory = snapshot_delete_service_factory or (
-        lambda lease: DisposableSnapshotDeletionService(
-            session_factory,
-            broker,
-            snapshot_delete_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    snapshot_delete_executor = SnapshotDeleteExecutor(
-        snapshot_delete_operations, snapshot_delete_factory
-    )
-    instance_delete_operations = ManagedInstanceDeleteOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
-    )
-    instance_delete_factory = instance_delete_service_factory or (
-        lambda lease: DisposableManagedInstanceDeletionService(
-            session_factory,
-            broker,
-            task_registry,
-            instance_delete_operations,
-            lease,
-            data_root=settings.data_root,
-        )
-    )
-    instance_delete_executor = ManagedInstanceDeleteExecutor(
-        instance_delete_operations, instance_delete_factory
-    )
-    activity = ManagedInstanceActivityService(session_factory)
-    snapshot_status = SnapshotStatusService(session_factory)
     development_sources = DevelopmentSourcePresentationService(session_factory)
     development_source_validator = DevelopmentSourceValidator(settings.development_root)
     development_source_administration = (
@@ -1951,257 +1008,8 @@ def create_app(
             session_factory, development_source_validator
         )
     )
-    development_source_attachments = (
-        development_source_attachment_service
-        or DevelopmentSourceAttachmentService(
-            session_factory,
-            development_source_validator,
-            mutation_coordinator=ManagedInstanceMutationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    development_source_deployment_operations = (
-        DevelopmentSourceDeploymentOperationCoordinator(
-            session_factory,
-            broker,
-            development_source_validator,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        )
-    )
-    development_source_deployment_factory = (
-        development_source_deployment_service_factory
-        or (
-            lambda lease: DevelopmentSourceDeploymentService(
-                broker, development_source_deployment_operations, lease
-            )
-        )
-    )
-    development_source_deployment_executor = DevelopmentSourceDeploymentExecutor(
-        development_source_deployment_operations,
-        development_source_deployment_factory,
-    )
-    development_source_enablement = (
-        development_source_enablement_service
-        or DevelopmentSourceEnablementService(
-            session_factory,
-            broker,
-            development_source_validator,
-            coordinator=DevelopmentSourceEnablementOperationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    development_source_smoke_test_operations = (
-        DevelopmentSourceSmokeTestOperationCoordinator(
-            session_factory,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        )
-    )
-    development_source_smoke_test_factory = (
-        development_source_smoke_test_service_factory
-        or (
-            lambda lease: DevelopmentSourceSmokeTestService(
-                session_factory,
-                broker,
-                development_source_validator,
-                development_source_smoke_test_operations,
-                lease,
-            )
-        )
-    )
-    development_source_smoke_test_executor = DevelopmentSourceSmokeTestExecutor(
-        development_source_smoke_test_operations,
-        development_source_smoke_test_factory,
-    )
-    addon_zips = AddonZipPresentationService(session_factory)
-    addon_zip_imports = AddonZipImportCoordinator(
-        session_factory,
-        data_root=settings.data_root,
-        stale_dispatcher=stale_dispatcher,
-    )
-    addon_zip_import_executor = AddonZipImportExecutor(addon_zip_imports)
-    addon_zip_installations = AddonZipInstallationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    addon_zip_installation_factory = addon_zip_installation_service_factory or (
-        lambda lease: AddonZipInstallationService(
-            session_factory,
-            broker,
-            addon_zip_installations,
-            lease,
-            inventory_adapter_factory=addon_inventory_adapter_factory,
-            readiness_factory=addon_zip_readiness_factory or KodiReadinessCoordinator,
-        )
-    )
-    addon_zip_installation_executor = AddonZipInstallationExecutor(
-        addon_zip_installations, addon_zip_installation_factory
-    )
-    addon_zip_enablement = addon_zip_enablement_service or AddonZipEnablementService(
-        session_factory,
-        broker,
-        coordinator=AddonZipEnablementOperationCoordinator(
-            session_factory,
-            stale_dispatcher=stale_dispatcher,
-            reconciliation=reconciliation,
-        ),
-        inventory_adapter_factory=addon_inventory_adapter_factory,
-    )
-    addon_zip_smoke_test_operations = AddonZipSmokeTestOperationCoordinator(
-        session_factory,
-        stale_dispatcher=stale_dispatcher,
-        reconciliation=reconciliation,
-    )
-    addon_zip_smoke_test_factory = addon_zip_smoke_test_service_factory or (
-        lambda lease: AddonZipSmokeTestService(
-            session_factory,
-            broker,
-            addon_zip_smoke_test_operations,
-            lease,
-            inventory_adapter_factory=addon_inventory_adapter_factory,
-        )
-    )
-    addon_zip_smoke_test_executor = AddonZipSmokeTestExecutor(
-        addon_zip_smoke_test_operations, addon_zip_smoke_test_factory
-    )
-    addon_repositories = (
-        addon_repository_administration_service
-        or AddonRepositoryAdministrationService(
-            session_factory,
-            mutation_coordinator=ManagedInstanceMutationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    addon_repository_refreshes = (
-        addon_repository_refresh_coordinator
-        or AddonRepositoryRefreshCoordinator(session_factory)
-    )
-    addon_repository_fetches = (
-        addon_repository_fetch_coordinator
-        or AddonRepositoryFetchCoordinator(
-            session_factory, data_root=settings.data_root
-        )
-    )
-    addon_repository_refresh_executor = AddonRepositoryExecutor(
-        addon_repository_refreshes, thread_name="repository-refresh"
-    )
-    addon_repository_fetch_executor = AddonRepositoryExecutor(
-        addon_repository_fetches, thread_name="repository-fetch"
-    )
-    repository_replacements = RepositoryReplacementCoordinator(
-        session_factory,
-        broker,
-        inventory_factory=addon_inventory_adapter_factory,
-        reconciliation=reconciliation,
-    )
-    repository_replacement_factory = repository_replacement_service_factory or (
-        lambda lease: RepositoryReplacementService(
-            session_factory,
-            broker,
-            repository_replacements,
-            lease,
-            inventory_factory=addon_inventory_adapter_factory,
-        )
-    )
-    repository_replacement_executor = RepositoryReplacementExecutor(
-        repository_replacements, repository_replacement_factory
-    )
-
-    def require_promotion_verification_reconciliation(instance_id: UUID) -> None:
-        reconciliation.require_allowed(
-            instance_id, ReconciliationAction.PROMOTION_VERIFICATION
-        )
-
-    promotion_verifications = (
-        promotion_verification_service
-        or PromotionVerificationService(
-            session_factory,
-            broker,
-            addon_inventory,
-            reconciliation_gate=require_promotion_verification_reconciliation,
-        )
-    )
-
-    def require_promotion_reconciliation(instance_id: UUID) -> None:
-        reconciliation.require_allowed(
-            instance_id, ReconciliationAction.AGENT_WORKSPACE_PROMOTION
-        )
-
-    agent_workspace_promotions = (
-        agent_workspace_promotion_service
-        or AgentWorkspacePromotionService(
-            session_factory,
-            data_root=settings.data_root,
-            development_root=settings.development_root,
-            reconciliation_gate=require_promotion_reconciliation,
-            verification_publisher=promotion_verifications.publish_durable,
-            verification_starter=promotion_verifications.queue_and_run,
-            live_proof_reader=addon_inventory.get_promotion_proof,
-        )
-    )
-    mcp_promotion_requests = McpPromotionRequestService(
-        session_factory, agent_workspace_promotions
-    )
-    lifecycle_service = ManagedRuntimeLifecycleService(
-        session_factory,
-        broker,
-        task_registry,
-        status_service,
-        coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
-        reset_operations=reset_operations,
-        lifecycle_operations=lifecycle_operations,
-        bridge_trust=managed_bridge_trust,
-        data_root=settings.data_root,
-    )
-    resources = ManagedResourceService(
-        session_factory,
-        broker,
-        lifecycle_service,
-        playback_factory=managed_playback_factory or KodiBrowserRemoteAdapter,
-    )
-    agent_lifecycle = ManagedAgentLifecycleService(
-        session_factory,
-        resources,
-        lifecycle_service,
-        status_service,
-        lock_root=settings.data_root / "locks/managed-agent-lifecycle",
-    )
     runtime_installations = RuntimeInstallationService(
         session_factory, broker, data_root=settings.data_root
-    )
-    managed_versions = ManagedVersionLifecycleService(
-        session_factory,
-        lifecycle_service,
-        resources,
-        status_service,
-        runtime_installations,
-        agent_lifecycle,
-        broker.managed_container_inventory,
-        data_root=settings.data_root,
-    )
-    idle_worker = ManagedIdleWorker(resources)
-    workspace_launch = WorkspaceLaunchService(
-        session_factory,
-        mcp_workspace_development,
-        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
-        data_root=settings.data_root,
-    )
-    addon_settings = AddonSettingsService(
-        session_factory,
-        mcp_workspace_development,
-        workspace_launch,
-        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
     )
     lan_endpoints = [
         urlsplit(url)
@@ -2220,46 +1028,19 @@ def create_app(
             else (endpoint.netloc,)
         )
     ]
-    session_service = DevelopmentSessionService(
-        session_factory,
-        broker.managed_container_inventory,
-        data_root=settings.data_root,
-    )
-    native_packages = NativeZipInstallationService(
-        session_factory,
-        broker,
-        mcp_authorization,
-        data_root=settings.data_root,
-        base_url=settings.native_zip_base_url,
-        inventory_factory=addon_inventory_adapter_factory,
-    )
+    managed = ManagedBrokerClient(settings.runtime_root / "managed/control.sock")
     mcp_transport = build_mcp_http_transport(
+        managed=managed,
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
-        registry=mcp_registry,
         tools=McpTargetToolService(
             session_factory,
             mcp_authorization,
-            status_service,
-            addon_inventory,
-            screenshots,
             remote_receipts,
-            agent_workspaces,
-            mcp_workspace_creation,
-            mcp_workspace_retention,
             mcp_workspace_development,
-            mcp_promotion_requests,
             target_adapters=mcp_target_adapters,
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
-            workspace_source_captures=workspace_source_captures,
-            managed_lifecycle=agent_lifecycle,
-            managed_versions=managed_versions,
-            retained_sessions=session_service,
-            workspace_launch=workspace_launch,
-            addon_settings=addon_settings,
-            packages=AgentPackageService(session_factory, settings.data_root),
-            native_packages=native_packages,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -2274,86 +1055,16 @@ def create_app(
         )
         + tuple(f"{scheme}://{authority}" for scheme, authority in lan_authorities),
     )
-    instance_detail = ManagedInstanceDetailService(
-        session_factory,
-        status_service,
-        snapshot_status,
-        activity,
-        reconciliation,
-        development_sources,
-        addon_inventory,
-    )
-    deleted_history = DeletedManagedInstanceHistoryService(
-        session_factory, activity, snapshot_status
-    )
     context = WebApplicationContext(
-        retained_diagnostics=RetainedDiagnosticsService(
-            session_factory, broker, data_root=settings.data_root
-        ),
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
-        status=status_service,
-        lifecycle=lifecycle_service,
-        managed_resources=resources,
-        managed_agent_lifecycle=agent_lifecycle,
-        managed_versions=managed_versions,
-        managed_idle_worker=idle_worker,
         matrix=RuntimeMatrixService(
             session_factory,
             trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
         ),
-        readiness=task_registry,
-        reset_activity=reset_registry,
-        reset_status=reset_status_service,
-        reset_operations=reset_operations,
-        reset_executor=reset_executor,
-        reconstruction=reconstruction,
-        reconstruction_executor=reconstruction_executor,
-        snapshot_status=snapshot_status,
-        snapshot_operations=snapshot_operations,
-        snapshot_executor=snapshot_executor,
-        snapshot_restore_operations=snapshot_restore_operations,
-        snapshot_restore_executor=snapshot_restore_executor,
-        snapshot_delete_operations=snapshot_delete_operations,
-        snapshot_delete_executor=snapshot_delete_executor,
-        instance_delete_operations=instance_delete_operations,
-        instance_delete_executor=instance_delete_executor,
-        reconciliation=reconciliation,
-        snapshot_reconciliation=snapshot_reconciliation,
-        stale_dispatcher=stale_dispatcher,
-        lifecycle_operations=lifecycle_operations,
-        activity=activity,
-        addon_inventory=addon_inventory,
-        instance_detail=instance_detail,
-        deleted_history=deleted_history,
         development_sources=development_sources,
         development_source_administration=development_source_administration,
-        development_source_attachments=development_source_attachments,
-        development_source_deployment_operations=(
-            development_source_deployment_operations
-        ),
-        development_source_deployment_executor=(development_source_deployment_executor),
-        development_source_enablement=development_source_enablement,
-        development_source_smoke_test_operations=(
-            development_source_smoke_test_operations
-        ),
-        development_source_smoke_test_executor=(development_source_smoke_test_executor),
-        addon_zips=addon_zips,
-        addon_zip_imports=addon_zip_imports,
-        addon_zip_import_executor=addon_zip_import_executor,
-        addon_zip_installations=addon_zip_installations,
-        addon_zip_installation_executor=addon_zip_installation_executor,
-        addon_zip_enablement=addon_zip_enablement,
-        addon_zip_smoke_test_operations=addon_zip_smoke_test_operations,
-        addon_zip_smoke_test_executor=addon_zip_smoke_test_executor,
-        addon_repositories=addon_repositories,
-        addon_repository_refreshes=addon_repository_refreshes,
-        addon_repository_refresh_executor=addon_repository_refresh_executor,
-        addon_repository_fetches=addon_repository_fetches,
-        addon_repository_fetch_executor=addon_repository_fetch_executor,
-        repository_replacements=repository_replacements,
-        repository_replacement_executor=repository_replacement_executor,
         agent_workspaces=agent_workspaces,
         workspace_source_captures=workspace_source_captures,
         workspace_capture_presentation=workspace_capture_presentation,
@@ -2361,20 +1072,9 @@ def create_app(
         agent_workspace_cleanups=agent_workspace_cleanups,
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
-        workspace_launch=workspace_launch,
-        addon_settings=addon_settings,
         mcp_workspace_development=mcp_workspace_development,
         local_projects=local_projects,
-        historical_workspace_execution_containment=(
-            HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
-        ),
-        mcp_promotion_requests=mcp_promotion_requests,
-        agent_workspace_promotions=agent_workspace_promotions,
-        promotion_verifications=promotion_verifications,
-        screenshots=screenshots,
-        browser_remote=browser_remote,
         browser_remote_rate_limiter=remote_rate_limiter,
-        live_display=live_display,
         external_targets=external_targets,
         external_onboarding=external_onboarding,
         household_onboarding=household_onboarding,
@@ -2385,8 +1085,6 @@ def create_app(
         screenshot_preferences=screenshot_preferences,
         navigation_preferences=navigation_preferences,
         external_bridges=external_bridges,
-        managed_observation_bridges=managed_observation_bridges,
-        managed_bridge_trust=managed_bridge_trust,
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
         ),
@@ -2447,71 +1145,16 @@ def create_app(
                     "Development feed requires reconciliation."
                 )
                 (development_repository.root / "ACK").unlink(missing_ok=True)
-        context.agent_workspace_promotions.sweep_startup()
-        context.promotion_verifications.sweep_startup()
         context.mcp_workspace_development.sweep_startup()
-        context.stale_dispatcher.sweep_startup()
-        context.reset_executor.start()
-        context.reconstruction_executor.start()
-        context.snapshot_executor.start()
-        context.snapshot_restore_executor.start()
-        context.snapshot_delete_executor.start()
-        context.instance_delete_executor.start()
-        context.development_source_deployment_executor.start()
-        context.development_source_smoke_test_executor.start()
-        context.addon_zip_import_executor.start()
-        context.addon_zip_installation_executor.start()
-        context.addon_zip_smoke_test_executor.start()
-        context.addon_repository_refresh_executor.start()
-        context.addon_repository_fetch_executor.start()
-        context.repository_replacement_executor.start()
         context.agent_workspace_executor.start()
         context.agent_workspace_cleanup_executor.start()
-        context.managed_idle_worker.start()
         context.mcp_workspace_retention.sweep(force=True)
         async with context.mcp_transport.server.session_manager.run():
-
-            async def expire_novnc_tickets() -> None:
-                while True:
-                    if novnc_viewer is not None:
-                        with suppress(Exception):
-                            await novnc_viewer.mutate(novnc_viewer.sweep)
-                    await asyncio.sleep(0.25)
-
-            novnc_sweeper = (
-                asyncio.create_task(expire_novnc_tickets())
-                if novnc_viewer is not None
-                else None
-            )
             try:
                 yield
             finally:
-                if novnc_viewer is not None:
-                    await asyncio.to_thread(novnc_viewer.close)
-                if novnc_sweeper is not None:
-                    novnc_sweeper.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await novnc_sweeper
-                context.managed_idle_worker.close()
-                context.reset_executor.close()
-                context.reconstruction_executor.close()
-                context.snapshot_executor.close()
-                context.snapshot_restore_executor.close()
-                context.snapshot_delete_executor.close()
-                context.instance_delete_executor.close()
-                context.development_source_deployment_executor.close()
-                context.development_source_smoke_test_executor.close()
-                context.addon_zip_import_executor.close()
-                context.addon_zip_installation_executor.close()
-                context.addon_zip_smoke_test_executor.close()
-                context.addon_repository_refresh_executor.close()
-                context.addon_repository_fetch_executor.close()
-                context.repository_replacement_executor.close()
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()
-                context.readiness.close()
-                context.managed_observation_bridges.close()
-                context.managed_bridge_trust.close()
 
     app = FastAPI(
         title="Kodi Lab",
@@ -2519,9 +1162,6 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
-    )
-    kodi_prerequisites = ManagedKodiPrerequisiteService(
-        runtime_installations, context.managed_resources, data_root=settings.data_root
     )
     app.state.kodi_lab = context
     app.add_middleware(
@@ -2534,44 +1174,14 @@ def create_app(
         ],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
-    app.add_middleware(NativeZipBodyLimitMiddleware)
     templates = Jinja2Templates(
         directory=_WEB_ROOT / "templates", context_processors=[admin_view_context]
     )
-    # Older host processes can share the templates without these new routes.
-    templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
-    templates.env.globals["novnc_phase1_enabled"] = novnc_viewer is not None
-    templates.env.globals["viewer_clock_ms"] = (
-        novnc_viewer.attempts.clock_ms if novnc_viewer is not None else lambda: 0
-    )
-
-    def novnc_instance_enabled(instance: object) -> bool:
-        if novnc_viewer is None:
-            return False
-        identity = UUID(str(instance))
-        if novnc_viewer.enabled_instances is not None:
-            return identity in novnc_viewer.enabled_instances
-        from kodi_lab.runtime.display_capabilities import admitted_display_capability
-
-        with session_factory() as db:
-            managed = ManagedInstanceRepository(db).get(identity)
-            return (
-                managed is not None
-                and admitted_display_capability(
-                    db,
-                    managed.runtime_revision_id,
-                    experimental=identity in settings.experimental_novnc_instances,
-                )
-                is not None
-            )
-
-    templates.env.globals["novnc_instance_enabled"] = novnc_instance_enabled
     templates.env.globals.update(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
         state_label=state_label,
-        managed_next_step=managed_next_step,
         environment_identity=environment_identity,
     )
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
@@ -2625,13 +1235,7 @@ def create_app(
             "base-uri 'none'; frame-ancestors 'none'"
         )
         route_name = getattr(request.scope.get("route"), "name", None)
-        viewer_page = route_name == "novnc_phase1_page" and response.status_code == 200
-        if route_name == "development_session_page" and response.status_code == 200:
-            selected_view = current_kodi.identity().current
-            viewer_page = selected_view is not None and novnc_instance_enabled(
-                selected_view.target_id
-            )
-        if novnc_viewer is not None and viewer_page:
+        if route_name == "managed_kodi_page" and response.status_code == 200:
             response.headers["Content-Security-Policy"] = response.headers[
                 "Content-Security-Policy"
             ].replace("img-src 'self' blob:", "img-src 'self' blob: data:")
@@ -2669,99 +1273,6 @@ def create_app(
         if not context.auth.csrf_matches(authenticated, supplied):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
-
-    from kodi_lab.application.managed_bridge_preparation import (
-        ManagedBridgePreparationService,
-    )
-    from kodi_lab.web.bridge_preparation import bridge_preparation_router
-
-    bridge_preparation = ManagedBridgePreparationService(
-        session_factory, lifecycle_service, resources
-    )
-    app.include_router(
-        bridge_preparation_router(bridge_preparation, current_session, mutation_session)
-    )
-    create_repository = CreateKodiRepository(session_factory)
-    create_runner = CreateKodiRunner(
-        create_repository,
-        CreateKodiInstallationService(create_repository, runtime_installations),
-        CreateKodiRegistrationService(
-            session_factory, create_repository, runtime_installations
-        ),
-        CreateKodiProvisioningService(
-            create_repository,
-            runtime_installations,
-            lifecycle_service,
-            broker.managed_container_inventory,
-        ),
-        CreateKodiStartService(
-            create_repository,
-            runtime_installations,
-            lifecycle_service,
-            broker.managed_container_inventory,
-        ),
-        CreateKodiReadinessService(
-            session_factory, create_repository, runtime_installations, broker
-        ),
-        bridge=bridge_preparation,
-    )
-    app.include_router(
-        create_kodi_router(
-            CreateKodiAPI(
-                session_factory,
-                CreateKodiService(create_repository),
-                kodi_prerequisites,
-                broker,
-                create_runner,
-            ),
-            current_session,
-            mutation_session,
-        )
-    )
-
-    @app.exception_handler(HistoricalContainmentError)
-    async def historical_containment_error(
-        _request: Request, error: HistoricalContainmentError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            error.code,
-            "Historical workspace execution containment was not established.",
-        )
-
-    @app.exception_handler(ManagedInstanceNotFoundError)
-    async def instance_not_found(
-        _request: Request, _error: ManagedInstanceNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404, "managed_instance_not_found", "Managed instance not found."
-        )
-
-    @app.exception_handler(ScreenshotServiceError)
-    async def screenshot_error(
-        _request: Request, error: ScreenshotServiceError
-    ) -> JSONResponse:
-        status_code = {
-            "screenshot_capture_in_progress": 409,
-            "visual_rate_limited": 429,
-            "visual_instance_not_running": 409,
-            "visual_kodi_not_ready": 409,
-            "screenshot_unsupported": 409,
-            "screenshot_invalid_result": 502,
-            "screenshot_capture_unavailable": 503,
-        }.get(error.code, 503)
-        return _json_error(status_code, error.code, error.safe_message)
-
-    @app.exception_handler(ManagedResourceProtected)
-    async def managed_resource_error(
-        _request: Request,
-        error: ManagedResourceProtected,
-    ) -> JSONResponse:
-        return _json_error(
-            404 if error.code == "managed_target_required" else 409,
-            error.code,
-            "Review the managed target's current operation or resource policy.",
-        )
 
     @app.exception_handler(BrowserRemoteError)
     async def browser_remote_error(
@@ -2826,19 +1337,6 @@ def create_app(
     ) -> JSONResponse:
         return _json_error(422, "development_source_unsafe", "Source scan was unsafe.")
 
-    @app.exception_handler(AgentWorkspacePromotionError)
-    async def agent_workspace_promotion_failed(
-        _request: Request, error: AgentWorkspacePromotionError
-    ) -> JSONResponse:
-        http_status = (
-            409
-            if isinstance(error, AgentWorkspacePromotionConflictError)
-            else 404
-            if error.code.endswith("not_found")
-            else 422
-        )
-        return _json_error(http_status, error.code, error.safe_message)
-
     @app.exception_handler(AgentWorkspaceCleanupError)
     async def agent_workspace_cleanup_failed(
         _request: Request, error: AgentWorkspaceCleanupError
@@ -2848,51 +1346,6 @@ def create_app(
             error.code,
             error.safe_message,
         )
-
-    @app.exception_handler(PromotionVerificationError)
-    async def promotion_verification_failed(
-        _request: Request, error: PromotionVerificationError
-    ) -> JSONResponse:
-        return _json_error(
-            404 if error.code.endswith("not_found") else 409,
-            error.code,
-            error.safe_message,
-        )
-
-    @app.exception_handler(AddonRepositoryNotFoundError)
-    async def addon_repository_not_found(
-        _request: Request, error: AddonRepositoryNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, "Repository resource not found.")
-
-    @app.exception_handler(AddonRepositoryConflictError)
-    async def addon_repository_conflict(
-        _request: Request, error: AddonRepositoryConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonRepositoryError)
-    async def addon_repository_policy_failed(
-        _request: Request, error: AddonRepositoryError
-    ) -> JSONResponse:
-        return _json_error(422, error.code, error.safe_message)
-
-    @app.exception_handler(AddonRepositoryServiceError)
-    async def addon_repository_failed(
-        _request: Request, error: AddonRepositoryServiceError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(RepositoryReplacementError)
-    async def repository_replacement_failed(
-        _request: Request, error: RepositoryReplacementError
-    ) -> JSONResponse:
-        http_status = (
-            status.HTTP_422_UNPROCESSABLE_CONTENT
-            if isinstance(error, RepositoryReplacementUnsupportedError)
-            else status.HTTP_409_CONFLICT
-        )
-        return _json_error(http_status, error.code, str(error)[:256])
 
     @app.exception_handler(RequestValidationError)
     async def bounded_request_validation(
@@ -2992,253 +1445,6 @@ def create_app(
             ),
         )
         return _json_error(409, code, message)
-
-    @app.exception_handler(DevelopmentSourceAttachmentError)
-    async def development_source_attachment_failed(
-        _request: Request, error: DevelopmentSourceAttachmentError
-    ) -> JSONResponse:
-        if isinstance(error, DevelopmentSourceAlreadyAttachedError):
-            code = "development_source_already_attached"
-            message = "Development source is already attached to this instance."
-        elif isinstance(error, DevelopmentSourceNotAttachedError):
-            code = "development_source_not_attached"
-            message = "Development source is not attached to this instance."
-        elif isinstance(error, DevelopmentSourceAddonConflictError):
-            code = "development_source_addon_conflict"
-            message = "The instance already has a source for this add-on ID."
-        elif isinstance(error, DevelopmentSourceIdentityChangedError):
-            code = error.code
-            message = "Development source add-on identity changed after registration."
-        elif isinstance(error, DevelopmentSourceAttachmentValidationError):
-            code = "development_source_attachment_validation_failed"
-            message = "Development source validation failed before attachment."
-        elif isinstance(error, PersistentDevelopmentSourceAttachmentUnsupportedError):
-            code = "development_source_attachment_unsupported"
-            message = (
-                "Development-source attachment is supported only for disposable "
-                "instances."
-            )
-        else:
-            code = "development_source_attachment_conflict"
-            message = "Development-source attachment could not be changed."
-        return _json_error(409, code, message)
-
-    @app.exception_handler(DevelopmentSourceDeploymentConflictError)
-    async def development_source_deployment_conflict(
-        _request: Request, error: DevelopmentSourceDeploymentConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceDeploymentUnsupportedError)
-    async def development_source_deployment_unsupported(
-        _request: Request, error: DevelopmentSourceDeploymentUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceDeploymentError)
-    async def development_source_deployment_failed(
-        _request: Request, error: DevelopmentSourceDeploymentError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceEnablementError)
-    async def development_source_enablement_failed(
-        _request: Request, error: DevelopmentSourceEnablementError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestNotFoundError)
-    async def development_source_smoke_test_not_found(
-        _request: Request, error: DevelopmentSourceSmokeTestNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestConflictError)
-    async def development_source_smoke_test_conflict(
-        _request: Request, error: DevelopmentSourceSmokeTestConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestError)
-    async def development_source_smoke_test_failed(
-        _request: Request, error: DevelopmentSourceSmokeTestError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipImportConflictError)
-    async def addon_zip_import_conflict(
-        _request: Request, error: AddonZipImportConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "addon_zip_import_conflict", str(error)[:256])
-
-    @app.exception_handler(AddonZipValidationError)
-    async def addon_zip_upload_invalid(
-        _request: Request, error: AddonZipValidationError
-    ) -> JSONResponse:
-        return _json_error(422, error.code, error.safe_message)
-
-    @app.exception_handler(AddonZipInstallationError)
-    async def addon_zip_installation_failed(
-        _request: Request, error: AddonZipInstallationError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipEnablementError)
-    async def addon_zip_enablement_failed(
-        _request: Request, error: AddonZipEnablementError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestNotFoundError)
-    async def addon_zip_smoke_test_not_found(
-        _request: Request, error: AddonZipSmokeTestNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestConflictError)
-    async def addon_zip_smoke_test_conflict(
-        _request: Request, error: AddonZipSmokeTestConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestError)
-    async def addon_zip_smoke_test_failed(
-        _request: Request, error: AddonZipSmokeTestError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(LifecycleConflictError)
-    async def lifecycle_conflict(
-        _request: Request, error: LifecycleConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "lifecycle_conflict", str(error)[:256])
-
-    @app.exception_handler(ResetOperationConflictError)
-    async def reset_operation_conflict(
-        _request: Request, error: ResetOperationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "reset_operation_conflict", str(error)[:256])
-
-    @app.exception_handler(ReconstructionConflictError)
-    async def reconstruction_conflict(
-        _request: Request, error: ReconstructionConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "reconstruction_conflict", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceMutationConflictError)
-    async def mutation_conflict(
-        _request: Request, error: ManagedInstanceMutationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "managed_instance_mutation_conflict", str(error)[:256])
-
-    @app.exception_handler(LifecycleOperationConflictError)
-    async def lifecycle_operation_conflict(
-        _request: Request, error: LifecycleOperationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "lifecycle_operation_conflict", str(error)[:256])
-
-    @app.exception_handler(DeletedManagedInstanceHistoryNotFoundError)
-    async def deleted_history_not_found(
-        _request: Request, _error: DeletedManagedInstanceHistoryNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404,
-            "deleted_instance_history_not_found",
-            "Deleted instance history was not found.",
-        )
-
-    @app.exception_handler(ManagedInstanceReconciliationRequiredError)
-    async def reconciliation_required(
-        _request: Request, error: ManagedInstanceReconciliationRequiredError
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": error.code,
-                    "message": error.status.safe_reason,
-                    "reconciliation": error.status.model_dump(mode="json"),
-                }
-            },
-        )
-
-    @app.exception_handler(CoordinationCorruptionError)
-    async def coordination_corruption(
-        _request: Request, error: CoordinationCorruptionError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(SnapshotCreateConflictError)
-    async def snapshot_create_conflict(
-        _request: Request, error: SnapshotCreateConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_create_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotCreateUnsupportedError)
-    async def snapshot_create_unsupported(
-        _request: Request, error: SnapshotCreateUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_create_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotRestoreConflictError)
-    async def snapshot_restore_conflict(
-        _request: Request, error: SnapshotRestoreConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_restore_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotRestoreUnsupportedError)
-    async def snapshot_restore_unsupported(
-        _request: Request, error: SnapshotRestoreUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_restore_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotSourceInstanceDeletedError)
-    async def snapshot_source_deleted(
-        _request: Request, _error: SnapshotSourceInstanceDeletedError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            "source_instance_deleted",
-            "The preserved Snapshot source ManagedInstance has been deleted.",
-        )
-
-    @app.exception_handler(SnapshotDeleteConflictError)
-    async def snapshot_delete_conflict(
-        _request: Request, error: SnapshotDeleteConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_delete_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotDeleteUnsupportedError)
-    async def snapshot_delete_unsupported(
-        _request: Request, error: SnapshotDeleteUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_delete_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotDeleteNotFoundError)
-    async def snapshot_delete_not_found(
-        _request: Request, _error: SnapshotDeleteNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, "snapshot_not_found", "Snapshot not found.")
-
-    @app.exception_handler(ManagedInstanceDeleteConflictError)
-    async def instance_delete_conflict(
-        _request: Request, error: ManagedInstanceDeleteConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "instance_delete_conflict", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceDeleteUnsupportedError)
-    async def instance_delete_unsupported(
-        _request: Request, error: ManagedInstanceDeleteUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "instance_delete_unsupported", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceDeleteNotFoundError)
-    async def instance_delete_not_found(
-        _request: Request, _error: ManagedInstanceDeleteNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404, "managed_instance_not_found", "Managed instance not found."
-        )
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -3568,8 +1774,7 @@ def create_app(
             created.token,
             max_age=settings.web_session_absolute_seconds,
             httponly=True,
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             samesite="strict",
             path="/",
         )
@@ -3597,8 +1802,7 @@ def create_app(
         response.delete_cookie(
             ADMIN_VIEW_COOKIE,
             httponly=True,
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             samesite="strict",
             path="/",
         )
@@ -3613,19 +1817,13 @@ def create_app(
         csrf_token = csrf_value if isinstance(csrf_value, str) else None
         if not context.auth.csrf_matches(authenticated, csrf_token):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
-        context.live_display.retire_owner(preview_owner(authenticated.csrf_token))
         context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
-        if novnc_viewer is not None:
-            await asyncio.to_thread(
-                novnc_viewer.retire_owner, preview_owner(authenticated.csrf_token)
-            )
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(
             settings.web_session_cookie_name,
             path="/",
-            secure=settings.web_requires_https
-            or (novnc_viewer is not None and novnc_viewer.require_https),
+            secure=settings.web_requires_https,
             httponly=True,
             samesite="strict",
         )
@@ -3643,52 +1841,6 @@ def create_app(
             {"csrf_token": authenticated.csrf_token},
         )
 
-    @app.get("/managed-instances", response_class=HTMLResponse)
-    async def managed_instances_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        reset_statuses = {
-            item.managed_instance_id: item
-            for item in context.reset_status.list_statuses()
-        }
-        instances = context.status.list_statuses()
-        reconciliation_statuses = {
-            item.managed_instance_id: context.reconciliation.status(
-                item.managed_instance_id
-            )
-            for item in instances
-        }
-        reconstruction_statuses = {
-            item.managed_instance_id: context.reconstruction.to_status(row)
-            for item in instances
-            if (
-                row := context.reconstruction.latest_for_instance(
-                    item.managed_instance_id
-                )
-            )
-            is not None
-        }
-        return templates.TemplateResponse(
-            request,
-            "managed-instances.html",
-            {
-                "instances": instances,
-                "reset_statuses": reset_statuses,
-                "reconciliation_statuses": reconciliation_statuses,
-                "reconstruction_statuses": reconstruction_statuses,
-                "resource_statuses": {
-                    item.managed_instance_id: context.managed_resources.status(
-                        item.managed_instance_id
-                    )
-                    for item in instances
-                },
-                "csrf_token": authenticated.csrf_token,
-                "poll_interval_ms": 2000,
-            },
-        )
-
     kodi_views = KodiViews(
         session_factory,
         context.production_targets,
@@ -3696,97 +1848,18 @@ def create_app(
         screenshot_preferences,
     )
 
-    managed_web = ManagedSlotsWeb(context.managed_versions, novnc_instance_enabled)
-    app.state.managed_slots = managed_web
-
-    def managed_web_authority(request: Request) -> Callable[[Session], None]:
-        token = request.cookies.get(settings.web_session_cookie_name)
-        csrf = request.headers.get("X-Kodi-Lab-CSRF")
-
-        def require_admin(session: Session) -> None:
-            principal = context.auth.resolve_in_session(session, token)
-            if principal is None or (
-                request.method == "POST"
-                and not context.auth.csrf_matches(principal, csrf)
-            ):
-                raise PermissionError("Administrator session expired")
-
-        return require_admin
-
-    @app.get("/api/managed-kodi/slots")
-    def managed_slot_status(
-        request: Request, _admin: AuthenticatedWebSession = Depends(current_session)
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.status(managed_web_authority(request)),
-                headers={"Cache-Control": "no-store"},
-            )
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-
-    @app.get("/api/managed-kodi/requests/{request_id}")
-    def managed_slot_receipt(
-        request: Request,
-        request_id: UUID,
-        _admin: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.receipt(request_id, managed_web_authority(request)),
-                headers={"Cache-Control": "no-store"},
-            )
-        except ManagedVersionError:
-            raise HTTPException(404, "Saved request not found") from None
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-
-    @app.post("/api/managed-kodi/{version}/{action}")
-    def managed_slot_action(
-        request: Request,
-        version: SetupGeneration,
-        action: Literal["start", "stop", "reset"],
-        operation: WebSlotRequest,
-        _admin: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.invoke(
-                    version, action, operation, managed_web_authority(request)
-                ),
-                headers={"Cache-Control": "no-store"},
-            )
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-        except Exception as error:
-            code = getattr(error, "code", "managed_operation_blocked")
-            return JSONResponse(
-                {"message": managed_slot_message(code), "code": code},
-                status_code=409,
-                headers={"Cache-Control": "no-store"},
-            )
-
-    @app.get("/managed-kodi/{version}/development", response_class=HTMLResponse)
-    def managed_slot_development(
-        request: Request,
-        version: SetupGeneration,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        slot = next(
-            v
-            for v in managed_web.status(managed_web_authority(request))["slots"]
-            if v["version"] == version
+    app.include_router(
+        managed_router(
+            managed,
+            templates,
+            current_session,
+            mutation_session,
+            resolve_session=context.auth.resolve,
+            cookie_name=settings.web_session_cookie_name,
+            same_origin=_websocket_same_origin,
+            require_https=settings.web_requires_https,
         )
-        return templates.TemplateResponse(
-            request,
-            "managed-slot-development.html",
-            {
-                "csrf_token": authenticated.csrf_token,
-                "slot": slot,
-                "current_kodi": current_kodi.identity(),
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+    )
 
     @app.get("/kodi", response_class=HTMLResponse)
     def kodi_page(request: Request) -> Response:
@@ -3804,20 +1877,6 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "overview": overview_summary(session_factory, kodi_views),
                 "application_version": __version__,
-            },
-        )
-
-    @app.get("/managed-kodi", response_class=HTMLResponse)
-    def managed_kodi_page(
-        request: Request,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return templates.TemplateResponse(
-            request,
-            "managed-kodi.html",
-            {
-                "csrf_token": authenticated.csrf_token,
-                "managed_slots": managed_web.status(managed_web_authority(request)),
             },
         )
 
@@ -3849,113 +1908,6 @@ def create_app(
             f"{request.url.path.lstrip('/')}.html",
             {"csrf_token": authenticated.csrf_token},
         )
-
-    def managed_resource_data(*, cleanup_review: bool = False) -> dict[str, Any]:
-        with session_factory.begin() as session:
-            policy = managed_resource_policy(session)
-            saved_policy = {
-                "max_running": policy.max_running,
-                "idle_minutes": policy.idle_minutes,
-            }
-            targets = list(
-                session.scalars(
-                    select(TargetRow)
-                    .join(
-                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
-                    )
-                    .where(TargetRow.target_type == TargetType.MANAGED)
-                    .order_by(TargetRow.name)
-                )
-            )
-        try:
-            capacity = context.managed_resources.capacity().model_dump(mode="json")
-        except Exception:
-            capacity = None
-        runtime_statuses = {
-            item.managed_instance_id: item
-            for item in (context.status.list_statuses() if cleanup_review else [])
-        }
-        with session_factory() as session:
-            busy_instances = {
-                UUID(item.managed_instance_id)
-                for item in (
-                    session.scalars(select(ManagedInstanceMutationLeaseRow))
-                    if cleanup_review
-                    else []
-                )
-            }
-        return {
-            "policy": saved_policy,
-            "capacity": capacity,
-            "instances": [
-                {
-                    "id": item.id,
-                    "name": item.name,
-                    "status": context.managed_resources.status(UUID(item.id)),
-                    **(
-                        {
-                            "runtime": runtime_statuses.get(UUID(item.id)),
-                            "mutation_active": UUID(item.id) in busy_instances,
-                            "snapshots": context.snapshot_status.list_for_instance(
-                                UUID(item.id)
-                            ),
-                        }
-                        if cleanup_review
-                        else {}
-                    ),
-                }
-                for item in targets
-            ],
-        }
-
-    @app.get("/managed-resources", response_class=HTMLResponse)
-    async def managed_resources_page(
-        request: Request,
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "managed-resources.html",
-            {
-                **managed_resource_data(cleanup_review=True),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/api/managed-resources")
-    def get_managed_resources(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> dict[str, Any]:
-        return managed_resource_data()
-
-    @app.post("/api/managed-resources/policy")
-    def configure_managed_resources(
-        operation: ResourcePolicyInput,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, Any]:
-        saved = context.managed_resources.configure(operation)
-        return {"saved": True, "policy": saved.model_dump(mode="json")}
-
-    @app.post("/api/managed-resources/{instance_id}/enrollment")
-    def enroll_managed_idle(
-        instance_id: UUID,
-        operation: ManagedEnrollmentRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, Any]:
-        context.managed_resources.enroll(instance_id, enabled=operation.enrolled)
-        return context.managed_resources.status(instance_id)
-
-    @app.post("/api/managed-resources/{instance_id}/keep-awake")
-    def keep_managed_awake(
-        instance_id: UUID,
-        operation: ManagedKeepAwakeRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, Any]:
-        context.managed_resources.keep_awake(instance_id, minutes=operation.minutes)
-        return context.managed_resources.status(instance_id)
 
     @app.get("/mcp-clients", response_class=HTMLResponse)
     async def mcp_clients_page(
@@ -4259,60 +2211,6 @@ def create_app(
             },
         )
 
-    @app.get("/api/create-kodi/prerequisites", response_model=PrerequisiteSnapshot)
-    def create_kodi_prerequisites(
-        generation: SetupGeneration = "omega",
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> JSONResponse:
-        return JSONResponse(
-            kodi_prerequisites.snapshot(generation).model_dump(mode="json"),
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/preview/create-kodi-prerequisites", response_class=HTMLResponse)
-    def prerequisite_component_preview(
-        request: Request,
-        generation: SetupGeneration = "omega",
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return templates.TemplateResponse(
-            request,
-            "prerequisite-preview.html",
-            {
-                "snapshot": kodi_prerequisites.snapshot(generation),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/create-kodi", response_class=HTMLResponse)
-    def create_kodi_page(
-        request: Request, generation: SetupGeneration = "omega"
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        snapshot = kodi_prerequisites.snapshot(generation)
-        from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
-
-        return templates.TemplateResponse(
-            request,
-            "create-kodi.html",
-            {
-                "snapshot": snapshot,
-                "config": {
-                    **snapshot.model_dump(mode="json"),
-                    "canonical_targets": {
-                        value: str(recipe_target_id(load_installation_recipe(value)))
-                        for value in ("omega", "nexus", "matrix", "piers")
-                    },
-                },
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
     @app.get("/runtimes", response_class=HTMLResponse)
     async def runtime_matrix_page(
         request: Request,
@@ -4338,7 +2236,6 @@ def create_app(
             "runtimes.html",
             {
                 "matrix": matrix,
-                "current_kodi": current_kodi.identity(),
                 "installation_records": history[:256],
                 "history_before": history_before,
                 "history_next": history[255].operation_id
@@ -4419,25 +2316,6 @@ def create_app(
             ) from error
         return JSONResponse(asdict(item), status_code=202)
 
-    @app.post("/api/runtime-installations/piers/instances")
-    def create_preview_managed_instance(
-        request: Request,
-        approval: PreviewActionApproval,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, object]:
-        try:
-            return asdict(
-                runtime_installations.create_preview_instance(approval=approval)
-            )
-        except RuntimeInstallationActionConflict:
-            raise HTTPException(
-                status_code=409, detail="installation_action_conflict"
-            ) from None
-        except RuntimeInstallationUnavailable:
-            raise HTTPException(
-                status_code=503, detail="installation_unavailable"
-            ) from None
-
     @app.get("/development-sources", response_class=HTMLResponse)
     async def development_source_list_page(request: Request) -> Response:
         try:
@@ -4471,764 +2349,6 @@ def create_app(
                 "detail": context.development_sources.get_source(source_id),
                 "csrf_token": authenticated.csrf_token,
             },
-        )
-
-    session_workflow = DevelopmentSessionWorkflow(session_service, context.lifecycle)
-    current_kodi = CurrentKodiPresentation(
-        session_factory,
-        session_workflow,
-        session_service,
-        status_service,
-        reconciliation,
-    )
-    session_preparation = SessionPreparationService(session_factory)
-    session_source_copy = SessionSourceCopyService(
-        session_factory, context.development_source_deployment_operations
-    )
-    source_addition_reviews = SourceAdditionReviewService(
-        session_factory, broker, context.development_source_deployment_operations
-    )
-    session_reviews = SessionReplacementReviewService(session_service)
-    session_replacements = SessionReplacementService(session_service, context.lifecycle)
-
-    @app.exception_handler(SessionReplacementError)
-    async def session_replacement_failure(
-        _request: Request, error: SessionReplacementError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            error.code,
-            "Review the saved replacement, Kodi history and retained evidence.",
-        )
-
-    @app.exception_handler(RuntimeRetirementReceiptError)
-    async def retirement_receipt_failure(
-        _request: Request, error: RuntimeRetirementReceiptError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            error.code,
-            "Retirement proof is unavailable. Preserve the session and review history.",
-        )
-
-    @app.exception_handler(SessionReplacementReviewError)
-    async def session_replacement_review_failure(
-        _request: Request, error: SessionReplacementReviewError
-    ) -> JSONResponse:
-        return _json_error(
-            409, error.code, "Review the current session and selected evidence."
-        )
-
-    @app.get(
-        "/api/development-session/replacement-offer",
-        response_model=ReplacementSelection,
-    )
-    def session_replacement_offer(
-        target_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ReplacementSelection:
-        return session_reviews.offer(target_id)
-
-    @app.get(
-        "/api/development-session/replacement-review",
-        response_model=ReplacementReviewStatus | None,
-    )
-    def current_session_replacement_review(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ReplacementReviewStatus | None:
-        return session_reviews.active()
-
-    @app.post(
-        "/api/development-session/replacement-review",
-        response_model=ReplacementReviewStatus,
-    )
-    def save_session_replacement_review(
-        body: ReplacementReviewRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ReplacementReviewStatus:
-        return session_reviews.create(body)
-
-    @app.get(
-        "/api/development-session/replacement-review/{review_id}",
-        response_model=ReplacementReviewStatus,
-    )
-    def session_replacement_review_status(
-        review_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ReplacementReviewStatus:
-        return session_reviews.get(review_id)
-
-    @app.post(
-        "/api/development-session/replacement-review/{review_id}/cancel",
-        response_model=ReplacementReviewStatus,
-    )
-    def cancel_session_replacement_review(
-        review_id: UUID,
-        body: ReplacementReviewCancel,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ReplacementReviewStatus:
-        return session_reviews.cancel(review_id, body)
-
-    @app.get("/development-session/replacement", response_class=HTMLResponse)
-    def session_replacement_review_page(
-        request: Request, target_id: UUID | None = None
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        current = session_service.status()
-        review = session_reviews.active()
-        selection = None
-        reason = None
-        if review is None and current is not None:
-            try:
-                selection = session_reviews.offer(target_id or current.target_id)
-            except (SessionReplacementReviewError, DevelopmentSessionConflict) as error:
-                reason = error.code
-        captures = (
-            []
-            if current is None
-            else [
-                item
-                for item in context.retained_diagnostics.list(current.target_id)
-                if item.state == "retained"
-                and item.container_id == current.container_id
-                and item.runtime_revision_id == current.runtime_revision_id
-            ]
-        )
-        replacement = (
-            None if review is None else session_replacements.get(review.review_id)
-        )
-        return templates.TemplateResponse(
-            request,
-            "session-replacement-review.html",
-            {
-                "review": review,
-                "selection": selection,
-                "reason": reason,
-                "choices": session_workflow.choices(),
-                "captures": captures,
-                "request_id": uuid4(),
-                "replacement": replacement,
-                "replacement_request_id": uuid4()
-                if replacement is None
-                else replacement.request_id,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get(
-        "/development-session/replacement/{review_id}", response_class=HTMLResponse
-    )
-    def saved_session_replacement_review_page(
-        request: Request, review_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        replacement = session_replacements.get(review_id)
-        return templates.TemplateResponse(
-            request,
-            "session-replacement-review.html",
-            {
-                "review": session_reviews.get(review_id),
-                "replacement": replacement,
-                "replacement_request_id": uuid4()
-                if replacement is None
-                else replacement.request_id,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post("/development-session/replacement")
-    def save_session_replacement_review_form(
-        request: Request,
-        body: SessionReplacementReviewForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        try:
-            selection = ReplacementSelection.model_validate_json(body.selection_json)
-            evidence = [
-                ReplacementEvidenceSelection.model_validate(
-                    dict(
-                        zip(
-                            ("capture_id", "payload_sha256"),
-                            item.split(":"),
-                            strict=True,
-                        )
-                    )
-                )
-                for item in body.evidence
-            ]
-            operation = ReplacementReviewRequest(
-                **selection.model_dump(),
-                request_id=body.request_id,
-                evidence=evidence,
-                confirm_review=True,
-                acknowledge_uncollected_crash_reports=True,
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail="Invalid reviewed selection."
-            ) from None
-        result = session_reviews.create(operation)
-        return RedirectResponse(
-            f"/development-session/replacement/{result.review_id}", status_code=303
-        )
-
-    @app.post("/development-session/replacement/{review_id}/cancel")
-    def cancel_session_replacement_review_form(
-        request: Request,
-        review_id: UUID,
-        body: SessionReplacementCancelForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        session_reviews.cancel(
-            review_id,
-            ReplacementReviewCancel(
-                expected_snapshot_sha256=body.expected_snapshot_sha256,
-                confirm_cancel=True,
-            ),
-        )
-        return RedirectResponse(
-            f"/development-session/replacement/{review_id}", status_code=303
-        )
-
-    @app.get(
-        "/api/development-session/replacement/{review_id}",
-        response_model=SessionReplacementStatus | None,
-    )
-    def session_replacement_status(
-        review_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SessionReplacementStatus | None:
-        return session_replacements.get(review_id)
-
-    @app.post(
-        "/api/development-session/replacement/{review_id}/{action}",
-        response_model=SessionReplacementStatus,
-    )
-    def session_replacement_action(
-        review_id: UUID,
-        action: Literal["execute", "continue", "release"],
-        body: SessionReplacementRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SessionReplacementStatus:
-        method = {
-            "execute": session_replacements.execute,
-            "continue": session_replacements.continue_retired,
-            "release": session_replacements.release_retired,
-        }[action]
-        return method(review_id, body)
-
-    @app.post("/development-session/replacement/{review_id}/{action}")
-    def session_replacement_action_form(
-        request: Request,
-        review_id: UUID,
-        action: Literal["execute", "continue", "release"],
-        body: SessionReplacementActionForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        method = {
-            "execute": session_replacements.execute,
-            "continue": session_replacements.continue_retired,
-            "release": session_replacements.release_retired,
-        }[action]
-        try:
-            method(
-                review_id,
-                SessionReplacementRequest(
-                    request_id=body.request_id,
-                    expected_snapshot_sha256=body.expected_snapshot_sha256,
-                    confirm_profile_disposal=True,
-                ),
-            )
-        except (
-            SessionReplacementError,
-            DevelopmentSessionConflict,
-            SessionReplacementReviewError,
-            RuntimeRetirementReceiptError,
-        ):
-            if session_replacements.get(review_id) is None:
-                raise
-            # A claimed action has its own durable outcome. Show that outcome
-            # without suggesting that retirement/preparation succeeded.
-        return RedirectResponse(
-            f"/development-session/replacement/{review_id}", status_code=303
-        )
-
-    @app.exception_handler(DevelopmentSessionConflict)
-    async def development_session_conflict(
-        _request: Request, error: DevelopmentSessionConflict
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            error.code,
-            "Review session status and Kodi history before another action.",
-        )
-
-    @app.exception_handler(LocalProjectError)
-    async def local_project_error(
-        _request: Request, error: LocalProjectError
-    ) -> JSONResponse:
-        return JSONResponse(
-            {"code": error.code, "message": error.safe_message},
-            status_code=409,
-            headers={"Cache-Control": "no-store"},
-        )
-
-    def render_development_session(
-        request: Request,
-        authenticated: AuthenticatedWebSession,
-        *,
-        workspace_id: UUID | None = None,
-        client_id: UUID | None = None,
-        project_error: str | None = None,
-        status_code: int = 200,
-    ) -> Response:
-        projects = []
-        try:
-            projects = local_projects.projects()
-        except LocalProjectError as error:
-            project_error = project_error or error.safe_message
-        project = None
-        if workspace_id is not None and client_id is not None:
-            try:
-                project = local_projects.status(client_id, workspace_id)
-            except LocalProjectError as error:
-                project_error = error.safe_message
-        return templates.TemplateResponse(
-            request,
-            "development-session.html",
-            {
-                "choices": session_workflow.choices(),
-                "current_kodi": current_kodi.identity(),
-                "workspaces": context.agent_workspaces.list_workspaces(),
-                "csrf_token": authenticated.csrf_token,
-                "retained_profiles": retained_policy_view()["enabled"],
-                "local_projects": projects,
-                "development_clients": local_projects.clients(),
-                "project_onboarding": project,
-                "project_error": project_error,
-                "development_root_configured": settings.development_root is not None,
-            },
-            status_code=status_code,
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/development-session", response_class=HTMLResponse)
-    def development_session_page(
-        request: Request,
-        workspace_id: UUID | None = None,
-        client_id: UUID | None = None,
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return render_development_session(
-            request, authenticated, workspace_id=workspace_id, client_id=client_id
-        )
-
-    @app.get("/development-session/project-setup", response_class=HTMLResponse)
-    def local_project_setup_page(
-        request: Request,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return templates.TemplateResponse(
-            request,
-            "local-project-setup.html",
-            {"csrf_token": authenticated.csrf_token},
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post("/api/development-projects/onboard", response_model=LocalProjectReadiness)
-    def onboard_local_project(
-        body: LocalProjectSelection,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> LocalProjectReadiness:
-        return local_projects.onboard(body)
-
-    @app.get(
-        "/api/development-projects/{workspace_id}", response_model=LocalProjectReadiness
-    )
-    def local_project_status(
-        workspace_id: UUID,
-        client_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> LocalProjectReadiness:
-        return local_projects.status(client_id, workspace_id)
-
-    @app.post("/development-session/projects")
-    async def local_project_form(request: Request) -> Response:
-        from pydantic import ValidationError
-
-        _require_same_origin(request)
-        authenticated = current_session(request)
-        values: dict[str, object] = dict(await request.form())
-        csrf = values.pop("csrf_token", None)
-        if not isinstance(csrf, str) or not context.auth.csrf_matches(
-            authenticated, csrf
-        ):
-            raise HTTPException(403, "Forbidden")
-        try:
-            selection = LocalProjectSelection.model_validate(values)
-            project = await asyncio.to_thread(local_projects.onboard, selection)
-        except (LocalProjectError, ValidationError) as error:
-            message = (
-                error.safe_message
-                if isinstance(error, LocalProjectError)
-                else "Choose a project and a development client before continuing."
-            )
-            return render_development_session(
-                request, authenticated, project_error=message, status_code=422
-            )
-        return RedirectResponse(
-            f"/development-session?workspace_id={project.workspace_id}&client_id={project.client_id}",
-            status_code=303,
-        )
-
-    @app.get("/development-session/preparation", response_class=HTMLResponse)
-    def development_session_preparation_page(
-        request: Request,
-        expected_generation: int | None = Query(default=None, ge=1),
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        assessment = session_preparation.inspect(
-            expected_generation=expected_generation
-        )
-        return templates.TemplateResponse(
-            request,
-            "session-preparation.html",
-            {
-                "assessment": assessment,
-                "source_copy_receipts": ()
-                if assessment is None
-                else session_source_copy.list_for_session(
-                    assessment.session.generation
-                ),
-                "source_copy_request_id": uuid4(),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get(
-        "/api/development-session/preparation", response_model=SessionPreparation | None
-    )
-    def development_session_preparation_status(
-        response: Response,
-        expected_generation: int | None = Query(default=None, ge=1),
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SessionPreparation | None:
-        response.headers["Cache-Control"] = "no-store"
-        return session_preparation.inspect(expected_generation=expected_generation)
-
-    @app.post(
-        "/api/development-session/source-copy",
-        response_model=SessionSourceCopyAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def request_session_source_copy(
-        body: SessionSourceCopyRequest,
-        response: Response,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SessionSourceCopyAccepted:
-        response.headers["Cache-Control"] = "no-store"
-        return session_source_copy.request_copy(
-            request_id=body.request_id,
-            expected_generation=body.expected_generation,
-            submit=context.development_source_deployment_executor.submit,
-        )
-
-    @app.post("/development-session/source-copy")
-    def request_session_source_copy_form(
-        request: Request,
-        body: SessionSourceCopyForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        result = session_source_copy.request_copy(
-            request_id=body.request_id,
-            expected_generation=body.expected_generation,
-            submit=context.development_source_deployment_executor.submit,
-        )
-        return RedirectResponse(
-            f"/development-session/source-copy/{result.receipt.request_id}",
-            status_code=303,
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get(
-        "/api/development-session/source-copy/{request_id}",
-        response_model=SessionSourceCopyReceipt,
-    )
-    def session_source_copy_status(
-        request_id: UUID,
-        response: Response,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SessionSourceCopyReceipt:
-        response.headers["Cache-Control"] = "no-store"
-        receipt = session_source_copy.get(request_id)
-        if receipt is None:
-            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
-        return receipt
-
-    @app.get(
-        "/development-session/source-copy/{request_id}", response_class=HTMLResponse
-    )
-    def session_source_copy_page(request: Request, request_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        receipt = session_source_copy.get(request_id)
-        if receipt is None:
-            raise HTTPException(status_code=404, headers={"Cache-Control": "no-store"})
-        return templates.TemplateResponse(
-            request,
-            "session-source-copy.html",
-            {"receipt": receipt, "csrf_token": authenticated.csrf_token},
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/api/development-session", response_model=SessionView)
-    def development_session_status(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SessionView:
-        view = current_kodi.observe()
-        if view.current is None:
-            return view
-        from kodi_lab.runtime.display_capabilities import admitted_display_capability
-
-        current = view.current
-        with session_factory() as db:
-            capability = admitted_display_capability(
-                db,
-                current.runtime_revision_id,
-                experimental=current.target_id in settings.experimental_novnc_instances,
-            )
-        if capability is None:
-            view.viewer_state = "unsupported"
-        elif novnc_viewer is None or (
-            novnc_viewer.enabled_instances is not None
-            and current.target_id not in novnc_viewer.enabled_instances
-        ):
-            view.viewer_state = "disabled"
-        else:
-            view.viewer_state = "unavailable"
-            try:
-                with session_factory() as db:
-                    session_service._runtime(
-                        db, current.target_id, current.runtime_revision_id
-                    )
-                runtime = view.runtime
-                if runtime is None:
-                    return view
-                if runtime.container_state is ContainerRuntimeState.STOPPED:
-                    view.viewer_state = "stopped"
-                elif current.phase == "bound":
-                    novnc_viewer.authority(current.target_id)
-                    view.viewer_state = "ready"
-            except (DevelopmentSessionConflict, ValueError, ClientError):
-                pass
-        return view
-
-    def retained_policy_view() -> dict[str, object]:
-        from kodi_lab.storage.models import DevelopmentSessionPolicyRow
-
-        with session_factory() as db:
-            policy = db.get(DevelopmentSessionPolicyRow, 1)
-            return {
-                "enabled": policy is not None and policy.retain_profiles,
-                "omega_target_id": None
-                if policy is None
-                else policy.retained_omega_target_id,
-                "latest_generation": session_service._latest(db),
-            }
-
-    @app.get("/api/development-session/policy")
-    def get_retained_policy(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> dict[str, object]:
-        return retained_policy_view()
-
-    @app.post("/api/development-session/policy")
-    def configure_retained_policy(
-        body: RetainedPolicyRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, object]:
-        return session_service.configure_retained(body)
-
-    @app.get("/api/development-session/selection-preview")
-    def retained_selection_preview(
-        target_id: UUID,
-        workspace_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> object:
-        return session_service.selection_preview(target_id, workspace_id)
-
-    @app.post(
-        "/api/development-session/select", response_model=DevelopmentSessionStatus
-    )
-    def select_retained_profile(
-        body: RetainedSelectionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSessionStatus:
-        return session_service.select_retained(body)
-
-    @app.get("/development-session/retained", response_class=HTMLResponse)
-    def retained_profiles_page(
-        request: Request,
-        target_id: UUID | None = None,
-        workspace_id: UUID | None = None,
-    ) -> Response:
-        from kodi_lab.runtime.recipes import load_installation_recipe, recipe_target_id
-        from kodi_lab.storage.retained_development import omega_targets
-
-        authenticated = current_session(request)
-        current = session_service.status()
-        choices = session_workflow.choices()
-        allowed_omega = omega_targets()
-        cohort = allowed_omega | {
-            str(recipe_target_id(load_installation_recipe(g)))
-            for g in ("matrix", "nexus", "piers")
-        }
-        preview = (
-            session_service.selection_preview(target_id, workspace_id)
-            if target_id is not None and workspace_id is not None
-            else None
-        )
-        return templates.TemplateResponse(
-            request,
-            "retained-development.html",
-            {
-                "policy": retained_policy_view(),
-                "current": current,
-                "choices": choices,
-                "omega_choices": [
-                    c for c in choices if str(c.target_id) in allowed_omega
-                ],
-                "unsupported_current": current is not None
-                and str(current.target_id) not in cohort,
-                "preview": preview,
-                "selected_workspace_id": workspace_id,
-                "workspaces": context.agent_workspaces.list_workspaces(),
-                "request_id": str(uuid4()),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post("/development-session/retained/{action}")
-    async def retained_profiles_form(
-        request: Request, action: Literal["policy", "select"]
-    ) -> Response:
-        from pydantic import ValidationError
-
-        _require_same_origin(request)
-        authenticated = current_session(request)
-        values: dict[str, object] = dict(await request.form())
-        csrf = values.pop("csrf_token", None)
-        if not isinstance(csrf, str) or not context.auth.csrf_matches(
-            authenticated, csrf
-        ):
-            raise HTTPException(403, "Forbidden")
-        return_workspace_id = None
-        try:
-            # HTML form inputs are strings; JSON policy/selection stays strict.
-            values["expected_generation"] = int(str(values.get("expected_generation")))
-            if action == "policy":
-                return_workspace = values.pop("return_workspace_id", None)
-                if return_workspace is not None:
-                    return_workspace_id = UUID(str(return_workspace))
-                if values.get("enabled") not in {"true", "false"}:
-                    raise ValueError("invalid retained policy")
-                values["enabled"] = values["enabled"] == "true"
-                body = RetainedPolicyRequest.model_validate(values)
-                if return_workspace_id is not None:
-                    if not body.enabled:
-                        raise ValueError("invalid retained navigation")
-                    workspace = context.agent_workspaces.get(return_workspace_id)
-                    if (
-                        workspace.state.value != "ready"
-                        or workspace.bytes_state.value != "present"
-                    ):
-                        raise DevelopmentSessionConflict(
-                            "development_session_selection_unavailable"
-                        )
-                await asyncio.to_thread(session_service.configure_retained, body)
-            else:
-                selection = RetainedSelectionRequest.model_validate(values)
-                await asyncio.to_thread(session_service.select_retained, selection)
-        except (ValueError, ValidationError):
-            raise HTTPException(422, "invalid_retained_request") from None
-        destination = (
-            f"/development-session/retained?workspace_id={return_workspace_id}"
-            if return_workspace_id is not None
-            else "/development-session"
-        )
-        return RedirectResponse(destination, status_code=303)
-
-    @app.post(
-        "/api/development-session/reserve", response_model=DevelopmentSessionStatus
-    )
-    def reserve_development_session(
-        body: DevelopmentSessionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSessionStatus:
-        return session_service.reserve(body)
-
-    @app.post(
-        "/api/development-session/close-absent", response_model=DevelopmentSessionStatus
-    )
-    def close_development_session(
-        body: SessionGenerationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSessionStatus:
-        return session_service.close_absent(body.expected_generation)
-
-    def revoke_human_viewing_for_stop(instance_id: UUID) -> None:
-        if novnc_viewer is None:
-            return
-        # The lifecycle claim already excludes successor viewers and input.
-        # Keep durable ownership until the exact broker stopped-container receipt;
-        # a crashed helper cannot prove neutral input while Kodi keeps running.
-        novnc_viewer.revoke_instance(instance_id)
-
-    @app.post("/api/development-session/{action}", response_model=ManagedRuntimeStatus)
-    def development_session_action(
-        action: Literal["prepare", "resume", "stop"],
-        body: SessionGenerationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus | JSONResponse:
-        if action != "stop":
-            return session_workflow.act(action, body.expected_generation)
-        current = session_service.status()
-        if current is None or current.generation != body.expected_generation:
-            raise DevelopmentSessionConflict("development_session_generation_conflict")
-        return session_workflow.act(
-            action,
-            body.expected_generation,
-            before_stop=lambda: revoke_human_viewing_for_stop(current.target_id),
         )
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
@@ -5281,38 +2401,11 @@ def create_app(
                 .order_by(RepositoryWorkspaceDeploymentRow.created_at.desc())
                 .limit(20)
             )
-        # Catalog identities only: selecting a preflight target must not probe or
-        # converge runtime state, acquire a lease, or change the selected session.
-        from kodi_lab.domain import InstanceType
-
-        with session_factory() as session:
-            preflight_targets = list(
-                session.scalars(
-                    select(TargetRow)
-                    .join(
-                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
-                    )
-                    .where(
-                        TargetRow.target_type == TargetType.MANAGED,
-                        ManagedInstanceRow.instance_type == InstanceType.DISPOSABLE,
-                    )
-                    .order_by(TargetRow.name, TargetRow.id)
-                )
-            )
-        selected_session = session_service.status()
-        preflight_target_id = (
-            str(selected_session.target_id)
-            if selected_session is not None
-            and selected_session.workspace_id == workspace_id
-            else None
-        )
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
             {
                 "workspace": workspace,
-                "preflight_targets": preflight_targets,
-                "preflight_target_id": preflight_target_id,
                 "capture_status": capture_status,
                 "entries": entries,
                 "changes": changes,
@@ -5321,74 +2414,6 @@ def create_app(
                 "lifecycle_activity": context.agent_workspaces.list_lifecycle_activity(
                     workspace_id
                 ),
-                "promotion_targets": (
-                    context.agent_workspace_promotions.eligible_targets(workspace_id)
-                    if workspace.state.value == "ready"
-                    else []
-                ),
-                "promotion_plan": context.agent_workspace_promotions.active_plan(
-                    workspace_id
-                ),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get(
-        "/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}",
-        response_class=HTMLResponse,
-    )
-    async def agent_workspace_promotion_review_page(
-        request: Request, instance_id: UUID, workspace_id: UUID, plan_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        plan = context.agent_workspace_promotions.get_plan(
-            instance_id, workspace_id, plan_id
-        )
-        return templates.TemplateResponse(
-            request,
-            "agent-workspace-promotion.html",
-            {"plan": plan, "csrf_token": authenticated.csrf_token},
-        )
-
-    @app.get("/addon-zips", response_class=HTMLResponse)
-    async def addon_zip_list_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "addon-zips.html",
-            {
-                "artifacts": context.addon_zips.list_artifacts(),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/addon-repositories", response_class=HTMLResponse)
-    async def addon_repository_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        repositories = context.addon_repositories.list()
-        return templates.TemplateResponse(
-            request,
-            "addon-repositories.html",
-            {
-                "repository_cards": [
-                    (
-                        item,
-                        context.addon_repository_refreshes.candidates(
-                            item.repository_id
-                        ),
-                    )
-                    for item in repositories
-                ],
-                "instances": context.status.list_statuses(),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -5847,321 +2872,6 @@ def create_app(
         except McpWorkspaceDevelopmentError as error:
             raise HTTPException(status_code=409, detail=error.code) from error
         return result.model_dump(mode="json")
-
-    @app.get("/instances/{instance_id}", response_class=HTMLResponse)
-    async def instance_detail_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "instance-detail.html",
-            {
-                "detail": context.instance_detail.get(instance_id),
-                "current_kodi": current_kodi.identity(),
-                "resource_status": context.managed_resources.status(instance_id),
-                "visual": context.screenshots.get_status(instance_id),
-                "remote_available": context.browser_remote.available(instance_id),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/instances/{instance_id}/history", response_class=HTMLResponse)
-    async def instance_history_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        instance = context.status.get(instance_id)
-        return templates.TemplateResponse(
-            request,
-            "instance-history.html",
-            {
-                "instance": instance,
-                "activity": context.activity.list_for_live_instance(instance_id),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/history/instances", response_class=HTMLResponse)
-    async def deleted_instance_list_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "deleted-instances.html",
-            {
-                "instances": context.deleted_history.list(),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/history/instances/{original_instance_id}", response_class=HTMLResponse)
-    async def deleted_instance_history_page(
-        request: Request, original_instance_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "deleted-instance-history.html",
-            {
-                "history": context.deleted_history.get(original_instance_id),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/instances/{instance_id}/reset", response_class=HTMLResponse)
-    async def reset_confirmation_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        reset_status = context.reset_status.get(instance_id)
-        instance = context.status.get(instance_id)
-        return templates.TemplateResponse(
-            request,
-            "reset-confirmation.html",
-            {
-                "instance": instance,
-                "reset": reset_status,
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/instances/{instance_id}/reconstruct", response_class=HTMLResponse)
-    async def reconstruction_confirmation_page(
-        request: Request, instance_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        latest = context.reconstruction.latest_for_instance(instance_id)
-        return templates.TemplateResponse(
-            request,
-            "reconstruction-confirmation.html",
-            {
-                "instance": context.status.get(instance_id),
-                "eligibility": context.reconstruction.eligibility(instance_id),
-                "latest": (
-                    context.reconstruction.to_status(latest)
-                    if latest is not None
-                    else None
-                ),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/instances/{instance_id}/delete", response_class=HTMLResponse)
-    async def instance_delete_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        instance = context.status.get(instance_id)
-        snapshots = context.snapshot_status.list_for_instance(instance_id)
-        with session_factory() as session:
-            persisted = ManagedInstanceRepository(session).get(instance_id)
-        if persisted is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        counts = {
-            state_value: sum(item.state.value == state_value for item in snapshots)
-            for state_value in ("available", "failed", "quarantined")
-        }
-        return templates.TemplateResponse(
-            request,
-            "instance-delete.html",
-            {
-                "instance": instance,
-                "snapshot_count": len(snapshots),
-                "aggregate_snapshot_bytes": sum(
-                    item.archive_size or 0 for item in snapshots
-                ),
-                "snapshot_counts": counts,
-                "notes_present": persisted.notes is not None,
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/snapshots/preserved", response_class=HTMLResponse)
-    async def preserved_snapshot_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "preserved-snapshots.html",
-            {
-                "snapshots": context.snapshot_status.list_preserved(),
-                "reconciliation_statuses": {
-                    item.snapshot_id: context.snapshot_reconciliation.status(
-                        item.snapshot_id
-                    )
-                    for item in context.snapshot_status.list_preserved()
-                },
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/snapshots/preserved/{snapshot_id}/delete", response_class=HTMLResponse)
-    async def preserved_snapshot_delete_page(
-        request: Request, snapshot_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        snapshot = next(
-            (
-                item
-                for item in context.snapshot_status.list_preserved()
-                if item.snapshot_id == snapshot_id
-            ),
-            None,
-        )
-        if snapshot is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        if snapshot.state not in {
-            SnapshotState.AVAILABLE,
-            SnapshotState.FAILED,
-            SnapshotState.QUARANTINED,
-        }:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT)
-        return templates.TemplateResponse(
-            request,
-            "preserved-snapshot-delete.html",
-            {
-                "snapshot": snapshot,
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/instances/{instance_id}/snapshots", response_class=HTMLResponse)
-    async def snapshot_history_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        instance = context.status.get(instance_id)
-        return templates.TemplateResponse(
-            request,
-            "snapshots.html",
-            {
-                "instance": instance,
-                "snapshots": context.snapshot_status.list_for_instance(instance_id),
-                "csrf_token": authenticated.csrf_token,
-                "reconciliation_statuses": {
-                    item.snapshot_id: context.snapshot_reconciliation.status(
-                        item.snapshot_id
-                    )
-                    for item in context.snapshot_status.list_for_instance(instance_id)
-                },
-            },
-        )
-
-    @app.get("/instances/{instance_id}/snapshots/new", response_class=HTMLResponse)
-    async def snapshot_create_page(request: Request, instance_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "snapshot-create.html",
-            {
-                "instance": context.status.get(instance_id),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get(
-        "/instances/{instance_id}/snapshots/{snapshot_id}/restore",
-        response_class=HTMLResponse,
-    )
-    async def snapshot_restore_page(
-        request: Request, instance_id: UUID, snapshot_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        instance = context.status.get(instance_id)
-        snapshot = next(
-            (
-                item
-                for item in context.snapshot_status.list_for_instance(instance_id)
-                if item.snapshot_id == snapshot_id
-            ),
-            None,
-        )
-
-        if snapshot is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        with session_factory() as session:
-            persisted_instance = ManagedInstanceRepository(session).get(instance_id)
-        fixture_id = (
-            None
-            if persisted_instance is None
-            else persisted_instance.fixture_definition_id
-        )
-        return templates.TemplateResponse(
-            request,
-            "snapshot-restore.html",
-            {
-                "instance": instance,
-                "snapshot": snapshot,
-                "runtime_match": (
-                    instance.runtime_revision_id == snapshot.runtime_revision_id
-                ),
-                "fixture_match": fixture_id == snapshot.fixture_definition_id,
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get(
-        "/instances/{instance_id}/snapshots/{snapshot_id}/delete",
-        response_class=HTMLResponse,
-    )
-    async def snapshot_delete_page(
-        request: Request, instance_id: UUID, snapshot_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        instance = context.status.get(instance_id)
-        snapshot = next(
-            (
-                item
-                for item in context.snapshot_status.list_for_instance(instance_id)
-                if item.snapshot_id == snapshot_id
-            ),
-            None,
-        )
-        if snapshot is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        if snapshot.state not in {
-            SnapshotState.AVAILABLE,
-            SnapshotState.FAILED,
-            SnapshotState.QUARANTINED,
-        }:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT)
-        return templates.TemplateResponse(
-            request,
-            "snapshot-delete.html",
-            {
-                "instance": instance,
-                "snapshot": snapshot,
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
 
     @app.get("/api/mcp/presets", response_model=list[McpPresetRead])
     def list_mcp_presets(
@@ -6849,7 +3559,7 @@ def create_app(
     )
     def deactivate_external_target(
         target_id: UUID,
-        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _payload: ExternalTargetRetirementRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
         return retire_external_connection(context.external_targets, target_id)
@@ -7098,7 +3808,7 @@ def create_app(
     )
     def deactivate_production_target(
         target_id: UUID,
-        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _payload: ExternalTargetRetirementRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
         return retire_external_connection(context.production_targets, target_id)
@@ -7333,42 +4043,6 @@ def create_app(
             target_id=target_id, source_id=payload.source_id
         )
 
-    @app.post("/api/instances/{target_id}/deployments/{operation_id}/reconcile")
-    def reconcile_managed_workspace_deployment(
-        target_id: UUID,
-        operation_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, Any]:
-        from kodi_lab.application.workspace_deployment_recovery import (
-            WorkspaceDeploymentRecoveryError,
-            WorkspaceDeploymentRecoveryService,
-        )
-
-        try:
-            return (
-                WorkspaceDeploymentRecoveryService(
-                    session_factory, broker, data_root=settings.data_root
-                )
-                .reconcile(target_id, operation_id)
-                .model_dump(mode="json")
-            )
-        except WorkspaceDeploymentRecoveryError as error:
-            raise HTTPException(
-                status_code=404
-                if str(error) == "managed_deployment_not_found"
-                else 409,
-                detail=str(error),
-            ) from error
-        except (OSError, RuntimeError) as error:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Deployment evidence is busy or unavailable; preserve the "
-                    "workspace and inspect current status."
-                ),
-            ) from error
-
     @app.post("/api/external-targets/{target_id}/deployments/{operation_id}/reconcile")
     def reconcile_external_deployment(
         target_id: UUID,
@@ -7399,57 +4073,6 @@ def create_app(
             include_legacy=_selection_bool(include_legacy),
             include_prerelease=_selection_bool(include_prerelease),
         )
-
-    @app.get(
-        "/api/targets/{target_id}/runtime-selection",
-        response_model=TargetRuntimeSelection,
-    )
-    def target_runtime_selection(
-        target_id: UUID,
-        include_legacy: Literal["false", "true"] = "false",
-        include_prerelease: Literal["false", "true"] = "false",
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> TargetRuntimeSelection:
-        return context.matrix.resolve_target(
-            target_id,
-            include_legacy=_selection_bool(include_legacy),
-            include_prerelease=_selection_bool(include_prerelease),
-        )
-
-    @app.get("/api/instances", response_model=list[ManagedRuntimeStatus])
-    def list_instances(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[ManagedRuntimeStatus]:
-        return context.status.list_statuses()
-
-    @app.get("/api/instances/{instance_id}/ui-state", response_model=UiObservation)
-    def inspect_managed_ui_state(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> UiObservation | JSONResponse:
-        from kodi_lab.kodi.ui_state_native import (
-            MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
-            MANAGED_BRIDGE_RECOVERY_REASONS,
-            UiObservationError,
-        )
-
-        try:
-            return managed_ui_state.inspect(instance_id)
-        except UiObservationError as error:
-            if (
-                error.code == "identity_mismatch"
-                and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
-            ):
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "detail": error.code,
-                        "reason": error.reason,
-                        "next_action": MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
-                    },
-                    headers={"Cache-Control": "no-store"},
-                )
-            raise HTTPException(status_code=503, detail=error.code) from error
 
     @app.get("/api/development-sources", response_model=list[DevelopmentSourceSummary])
     def list_development_sources(
@@ -7738,235 +4361,6 @@ def create_app(
     ) -> list[AgentWorkspaceLifecycleActivityRead]:
         return context.agent_workspaces.list_lifecycle_activity(workspace_id)
 
-    @app.get(
-        "/api/agent-workspaces/{workspace_id}/promotion-targets",
-        response_model=list[AgentWorkspacePromotionTargetRead],
-    )
-    def list_agent_workspace_promotion_targets(
-        workspace_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AgentWorkspacePromotionTargetRead]:
-        return context.agent_workspace_promotions.eligible_targets(workspace_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans",
-        response_model=AgentWorkspacePromotionPlanRead,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def prepare_agent_workspace_promotion(
-        instance_id: UUID,
-        workspace_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AgentWorkspacePromotionPlanRead:
-        return context.agent_workspace_promotions.prepare(instance_id, workspace_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}",
-        response_model=AgentWorkspacePromotionPlanRead,
-    )
-    def get_agent_workspace_promotion_plan(
-        instance_id: UUID,
-        workspace_id: UUID,
-        plan_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AgentWorkspacePromotionPlanRead:
-        return context.agent_workspace_promotions.get_plan(
-            instance_id, workspace_id, plan_id
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}/approve-and-execute",
-        response_model=AgentWorkspacePromotionOperationStatus,
-        status_code=status.HTTP_200_OK,
-    )
-    def approve_agent_workspace_promotion(
-        instance_id: UUID,
-        workspace_id: UUID,
-        plan_id: UUID,
-        _body: AgentWorkspacePromotionConfirmationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AgentWorkspacePromotionOperationStatus:
-        return context.agent_workspace_promotions.approve_and_execute(
-            instance_id, workspace_id, plan_id
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}/reject",
-        response_model=AgentWorkspacePromotionPlanRead,
-        status_code=status.HTTP_200_OK,
-    )
-    def reject_agent_workspace_promotion(
-        instance_id: UUID,
-        workspace_id: UUID,
-        plan_id: UUID,
-        _body: AgentWorkspacePromotionConfirmationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AgentWorkspacePromotionPlanRead:
-        return context.agent_workspace_promotions.reject(
-            instance_id, workspace_id, plan_id
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-operations/{operation_id}",
-        response_model=AgentWorkspacePromotionOperationStatus,
-    )
-    def get_agent_workspace_promotion_operation(
-        instance_id: UUID,
-        workspace_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AgentWorkspacePromotionOperationStatus:
-        return context.agent_workspace_promotions.get_operation(
-            instance_id, workspace_id, operation_id
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-operations/{operation_id}/verification",
-        response_model=PromotionVerificationStatus,
-    )
-    def get_agent_workspace_promotion_verification(
-        instance_id: UUID,
-        workspace_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> PromotionVerificationStatus:
-        result = context.promotion_verifications.get_for_promotion(operation_id)
-        if (
-            result.target_instance_id != instance_id
-            or result.workspace_id != workspace_id
-        ):
-            raise PromotionVerificationError(
-                "promotion_verification_not_found", "Kodi verification was not found."
-            )
-        return result
-
-    @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
-    def list_addon_repositories(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonRepositorySourceRead]:
-        return context.addon_repositories.list()
-
-    @app.post(
-        "/api/addon-repositories",
-        response_model=AddonRepositorySourceRead,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def register_addon_repository(
-        body: AddonRepositoryRegistrationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.register(body.logical_name, body.index_url)
-
-    @app.get(
-        "/api/addon-repositories/{repository_id}",
-        response_model=AddonRepositorySourceRead,
-    )
-    def get_addon_repository(
-        repository_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.get(repository_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/addon-repositories",
-        response_model=list[AddonRepositorySourceRead],
-    )
-    def list_instance_addon_repositories(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonRepositorySourceRead]:
-        return context.addon_repositories.list_for_instance(instance_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-repositories/{repository_id}/attach",
-        response_model=AddonRepositorySourceRead,
-    )
-    def attach_addon_repository(
-        instance_id: UUID,
-        repository_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.attach(instance_id, repository_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-repositories/{repository_id}/detach",
-        response_model=AddonRepositorySourceRead,
-    )
-    def detach_addon_repository(
-        instance_id: UUID,
-        repository_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.detach(instance_id, repository_id)
-
-    @app.post(
-        "/api/addon-repositories/{repository_id}/refresh",
-        response_model=AddonRepositoryRefreshAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def refresh_addon_repository(
-        repository_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositoryRefreshAccepted:
-        operation = context.addon_repository_refreshes.queue(repository_id)
-        context.addon_repository_refresh_executor.submit(operation.operation_id)
-        return AddonRepositoryRefreshAccepted(
-            operation=operation,
-            status_url=f"/api/addon-repository-refresh-operations/{operation.operation_id}",
-        )
-
-    @app.get(
-        "/api/addon-repository-refresh-operations/{operation_id}",
-        response_model=AddonRepositoryRefreshStatus,
-    )
-    def addon_repository_refresh_status(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositoryRefreshStatus:
-        return context.addon_repository_refreshes.get(operation_id)
-
-    @app.get(
-        "/api/addon-repositories/{repository_id}/candidates",
-        response_model=list[AddonRepositoryCandidateRead],
-    )
-    def list_addon_repository_candidates(
-        repository_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonRepositoryCandidateRead]:
-        return context.addon_repository_refreshes.candidates(repository_id)
-
-    @app.post(
-        "/api/addon-repositories/{repository_id}/candidates/{candidate_id}/fetch",
-        response_model=AddonRepositoryFetchAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def fetch_addon_repository_candidate(
-        repository_id: UUID,
-        candidate_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositoryFetchAccepted:
-        operation = context.addon_repository_fetches.queue(repository_id, candidate_id)
-        context.addon_repository_fetch_executor.submit(operation.operation_id)
-        return AddonRepositoryFetchAccepted(
-            operation=operation,
-            status_url=f"/api/addon-repository-fetch-operations/{operation.operation_id}",
-        )
-
-    @app.get(
-        "/api/addon-repository-fetch-operations/{operation_id}",
-        response_model=AddonRepositoryFetchStatus,
-    )
-    def addon_repository_fetch_status(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositoryFetchStatus:
-        return context.addon_repository_fetches.get(operation_id)
-
     @app.post(
         "/api/development-sources",
         response_model=DevelopmentSourceRead,
@@ -7981,45 +4375,6 @@ def create_app(
             relative_locator=body.relative_locator,
         )
 
-    @app.get("/api/addon-zips", response_model=list[AddonZipArtifactSummary])
-    def list_addon_zips(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonZipArtifactSummary]:
-        return context.addon_zips.list_artifacts()
-
-    @app.get(
-        "/api/addon-zip-import-operations/{operation_id}",
-        response_model=AddonZipImportStatus,
-    )
-    def addon_zip_import_operation(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonZipImportStatus:
-        operation = context.addon_zip_imports.get(operation_id)
-        if operation is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.addon_zips.import_status(operation)
-
-    @app.post(
-        "/api/addon-zips",
-        response_model=AddonZipImportAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    async def upload_addon_zip(
-        request: Request,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipImportAccepted:
-        artifact_id = uuid4()
-        logical_label = await _stream_addon_zip_multipart(
-            request, settings.data_root, artifact_id
-        )
-        operation = context.addon_zip_imports.queue(artifact_id, logical_label)
-        context.addon_zip_import_executor.submit(operation.id)
-        return AddonZipImportAccepted(
-            operation=context.addon_zips.import_status(operation),
-            status_url=f"/api/addon-zip-import-operations/{operation.id}",
-        )
-
     @app.get(
         "/api/development-sources/{source_id}",
         response_model=DevelopmentSourceDetail,
@@ -8030,1382 +4385,6 @@ def create_app(
     ) -> DevelopmentSourceDetail:
         return context.development_sources.get_source(source_id)
 
-    @app.get("/api/instances/{instance_id}", response_model=ManagedRuntimeStatus)
-    def get_instance(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedRuntimeStatus:
-        return context.status.get(instance_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/visual-status",
-        response_model=ManagedScreenshotStatus,
-    )
-    def get_instance_visual_status(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedScreenshotStatus:
-        return context.screenshots.get_status(instance_id)
-
-    def viewer_page_context(instance: UUID) -> dict[str, Any]:
-        if not novnc_instance_enabled(instance):
-            raise HTTPException(status_code=404)
-        view = current_kodi.identity()
-        selected = view.current is not None and view.current.target_id == instance
-        with session_factory() as db:
-            target = TargetRepository(db).get(instance)
-        standalone: dict[str, Any] = {}
-        if not selected and novnc_viewer is not None:
-            try:
-                binding = novnc_viewer.page_binding(instance)
-            except (ValueError, OSError, KeyError):
-                standalone = {"viewer_can_start": False}
-            else:
-                standalone = {
-                    "viewer_can_start": True,
-                    "viewer_binding": binding_fingerprint(instance, binding),
-                }
-        return {
-            "viewer_name": friendly_kodi_name(
-                None if target is None else target.kodi_version
-            ),
-            "viewer_generation": str(view.current.generation)
-            if selected and view.current is not None
-            else "",
-            "viewer_selection": view.current if selected else None,
-            "viewer_can_start": bool(
-                selected
-                and view.current is not None
-                and view.current.phase == "bound"
-                and view.current.container_id
-            ),
-            "viewer_context": (
-                "Watching Current Kodi. Viewing starts explicitly "
-                "and stays bound to this environment."
-            )
-            if selected
-            else (
-                "Viewing this managed Kodi. Viewing starts explicitly "
-                "and stays bound to this exact instance."
-            ),
-            "viewer_standalone": not selected,
-            **standalone,
-        }
-
-    if novnc_viewer is not None:
-        install_novnc_routes(
-            app,
-            novnc_viewer,
-            context.auth,
-            settings.web_session_cookie_name,
-            current_session,
-            mutation_session,
-            _websocket_same_origin,
-            page_context=viewer_page_context,
-        )
-
-    @app.post("/api/instances/{instance_id}/display-policy")
-    async def set_managed_display_policy(
-        instance_id: UUID,
-        request: Request,
-        body: ManagedPreviewPolicyRequest,
-        authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> dict[str, object]:
-        owner = preview_owner(authenticated.csrf_token)
-        try:
-            if not body.enabled:
-                context.live_display.disable_attempt(
-                    instance_id, owner, body.attempt_id
-                )
-                return {"enabled": False}
-            work = asyncio.create_task(
-                asyncio.to_thread(
-                    context.live_display.enable,
-                    instance_id,
-                    owner,
-                    target_fps=body.target_fps,
-                    attempt_id=body.attempt_id,
-                    authorize=lambda: (
-                        context.auth.resolve(
-                            request.cookies.get(settings.web_session_cookie_name)
-                        )
-                        is not None
-                    ),
-                )
-            )
-            try:
-                result = await asyncio.shield(work)
-            except asyncio.CancelledError:
-                context.live_display.disable_attempt(
-                    instance_id, owner, body.attempt_id
-                )
-
-                def consume(task: asyncio.Task[dict[str, object]]) -> None:
-                    with suppress(BaseException):
-                        task.exception()
-
-                work.add_done_callback(consume)
-                raise
-        except LiveDisplayError as error:
-            raise HTTPException(status_code=409, detail=error.code) from None
-        except (ScreenshotServiceError, OSError, ImportError):
-            raise HTTPException(
-                status_code=409, detail="display_backend_failed"
-            ) from None
-        if (
-            context.auth.resolve(request.cookies.get(settings.web_session_cookie_name))
-            is None
-        ):
-            context.live_display.disable_attempt(instance_id, owner, body.attempt_id)
-            raise HTTPException(status_code=401, detail="display_session_expired")
-        return result
-
-    @app.websocket("/api/instances/{instance_id}/display")
-    async def stream_instance_display(websocket: WebSocket, instance_id: UUID) -> None:
-        token = websocket.cookies.get(settings.web_session_cookie_name)
-        if context.auth.resolve(token) is None:
-            await websocket.close(code=4401, reason="display_session_expired")
-            return
-        if (
-            websocket.scope.get("query_string", b"")
-            or (settings.web_requires_https and websocket.url.scheme != "wss")
-            or not _websocket_same_origin(websocket)
-        ):
-            await websocket.close(code=4403, reason="display_unavailable")
-            return
-        await stream_preview(
-            websocket,
-            instance_id,
-            token=token,
-            auth=context.auth,
-            display=context.live_display,
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/addon-settings/{operation_id}",
-        response_model=AddonSettingsSetResult,
-    )
-    def get_addon_settings_receipt(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonSettingsSetResult:
-        row = context.addon_settings._row(str(operation_id))
-        if row.target_id != str(instance_id):
-            raise HTTPException(status_code=404, detail="settings_receipt_unavailable")
-        return context.addon_settings._result(row)
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-settings/{operation_id}/contain",
-        response_model=AddonSettingsSetResult,
-    )
-    def contain_addon_settings(
-        instance_id: UUID,
-        operation_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonSettingsSetResult:
-        try:
-            return context.addon_settings.contain(instance_id, operation_id)
-        except AddonSettingsError as error:
-            raise HTTPException(status_code=409, detail=error.code) from None
-
-    @app.post(
-        "/api/instances/{instance_id}/screenshots",
-        response_model=ManagedScreenshotCaptureResult,
-    )
-    def capture_instance_screenshot(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedScreenshotCaptureResult:
-        return context.screenshots.capture(instance_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/remote-actions",
-        response_model=BrowserRemoteResult,
-    )
-    def invoke_browser_remote(
-        instance_id: UUID,
-        body: BrowserRemoteRequest,
-        authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> BrowserRemoteResult:
-        context.browser_remote_rate_limiter.require_allowed(
-            authenticated.csrf_token, instance_id
-        )
-        return context.browser_remote.invoke(
-            instance_id, body.action, actor=RemoteActorContext.web_local_admin()
-        )
-
-    @app.get("/api/instances/{instance_id}/screenshots/latest")
-    def get_latest_instance_screenshot(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return Response(
-            content=context.screenshots.latest_png(instance_id),
-            media_type="image/png",
-            headers={
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-                "Content-Disposition": "inline",
-            },
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/addons",
-        response_model=ManagedInstanceAddonInventory,
-    )
-    def get_instance_addons(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedInstanceAddonInventory:
-        return context.addon_inventory.get(instance_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/activity",
-        response_model=list[ManagedInstanceActivityItem],
-    )
-    def get_instance_activity(
-        instance_id: UUID,
-        limit: int | None = Query(default=None, ge=1, le=1000),
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[ManagedInstanceActivityItem]:
-        return context.activity.list_for_live_instance(instance_id, limit=limit)
-
-    @app.get(
-        "/api/instances/{instance_id}/development-source-deployment-operations/"
-        "{operation_id}",
-        response_model=DevelopmentSourceDeploymentStatus,
-    )
-    def development_source_deployment_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> DevelopmentSourceDeploymentStatus:
-        operation = context.development_source_deployment_operations.get(operation_id)
-        if operation is None or operation.original_managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.development_source_deployment_operations.to_status(operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/development-sources/{source_id}/attach",
-        response_model=AttachedDevelopmentSourceRead,
-        status_code=status.HTTP_200_OK,
-    )
-    def attach_development_source(
-        instance_id: UUID,
-        source_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AttachedDevelopmentSourceRead:
-        return context.development_source_attachments.attach_source(
-            instance_id, source_id
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/development-sources/{source_id}/detach",
-        response_model=AttachedDevelopmentSourceRead,
-        status_code=status.HTTP_200_OK,
-    )
-    def detach_development_source(
-        instance_id: UUID,
-        source_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AttachedDevelopmentSourceRead:
-        return context.development_source_attachments.detach_source(
-            instance_id, source_id
-        )
-
-    @app.get(
-        "/instances/{instance_id}/development-sources/{source_id}/review-additions",
-        response_class=HTMLResponse,
-    )
-    def source_additions_start(
-        request: Request,
-        instance_id: UUID,
-        source_id: UUID,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return templates.TemplateResponse(
-            request,
-            "source-addition-review.html",
-            {
-                "target_id": instance_id,
-                "source_id": source_id,
-                "review": None,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post(
-        "/instances/{instance_id}/development-sources/{source_id}/review-additions"
-    )
-    def source_additions_preview(
-        request: Request,
-        instance_id: UUID,
-        source_id: UUID,
-        body: SourceAdditionPreviewForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        paths = tuple(body.paths.splitlines())
-        review = source_addition_reviews.preview(instance_id, source_id, paths)
-        return RedirectResponse(
-            f"/source-addition-reviews/{review.id}",
-            status_code=303,
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/source-addition-reviews/{review_id}", response_class=HTMLResponse)
-    def source_additions_review_page(
-        request: Request,
-        review_id: UUID,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        review = source_addition_reviews.get(review_id)
-        if review is None:
-            raise HTTPException(status_code=404)
-        return templates.TemplateResponse(
-            request,
-            "source-addition-review.html",
-            {
-                "target_id": review.target_id,
-                "source_id": review.source_id,
-                "review": review,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post("/source-addition-reviews/{review_id}/approve")
-    def source_additions_approve(
-        request: Request,
-        review_id: UUID,
-        body: SourceAdditionApprovalForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, body.csrf_token):
-            raise HTTPException(status_code=403)
-        source_addition_reviews.approve(
-            review_id,
-            tuple(body.approved_paths),
-            context.development_source_deployment_executor.submit,
-        )
-        return RedirectResponse(
-            f"/source-addition-reviews/{review_id}",
-            status_code=303,
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/development-sources/{source_id}/copy-sync",
-        response_model=DevelopmentSourceDeploymentAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def copy_sync_development_source(
-        instance_id: UUID,
-        source_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSourceDeploymentAccepted:
-        operation = context.development_source_deployment_operations.queue(
-            instance_id, source_id
-        )
-        context.development_source_deployment_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/"
-            "development-source-deployment-operations/"
-            f"{operation.operation_id}"
-        )
-        return DevelopmentSourceDeploymentAccepted(
-            operation=operation, status_url=status_url
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/addon-zip-installation-operations/{operation_id}",
-        response_model=AddonZipInstallationStatus,
-    )
-    def addon_zip_installation_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonZipInstallationStatus:
-        operation = context.addon_zip_installations.get(operation_id)
-        if operation is None or operation.original_managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.addon_zip_installations.to_status(operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-zips/{artifact_id}/install",
-        response_model=AddonZipInstallationAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def install_addon_zip(
-        instance_id: UUID,
-        artifact_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipInstallationAccepted:
-        operation = context.addon_zip_installations.queue(instance_id, artifact_id)
-        context.addon_zip_installation_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/addon-zip-installation-operations/"
-            f"{operation.operation_id}"
-        )
-        return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
-
-    @app.post(
-        "/api/instances/{instance_id}/repository-artifacts/{artifact_id}/install",
-        response_model=AddonZipInstallationAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def install_addon_repository_artifact(
-        instance_id: UUID,
-        artifact_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipInstallationAccepted:
-        operation = context.addon_zip_installations.queue_repository(
-            instance_id, artifact_id
-        )
-        context.addon_zip_installation_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/addon-zip-installation-operations/"
-            f"{operation.operation_id}"
-        )
-        return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
-
-    @app.post(
-        "/api/instances/{instance_id}/repository-artifacts/{artifact_id}/replacement-plans",
-        response_model=RepositoryReplacementPlanRead,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def prepare_repository_replacement(
-        instance_id: UUID,
-        artifact_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> RepositoryReplacementPlanRead:
-        return context.repository_replacements.prepare(instance_id, artifact_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/replacement-plans/{plan_id}",
-        response_model=RepositoryReplacementPlanRead,
-    )
-    def repository_replacement_plan(
-        instance_id: UUID,
-        plan_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> RepositoryReplacementPlanRead:
-        return context.repository_replacements.get_plan_for(instance_id, plan_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/replacement-plans/{plan_id}/approve-and-execute",
-        response_model=RepositoryReplacementAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def approve_repository_replacement(
-        instance_id: UUID,
-        plan_id: UUID,
-        _body: RepositoryReplacementConfirmationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> RepositoryReplacementAccepted:
-        operation = context.repository_replacements.approve_and_queue(
-            instance_id, plan_id
-        )
-        context.repository_replacement_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/repository-replacement-operations/"
-            f"{operation.operation_id}"
-        )
-        return RepositoryReplacementAccepted(operation=operation, status_url=status_url)
-
-    @app.get(
-        "/api/instances/{instance_id}/repository-replacement-operations/{operation_id}",
-        response_model=RepositoryReplacementStatus,
-    )
-    def repository_replacement_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> RepositoryReplacementStatus:
-        return context.repository_replacements.get_for_instance(
-            instance_id, operation_id
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-zips/{artifact_id}/enable",
-        response_model=AddonZipEnablementStatus,
-        status_code=status.HTTP_200_OK,
-    )
-    def enable_addon_zip(
-        instance_id: UUID,
-        artifact_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipEnablementStatus:
-        return context.addon_zip_enablement.enable(instance_id, artifact_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/addon-zip-smoke-test-operations/{operation_id}",
-        response_model=AddonZipSmokeTestStatus,
-    )
-    def addon_zip_smoke_test_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonZipSmokeTestStatus:
-        operation = context.addon_zip_smoke_test_operations.get(operation_id)
-        if operation is None or operation.original_managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.addon_zip_smoke_test_operations.to_status(operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/addon-zips/{artifact_id}/smoke-test",
-        response_model=AddonZipSmokeTestAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def smoke_test_addon_zip(
-        instance_id: UUID,
-        artifact_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipSmokeTestAccepted:
-        operation = context.addon_zip_smoke_test_operations.queue(
-            instance_id, artifact_id
-        )
-        context.addon_zip_smoke_test_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/addon-zip-smoke-test-operations/"
-            f"{operation.operation_id}"
-        )
-        return AddonZipSmokeTestAccepted(operation=operation, status_url=status_url)
-
-    @app.post(
-        "/api/instances/{instance_id}/development-sources/{source_id}/enable",
-        response_model=DevelopmentSourceEnablementStatus,
-        status_code=status.HTTP_200_OK,
-    )
-    def enable_development_source(
-        instance_id: UUID,
-        source_id: UUID,
-        body: DevelopmentSourceEnablementRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSourceEnablementStatus:
-        if body.allow_service_start:
-            return context.development_source_enablement.enable(
-                instance_id, source_id, allow_service_start=True
-            )
-        return context.development_source_enablement.enable(instance_id, source_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/development-source-smoke-test-operations/"
-        "{operation_id}",
-        response_model=DevelopmentSourceSmokeTestStatus,
-    )
-    def development_source_smoke_test_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> DevelopmentSourceSmokeTestStatus:
-        operation = context.development_source_smoke_test_operations.get(operation_id)
-        if operation is None or operation.original_managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.development_source_smoke_test_operations.to_status(operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/development-sources/{source_id}/smoke-test",
-        response_model=DevelopmentSourceSmokeTestAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def smoke_test_development_source(
-        instance_id: UUID,
-        source_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DevelopmentSourceSmokeTestAccepted:
-        operation = context.development_source_smoke_test_operations.queue(
-            instance_id, source_id
-        )
-        context.development_source_smoke_test_executor.submit(operation.operation_id)
-        status_url = (
-            f"/api/instances/{instance_id}/"
-            "development-source-smoke-test-operations/"
-            f"{operation.operation_id}"
-        )
-        return DevelopmentSourceSmokeTestAccepted(
-            operation=operation, status_url=status_url
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/reset-status",
-        response_model=ManagedInstanceResetStatus,
-    )
-    def get_instance_reset_status(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedInstanceResetStatus:
-        return context.reset_status.get(instance_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/reconstruction-eligibility",
-        response_model=ReconstructionEligibility,
-    )
-    def reconstruction_eligibility(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ReconstructionEligibility:
-        return context.reconstruction.eligibility(instance_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/reconstruction-operations/{operation_id}",
-        response_model=ReconstructionStatus,
-    )
-    def reconstruction_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ReconstructionStatus:
-        row = context.reconstruction.get(operation_id)
-        if row is None or row.managed_instance_id != str(instance_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.reconstruction.to_status(row)
-
-    @app.post(
-        "/api/instances/{instance_id}/reconstruction-operations/{operation_id}/resolve",
-        response_model=ReconstructionStatus,
-    )
-    def resolve_reconstruction(
-        instance_id: UUID,
-        operation_id: UUID,
-        body: ReconstructionResolutionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ReconstructionStatus:
-        row = context.reconstruction.get(operation_id)
-        if row is None or row.managed_instance_id != str(instance_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.reconstruction.resolve_interrupted(
-            operation_id, body.expected_state
-        )
-
-    @app.get(
-        "/api/instances/{instance_id}/reconciliation",
-        response_model=ManagedInstanceReconciliationStatus,
-    )
-    def get_instance_reconciliation(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedInstanceReconciliationStatus:
-        return context.reconciliation.status(instance_id)
-
-    @app.get(
-        "/api/snapshots/{snapshot_id}/reconciliation",
-        response_model=SnapshotReconciliationStatus,
-    )
-    def get_snapshot_reconciliation(
-        snapshot_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SnapshotReconciliationStatus:
-        return context.snapshot_reconciliation.status(snapshot_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/snapshots",
-        response_model=list[SnapshotHistoryItem],
-    )
-    def list_snapshots(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[SnapshotHistoryItem]:
-        return context.snapshot_status.list_for_instance(instance_id)
-
-    @app.get("/api/snapshots/preserved", response_model=list[SnapshotHistoryItem])
-    def list_preserved_snapshots(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[SnapshotHistoryItem]:
-        return context.snapshot_status.list_preserved()
-
-    @app.get(
-        "/api/instance-delete-operations/{operation_id}",
-        response_model=ManagedInstanceDeleteStatus,
-    )
-    def instance_delete_operation(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedInstanceDeleteStatus:
-        operation = context.instance_delete_operations.get(operation_id)
-        if operation is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        result = context.instance_delete_operations.to_status(operation)
-        if operation.reconciliation_required:
-            result = result.model_copy(
-                update={
-                    "reconciliation": (
-                        context.instance_delete_operations.inspect_reconciliation(
-                            operation, broker=broker, data_root=settings.data_root
-                        )
-                    )
-                }
-            )
-        return result
-
-    @app.get(
-        "/api/instances/{instance_id}/snapshot-create-operations/{operation_id}",
-        response_model=SnapshotCreateStatus,
-    )
-    def snapshot_create_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SnapshotCreateStatus:
-        operation = context.snapshot_operations.get(operation_id)
-        if operation is None or operation.managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.snapshot_operations.to_status(operation)
-
-    @app.get(
-        "/api/instances/{instance_id}/snapshot-restore-operations/{operation_id}",
-        response_model=SnapshotRestoreStatus,
-    )
-    def snapshot_restore_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SnapshotRestoreStatus:
-        operation = context.snapshot_restore_operations.get(operation_id)
-        if operation is None or operation.managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        result = context.snapshot_restore_operations.to_status(operation)
-        if operation.reconciliation_required:
-            observation = context.snapshot_restore_operations.inspect_reconciliation(
-                operation, broker
-            )
-            result = result.model_copy(update={"reconciliation_state": observation})
-        return result
-
-    @app.get(
-        "/api/instances/{instance_id}/snapshot-delete-operations/{operation_id}",
-        response_model=SnapshotDeleteStatus,
-    )
-    def snapshot_delete_operation(
-        instance_id: UUID,
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> SnapshotDeleteStatus:
-        operation = context.snapshot_delete_operations.get(operation_id)
-        if operation is None or operation.managed_instance_id != instance_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        result = context.snapshot_delete_operations.to_status(operation)
-        if operation.reconciliation_required:
-            result = result.model_copy(
-                update={
-                    "reconciliation_state": (
-                        context.snapshot_delete_operations.inspect_reconciliation(
-                            operation, data_root=settings.data_root
-                        )
-                    )
-                }
-            )
-        return result
-
-    @app.post(
-        "/api/instances/{instance_id}/snapshots",
-        response_model=SnapshotCreateAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_snapshot_create(
-        instance_id: UUID,
-        body: SnapshotCreateRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SnapshotCreateAccepted:
-        runtime = context.status.get(instance_id)
-        if runtime.failure_code == "runtime_revision_mismatch":
-            raise SnapshotCreateConflictError(
-                "Managed runtime differs from the selected pin."
-            )
-        queued = context.snapshot_operations.queue(instance_id, label=body.label)
-        context.snapshot_executor.submit(queued.operation.operation_id)
-        return SnapshotCreateAccepted(
-            snapshot_id=queued.snapshot.id,
-            operation=queued.operation,
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/snapshots/{snapshot_id}/restore",
-        response_model=SnapshotRestoreAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_snapshot_restore(
-        instance_id: UUID,
-        snapshot_id: UUID,
-        _body: SnapshotRestoreRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SnapshotRestoreAccepted:
-        with session_factory() as session:
-            routed_snapshot = SnapshotRepository(session).get(snapshot_id)
-        if (
-            routed_snapshot is not None
-            and routed_snapshot.source_binding is SnapshotSourceBinding.DELETED_SOURCE
-        ):
-            raise SnapshotSourceInstanceDeletedError("source_instance_deleted")
-        current = context.status.get(instance_id)
-        if (
-            current.provision_state.value != "provisioned"
-            or current.container_state
-            not in {ContainerRuntimeState.RUNNING, ContainerRuntimeState.STOPPED}
-        ):
-            raise SnapshotRestoreUnsupportedError(
-                "Restore requires one exactly running or stopped managed container."
-            )
-        operation = context.snapshot_restore_operations.queue(instance_id, snapshot_id)
-        if operation.state.value == "queued":
-            context.snapshot_restore_executor.submit(operation.operation_id)
-        return SnapshotRestoreAccepted(snapshot_id=snapshot_id, operation=operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/snapshots/{snapshot_id}/delete",
-        response_model=SnapshotDeleteAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_snapshot_delete(
-        instance_id: UUID,
-        snapshot_id: UUID,
-        _body: SnapshotDeleteRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SnapshotDeleteAccepted:
-        context.status.get(instance_id)
-        operation = context.snapshot_delete_operations.queue(instance_id, snapshot_id)
-        if operation.state.value == "queued":
-            context.snapshot_delete_executor.submit(operation.operation_id)
-        return SnapshotDeleteAccepted(snapshot_id=snapshot_id, operation=operation)
-
-    @app.post(
-        "/api/snapshots/preserved/{snapshot_id}/delete",
-        response_model=SnapshotDeleteAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_preserved_snapshot_delete(
-        snapshot_id: UUID,
-        _body: SnapshotDeleteRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> SnapshotDeleteAccepted:
-        operation = context.snapshot_delete_operations.queue_preserved(snapshot_id)
-        if operation.state.value == "queued":
-            context.snapshot_delete_executor.submit(operation.operation_id)
-        return SnapshotDeleteAccepted(snapshot_id=snapshot_id, operation=operation)
-
-    @app.post(
-        "/api/instances/{instance_id}/delete",
-        response_model=ManagedInstanceDeleteStatus,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_instance_delete(
-        instance_id: UUID,
-        body: ManagedInstanceDeleteRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedInstanceDeleteStatus:
-        runtime = context.status.get(instance_id)
-        if runtime.failure_code == "runtime_revision_mismatch":
-            raise ManagedInstanceDeleteConflictError(
-                "Managed runtime differs from the selected pin."
-            )
-        operation = context.instance_delete_operations.queue(
-            instance_id, preserve_snapshots=body.preserve_snapshots
-        )
-        if operation.state is ManagedInstanceDeleteOperationState.QUEUED:
-            context.instance_delete_executor.submit(operation.operation_id)
-        return operation
-
-    @app.post(
-        "/api/instances/{instance_id}/reset",
-        response_model=QueuedResetOperation,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_instance_reset(
-        instance_id: UUID,
-        _body: ResetConfirmationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> QueuedResetOperation:
-        existing = context.reset_operations.active_for_instance(instance_id)
-        if existing is not None:
-            return QueuedResetOperation(
-                context.reset_operations.to_status(existing), False
-            )
-        current = context.reset_status.get(instance_id)
-        if current.eligibility.value != "supported":
-            raise ResetOperationConflictError(current.eligibility_detail)
-        queued = context.reset_operations.queue(instance_id)
-        if queued.created:
-            context.reset_executor.submit(queued.operation.operation_id)
-        return queued
-
-    @app.post(
-        "/api/instances/{instance_id}/reconstruct",
-        response_model=ReconstructionAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def queue_reconstruction(
-        instance_id: UUID,
-        body: ReconstructionConfirmationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ReconstructionAccepted:
-        context.reconciliation.require_allowed(
-            instance_id, ReconciliationAction.RECONSTRUCTION
-        )
-        accepted = context.reconstruction.queue(instance_id, body.observation_token)
-        context.reconstruction_executor.submit(accepted.operation.operation_id)
-        return accepted
-
-    @app.post(
-        "/api/instances/{instance_id}/provision",
-        response_model=ManagedRuntimeStatus,
-    )
-    def provision(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        return context.lifecycle.provision(instance_id)
-
-    @app.get(
-        "/api/instances/{instance_id}/stopped-diagnostics",
-        response_model=StoppedRuntimeDiagnostics,
-    )
-    def stopped_managed_diagnostics(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> StoppedRuntimeDiagnostics:
-        from kodi_lab.domain import InstanceType
-
-        with session_factory() as session:
-            instance = ManagedInstanceRepository(session).get(instance_id)
-            if (
-                instance is None
-                or instance.instance_type is not InstanceType.DISPOSABLE
-            ):
-                raise HTTPException(
-                    status_code=404, detail="managed_diagnostics_unavailable"
-                )
-        inventory = broker.managed_container_inventory(
-            managed_instance_id=str(instance_id)
-        )
-        if len(inventory.containers) != 1 or inventory.containers[
-            0
-        ].managed_instance_id != str(instance_id):
-            raise HTTPException(
-                status_code=409, detail="managed_diagnostics_identity_changed"
-            )
-        return cast(
-            StoppedRuntimeDiagnostics,
-            broker.read_stopped_managed_diagnostics(
-                managed_instance_id=str(instance_id),
-                expected_runtime_revision_id=str(instance.runtime_revision_id),
-                expected_container_id=inventory.containers[0].container_id,
-            ),
-        )
-
-    capability_prerequisites = ManagedCapabilityPrerequisiteService(session_factory)
-
-    def inspect_capability_prerequisites(
-        instance_id: UUID,
-    ) -> ManagedCapabilityPrerequisites:
-        try:
-            return capability_prerequisites.inspect(instance_id)
-        except CapabilityPrerequisitesUnavailable as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.get(
-        "/api/instances/{instance_id}/capability-prerequisites",
-        response_model=ManagedCapabilityPrerequisites,
-    )
-    def managed_capability_prerequisites(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> ManagedCapabilityPrerequisites:
-        return inspect_capability_prerequisites(instance_id)
-
-    @app.get(
-        "/instances/{instance_id}/capability-prerequisites", response_class=HTMLResponse
-    )
-    def managed_capability_prerequisites_page(
-        request: Request,
-        instance_id: UUID,
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request=request,
-            name="capability-prerequisites.html",
-            context={
-                "assessment": inspect_capability_prerequisites(instance_id),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.exception_handler(RetainedDiagnosticsError)
-    async def retained_diagnostics_failure(
-        _request: Request, error: RetainedDiagnosticsError
-    ) -> Response:
-        return JSONResponse(
-            status_code=404 if error.code == "diagnostic_capture_not_found" else 409,
-            content={"detail": error.code},
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/diagnostic-captures",
-        response_model=DiagnosticCaptureSummary,
-    )
-    def retain_stopped_diagnostics(
-        instance_id: UUID,
-        body: DiagnosticCaptureInput,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DiagnosticCaptureSummary:
-        return context.retained_diagnostics.capture(instance_id, body)
-
-    @app.get("/api/diagnostic-captures", response_model=list[DiagnosticCaptureSummary])
-    def diagnostic_capture_list(
-        target_id: UUID | None = None,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[DiagnosticCaptureSummary]:
-        return context.retained_diagnostics.list(target_id)
-
-    @app.get(
-        "/api/diagnostic-captures/{capture_id}", response_model=DiagnosticCaptureSummary
-    )
-    def diagnostic_capture_status(
-        capture_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> DiagnosticCaptureSummary:
-        return context.retained_diagnostics.status(capture_id)
-
-    @app.get("/api/diagnostic-captures/{capture_id}/evidence")
-    def diagnostic_capture_evidence(
-        capture_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        evidence = context.retained_diagnostics.read(capture_id)
-        return JSONResponse(
-            evidence.model_dump(mode="json"),
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-        )
-
-    @app.post(
-        "/api/diagnostic-captures/{capture_id}/discard",
-        response_model=DiagnosticCaptureSummary,
-    )
-    def discard_diagnostic_capture(
-        capture_id: UUID,
-        body: DiagnosticDiscardInput,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> DiagnosticCaptureSummary:
-        return context.retained_diagnostics.discard(capture_id, body)
-
-    @app.get("/diagnostics", response_class=HTMLResponse)
-    def diagnostic_capture_index(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "diagnostics.html",
-            {
-                "captures": context.retained_diagnostics.list(),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/instances/{instance_id}/diagnostics", response_class=HTMLResponse)
-    def stopped_diagnostic_capture_page(
-        request: Request, instance_id: UUID
-    ) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        with session_factory() as session:
-            instance = ManagedInstanceRepository(session).get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail="managed_instance_not_found")
-        inventory = broker.managed_container_inventory(
-            managed_instance_id=str(instance_id)
-        ).containers
-        selected = (
-            inventory[0]
-            if len(inventory) == 1
-            and inventory[0].runtime_revision_id == str(instance.runtime_revision_id)
-            and inventory[0].runtime_state is ContainerRuntimeState.STOPPED
-            else None
-        )
-        return templates.TemplateResponse(
-            request,
-            "diagnostics.html",
-            {
-                "captures": context.retained_diagnostics.list(instance_id),
-                "target_id": instance_id,
-                "runtime_revision_id": instance.runtime_revision_id,
-                "container_id": None if selected is None else selected.container_id,
-                "request_id": uuid4(),
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @app.get("/diagnostics/{capture_id}", response_class=HTMLResponse)
-    def diagnostic_capture_page(request: Request, capture_id: UUID) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        capture = context.retained_diagnostics.status(capture_id)
-        evidence = (
-            context.retained_diagnostics.read(capture_id)
-            if capture.state == "retained"
-            else None
-        )
-        return templates.TemplateResponse(
-            request,
-            "diagnostic-evidence.html",
-            {
-                "capture": capture,
-                "evidence": evidence,
-                "csrf_token": authenticated.csrf_token,
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-
-    def diagnostic_form_authority(
-        request: Request, authenticated: AuthenticatedWebSession, csrf: str
-    ) -> None:
-        _require_same_origin(request)
-        if not context.auth.csrf_matches(authenticated, csrf):
-            raise HTTPException(status_code=403)
-
-    @app.post("/instances/{instance_id}/diagnostics")
-    def stopped_diagnostic_capture_form(
-        request: Request,
-        instance_id: UUID,
-        body: DiagnosticCaptureForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        diagnostic_form_authority(request, authenticated, body.csrf_token)
-        try:
-            operation_id = (
-                UUID(body.deployment_operation_id)
-                if body.deployment_operation_id
-                else None
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail="invalid_deployment_operation"
-            ) from None
-        capture = context.retained_diagnostics.capture(
-            instance_id,
-            DiagnosticCaptureInput(
-                request_id=body.request_id,
-                expected_runtime_revision_id=body.expected_runtime_revision_id,
-                expected_container_id=body.expected_container_id,
-                deployment_operation_id=operation_id,
-                retain_redacted_logs=True,
-            ),
-        )
-        return RedirectResponse(f"/diagnostics/{capture.capture_id}", status_code=303)
-
-    @app.post("/diagnostics/{capture_id}/discard")
-    def discard_diagnostic_capture_form(
-        request: Request,
-        capture_id: UUID,
-        body: DiagnosticDiscardForm = Form(),
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        diagnostic_form_authority(request, authenticated, body.csrf_token)
-        context.retained_diagnostics.discard(
-            capture_id,
-            DiagnosticDiscardInput(
-                expected_state=body.expected_state,
-                expected_payload_sha256=body.expected_payload_sha256 or None,
-                confirm_discard=True,
-            ),
-        )
-        return RedirectResponse(f"/diagnostics/{capture_id}", status_code=303)
-
-    @app.get("/api/instances/{instance_id}/reviewed-bridge")
-    def reviewed_managed_bridge_status(
-        instance_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> dict[str, str | int | bool | None]:
-        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
-
-        try:
-            return context.managed_bridge_trust.status(instance_id)
-        except ManagedBridgeTrustError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.post(
-        "/api/instances/{instance_id}/reviewed-bridge",
-        response_model=ManagedRuntimeStatus,
-    )
-    def install_reviewed_managed_bridge(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
-
-        try:
-            return context.lifecycle.install_reviewed_bridge(instance_id)
-        except ManagedBridgeTrustError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post(
-        "/api/instances/{instance_id}/reviewed-bridge/resume",
-        response_model=ManagedRuntimeStatus,
-    )
-    def resume_reviewed_managed_bridge(
-        instance_id: UUID,
-        body: ReviewedBridgeResumeRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
-
-        try:
-            return context.lifecycle.resume_reviewed_bridge(
-                instance_id, expected_generation=body.expected_generation
-            )
-        except ManagedBridgeTrustError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post(
-        "/api/instances/{instance_id}/launches/{launch_id}/reconcile",
-        response_model=WorkspaceLaunchResult,
-    )
-    def reconcile_managed_launch(
-        instance_id: UUID,
-        launch_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> WorkspaceLaunchResult:
-        try:
-            return context.workspace_launch.reconcile(instance_id, launch_id)
-        except WorkspaceLaunchError as error:
-            raise HTTPException(
-                status_code=404 if error.code == "launch_receipt_unavailable" else 409,
-                detail=error.code,
-            ) from error
-        except RuntimeError as error:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Launch receipt is busy or unavailable; "
-                    "inspect current state before retrying."
-                ),
-            ) from error
-
-    @app.post("/api/instances/{instance_id}/start", response_model=ManagedRuntimeStatus)
-    def start(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        return context.lifecycle.start(instance_id)
-
-    @app.post(
-        "/api/instances/{instance_id}/managed-start",
-        response_model=ManagedRuntimeStatus,
-    )
-    def start_managed(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus | JSONResponse:
-        try:
-            return context.lifecycle.start_managed(instance_id)
-        except DevelopmentSessionConflict as error:
-            messages = {
-                "retained_other_runtime_active": (
-                    "Another Kodi is active or could not be verified stopped. "
-                    "Stop it explicitly, then check status before starting this Kodi."
-                ),
-                "managed_start_identity_changed": (
-                    "This Kodi's existing container could not be verified. "
-                    "Review its details and history. "
-                    "Start did not provision or replace it."
-                ),
-                "development_session_requires_review": (
-                    "The selected development environment needs review. "
-                    "Review it in Development before starting Kodi; "
-                    "its selection was preserved."
-                ),
-                "development_session_runtime_ineligible": (
-                    "This Kodi's pinned runtime is not eligible. "
-                    "Review its runtime details."
-                ),
-            }
-            return _json_error(
-                409,
-                error.code,
-                messages.get(
-                    error.code,
-                    "Kodi has a pending operation or setup conflict. "
-                    "Review its details and history before another action.",
-                ),
-            )
-
-    @app.post("/api/instances/{instance_id}/stop", response_model=ManagedRuntimeStatus)
-    def stop(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        return context.lifecycle.stop(
-            instance_id,
-            before_dispatch=lambda: revoke_human_viewing_for_stop(instance_id),
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/workspace-executions/"
-        "{execution_operation_id}/historical-containment",
-        response_model=HistoricalContainmentResult,
-    )
-    def resolve_historical_workspace_execution_containment(
-        instance_id: UUID,
-        execution_operation_id: UUID,
-        body: HistoricalContainmentRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> HistoricalContainmentResult:
-        return context.historical_workspace_execution_containment.resolve(
-            request_id=body.request_id,
-            execution_operation_id=execution_operation_id,
-            managed_instance_id=instance_id,
-            expected_runtime_state_revision=body.expected_runtime_state_revision,
-        )
-
-    @app.post(
-        "/api/instances/{instance_id}/deprovision",
-        response_model=ManagedRuntimeStatus,
-    )
-    def deprovision(
-        instance_id: UUID,
-        _body: EmptyActionRequest = Body(),
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> ManagedRuntimeStatus:
-        return context.lifecycle.deprovision(instance_id)
-
-    app.include_router(
-        native_zip_router(
-            native_packages,
-            McpAuthenticationService(session_factory),
-        )
-    )
     return app
 
 
@@ -9447,162 +4426,6 @@ def _websocket_same_origin(websocket: WebSocket) -> bool:
 
 def _selection_bool(value: Literal["false", "true"]) -> bool:
     return value == "true"
-
-
-async def _stream_addon_zip_multipart(
-    request: Request, data_root: Path, artifact_id: UUID
-) -> str:
-    """Stream exactly one ZIP part into UUID staging; never retain its filename."""
-
-    media_type, options = parse_options_header(request.headers.get("content-type"))
-    boundary = options.get(b"boundary")
-    if (
-        media_type != b"multipart/form-data"
-        or boundary is None
-        or not 1 <= len(boundary) <= 200
-    ):
-        raise AddonZipValidationError(
-            "addon_zip_multipart_invalid",
-            "A bounded multipart ZIP upload is required.",
-        )
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > MAX_COMPRESSED_BYTES + 1024 * 1024:
-                raise AddonZipValidationError(
-                    "addon_zip_compressed_size_exceeded",
-                    "Uploaded ZIP exceeds the 256 MiB compressed limit.",
-                )
-        except ValueError as error:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart length is invalid."
-            ) from error
-
-    fd, _path = create_upload_stage(data_root, artifact_id)
-    current_header_name = bytearray()
-    current_header_value = bytearray()
-    headers: dict[bytes, bytes] = {}
-    current_part: str | None = None
-    zip_parts = 0
-    label_parts = 0
-    zip_bytes = 0
-    label_bytes = bytearray()
-    complete = False
-
-    def part_begin() -> None:
-        nonlocal current_part
-        current_part = None
-        headers.clear()
-
-    def header_begin() -> None:
-        current_header_name.clear()
-        current_header_value.clear()
-
-    def header_field(data: bytes, start: int, end: int) -> None:
-        current_header_name.extend(data[start:end])
-
-    def header_value(data: bytes, start: int, end: int) -> None:
-        current_header_value.extend(data[start:end])
-
-    def header_end() -> None:
-        name = bytes(current_header_name).lower()
-        if name in headers:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Duplicate multipart header."
-            )
-        headers[name] = bytes(current_header_value)
-
-    def headers_finished() -> None:
-        nonlocal current_part, label_parts, zip_parts
-        disposition = headers.get(b"content-disposition")
-        disposition_type, disposition_options = parse_options_header(disposition)
-        if disposition_type != b"form-data":
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Multipart content disposition is invalid.",
-            )
-        raw_name = disposition_options.get(b"name")
-        if raw_name == b"zip":
-            zip_parts += 1
-            current_part = "zip"
-        elif raw_name == b"logical_label":
-            label_parts += 1
-            current_part = "logical_label"
-        else:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Only one ZIP and one logical label are accepted.",
-            )
-        if zip_parts > 1 or label_parts > 1:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart fields must be unique."
-            )
-
-    def part_data(data: bytes, start: int, end: int) -> None:
-        nonlocal zip_bytes
-        chunk = data[start:end]
-        if current_part == "zip":
-            zip_bytes = write_upload_chunk(fd, chunk, zip_bytes)
-        elif current_part == "logical_label":
-            if len(label_bytes) + len(chunk) > 1024:
-                raise AddonZipValidationError(
-                    "addon_zip_label_invalid", "Logical label is too long."
-                )
-            label_bytes.extend(chunk)
-        else:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart state is invalid."
-            )
-
-    def ended() -> None:
-        nonlocal complete
-        complete = True
-
-    parser = MultipartParser(
-        boundary,
-        {
-            "on_part_begin": part_begin,
-            "on_header_begin": header_begin,
-            "on_header_field": header_field,
-            "on_header_value": header_value,
-            "on_header_end": header_end,
-            "on_headers_finished": headers_finished,
-            "on_part_data": part_data,
-            "on_end": ended,
-        },
-        max_size=MAX_COMPRESSED_BYTES + 1024 * 1024,
-        max_header_count=4,
-        max_header_size=1024,
-    )
-    try:
-        async for chunk in request.stream():
-            parser.write(chunk)
-        parser.finalize()
-        if not complete or zip_parts != 1 or label_parts != 1:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Exactly one ZIP and one logical label are required.",
-            )
-        try:
-            label = label_bytes.decode("utf-8", "strict")
-        except UnicodeDecodeError as error:
-            raise AddonZipValidationError(
-                "addon_zip_label_invalid", "Logical label must be UTF-8."
-            ) from error
-        try:
-            normalized = normalize_development_source_logical_name(label)
-        except ValueError as error:
-            raise AddonZipValidationError(
-                "addon_zip_label_invalid", "Logical label is invalid."
-            ) from error
-        finish_upload_stage(fd, zip_bytes)
-        return normalized
-    except Exception:
-        remove_upload_stage(data_root, artifact_id)
-        raise
-    finally:
-        parser.close()
-        os.close(fd)
 
 
 def _login_failure(

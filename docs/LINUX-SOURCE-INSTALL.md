@@ -135,7 +135,7 @@ select **Install and prepare** once. Setup downloads and prepares Kodi, leaving
 it stopped by default. Select **Return to Managed Kodi versions**, then **Start
 Kodi**. When **Running** and **View Screen** are available, choose **View Screen →
 Start Viewing**. Viewing starts view-only and needs no agent, Bridge pairing or
-development workspace. See the [managed walkthrough](MANAGED-KODI-WEB.md) for
+development workspace. See the [managed walkthrough](MANAGED-V2-FRESH-INSTALL.md) for
 Stop, Reset and recovery. If you return to a paused setup,
 choose **Check status**, then **Resume setup** for that same operation.
 
@@ -173,8 +173,8 @@ Kodi runs at a time. Check native readiness, then use **View Screen → Start
 Viewing**; viewing and inspection retain their separate prerequisites.
 
 Stop preserves the profile. **Reset Kodi** deliberately replaces it and retires
-old container-bound trust. Follow the [managed walkthrough](MANAGED-KODI-WEB.md)
-for setup after Reset, and [managed state recovery](MANAGED-STATE-RECOVERY.md)
+old container-bound trust. Follow the [managed walkthrough](MANAGED-V2-FRESH-INSTALL.md)
+for setup after Reset, and [managed state recovery](MANAGED-V2-FRESH-INSTALL.md)
 before removing or replacing any profile. The [historical RC1 workflow](RC1-WEB-WORKFLOW.md)
 records that older preview's checks and limits.
 

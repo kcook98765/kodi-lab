@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 
-from kodi_lab.broker.docker_inventory import DOCKER_STOP_TIMEOUT_SECONDS
 from kodi_lab.runtime.assembly import build_context
 from kodi_lab.runtime.display_capabilities import reviewed_display_capability
 from kodi_lab.runtime.recipes import (
@@ -48,6 +47,9 @@ def events(root: Path) -> list[dict[str, Any]]:
         if file.exists()
         else []
     )
+
+
+REVIEWED_SHUTDOWN_LIMIT_SECONDS = 30
 
 
 @pytest.mark.skipif(
@@ -132,7 +134,7 @@ def test_total_stop_budget_fits_existing_broker_timeout() -> None:
     assert (
         helper.KODI_STOP_SECONDS + helper.DISPLAY_STOP_SECONDS + 3 * helper.REAP_SECONDS
         < helper.TOTAL_STOP_BUDGET_SECONDS
-        < DOCKER_STOP_TIMEOUT_SECONDS
+        < REVIEWED_SHUTDOWN_LIMIT_SECONDS
     )
 
 

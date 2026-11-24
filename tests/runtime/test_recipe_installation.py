@@ -7,8 +7,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,10 +17,8 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
-from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.config import Settings
 from kodi_lab.host_bootstrap import generate_master_key
-from kodi_lab.mcp.authorization import InternalManagedTargetAuthorityProvider
 from kodi_lab.runtime.assembly import AssemblyResult
 from kodi_lab.runtime.attestation_integrity import (
     AttestationIntegrityError,
@@ -36,11 +32,9 @@ from kodi_lab.runtime.install import (
     _create_operation,
     _fail,
     _ready_installation,
-    bootstrap_recipe_instance,
     install_reviewed_runtime,
     recipe_target_id,
 )
-from kodi_lab.runtime.lab import LabWorkflowError, repin_reviewed_runtime
 from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, load_reviewed_recipe
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.runtime.validation import ValidationResult
@@ -51,11 +45,9 @@ from kodi_lab.storage.models import (
     RuntimeValidationEvidenceRow,
 )
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeDefinitionRepository,
     RuntimeRecipeInstallationRepository,
     RuntimeRevisionRepository,
-    TargetRepository,
 )
 
 IMAGE = "sha256:" + "a" * 64
@@ -199,108 +191,6 @@ def _ready(
         data_root=Settings().data_root,
     )
     return operation_id
-
-
-def test_ready_novnc_candidate_requires_explicit_selection_policy(
-    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from kodi_lab.application.runtime_matrix import RuntimeMatrixService
-
-    reviewed = load_novnc_phase1_recipe()
-    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: reviewed)
-    operation = _ready(factory, generation="omega")
-    with factory() as session:
-        row = RuntimeRecipeInstallationRepository(session).get(operation)
-        assert row is not None and row.runtime_revision_id is not None
-        assert row.recipe_revision == 4
-        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
-        definition = RuntimeDefinitionRepository(session).get(
-            reviewed.recipe.definition_id
-        )
-        assert revision is not None and definition is not None
-        policy = RuntimeRevisionEligibilityPolicy()
-        assert not policy.evaluate_for_release(
-            session,
-            required_release=definition.kodi_release,
-            definition=definition,
-            revision=revision,
-            policy=RuntimeSelectionPolicy(),
-        ).eligible
-        assert policy.evaluate_for_release(
-            session,
-            required_release=definition.kodi_release,
-            definition=definition,
-            revision=revision,
-            policy=RuntimeSelectionPolicy(novnc_phase1=True),
-        ).eligible
-        assert supports_reviewed_recipe_capability(session, revision.id, "screenshot")
-    matrix = RuntimeMatrixService(factory).list_matrix()
-    candidate = next(
-        x
-        for x in matrix.runtimes
-        if x.runtime_definition_id == reviewed.recipe.definition_id
-    )
-    assert not candidate.selectable and candidate.selected_revision_number is None
-
-    # Existing agent capture resolves the sealed runtime geometry without any
-    # viewer, private display lane, or viewer authority object.
-    from kodi_lab.broker.screenshots import SqliteScreenshotCaptureResolver
-    from kodi_lab.kodi.screenshots import prepare_capture_stage
-
-    bootstrap_recipe_instance(factory, reviewed, revision.id)
-    capture = uuid4()
-    prepare_capture_stage(Settings().data_root, capture)
-    resolved = SqliteScreenshotCaptureResolver(
-        factory, data_root=Settings().data_root
-    ).resolve(str(recipe_target_id(reviewed)), str(revision.id), str(capture))
-    assert resolved.experimental_image_id == IMAGE
-
-
-def test_ready_install_is_eligible_and_creates_one_exact_managed_pin(
-    factory: sessionmaker[Session],
-) -> None:
-    reviewed = load_reviewed_recipe("matrix")
-    operation_id = _ready(factory)
-    with factory() as session:
-        installation = RuntimeRecipeInstallationRepository(session).get(operation_id)
-        assert installation is not None and installation.runtime_revision_id is not None
-        revision_id = UUID(installation.runtime_revision_id)
-        definition = RuntimeDefinitionRepository(session).get(
-            reviewed.recipe.definition_id
-        )
-        revision = RuntimeRevisionRepository(session).get(revision_id)
-        assert definition is not None and revision is not None
-        assert (
-            RuntimeRevisionEligibilityPolicy()
-            .evaluate_for_release(
-                session,
-                required_release=definition.kodi_release,
-                definition=definition,
-                revision=revision,
-                policy=RuntimeSelectionPolicy(),
-            )
-            .eligible
-        )
-        assert json.loads(installation.attestation_json or "")["image_id"] == IMAGE
-        assert supports_reviewed_recipe_capability(session, revision_id, "screenshot")
-        assert supports_reviewed_recipe_capability(session, revision_id, "navigation")
-    bootstrap_recipe_instance(factory, reviewed, revision_id)
-    bootstrap_recipe_instance(factory, reviewed, revision_id)
-    with factory() as session:
-        target_id = recipe_target_id(reviewed)
-        assert TargetRepository(session).get(target_id) is not None
-        instance = ManagedInstanceRepository(session).get(target_id)
-        assert instance is not None and instance.runtime_revision_id == revision_id
-        assert len(ManagedInstanceRepository(session).list()) == 1
-    provider = InternalManagedTargetAuthorityProvider(
-        factory,
-        screenshots=cast(
-            ManagedScreenshotService,
-            SimpleNamespace(supports_runtime_revision=lambda _revision_id: True),
-        ),
-    )
-    authority = provider.resolve(recipe_target_id(reviewed))
-    assert {"managed_screenshot", "semantic_remote"} <= authority.capabilities
 
 
 def test_recipe_provenance_tamper_removes_eligibility(
@@ -614,77 +504,6 @@ def test_corrupted_installation_timestamp_is_ineligible(
     assert _ready_installation(factory, reviewed) == {}
 
 
-def test_reinstallation_creates_new_artifact_without_rebinding_existing_pin(
-    factory: sessionmaker[Session],
-) -> None:
-    reviewed = load_reviewed_recipe("matrix")
-    first = _ready(factory)
-    with factory() as session:
-        row = RuntimeRecipeInstallationRepository(session).get(first)
-        assert row is not None and row.runtime_revision_id is not None
-        first_revision_id = UUID(row.runtime_revision_id)
-    assert (
-        bootstrap_recipe_instance(factory, reviewed, first_revision_id)["created"]
-        == "true"
-    )
-    replacement_image = "sha256:" + "e" * 64
-    second = _ready(factory, replacement_image)
-    with factory() as session:
-        row = RuntimeRecipeInstallationRepository(session).get(second)
-        assert row is not None and row.runtime_revision_id is not None
-        second_revision_id = UUID(row.runtime_revision_id)
-        assert second_revision_id != first_revision_id
-        revisions = RuntimeRevisionRepository(session).list_for_definition(
-            reviewed.recipe.definition_id
-        )
-        assert [(item.revision_number, item.content_digest) for item in revisions] == [
-            (1, IMAGE),
-            (2, replacement_image),
-        ]
-    assert (
-        bootstrap_recipe_instance(factory, reviewed, second_revision_id)["created"]
-        == "false"
-    )
-    with factory() as session:
-        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
-        assert instance is not None
-        assert instance.runtime_revision_id == first_revision_id
-
-
-def test_explicit_repin_selects_only_latest_ready_reviewed_revision(
-    factory: sessionmaker[Session],
-) -> None:
-    reviewed = load_reviewed_recipe("matrix")
-    first = _ready(factory)
-    with factory() as session:
-        first_row = RuntimeRecipeInstallationRepository(session).get(first)
-        assert first_row is not None and first_row.runtime_revision_id is not None
-        first_revision_id = UUID(first_row.runtime_revision_id)
-    bootstrap_recipe_instance(factory, reviewed, first_revision_id)
-    second = _ready(factory, "sha256:" + "e" * 64)
-    with factory() as session:
-        second_row = RuntimeRecipeInstallationRepository(session).get(second)
-        assert second_row is not None and second_row.runtime_revision_id is not None
-        second_revision_id = UUID(second_row.runtime_revision_id)
-
-    with pytest.raises(LabWorkflowError, match="exact ready recipe revision"):
-        repin_reviewed_runtime(factory, "matrix", first_revision_id)
-    with factory() as session:
-        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
-        assert instance is not None
-        assert instance.runtime_revision_id == first_revision_id
-
-    assert repin_reviewed_runtime(factory, "matrix", second_revision_id) == (
-        second_revision_id
-    )
-    with factory() as session:
-        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
-        assert instance is not None
-        assert instance.runtime_revision_id == second_revision_id
-    with pytest.raises(LabWorkflowError, match="already pinned"):
-        repin_reviewed_runtime(factory, "matrix", second_revision_id)
-
-
 def test_interrupted_validating_attempt_is_failed_before_new_pending_attempt(
     factory: sessionmaker[Session],
 ) -> None:
@@ -781,30 +600,3 @@ def test_experimental_bootstrap_never_reuses_normal_omega_target_identity() -> N
     experimental = load_novnc_phase1_recipe()
     assert recipe_target_id(normal) != recipe_target_id(experimental)
     assert normal.recipe.definition_id == experimental.recipe.definition_id
-
-
-def test_normal_and_experimental_omega_registrations_coexist_without_repinning(
-    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    normal = load_reviewed_recipe("omega")
-    operation = _ready(factory, generation="omega")
-    with factory() as db:
-        installation = RuntimeRecipeInstallationRepository(db).get(operation)
-        assert installation is not None and installation.runtime_revision_id is not None
-        normal_revision = UUID(installation.runtime_revision_id)
-    bootstrap_recipe_instance(factory, normal, normal_revision)
-    experimental = load_novnc_phase1_recipe()
-    monkeypatch.setitem(globals(), "load_reviewed_recipe", lambda _: experimental)
-    operation = _ready(factory, image_id="sha256:" + "b" * 64, generation="omega")
-    with factory() as db:
-        installation = RuntimeRecipeInstallationRepository(db).get(operation)
-        assert installation is not None and installation.runtime_revision_id is not None
-        experimental_revision = UUID(installation.runtime_revision_id)
-    bootstrap_recipe_instance(factory, experimental, experimental_revision)
-    with factory() as db:
-        ordinary = ManagedInstanceRepository(db).get(recipe_target_id(normal))
-        viewer = ManagedInstanceRepository(db).get(recipe_target_id(experimental))
-        assert ordinary is not None and viewer is not None
-        assert ordinary.runtime_revision_id == normal_revision
-        assert viewer.runtime_revision_id == experimental_revision
-        assert len(ManagedInstanceRepository(db).list()) == 2

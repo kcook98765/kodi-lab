@@ -259,3 +259,11 @@ class AgentWorkspaceMutationEvent:
         ):
             raise ValueError("workspace mutation path is invalid")
         object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))
+
+
+class GlobalHeavyOperationKind(StrEnum):
+    """Shared external development and workspace filesystem mutations."""
+
+    AGENT_WORKSPACE_CREATION = "agent_workspace_creation"
+    AGENT_WORKSPACE_CLEANUP = "agent_workspace_cleanup"
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"

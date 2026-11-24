@@ -496,7 +496,13 @@ def test_real_inspection_authorization_still_fences_scans(
     admin.grant_production_inspection_scope(client.id, e.target, identity_generation=1)
     principal = McpAuthenticationService(e.factory).authenticate(token.token)
     assert principal is not None
-    auth = McpAuthorizationService(e.factory, build_mcp_tool_registry())
+    auth = McpAuthorizationService(
+        e.factory,
+        build_mcp_tool_registry(),
+        targets=SimpleNamespace(
+            resolve=lambda _: pytest.fail("Unexpected native probe")
+        ),
+    )
 
     def revoke() -> None:
         with e.factory.begin() as session:

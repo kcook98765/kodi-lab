@@ -14,33 +14,19 @@ from sqlalchemy import select
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
+    ExternalAddonInventory,
     KodiAddonInventoryItem,
     KodiAddonProvenance,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
-    ManagedInstanceAddonInventory,
-)
-from kodi_lab.application.agent_workspace_promotions import (
-    AgentWorkspacePromotionService,
 )
 from kodi_lab.application.external_bridges import ExternalBridgeServiceError
-from kodi_lab.application.mcp_administration import (
-    McpAdministrationService,
-    McpAuthenticationService,
-)
 from kodi_lab.application.mcp_development_requests import (
     prune_expired_safe_development_requests,
-)
-from kodi_lab.application.mcp_promotion_requests import (
-    McpPromotionRequestError,
-    McpPromotionRequestService,
 )
 from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
 from kodi_lab.domain import TargetType
 from kodi_lab.kodi.bridge import BridgeAddonTree
-from kodi_lab.mcp.authorization import McpAuthorizationService
-from kodi_lab.mcp.registry import build_mcp_tool_registry
-from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.repository.development import (
     DevelopmentRepositoryService,
     bootstrap_zip,
@@ -106,14 +92,14 @@ class RepositoryTargetFixture:
     bridge_error: str | None = None
     executions: int = 0
 
-    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+    def addon_inventory(self, target_id: UUID) -> ExternalAddonInventory:
         assert target_id == EXTERNAL_TARGET_ID
         if self.offline:
             raise OSError("disposable Kodi offline")
         items = [_item(REPOSITORY, "1.0.0", True)]
         if self.installed_version is not None:
             items.append(_item(ADDON, self.installed_version, self.enabled))
-        return ManagedInstanceAddonInventory(
+        return ExternalAddonInventory(
             instance_id=target_id,
             observed_at=NOW,
             kodi_release=self.kodi_release,
@@ -242,152 +228,6 @@ def _approve(env: Any, pending: Any) -> Any:
     )
 
 
-def test_workspace_status_resumes_repository_deployment_from_bounded_projection(
-    tmp_path: Path,
-) -> None:
-    env, repository, target = _setup(tmp_path)
-    administration = McpAdministrationService(env.sessions)
-    administration.grant_development_source(env.client_id, SOURCE_ID)
-    credential = administration.issue_credential(env.client_id)
-    principal = McpAuthenticationService(env.sessions).authenticate(credential.token)
-    assert principal is not None
-    tools = McpTargetToolService(
-        env.sessions,
-        McpAuthorizationService(env.sessions, build_mcp_tool_registry()),
-        cast(Any, None),
-        cast(Any, None),
-        cast(Any, None),
-        workspaces=env.workspaces,
-        workspace_development=env.development,
-    )
-
-    def summary() -> Any:
-        return tools.workspace_status(
-            principal, workspace_id=env.workspace_id
-        ).workspaces[0]
-
-    initial = summary()
-    assert initial.latest_deployment_id is None
-    assert initial.latest_deployment_mode is None
-    assert initial.latest_deployment_next_action is None
-
-    generation = _version(env, 0, "1.0.0")
-    pending = env.development.deploy(
-        client_id=env.client_id,
-        request_id=uuid4(),
-        workspace_id=env.workspace_id,
-        expected_generation=generation,
-        target_id=EXTERNAL_TARGET_ID,
-    )
-    approval = summary()
-    assert approval.creation_state == "ready"
-    assert approval.generation == generation
-    assert approval.latest_deployment_id == pending.deployment_id
-    assert approval.latest_deployment_generation == generation
-    assert approval.latest_deployment_target_id == EXTERNAL_TARGET_ID
-    assert approval.latest_deployment_state == "running"
-    assert approval.latest_deployment_mode == "repository"
-    assert approval.latest_deployment_phase == "publication_approval"
-    assert approval.latest_deployment_publication_id == pending.publication_id
-    assert approval.latest_deployment_installation_kind == "first_install"
-    assert approval.latest_deployment_next_action == (
-        "Approve exact publication in Kodi Lab Web"
-    )
-    publication = repository.get_publication(pending.publication_id)
-    assert publication is not None and publication.status == "prepared"
-
-    _approve(env, pending)
-    install = summary()
-    assert install.latest_deployment_phase == "awaiting_kodi_update"
-    assert install.latest_deployment_next_action == (
-        "Install from Kodi Lab Development, then recheck"
-    )
-    with env.sessions.begin() as session:
-        linked = session.get(
-            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
-        )
-        assert linked is not None
-        linked.installed_before_version = "0.9.0"
-    update = summary()
-    assert update.latest_deployment_installation_kind == "update"
-    assert update.latest_deployment_next_action == (
-        "Update in Kodi Add-ons, then recheck"
-    )
-    with env.sessions.begin() as session:
-        linked = session.get(
-            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
-        )
-        operation = session.get(
-            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
-        )
-        assert linked is not None and operation is not None
-        linked.state = "observed_identity"
-        linked.installed_before_version = None
-        operation.phase = "verify_tree"
-    recheck = summary()
-    assert recheck.latest_deployment_phase == "verify_tree"
-    assert recheck.latest_deployment_next_action == (
-        "Reconnect the bridge, then recheck the installed tree"
-    )
-    with env.sessions.begin() as session:
-        linked = session.get(
-            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
-        )
-        operation = session.get(
-            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
-        )
-        assert linked is not None and operation is not None
-        linked.state = "awaiting_kodi_update"
-        operation.phase = "awaiting_kodi_update"
-        target.installed_version = "1.0.0"
-        target.installed_digest = linked.expected_manifest_digest
-        target.installed_files = linked.file_count
-        target.installed_bytes = linked.total_bytes
-    completed = env.development.recheck_repository_deployment(pending.deployment_id)
-    assert completed.state == "succeeded"
-    done = summary()
-    assert done.latest_deployment_state == "succeeded"
-    assert done.latest_deployment_next_action is None
-    assert done.latest_deployment_id == pending.deployment_id
-    assert done.latest_deployment_publication_id == pending.publication_id
-    edited = env.workspaces.replace_text_file(
-        env.workspace_id,
-        expected_generation=generation,
-        relative_path="main.py",
-        content="pass\n# next generation\n",
-    )
-    assert edited.generation == generation + 1
-    stale = summary()
-    assert stale.generation == generation + 1
-    assert stale.latest_deployment_generation == generation
-
-    with env.sessions.begin() as session:
-        linked = session.get(
-            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
-        )
-        operation = session.get(
-            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
-        )
-        assert linked is not None and operation is not None
-        linked.state = "failed"
-        operation.state = "failed"
-        operation.failure_code = "private_path_/tmp/internal"
-        operation.phase = "verify_tree"
-    failed = summary()
-    assert failed.latest_deployment_state == "failed"
-    assert failed.latest_deployment_next_action is None
-    assert "private_path_/tmp/internal" not in failed.model_dump_json()
-    with env.sessions.begin() as session:
-        operation = session.get(
-            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
-        )
-        assert operation is not None
-        operation.state = "reconciliation_required"
-    recovery = summary()
-    assert recovery.latest_deployment_state == "reconciliation_required"
-    assert recovery.latest_deployment_next_action is None
-
-
 def test_first_install_approval_pending_observation_and_exact_tree(
     tmp_path: Path,
 ) -> None:
@@ -407,25 +247,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
     assert repository.list_publications()[0].status == "prepared"
     with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
         env.development.execute(
-            client_id=env.client_id,
-            request_id=uuid4(),
-            workspace_id=env.workspace_id,
-            expected_generation=generation,
-            target_id=EXTERNAL_TARGET_ID,
-        )
-    promotion_service = McpPromotionRequestService(
-        env.sessions,
-        AgentWorkspacePromotionService(
-            env.sessions,
-            data_root=tmp_path / "data",
-            development_root=tmp_path / "sources",
-            verification_publisher=lambda _session, _operation: uuid4(),
-            clock=lambda: NOW,
-        ),
-        clock=lambda: NOW,
-    )
-    with pytest.raises(McpPromotionRequestError, match="deployment_required"):
-        promotion_service.request(
             client_id=env.client_id,
             request_id=uuid4(),
             workspace_id=env.workspace_id,
@@ -459,14 +280,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
     assert published.state == "running" and published.phase == "awaiting_kodi_update"
     with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
         env.development.execute(
-            client_id=env.client_id,
-            request_id=uuid4(),
-            workspace_id=env.workspace_id,
-            expected_generation=generation,
-            target_id=EXTERNAL_TARGET_ID,
-        )
-    with pytest.raises(McpPromotionRequestError, match="deployment_required"):
-        promotion_service.request(
             client_id=env.client_id,
             request_id=uuid4(),
             workspace_id=env.workspace_id,
@@ -555,15 +368,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
         target_id=EXTERNAL_TARGET_ID,
     )
     assert executed.state == "succeeded" and target.executions == 1
-    promotion = promotion_service.request(
-        client_id=env.client_id,
-        request_id=uuid4(),
-        workspace_id=env.workspace_id,
-        expected_generation=generation,
-        target_id=EXTERNAL_TARGET_ID,
-    )
-    assert promotion.review_state == "reviewable"
-    assert promotion.web_review_required
 
 
 def test_correct_version_wrong_tree_fails_closed(tmp_path: Path) -> None:

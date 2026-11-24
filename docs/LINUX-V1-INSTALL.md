@@ -1,8 +1,8 @@
 # Linux amd64 V1 installation from a local deployment candidate
 
 This candidate installs Kodi Lab from bundled files. Managed Kodi runtimes are
-acquired later, one generation at a time, through the installed reviewed recipe
-worker. The candidate is local and unpublished. Preserve the Git commit and a
+acquired later through the reviewed recipe worker. Start with empty application
+and managed volumes. Migration from previous pre-alpha installations is unsupported. The candidate is local and unpublished. Preserve the Git commit and a
 trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
 hashes inside the bundle establish integrity against that trusted copy.
 
@@ -381,86 +381,18 @@ private-LAN HTTP or supported HTTPS proxy access, follow
 LAN HTTP sends credentials and screen/control traffic unencrypted; never expose
 it publicly.
 
-## Acquire only the generation needed
+## Acquire a reviewed managed runtime
 
-These commands run the installed wheel worker in the broker image. It receives
-Docker authority for fixed reviewed recipe inputs and exposes no generic build
-API to Web or MCP. Temporary `SETGID`/`SETUID` grants let its root worker fork
-a state-owner child; the long-running broker does not receive them. Run one or
-more, in any order:
+On this fresh-install development branch, start the packaged services with
+the `lab` profile. Sign in, open **Kodi Runtimes**, and install Omega 21.3.
+Kodi Lab verifies the signed Ubuntu packages, validates the native runtime
+and records the exact image ID. Open **Managed Kodi** to prepare the working
+profile, then start Kodi.
 
-```sh
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --entrypoint kodi-lab-runtime broker recipes
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --cap-add SETGID --cap-add SETUID \
-  --entrypoint kodi-lab-runtime broker install matrix
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --cap-add SETGID --cap-add SETUID \
-  --entrypoint kodi-lab-runtime broker install nexus
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --cap-add SETGID --cap-add SETUID \
-  --entrypoint kodi-lab-runtime broker install omega
-```
-
-Choose only the generation(s) needed. Each install verifies signed Ubuntu APT
-metadata and critical package hashes, assembles locally, validates, HMAC-binds
-evidence, and registers an exact eligible revision. A ready image makes a
-repeated install a verified no-op. Missing images cannot be provisioned; use
-an explicit reinstall to reacquire them. An existing managed instance keeps its
-old exact revision pin until an administrator explicitly selects the new
-revision with `kodi-lab-lab repin`. Application backup includes records, recipe
-provenance, revisions, and keys, but not Docker image bytes.
-
-The first install also creates or verifies the fixed managed Docker network.
-If the broker is not already running, start it and attach Web to that network:
-
-```sh
-docker compose -f compose.release.yaml stop web
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  up -d --wait --no-build web broker
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  exec -T web kodi-lab-lab status
-```
-
-Start or stop an acquired generation with `kodi-lab-lab start matrix`,
-`start nexus`, `start omega`, and matching `stop` commands in the Web
-container. A generation not acquired stays supported but unavailable. The
-Docker socket is mounted only in the broker container.
-
-## Restart and recovery
-
-Use `docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab
-up -d --wait --no-build web broker` for a restart. This does not rebuild or
-reacquire Kodi. Preserve the named state volumes and exact application images.
-Read `UPGRADE-ROLLBACK.md` and `MANAGED-STATE-RECOVERY.md` before backup,
-upgrade, or restore. A restored record does not recreate a missing Docker
-image; explicitly reacquire that generation.
-
-Restore only a backup compatible with the installed schema; see the baseline
-restriction in `UPGRADE-ROLLBACK.md`. After `recover-clean`, a restored instance
-keeps its exact revision pin.
-When its image is missing, provisioning fails `runtime_image_unavailable`.
-Run the reviewed installer again, record the new revision UUID it prints, then
-stop Web and explicitly change only that generation's unprovisioned pin:
-
-```sh
-docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
-  --cap-add SETGID --cap-add SETUID \
-  --entrypoint kodi-lab-runtime broker install matrix
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab stop web
-docker compose -f compose.release.yaml run --rm --no-deps \
-  --entrypoint kodi-lab-lab web repin matrix NEW_REVISION_UUID
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  up -d --wait --no-build web broker
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  exec -T web kodi-lab-lab start matrix
-```
-
-Use the generation and UUID printed by its own successful `install` command.
-`repin` requires stopped Web and an unprovisioned managed instance. It accepts
-only the latest ready, HMAC-eligible revision of that exact reviewed recipe.
-Repeat explicitly for Nexus or Omega if their restored images are missing.
+The packaged broker is the only service with the Docker socket. Preserve the
+broker-owned state volume separately from the application database and the
+external repository. See [Managed-v2 fresh installation](MANAGED-V2-FRESH-INSTALL.md)
+for restart, backup and recovery boundaries.
 
 ## Paired development target and narrow MCP administration
 

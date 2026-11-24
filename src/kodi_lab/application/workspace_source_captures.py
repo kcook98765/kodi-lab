@@ -34,11 +34,8 @@ from kodi_lab.storage.models import (
     RepositoryWorkspaceDeploymentRow,
 )
 from kodi_lab.storage.repositories import (
-    AgentWorkspacePromotionOperationRepository,
-    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
-    PromotionVerificationOperationRepository,
     _timestamp_to_text,
 )
 from kodi_lab.workspace.source_capture import (
@@ -155,20 +152,6 @@ class WorkspaceSourceCaptureService:
                 or workspace.active_baseline_artifact_id != workspace.active_capture_id
             ):
                 raise WorkspaceSourceCaptureError("workspace_capture_evidence_changed")
-        if (
-            AgentWorkspacePromotionPlanRepository(session).active_for_workspace(
-                workspace_id, now=self._clock()
-            )
-            is not None
-            or AgentWorkspacePromotionOperationRepository(session).active_for_workspace(
-                workspace_id
-            )
-            is not None
-            or PromotionVerificationOperationRepository(session).blocking_for_workspace(
-                workspace_id
-            )
-        ):
-            raise WorkspaceSourceCaptureError("workspace_promotion_active")
         pending_repository = session.scalar(
             select(RepositoryWorkspaceDeploymentRow.operation_id)
             .where(

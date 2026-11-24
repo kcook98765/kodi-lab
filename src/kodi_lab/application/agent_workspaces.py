@@ -37,23 +37,18 @@ from kodi_lab.domain import (
     AgentWorkspaceLifecycleEventKind,
     AgentWorkspaceMutationEvent,
     AgentWorkspaceMutationKind,
-    AgentWorkspacePromotionOperationState,
     AgentWorkspaceState,
     DevelopmentSourceKind,
     GlobalHeavyOperationKind,
-    PromotionVerificationState,
 )
 from kodi_lab.storage.models import AgentProjectRow
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCreationOperationRepository,
     AgentWorkspaceLifecycleEventRepository,
     AgentWorkspaceMutationEventRepository,
-    AgentWorkspacePromotionOperationRepository,
-    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
-    PromotionVerificationOperationRepository,
 )
 from kodi_lab.workspace import (
     AgentWorkspaceReconciliationRequired,
@@ -105,8 +100,6 @@ class AgentWorkspaceRead(BaseModel):
     promoted_at: datetime | None
     abandoned_at: datetime | None
     cleaned_at: datetime | None
-    promotion_outcome: AgentWorkspacePromotionOperationState | None = None
-    verification_outcome: PromotionVerificationState | None = None
 
 
 class AgentWorkspaceCreationStatus(BaseModel):
@@ -220,12 +213,7 @@ class AgentWorkspaceStructuralValidationRead(BaseModel):
     changes: tuple[AgentWorkspaceStructuralChangeRead, ...]
 
 
-def _workspace_read(
-    workspace: AgentWorkspace,
-    *,
-    promotion_outcome: AgentWorkspacePromotionOperationState | None = None,
-    verification_outcome: PromotionVerificationState | None = None,
-) -> AgentWorkspaceRead:
+def _workspace_read(workspace: AgentWorkspace) -> AgentWorkspaceRead:
     return AgentWorkspaceRead(
         id=workspace.id,
         development_source_id=workspace.development_source_id,
@@ -241,8 +229,6 @@ def _workspace_read(
         promoted_at=workspace.promoted_at,
         abandoned_at=workspace.abandoned_at,
         cleaned_at=workspace.cleaned_at,
-        promotion_outcome=promotion_outcome,
-        verification_outcome=verification_outcome,
     )
 
 
@@ -560,43 +546,16 @@ class AgentWorkspaceService:
     def get(self, workspace_id: UUID) -> AgentWorkspaceRead:
         with self._session_factory() as session:
             workspace = AgentWorkspaceRepository(session).get(workspace_id)
-            promotion = AgentWorkspacePromotionOperationRepository(
-                session
-            ).latest_for_workspace(workspace_id)
-            verification = PromotionVerificationOperationRepository(
-                session
-            ).latest_for_workspace(workspace_id)
         if workspace is None:
             raise AgentWorkspaceNotFoundError(workspace_id)
-        return _workspace_read(
-            workspace,
-            promotion_outcome=None if promotion is None else promotion.state,
-            verification_outcome=None if verification is None else verification.state,
-        )
+        return _workspace_read(workspace)
 
     def list_workspaces(self) -> list[AgentWorkspaceRead]:
         with self._session_factory() as session:
-            workspaces = AgentWorkspaceRepository(session).list()
-            results = []
-            for workspace in workspaces:
-                promotion = AgentWorkspacePromotionOperationRepository(
-                    session
-                ).latest_for_workspace(workspace.id)
-                verification = PromotionVerificationOperationRepository(
-                    session
-                ).latest_for_workspace(workspace.id)
-                results.append(
-                    _workspace_read(
-                        workspace,
-                        promotion_outcome=None
-                        if promotion is None
-                        else promotion.state,
-                        verification_outcome=None
-                        if verification is None
-                        else verification.state,
-                    )
-                )
-        return results
+            return [
+                _workspace_read(item)
+                for item in AgentWorkspaceRepository(session).list()
+            ]
 
     def creation_status(self, operation_id: UUID) -> AgentWorkspaceCreationStatus:
         with self._session_factory() as session:
@@ -658,30 +617,14 @@ class AgentWorkspaceService:
                             "workspace_abandonment_not_allowed",
                             "Only a ready workspace may be abandoned.",
                         )
-                    active_plan = AgentWorkspacePromotionPlanRepository(
-                        session
-                    ).active_for_workspace(workspace_id, now=now)
-                    active_operation = AgentWorkspacePromotionOperationRepository(
-                        session
-                    ).active_for_workspace(workspace_id)
-                    active_verification = PromotionVerificationOperationRepository(
-                        session
-                    ).blocking_for_workspace(workspace_id)
                     creation = AgentWorkspaceCreationOperationRepository(
                         session
                     ).get_for_workspace(workspace_id)
-                    if (
-                        active_plan is not None
-                        or active_operation is not None
-                        or active_verification
-                        or creation is None
-                        or creation.state
-                        in {
-                            AgentWorkspaceCreationState.QUEUED,
-                            AgentWorkspaceCreationState.RUNNING,
-                            AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
-                        }
-                    ):
+                    if creation is None or creation.state in {
+                        AgentWorkspaceCreationState.QUEUED,
+                        AgentWorkspaceCreationState.RUNNING,
+                        AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
+                    }:
                         raise AgentWorkspaceConflictError(
                             "workspace_promotion_active",
                             "Workspace has active or unresolved work.",
@@ -734,18 +677,6 @@ class AgentWorkspaceService:
         self, workspace_id: UUID, expected_generation: int
     ) -> AgentWorkspace:
         workspace = self._require_ready(workspace_id)
-        with self._session_factory.begin() as session:
-            active_plan = AgentWorkspacePromotionPlanRepository(
-                session
-            ).active_for_workspace(workspace_id, now=self._clock())
-            active_operation = AgentWorkspacePromotionOperationRepository(
-                session
-            ).active_for_workspace(workspace_id)
-        if active_plan is not None or active_operation is not None:
-            raise AgentWorkspaceConflictError(
-                "agent_workspace_promotion_active",
-                "Workspace has an active promotion review or execution.",
-            )
         if workspace.generation != expected_generation:
             raise AgentWorkspaceConflictError(
                 "agent_workspace_generation_conflict",

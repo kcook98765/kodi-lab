@@ -13,7 +13,10 @@ import pytest
 from docker.errors import DockerException  # type: ignore[import-untyped]
 
 from kodi_lab.broker.errors import RequestError
-from kodi_lab.broker.operations import build_foundation_registry
+from kodi_lab.broker.operations import (
+    OperationRegistry,
+    register_reviewed_runtime_operations,
+)
 from kodi_lab.broker.protocol import Request
 from kodi_lab.broker.reviewed_installations import (
     DockerReviewedInstallationWorker,
@@ -22,6 +25,7 @@ from kodi_lab.broker.reviewed_installations import (
     worker_name,
 )
 from kodi_lab.domain import RuntimeRecipeInstallationState
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
     load_installation_recipe,
@@ -280,7 +284,8 @@ def test_protocol_is_closed_to_three_generations_and_semantic_fields(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
 ) -> None:
     worker, _ = backend
-    registry = build_foundation_registry(reviewed_installation_worker=worker)
+    registry = OperationRegistry()
+    register_reviewed_runtime_operations(registry, worker)
     operation_id = str(uuid4())
     for params in (
         {"generation": "piers", "operation_id": operation_id},
@@ -322,7 +327,7 @@ def test_protocol_is_closed_to_three_generations_and_semantic_fields(
     assert raised.value.code == "invalid_params"
 
 
-@pytest.mark.parametrize("generation", ["omega", "piers"])
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
 def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
     monkeypatch: pytest.MonkeyPatch,
@@ -358,6 +363,11 @@ def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
         "Architecture": "amd64",
         "Config": {"Labels": {"io.kodi-lab.recipe-digest": image_digest}},
     }
+    assert not worker.image_present(operation_id)
+    pin = worker._runtime_root / reviewed_image_file(generation)
+    pin.write_text("sha256:" + "b" * 64)
+    assert not worker.image_present(operation_id)
+    pin.write_text(IMAGE)
     assert worker.image_present(operation_id)
     row.recipe_digest = "sha256:" + "b" * 64
     assert not worker.image_present(operation_id)

@@ -13,11 +13,9 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationService,
     preview_acknowledgement,
 )
-from kodi_lab.broker.novnc_service import HumanDisplayService
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.runtime.display_capabilities import (
-    installed_display_capability,
     reviewed_display_capability,
 )
 from kodi_lab.runtime.install import _advance, _commit_ready, _create_operation
@@ -36,7 +34,6 @@ from kodi_lab.runtime.recipes import (
 )
 from kodi_lab.runtime.ubuntu_support import load_support_closure
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeRecipeInstallationRepository,
 )
 from tests.application.test_piers_installation_admission import broker
@@ -168,54 +165,6 @@ def ready_display(
         assert row is not None and row.runtime_revision_id is not None
         revision = UUID(row.runtime_revision_id)
     return operation, reviewed, built, revision
-
-
-def test_r3_sealed_proof_and_preview_creation_remain_separate_from_viewer(
-    factory: sessionmaker[Session],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    operation, reviewed, _built, revision = ready_display(factory)
-    with factory() as db:
-        capability = installed_display_capability(db, revision)
-        assert capability == reviewed_display_capability(reviewed)
-        assert ManagedInstanceRepository(db).list() == []
-    backend = broker()
-    from types import SimpleNamespace
-
-    backend.reviewed_runtime_image_present = lambda _: SimpleNamespace(present=True)
-    service = RuntimeInstallationService(factory, backend)
-    candidate_view = service.get(operation)
-    assert candidate_view is not None
-    assert candidate_view.preview_acknowledgement == preview_acknowledgement(
-        display_candidate=True
-    )
-    assert (
-        service._view(
-            "piers", None, capable=True, display_candidate=True
-        ).preview_acknowledgement
-        == candidate_view.preview_acknowledgement
-    )
-    assert (
-        service._view("piers", None, capable=True).preview_acknowledgement
-        == preview_acknowledgement()
-    )
-    roundtrip_ack = PreviewAcknowledgement.model_validate(
-        candidate_view.preview_acknowledgement
-    )
-    created = service.create_preview_instance(
-        approval=PreviewActionApproval(
-            action="create", approved=True, acknowledgement=roundtrip_ack
-        ),
-        display_candidate=True,
-    )
-    assert created.action == "open"
-    with factory() as db:
-        instance = ManagedInstanceRepository(db).list()[0]
-        assert instance.runtime_revision_id == revision
-    assert (
-        HumanDisplayService(Settings(), factory).qualified(instance.target_id)
-        == capability
-    )
 
 
 def test_old_assembly_cannot_be_relabelled_as_display_candidate() -> None:

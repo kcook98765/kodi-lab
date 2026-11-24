@@ -1,126 +1,20 @@
-# Database migrations
+# Fresh application database
 
-`0001_initial_release` is Kodi Lab's canonical initial-release SQLite schema.
-It replaces all 92 private prerelease revisions through
-`0092_create_kodi_operations`. Existing prerelease installations require a fresh
-installation; there is no conversion or compatibility path. Initialization and
-installed startup reject unsupported, unversioned, malformed or ambiguous
-revision state before migration writes. They never stamp, erase or reinterpret
-an older database. The owner must explicitly retire the old installation before
-installing fresh.
+`0001_foundation` initializes a new Kodi Lab application database. The installed
+entrypoint is `kodi-lab-admin initialize`. The initializer rejects previous
+Kodi Lab revisions and unversioned SQLite files before writing. Use a new
+application state volume.
 
-The baseline uses frozen explicit SQLite DDL and reference rows, independently
-captured from main `e94f08764f94ec6b3b300c9a5be94fecb10f706a`. It preserves
-135 application tables, 121 explicit indexes, 93 triggers, foreign keys, named
-check/unique constraints, defaults, nullability and the seeded permission and
-policy state. There are no views. SQLAlchemy `create_all()` alone is insufficient:
-several authorization, audit, receipt and lifecycle guards exist only in SQL.
-The production-control timestamp is generated at initialization. The packaged
-initializer still applies the current first-install capacity policy only to a
-truly empty database; repeated initialization preserves administrator choices.
+The single Alembic revision contains frozen SQLite DDL, indexes, foreign keys,
+authorization and audit triggers, and the initial policy rows. This keeps the
+database contract independent of later ORM changes. The initial policy timestamp
+is generated during initialization. Re-running initialization on the same
+schema preserves the data. The schema fixture records the exact table,
+constraint, index and trigger inventory.
 
-The independent regression reference is `tests/fixtures/initial-schema.json`.
-`tests/schema_manifest.py` captures byte-exact SQL hashes, `table_xinfo`,
-`index_list`/`index_xinfo`, foreign keys, table properties and reference rows from
-an initialized database. Only the generated policy timestamp is normalized;
-its format is checked. Integrity and FK checks must pass. To reproduce a
-manifest, initialize an isolated database at the desired source revision, then:
-
-```console
-uv run --locked python -m tests.schema_manifest /absolute/path/to/database.db
-```
-
-Alembic remains the forward migration framework. Future public schema changes
-must add ordinary revisions with `down_revision = "0001_initial_release"`
-(or the subsequent head). Add predecessor-to-new-head tests, populated fixtures
-for any backfills, and appropriate downgrade safety checks. Never edit the frozen
-baseline to introduce a later release's schema change. The baseline itself
-refuses downgrade to `base` to protect authorization and audit history.
-Offline SQL generation is supported for empty-database provisioning; applying
-such SQL manually is not the supported initializer or a prerelease upgrade path.
-Source and installed artifacts use this same migration tree.
-
-`0003_managed_versions` follows `0002_managed_setup` and adds principal-bound
-managed version Start/Stop receipts with immutable intent/child identity. It
-changes no policies, grants, runtime registrations or profiles. Referenced
-lifecycle children remain inspectable. Downgrade refuses once any receipt exists
-to preserve replay safety and audit history. See
-[the coordinator contract](../docs/MANAGED-VERSION-LIFECYCLE.md).
-
-`0004_clean_reset` follows `0003_managed_versions` and adds immutable clean Reset
-intents plus atomic mutation/view/input admission fences. It changes no existing
-grants, presets, runtime pins, profiles or stored resource policy. Reset parents
-and their referenced child history survive ordinary pruning and target/client
-removal. Downgrade refuses once any Reset receipt exists. See the
-[clean Reset contract](../docs/MANAGED-CLEAN-RESET.md).
-
-`0005_managed_web` follows `0004_clean_reset` and adds only immutable human browser
-intent/snapshot/confirmation records. It changes no existing authority or runtime
-state and refuses lossy downgrade after any Web intent exists. The full
-0002-to-0005 sequence is covered by isolated integrity/preservation/downgrade tests.
-See [the integrated review](../docs/ISSUE-238-INTEGRATED-REVIEW.md).
-
-`0006_external_screenshots` follows `0005_managed_web`. It replaces only the
-external preference initialization trigger so both external classes default OFF,
-and resets existing enabled preferences OFF with a monotonic revision and migration
-attribution. It leaves table schemas, managed screenshots, built-in presets,
-credentials, grants and pairing unchanged. Downgrade restores the former
-initialization trigger but never re-enables existing preferences or rewinds their
-revision/audit state. After downgrade, newly registered external targets again
-inherit the legacy default: enabled when their configured maximum includes
-`screenshot`. This limitation affects new registrations, not existing OFF choices.
-See D-0484 and issue #265.
-
-`0007_production_navigation` follows `0006_external_screenshots`. Existing and new
-production policies default remote navigation OFF. It adds the connection consent
-digest, extends the material revision guard, and allows new navigation receipts
-and audits to omit retired navigate-scope references. Historical rows, indexes,
-triggers and unrelated authority are preserved. Downgrade refuses active opt-ins
-or new receipt history that the predecessor cannot represent. See D-0486.
-
-`0008_managed_bridge_preparation` adds immutable Bridge-required Create intent
-and separate exact-target Web maintenance/child receipts. Existing native-only
-requests, resource policy, profiles and authority rows are preserved. Children
-remain protected from pruning. Used receipts prevent lossy downgrade.
-
-`0009_trusted_managed_lab` adds a nullable versioned managed role to clients,
-defaulting to no role, and extends the authority-revision mutation guard. Existing
-clients, presets, credentials and grants are unchanged. Downgrade refuses active
-roles or role audit history, preserving evidence even after revocation.
-
-`0010_agent_projects` adds only private project source/owner/request identities.
-Existing sources, workspaces and authority remain unchanged. Used project history
-prevents downgrade; immutable owner/request triggers preserve replay evidence.
-
-`0011_agent_project_versions` updates retained mutation admission for owned
-projects, independently of human session selection. `0012_agent_project_intake`
-adds immutable bounded source-intake provenance; downgrade refuses populated
-provenance. `0013_agent_packages` adds separate owner-scoped original-package
-identities and immutable receipts, with downgrade refused once package history exists.
-
-`0014_human_reset_bridge` records explicit human Reset Bridge-preparation consent.
-Existing intents remain native-only; recorded preparation consent prevents lossy
-downgrade. `0015_log_scan_capability` extends only the closed pairing/reviewed-build
-sets with `log_scan`, preserving rows/triggers and granting no trust or permissions.
-Downgrade refuses while a pairing or reviewed build uses `log_scan`.
-
-`0016_reviewed_bridge_updates` adds owner-controlled, default-OFF production Bridge
-update policy and immutable automatic-adoption receipts. It changes no existing
-rows or consent bindings. Policy revisions are monotonic; receipts and policy
-history resist update/delete and SQLite replacement. Downgrade refuses once a
-policy or adoption row exists. See [production operations](../docs/PRODUCTION-OPERATIONS.md#trust-reviewed-updates-installed-by-the-owner).
-
-`0017_system_snapshot_capability` admits only the authenticated read-only
-`system_snapshot` capability in the closed pairing/reviewed-build sets. It
-preserves existing rows, triggers, grants and reviewed identities. Downgrade
-refuses when either a pairing or a reviewed build uses the new capability.
-Native-only `system_info` requires no Bridge upgrade or new permission.
-The current application requires schema head `0018_source_addition_reviews`
-at startup, even when no Bridge enrichment will be used. The earlier Phase A-only
-implementation did not require this migration.
-
-`0018_source_addition_reviews` adds bounded administrator review/approval/dispatch
-history for exact added regular files before an ordinary source copy. It changes
-no prior authority or baseline rows, and refuses lossy downgrade once review
-history exists. Matching Web/broker/schema must be upgraded together. See
-[the administrator workflow](../docs/SOURCE-ADDITION-REVIEW.md).
+The Web state volume stores credentials, external Kodi registrations and
+policies, reviewed runtime acquisition metadata, and external development
+state. The broker's separate managed volume stores the current profile,
+private workspaces, snapshots, approved packages, the active lease and the last
+operation. See the [managed-v2 install notes](../docs/MANAGED-V2-FRESH-INSTALL.md)
+for the backup and recovery boundaries.

@@ -1,5 +1,7 @@
 # Linux V1 application upgrade and rollback reference
 
+> Historical pre-alpha workflow. Use the [managed-v2 fresh-install and recovery guide](MANAGED-V2-FRESH-INSTALL.md) and [current tool contract](MCP-TOOLS-AND-PERMISSIONS.md).
+
 ## Applicability before the first public release
 
 The initial database baseline is `0001_initial_release`. Supported forward

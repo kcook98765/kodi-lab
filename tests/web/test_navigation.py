@@ -12,27 +12,19 @@ from urllib.parse import urljoin, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.web.conftest import INSTANCE_ID, login
+from tests.web.conftest import login
 
 
-def test_login_enters_kodi_and_legacy_entry_has_no_script_fallbacks(
-    client: TestClient,
-) -> None:
-    assert (
-        client.get("/managed-instances", follow_redirects=False).headers["location"]
-        == "/login"
-    )
+def test_entry_routes_link_to_the_fresh_managed_workflow(client: TestClient) -> None:
     login(client)
     assert client.get("/login", follow_redirects=False).headers["location"] == "/kodi"
-    for fragment in ("", "#instances", "#managed-details"):
-        response = client.get(f"/{fragment}")
-        assert response.status_code == 200
-        links = Links()
-        links.feed(response.text)
-        assert {"/kodi", "/managed-instances"} <= links.destinations
-        assert {"instances", "managed-details"} <= links.ids
-        assert "app.js" not in response.text
-        assert "kodi-lab-poll-ms" not in response.text
+    response = client.get("/")
+    assert response.status_code == 200
+    links = Links()
+    links.feed(response.text)
+    assert {"/kodi", "/managed-kodi", "/runtimes"} <= links.destinations
+    assert "/managed-instances" not in links.destinations
+    assert "app.js" not in response.text
 
 
 def test_navigation_compatibility_and_keyboard_dom() -> None:
@@ -83,7 +75,6 @@ def test_landing_pages_keep_existing_authentication(
     ("path", "active"),
     [
         ("/", "/kodi"),
-        ("/managed-instances", "/settings"),
         ("/kodi", "/kodi"),
         ("/managed-kodi", "/managed-kodi"),
         ("/external-kodi", "/external-kodi"),
@@ -96,13 +87,6 @@ def test_landing_pages_keep_existing_authentication(
         ("/runtimes", "/settings"),
         ("/development-sources", "/settings"),
         ("/agent-workspaces", "/settings"),
-        ("/addon-zips", "/settings"),
-        ("/addon-repositories", "/settings"),
-        ("/snapshots/preserved", "/settings"),
-        ("/history/instances", "/settings"),
-        (f"/instances/{INSTANCE_ID}", "/settings"),
-        (f"/instances/{INSTANCE_ID}/history", "/settings"),
-        (f"/instances/{INSTANCE_ID}/snapshots", "/settings"),
         ("/settings", "/settings"),
         ("/kodi-repository", "/settings"),
     ],
@@ -122,7 +106,8 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
         "/mcp-clients",
         "/settings",
     ]
-    assert re.findall(r'<a[^>]*href="([^"]+)" aria-current="page"', html) == [active]
+    header = html.split("</header>", 1)[0]
+    assert re.findall(r'<a[^>]*href="([^"]+)" aria-current="page"', header) == [active]
     assert 'aria-controls="admin-navigation"' in html
     assert 'href="#main-content"' in html
     assert '<main id="main-content" tabindex="-1"' in html
@@ -150,7 +135,6 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
         destinations.update(urljoin(path, link) for link in links.destinations)
     assert {
         "/add-kodi?mode=home",
-        "/managed-instances",
         "/production-targets",
         "/external-targets",
         "/mcp-clients",
@@ -158,10 +142,6 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
         "/kodi-repository",
         "/development-sources",
         "/agent-workspaces",
-        "/addon-zips",
-        "/addon-repositories",
-        "/snapshots/preserved",
-        "/history/instances",
         "/production-targets#reviewed-bridge-builds",
     } <= destinations
     for destination in sorted(destinations):
@@ -185,13 +165,10 @@ def test_navigation_landing_priorities_and_unique_destinations(
         assert len(destinations) == len(set(destinations))
     development = client.get("/development").text
     primary, secondary = development.split('<details class="navigation-group">', 1)
-    assert 'href="/development-session"' in primary
+    assert 'href="/managed-kodi"' in primary
     for destination in [
         "/development-sources",
         "/agent-workspaces",
-        "/addon-zips",
-        "/snapshots/preserved",
-        "/history/instances",
     ]:
         assert f'href="{destination}"' in secondary
     settings = client.get("/settings").text

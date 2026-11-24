@@ -130,6 +130,11 @@ services:
   broker:
     profiles:
       - lab
+    network_mode: host
+    # Host networking otherwise inherits the host hostname. The reviewed
+    # acquisition worker and managed volume resolver inspect this exact service.
+    container_name: ${COMPOSE_PROJECT_NAME:-kodi-lab-remote}-broker
+    hostname: ${COMPOSE_PROJECT_NAME:-kodi-lab-remote}-broker
     image: ${KODI_LAB_BROKER_IMAGE:?run linux-v1-bundle configure first}
     environment:
       KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES: ${KODI_LAB_EXPERIMENTAL_NOVNC_INSTANCES:-[]}
@@ -161,8 +166,10 @@ services:
       - /proc/1/net/route:/tmp/kodi-lab-host-ipv4-route:ro
       - broker_socket:/run/kodi-lab
       - remote_state:/var/lib/kodi-lab
+      - managed_state:/var/lib/kodi-lab-managed
 
 volumes:
   remote_state:
   broker_socket:
   repository_data:
+  managed_state:

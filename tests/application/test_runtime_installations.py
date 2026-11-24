@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_eligibility import RuntimeEligibility
 from kodi_lab.application.runtime_installations import (
     REQUIRED_OPERATIONS,
     RuntimeInstallationBusy,
@@ -185,7 +186,7 @@ def test_independent_cli_lock_and_row_are_respected(
     assert broker.launches == []
 
 
-def test_ready_noop_missing_image_and_no_silent_repin(
+def test_ready_omega_links_the_managed_page_and_can_reacquire(
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,7 +196,7 @@ def test_ready_noop_missing_image_and_no_silent_repin(
     revision_id = uuid4()
     row = SimpleNamespace(
         id=str(operation_id),
-        generation="nexus",
+        generation="omega",
         state=RuntimeRecipeInstallationState.READY,
         created_at="2026-09-27T23:50:00.000000Z",
         updated_at="2026-09-28T00:00:00.000000Z",
@@ -204,27 +205,25 @@ def test_ready_noop_missing_image_and_no_silent_repin(
         image_id="sha256:" + "a" * 64,
     )
     monkeypatch.setattr(service, "_latest", lambda _generation: row)
-    monkeypatch.setattr(service, "_eligible_ready", lambda _row: True)
     monkeypatch.setattr(
-        "kodi_lab.application.runtime_installations.ManagedInstanceRepository.get",
-        lambda _self, _target: SimpleNamespace(runtime_revision_id=revision_id),
+        service, "_runtime_eligibility", lambda _row: RuntimeEligibility(True)
     )
-    ready = service.start("nexus")
+    ready = service.start("omega")
     assert ready.status == "ready" and ready.action == "open"
     assert ready.created_at == row.created_at
     assert ready.phase_started_at == row.updated_at
     assert ready.completed_at == row.completed_at
-    assert ready.managed_instance_url.startswith("/instances/")  # type: ignore[union-attr]
+    assert ready.managed_instance_url == "/managed-kodi"
     assert not broker.launches
     broker.image_present = False
-    missing = service.list()[1]
+    missing = service.list()[2]
     assert missing.status == "missing" and missing.action == "reacquire"
-    reacquired = service.start("nexus", action="reacquire")
+    reacquired = service.start("omega", action="reacquire")
     assert reacquired.newly_accepted
-    assert service.list()[1].operation_id == reacquired.operation_id
-    assert service.list()[1].phase == "Preparing"
+    assert service.list()[2].operation_id == reacquired.operation_id
+    assert service.list()[2].phase == "Preparing"
     assert row.runtime_revision_id == str(revision_id)
-    assert broker.launches == [("nexus", reacquired.operation_id)]
+    assert broker.launches == [("omega", reacquired.operation_id)]
 
 
 @pytest.mark.parametrize(
@@ -295,7 +294,9 @@ def test_unverified_record_and_image_probe_failure_are_distinct(
     invalid = service._view("omega", row, capable=True)
     assert invalid is not None and invalid.unavailable_code == "runtime_ineligible"
     assert invalid.action == "none"
-    monkeypatch.setattr(service, "_eligible_ready", lambda _row: True)
+    monkeypatch.setattr(
+        service, "_runtime_eligibility", lambda _row: RuntimeEligibility(True)
+    )
 
     def unavailable(_id: str) -> SimpleNamespace:
         raise ConnectionError("private artifact details")

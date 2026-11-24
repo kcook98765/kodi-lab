@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from importlib.resources import files
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +17,6 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeService,
     ExternalBridgeServiceError,
 )
-from kodi_lab.broker.managed_bridge_trust import approved_bridge_build
 from kodi_lab.domain import ExternalBridgePairingState, TargetType
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
@@ -43,8 +44,11 @@ def test_explicit_reverification_adopts_only_the_exact_paired_update(
     factory = create_session_factory(engine)
     target_id = uuid4()
     _seed(factory, target_id)
-    previous = approved_bridge_build(previous=True)
-    current = approved_bridge_build()
+    assets = files("kodi_lab.kodi")
+    previous = json.loads(
+        assets.joinpath("managed_bridge_previous_build.json").read_text()
+    )
+    current = json.loads(assets.joinpath("managed_bridge_build.json").read_text())
     with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
         fake.addon_version = previous["addon_version"]
         fake.build_fingerprint = (

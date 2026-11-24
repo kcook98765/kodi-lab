@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,13 +14,6 @@ import pytest
 from sqlalchemy import delete
 
 from kodi_lab.application.external_bridges import ExternalBridgeServiceError
-from kodi_lab.application.managed_bridge_trust import (
-    ManagedBridgeTrustError,
-    identity_json,
-    require_approved_identity,
-)
-from kodi_lab.broker.managed_bridge_trust import approved_bridge_build
-from kodi_lab.kodi.bridge import BridgeIdentity
 from kodi_lab.kodi.logs import (
     KodiLogRequest,
     KodiLogResult,
@@ -30,15 +22,11 @@ from kodi_lab.kodi.logs import (
     KodiLogScanResult,
 )
 from kodi_lab.kodi.remote import BrowserRemoteAction
-from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.mcp.authorization import McpAuthorizationError
 from kodi_lab.storage.models import (
-    ManagedBridgeTrustRow,
     McpClientTargetGrantRow,
 )
 from tests.application.test_external_bridges import _seed
-from tests.application.test_managed_bridge_trust import setup as setup
-from tests.application.test_managed_observation_bridge import consumer
 from tests.application.test_production_inspection import (
     production_inspection as production_inspection,
 )
@@ -46,7 +34,6 @@ from tests.application.test_production_otp_pairing import _code
 from tests.application.test_production_otp_pairing import (
     production_otp as production_otp,
 )
-from tests.web.conftest import INSTANCE_ID
 from tests.web.conftest import database as database
 
 
@@ -70,57 +57,6 @@ def excerpt(request: KodiLogRequest) -> KodiLogResult:
         partial_first_line=False,
         content=text,
     )
-
-
-@pytest.mark.parametrize("log", ["current", "previous"])
-def test_managed_logs_consume_lifecycle_trust_without_establishing_it(
-    setup: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    log: Any,
-) -> None:
-    owner, broker, client, _ = setup
-    client.value = replace(client.value, capabilities=("ui_observation", "log_read"))
-    owner.prepare(INSTANCE_ID)
-    service, observed = consumer(setup)
-    request = KodiLogRequest.model_validate({"log": log, "mode": "tail"})
-    monkeypatch.setattr(
-        client, "read_log", lambda *a, **k: (client.identity(), excerpt(request))
-    )
-    assert service.read_log(INSTANCE_ID, observed, "21.3", request).content
-    assert broker.establishments == 1
-    client.before_return = lambda: owner.revoke(INSTANCE_ID)
-    with pytest.raises(UiObservationError, match="identity_mismatch"):
-        service.read_log(INSTANCE_ID, observed, "21.3", request)
-    assert broker.establishments == 1
-
-
-def test_managed_log_missing_capability_and_stale_container_fail_closed(
-    setup: Any,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    owner, _, client, _ = setup
-    owner.prepare(INSTANCE_ID)
-    service, observed = consumer(setup)
-    request = KodiLogRequest()
-    monkeypatch.setattr(
-        client,
-        "read_log",
-        lambda *a, **k: pytest.fail("unsupported log read dispatched"),
-    )
-    with pytest.raises(UiObservationError, match="capability_unavailable"):
-        service.read_log(INSTANCE_ID, observed, "21.3", request)
-    client.value = replace(client.value, capabilities=("ui_observation", "log_read"))
-    with owner.sessions.begin() as session:
-        session.get(
-            ManagedBridgeTrustRow, str(INSTANCE_ID)
-        ).identity_json = identity_json(client.value)
-    with pytest.raises(UiObservationError, match="identity_mismatch"):
-        service.read_log(
-            INSTANCE_ID,
-            observed.model_copy(update={"container_id": "b" * 64}),
-            "21.3",
-            request,
-        )
 
 
 @pytest.mark.parametrize("target_type", ["external_production", "external_development"])
@@ -278,49 +214,6 @@ def scan_excerpt(request: KodiLogScanRequest) -> KodiLogScanResult:
     )
 
 
-@pytest.mark.parametrize("failure", [None, "missing_capability", "revoked", "identity"])
-def test_managed_scan_uses_existing_trust_and_rechecks_identity(
-    setup: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    failure: str | None,
-) -> None:
-    owner, broker, client, _ = setup
-    client.value = replace(
-        client.value,
-        capabilities=("ui_observation", "log_read")
-        + (() if failure == "missing_capability" else ("log_scan",)),
-    )
-    owner.prepare(INSTANCE_ID)
-    service, observed = consumer(setup)
-    requested = KodiLogScanBridgeRequest(client_binding="c" * 64)
-    calls = []
-
-    def read(*args: Any, **kwargs: Any) -> Any:
-        calls.append(kwargs["request"])
-        if failure == "revoked":
-            owner.revoke(INSTANCE_ID)
-        identity = (
-            replace(client.value, bridge_id=uuid4())
-            if failure == "identity"
-            else client.value
-        )
-        return identity, scan_excerpt(requested)
-
-    monkeypatch.setattr(client, "read_log", read)
-    if failure:
-        with pytest.raises(
-            UiObservationError,
-            match="capability_unavailable"
-            if failure == "missing_capability"
-            else "identity_mismatch",
-        ):
-            service.read_log(INSTANCE_ID, observed, "21.3", requested)
-    else:
-        assert service.read_log(INSTANCE_ID, observed, "21.3", requested).counts_exact
-    assert len(calls) == (0 if failure == "missing_capability" else 1)
-    assert broker.establishments == 1
-
-
 @pytest.mark.parametrize("target_type", ["external_production", "external_development"])
 def test_real_external_scan_both_files_and_old_bridge_capability(
     production_otp: Any,
@@ -409,27 +302,3 @@ def test_production_scan_mcp_authority_and_publication_fence(
             env.principal, target_id=env.target_id, request=KodiLogScanRequest()
         ).counts_exact
     assert len(calls) == (0 if failure in ("identity", "ungranted") else 1)
-
-
-@pytest.mark.parametrize("release", ["21.3", "22.0-rc.1"])
-def test_pre_scan_bridge_identity_remains_approved_for_established_reads(
-    release: str,
-) -> None:
-    previous = approved_bridge_build(release, log_predecessor=True)
-    identity = BridgeIdentity(
-        bridge_id=uuid4(),
-        protocol_version=previous["protocol_version"],
-        addon_id=previous["addon_id"],
-        addon_version=previous["addon_version"],
-        kodi_version="22.0" if "-" in release else release,
-        kodi_release=release if "-" in release else None,
-        capabilities=("log_read", "ui_observation"),
-        build_fingerprint=previous["build_fingerprint"],
-    )
-    require_approved_identity(identity, release, established=True)
-    with pytest.raises(ManagedBridgeTrustError):
-        require_approved_identity(identity, release)
-    with pytest.raises(ManagedBridgeTrustError):
-        require_approved_identity(
-            replace(identity, build_fingerprint="0" * 64), release, established=True
-        )

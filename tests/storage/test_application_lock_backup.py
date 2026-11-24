@@ -15,7 +15,6 @@ from uuid import uuid4
 import pytest
 
 from kodi_lab import remote_lifecycle as lifecycle
-from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
 from kodi_lab.host_bootstrap import (
     HostBootstrapError,
     generate_master_key,
@@ -29,7 +28,7 @@ from tests.storage.test_remote_lifecycle import _url, repository_migrations
 
 # Keep the existing real migration fixture when running this file independently.
 __all__ = ["migration_templates", "repository_migrations"]
-SCOPES = ("household-onboarding", "managed-agent-lifecycle", "external-reconnect")
+SCOPES = ("household-onboarding", "external-reconnect")
 
 
 @pytest.fixture
@@ -43,7 +42,7 @@ def historical_state(
         generate_master_key(root)
         database = root / lifecycle.DATABASE
         assert not database.exists()
-        migration_templates.clone("0001_initial_release", database)
+        migration_templates.clone("0001_foundation", database)
         # Match the original prefix's umask-created private database permissions.
         database.chmod(0o600)
 
@@ -115,27 +114,6 @@ def test_backup_restore_preserves_held_and_later_application_locks(
                 fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert _dump(root) == before_database
         assert (root / "master-key").read_bytes() == key
-
-
-def test_real_managed_lifecycle_lock_creator_is_backup_compatible(
-    tmp_path: Path,
-    historical_state: Callable[[Path], None],
-) -> None:
-    root = tmp_path / "state"
-    historical_state(root)
-    # Only the lock context is exercised; no lifecycle dependencies are invoked.
-    service = object.__new__(ManagedAgentLifecycleService)
-    service._locks = root / "locks" / "managed-agent-lifecycle"
-    (root / "locks").mkdir(mode=0o700)
-    target_id = uuid4()
-    with service._lock(target_id):
-        identifier = lifecycle.backup(root, _url(root))
-        lock = service._locks / f"{target_id}.lock"
-        original = _identity(lock)
-        with lock.open("r+") as competing, pytest.raises(BlockingIOError):
-            fcntl.flock(competing, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    assert _identity(lock) == original
-    assert lifecycle._verify_backup(root, identifier)["complete"] is True
 
 
 @pytest.mark.parametrize("scope", SCOPES)
@@ -233,7 +211,7 @@ def test_backup_verifier_rejects_archived_application_locks(
     historical_state(root)
     identifier = lifecycle.backup(root, _url(root))
     archive = root / "backups" / identifier
-    lock = _lock(archive, "managed-agent-lifecycle")
+    lock = _lock(archive, "external-reconnect")
     if recorded:
         manifest_path = archive / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
@@ -264,7 +242,7 @@ def test_lock_fixture_keeps_keys_and_database_mutations_private(
         assert database.stat().st_nlink == 1
         with sqlite3.connect(database) as db:
             assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-                "0001_initial_release",
+                "0001_foundation",
             )
     assert (
         _identity(first / lifecycle.DATABASE)[:2]

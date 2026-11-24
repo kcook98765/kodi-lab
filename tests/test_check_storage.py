@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from kodi_lab.snapshot.storage import MIN_FREE_BYTES
+from scripts.validation_tiers import MIN_FREE_BYTES
 
 CHECK = Path(__file__).resolve().parents[1] / "scripts" / "check"
 STOP_BEFORE_PYTEST = 86
@@ -73,7 +73,7 @@ def check_harness(tmp_path: Path) -> CheckHarness:
         "uv": (
             'printf \'%s\\n\' "$*" >> "$CHECK_TEST_UV_LOG"\n'
             'if [[ "$*" == '
-            '*"from kodi_lab.snapshot.storage import MIN_FREE_BYTES"* ]]; then\n'
+            '*"from scripts.validation_tiers import MIN_FREE_BYTES"* ]]; then\n'
             "    printf '%s\\n' \"$CHECK_TEST_SNAPSHOT_MIN_BYTES\"\n"
             "    exit 0\n"
             "fi\n"

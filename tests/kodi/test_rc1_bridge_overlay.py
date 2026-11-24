@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
-from kodi_lab.broker.managed_bridge_trust import approved_bridge_build
 from kodi_lab.kodi.rc1_bridge import (
     build_rc1_bridge_archive,
     reviewed_rc1_bridge_sources,
@@ -31,8 +32,11 @@ def test_candidate_matches_deterministic_archive_and_preserves_stable(
     assert build_rc1_bridge_archive(ROOT, tmp_path / "again.zip") == digest
     assert ADDON_VERSION == "1.1.35"
     assert build_archive(ROOT, tmp_path / "stable.zip") != digest
+    reviewed = json.loads(
+        files("kodi_lab.kodi").joinpath("managed_bridge_preview_build.json").read_text()
+    )
     for name, value in reviewed_rc1_bridge_sources(ROOT).items():
-        expected = approved_bridge_build("22.0-rc.1")["files"].get(name)
+        expected = reviewed["files"].get(name)
         if expected is not None:
             assert hashlib.sha256(value).hexdigest() == expected
 

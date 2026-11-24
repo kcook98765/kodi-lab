@@ -60,10 +60,10 @@ def legacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Legacy:
         pytest.skip("requires root-owned legacy inode")
     old, installed, data, state, old_hash, installed_hash, backup_id = (
         _web_owned_transition_fixture(
-            tmp_path, monkeypatch, old_revision="0001_initial_release"
+            tmp_path, monkeypatch, old_revision="0001_foundation"
         )
     )
-    _revision_identity(installed, "0001_initial_release")
+    _revision_identity(installed, "0001_foundation")
     installed_hash = sha256((installed / "BUNDLE.json").read_bytes())
     # The source test wheel is at 0057; this fixture models the retained A
     # package, whose own reviewed installed head was 0056.

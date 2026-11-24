@@ -6,14 +6,10 @@ initialization commands as the manual installation. It does not install Docker,
 change firewall rules, download Kodi automatically, create agent credentials or
 enable Windows sign-in startup.
 
-Ubuntu 24.04 amd64 and Windows 11 through Ubuntu 24.04 WSL2 with Docker Desktop's
-Linux engine are qualified within their tested scopes. The
-[WSL2/Docker Desktop guide](WINDOWS-WSL2-INSTALL.md) records the
-[accepted Windows workflow](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793),
-including agent-owned development and backup/recovery. Changed upgrade paths
-require separate verification; see [image retention #365](https://github.com/kcook98765/kodi-lab/issues/365).
-Native Windows server execution, macOS, ARM64, WSL1, rootless and remote Docker
-engines are outside this installer path.
+Ubuntu 24.04 amd64 and Windows 11 through Ubuntu 24.04 WSL2 with Docker
+Desktop are qualified within their tested scopes. Use the [Windows guide](WINDOWS-WSL2-INSTALL.md)
+for its installer and Docker integration. Use empty volumes for a fresh site.
+Migration from previous pre-alpha installations is unsupported.
 
 ## Prerequisites
 
@@ -125,32 +121,18 @@ chosen password. Fresh installation records `local-http`; no certificate or
 proxy is needed. Standard noVNC works over HTTP/WebSocket. Cookies retain
 HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
 
-1. From **Overview** (`/kodi`), open **Managed Kodi** (`/managed-kodi`). For a first
-   setup, choose **Create Managed Kodi for this version…** on Omega's card.
-2. Review the checks and select **Install and prepare** once. Downloads and
-   preparation can take several minutes. Setup leaves Kodi stopped by default;
-   select **Return to Managed Kodi versions**, then **Start Kodi**.
-3. Wait for **Running** and **View Screen** to become available, then select
-   **View Screen → Start Viewing**. Viewing starts view-only and needs no agent,
-   Bridge pairing or development workspace. **Take Control** is explicit.
+1. From **Advanced → Reviewed runtime installations**, acquire the exact reviewed
+   Omega 21.3 runtime and wait for **Ready**.
+2. Open **Managed Kodi**, select the generation, and choose **Prepare** and
+   **Start**. Preparation creates the independent working profile and Bridge.
+3. Select **View Screen** for view-only noVNC. **Take Control** requests human
+   input ownership. Release it before agent mutations. **Stop** retains the
+   profile. Save a named snapshot before a destructive Reset if needed.
 
-If that version is already prepared, use **Start Kodi** directly. **Stop Kodi**
-keeps its profile; **Reset Kodi** deliberately discards it. See the
-[managed walkthrough](MANAGED-KODI-WEB.md) for retention and recovery details.
-
-Refresh or return to the page to find the same saved setup. If it is paused,
-use **Check status**, then **Resume setup**; do not start a second installation.
-
-Connecting an agent is optional. Follow the
-[README read-only agent setup](../README.md#connect-your-ai-agent) to choose the
-correct external-production or managed-Kodi policy, grant that specific Kodi and
-protect the once-shown token. Production Inspection is External Production Kodi
-only; Managed Kodi also needs an explicitly assigned compatible policy. Verify
-`target_list`, `target_status` and `addon_list` through the existing localhost HTTP MCP endpoint.
-Local MCP remains available when LAN HTTP Web access is enabled; remote MCP
-requires its own explicit configuration.
-Unauthorized targets must remain absent or denied. Record the client version,
-source commit, runtime version and sanitized result; do not share tokens.
+For agents, issue a private credential with Trusted Managed Lab and use
+[the managed workflow and MCP reference](MCP-TOOLS-AND-PERMISSIONS.md).
+The local endpoint remains available in LAN Web mode. External credentials and
+target grants are administered separately.
 
 To connect an existing Kodi instead, choose **External Production Kodi** for a
 household device or **External Development Kodi** for another development device
@@ -207,27 +189,9 @@ for the relevant environment, and the existing
 [Kodi log tool](KODI-LOGS.md) for supported target diagnostics. Application logs
 and Kodi logs may contain private information; sanitize excerpts before sharing.
 
-## Failure, upgrade and recovery
+## Failure and recovery
 
-Failures leave the destination and `completed_stage` receipt intact. A rerun of
-`install` refuses that directory. The last completed stage does not prove a later
-command had no effect: an interruption may occur after its mutation and before
-the receipt update. Inspect the error, current state and receipt before manually
-continuing. No automatic cleanup, migration retry or rollback runs.
-
-After the `configured` stage, the helper's `compose` action can run the normal
-explicit administrator commands, for example `-- ps` or `-- logs --tail 100`.
-`start` requires a fully completed installation. Before configuration is complete,
-inspect the preserved files and follow the equivalent manual steps. Do not
-delete volumes or rerun `initialize` to bypass a partially initialized database.
-
-For compatible-state backups, restore and future application transitions, use
-[backup and rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
-[state recovery](MANAGED-STATE-RECOVERY.md). The initial schema is
-`0001_initial_release`; unsupported prerelease state is rejected and has no
-conversion path. Keep the original receipt, bundle, private state, runtime
-images and snapshot artifacts. Never edit identity receipts, delete volumes or
-use Docker prune as recovery.
-
-The [manual Linux source steps](LINUX-SOURCE-INSTALL.md) remain available for
-operators who want to perform each action themselves.
+The installer retains the destination and last completed stage. Inspect its
+error and actual state before resuming with the documented command. Use a newly
+allocated directory and volumes for another independent installation. For
+backups and current-schema recovery see [managed-v2 recovery](MANAGED-V2-FRESH-INSTALL.md).

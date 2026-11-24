@@ -116,7 +116,7 @@ def _baseline(root: Path) -> None:
     previous_umask = os.umask(0o077)
     try:
         with packaged_migrations.packaged_config(_url(root)) as config:
-            command.upgrade(config, "0001_initial_release")
+            command.upgrade(config, "0001_foundation")
     finally:
         os.umask(previous_umask)
 
@@ -420,7 +420,7 @@ def test_failed_migration_blocks_startup_and_restore_recovers(
     with pytest.raises(HostBootstrapError, match="incomplete"):
         validate(root, _url(root), require_head=True)
     restored, _ = restore(root, _url(root), receipt["backup_id"], receipt["backup_id"])
-    assert restored == "0001_initial_release"
+    assert restored == "0001_foundation"
 
 
 def test_failed_backup_prevents_migration(
@@ -435,95 +435,8 @@ def test_failed_backup_prevents_migration(
     monkeypatch.setattr("kodi_lab.remote_lifecycle.backup", fail)
     with pytest.raises(RuntimeError, match="injected backup failure"):
         upgrade(root, _url(root))
-    assert _revision(root / "database" / "kodi-lab.db") == "0001_initial_release"
+    assert _revision(root / "database" / "kodi-lab.db") == "0001_foundation"
     assert not (root / ".upgrade-pending.json").exists()
-
-
-def test_rollback_excludes_snapshot_and_preserves_web_artifact_modes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "state"
-    _baseline(root)
-    snapshots = root / "snapshots"
-    snapshots.mkdir(mode=0o750)
-    artifact = snapshots / "broker-owned-proof"
-    artifact.write_bytes(b"snapshot proof")
-    artifact.chmod(0o440)
-    dependency = {
-        "90000000-0000-4000-8000-000000000102": {
-            "manifest.json": "a" * 64,
-            "state.tar": "b" * 64,
-        }
-    }
-    monkeypatch.setattr(
-        remote_lifecycle,
-        "published_snapshot_inventory",
-        lambda _root, *, web_gid: dependency,
-    )
-    zip_root = root / "addon-zips" / "artifacts" / "fixture"
-    zip_root.mkdir(parents=True, mode=0o700)
-    original = zip_root / "original.zip"
-    original.write_bytes(b"zip proof")
-    original.chmod(0o400)
-    zip_root.chmod(0o500)
-    (root / "addon-zips" / "artifacts").chmod(0o700)
-    (root / "addon-zips").chmod(0o700)
-    workspace_tree = root / "agent-workspaces" / "fixture" / "tree"
-    workspace_tree.mkdir(parents=True, mode=0o700)
-    workspace_file = workspace_tree / "addon.xml"
-    workspace_file.write_text("<addon/>")
-    workspace_file.chmod(0o644)
-    workspace_tree.chmod(0o755)
-    (root / "agent-workspaces" / "fixture").chmod(0o755)
-    (root / "agent-workspaces").chmod(0o700)
-    previous, _, identifier = upgrade(root, _url(root))
-    assert identifier is not None
-    backup_root = root / "backups" / identifier
-    assert not (backup_root / "snapshots").exists()
-    assert _verify_backup(root, identifier)["snapshot_dependencies"] == dependency
-    assert (
-        backup_root / "addon-zips" / "artifacts" / "fixture" / "original.zip"
-    ).read_bytes() == b"zip proof"
-    assert (
-        stat.S_IMODE(
-            (backup_root / "addon-zips" / "artifacts" / "fixture").stat().st_mode
-        )
-        == 0o500
-    )
-    restored, _ = restore(root, _url(root), identifier, identifier)
-    assert restored == previous
-    assert artifact.read_bytes() == b"snapshot proof"
-    assert stat.S_IMODE(artifact.stat().st_mode) == 0o440
-    assert original.read_bytes() == b"zip proof"
-    assert stat.S_IMODE(original.stat().st_mode) == 0o400
-    assert workspace_file.read_text() == "<addon/>"
-    assert stat.S_IMODE(workspace_tree.stat().st_mode) == 0o755
-    assert stat.S_IMODE(workspace_file.stat().st_mode) == 0o644
-
-
-def test_rollback_rejects_changed_snapshot_dependencies_before_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "state"
-    _baseline(root)
-    observed = {
-        "90000000-0000-4000-8000-000000000102": {
-            "manifest.json": "a" * 64,
-            "state.tar": "b" * 64,
-        }
-    }
-    monkeypatch.setattr(
-        remote_lifecycle,
-        "published_snapshot_inventory",
-        lambda _root, *, web_gid: observed,
-    )
-    _, current, identifier = upgrade(root, _url(root))
-    assert identifier is not None
-    observed = {}
-    with pytest.raises(HostBootstrapError, match="differ from backup dependency"):
-        restore(root, _url(root), identifier, identifier)
-    assert _revision(root / "database" / "kodi-lab.db") == current
-    assert not (root / ".restore-pending.json").exists()
 
 
 def test_backup_rejects_unsafe_modes_and_unclassified_state(tmp_path: Path) -> None:
@@ -709,7 +622,7 @@ def test_clean_recovery_wrong_key_and_interruption_fail_closed(
         validate(fresh, _url(fresh))
 
 
-def test_clean_recovery_rejects_untrusted_snapshot_root(tmp_path: Path) -> None:
+def test_clean_recovery_rejects_unclassified_volume_paths(tmp_path: Path) -> None:
     old = tmp_path / "old"
     initialize(old, _url(old))
     identifier = backup(old, _url(old))
@@ -719,7 +632,7 @@ def test_clean_recovery_rejects_untrusted_snapshot_root(tmp_path: Path) -> None:
     shutil.copytree(old / "backups" / identifier, fresh / "backups" / identifier)
     snapshots = fresh / "snapshots"
     snapshots.symlink_to(old / "database", target_is_directory=True)
-    with pytest.raises(HostBootstrapError, match="ownership is unsafe"):
+    with pytest.raises(HostBootstrapError, match="requires empty application state"):
         recover_clean(fresh, _url(fresh), identifier, identifier)
     assert not (fresh / ".recovery-pending.json").exists()
 
@@ -732,7 +645,7 @@ def test_onboarding_locks_allow_forward_backup_upgrade_and_restore(
     previous_umask = os.umask(0o077)
     try:
         with packaged_migrations.packaged_config(_url(root)) as config:
-            command.upgrade(config, "0001_initial_release")
+            command.upgrade(config, "0001_foundation")
     finally:
         os.umask(previous_umask)
     lock_root = root / "locks"
@@ -749,11 +662,11 @@ def test_onboarding_locks_allow_forward_backup_upgrade_and_restore(
     # or the old repository candidate identity.
     first_backup = backup(root, _url(root))
     manifest = _verify_backup(root, first_backup)
-    assert manifest["revision"] == "0001_initial_release"
+    assert manifest["revision"] == "0001_foundation"
     assert not (root / "backups" / first_backup / "locks").exists()
 
     previous, current, identifier = upgrade(root, _url(root))
-    assert previous == "0001_initial_release"
+    assert previous == "0001_foundation"
     assert current == _head_revision()
     assert identifier is not None
     later_lock = onboarding / f"{uuid4()}.lock"

@@ -7527,7 +7527,7 @@ START operation and mutation lease. The broker resolves it through the lease's
 operation ID and validates a one-use opaque request proof, exact identity and
 fresh resource admission before dispatch. A generic START receipt cannot authorize
 this path. Existing development Start remains strict; ordinary readiness is
-native-only. See [the contract](ORDINARY-MANAGED-START.md).
+native-only. See [the contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## Durable Create intent foundation (issue #196, milestone 1)
 
@@ -7538,7 +7538,7 @@ is checkpointed before a child call, and missing receipts never permit another
 dispatch. Uncertain and completed history cannot be reset or retried by this
 foundation. Parent references protect lifecycle receipts from normal pruning.
 There is no executor or public API in milestone 1, and parent intent does not
-grant broker/lifecycle authority. See [the contract](CREATE-KODI-FOUNDATION.md).
+grant broker/lifecycle authority. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-FOUNDATION.md).
 
 ## Installation-only Create integration (issue #196, milestone 2A)
 
@@ -7550,7 +7550,7 @@ explicit recovery retains the original UUID: undispatched refusals can continue,
 and uncertainty can consume only a verified original terminal receipt. Verified
 failures remain final; new attempts need a separate retained-history design.
 No schema, broker contract/authority, runner, Web API or later Create execution
-is added. See [the contract](CREATE-KODI-INSTALLATION.md).
+is added. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-INSTALLATION.md).
 
 ## Exact Create registration and provision (issue #196, milestone 2B)
 
@@ -7561,7 +7561,7 @@ ownership remains active; parent success and the terminal child receipt commit
 together, retaining the precise post-release projection revision. Uncertainty
 never authorizes another child or container adoption. No schema, broker authority,
 Start/readiness, API, wizard or generic workflow changes are added. See
-[the contract](CREATE-KODI-REGISTRATION-PROVISIONING.md).
+[the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-REGISTRATION-PROVISIONING.md).
 
 ## Exact Create managed Start (issue #196, milestone 2C)
 
@@ -7573,7 +7573,7 @@ and uncertainty never permits another Start or UUID. Retained mode or an existin
 legacy broker limit of one supplies atomic one-active admission. Start confirmation
 remains separate from final native readiness, viewing and optional Bridge/agent
 capability. No migration, broker authority/protocol, API, wizard or runner is added.
-See [the contract](CREATE-KODI-START.md).
+See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-START.md).
 
 ## Create first-install capacity compatibility (issue #196)
 
@@ -7597,7 +7597,7 @@ an explicit new versioned read-only probe of a Dispatched parent, retaining its
 fixed correlation and all mutation child IDs. Interrupted or nonusable probes
 never replay lifecycle work, and historical completion never starts Kodi again.
 No schema, broker authority, general retry engine, API, runner, wizard or Bridge
-preparation is added. See [the contract](CREATE-KODI-READINESS.md).
+preparation is added. See [the contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-READINESS.md).
 
 ## Authenticated Create intent and reconnect (issue #196, milestone 3A)
 
@@ -7610,7 +7610,7 @@ Status/reconnect expose fixed browser-safe fields and exact-instance inventory
 availability, not child receipts, proofs or runtime authority. GETs never execute
 or resolve a stage. There is no new schema, approval/session system, broker
 authority, runner, continuation endpoint or wizard. The future runner must retain
-the single approved Create scope. See [the API contract](CREATE-KODI-API.md).
+the single approved Create scope. See [the API contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-API.md).
 
 ## Bounded internal Create continuation (issue #196, milestone 3B1)
 
@@ -7622,7 +7622,7 @@ without another mutation or container-based success inference. Existing narrow
 read-only installation/registration confirmation and native readiness rechecks
 retain original identities. No refusal reset, general recovery, scheduler,
 schema, broker authority, endpoint or wizard is introduced. See
-[the runner contract](CREATE-KODI-RUNNER.md).
+[the runner contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-RUNNER.md).
 
 ## Protected Create continuation (issue #196, milestone 3B2)
 
@@ -7634,7 +7634,7 @@ status rather than redispatch. Snapshot next-action guidance never drives work.
 Verified runtime files without canonical registration are reusable prerequisites,
 not a demand to redownload; registration keeps its existing stage admission.
 No schema, broker authority, queue, scheduler, wizard or passive execution is
-added. See [the API contract](CREATE-KODI-API.md).
+added. See [the API contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-API.md).
 
 ## Guided ordinary Create Kodi (issue #196, milestone 4A)
 
@@ -7646,7 +7646,7 @@ other-tab changes and reloads pause for status/Resume; Needs attention never
 replays mutations. Native completion and current availability stay separate;
 Open screen uses the existing exact-instance viewer and stopped history links to
 normal Start controls. No scheduler, migration, authority, Bridge/agent preparation
-or development selection is added. See [the UI contract](CREATE-KODI-WIZARD.md).
+or development selection is added. See [the UI contract](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/CREATE-KODI-WIZARD.md).
 
 
 ## Managed setup and running capacity (2026-11-05)
@@ -7690,7 +7690,7 @@ singleton paths remain; conflicting resources must be reviewed explicitly.
 The current reviewed recipes define the four canonical logical slot identities.
 Version-oriented lifecycle coordination, separate destructive MCP authority and
 the four-action Web/MCP experience remain follow-up work, documented in
-[the audit and delivery scope](ISSUE-238-MANAGED-SLOTS.md).
+[the audit and delivery scope](MANAGED-V2-FRESH-INSTALL.md).
 
 
 ## Version-oriented agent lifecycle (issue #238, phase 2, 2026-11-06)
@@ -7714,7 +7714,7 @@ running admission cap remains one.
 
 Do not silently migrate old profiles. Automatic switching, separately authorized
 destructive Reset and four-version ordinary Web controls remain subsequent
-phases. See [the lifecycle contract](MANAGED-VERSION-LIFECYCLE.md).
+phases. See [the lifecycle contract](MANAGED-V2-FRESH-INSTALL.md).
 
 
 ## Agent-controlled clean Reset (issue #238, phase 3, 2026-11-06)
@@ -7742,7 +7742,7 @@ admission. Late screenshot publication checks the original observation token
 inside its writer transaction. Default Reset leaves a new stopped clean profile;
 optional Start remains separate from native and Bridge/agent readiness. Do not
 automatically switch versions or redesign ordinary Web controls in this phase.
-See [the clean Reset contract](MANAGED-CLEAN-RESET.md).
+See [the clean Reset contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## 2026-11-06 — Ordinary managed Kodi Web controls (#238 Phase 4)
 
@@ -7807,7 +7807,7 @@ inside the existing per-card disclosure. Keep its separate confirmation dialog,
 checkbox and focus restoration. Recovery, failure/protection messages, pending
 requests and Reset trust warnings stay primary even while Advanced is collapsed.
 No lifecycle, MCP, Preview, database, runtime or external-page changes. See the
-[DOM/receipt review and presentation contract](MANAGED-CONTROLS.md).
+[DOM/receipt review and presentation contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0482: External Production presentation follows recorded trust and ownership
 
@@ -8033,7 +8033,7 @@ Start or Reset. Existing profiles retain ordinary lifecycle behavior; Reset
 still invalidates trust and has the explicit retained repair route. No agent
 permission, preset, policy, grant or external operation is added.
 
-See [architecture and native acceptance boundary](MANAGED-BRIDGE-PREPARATION.md).
+See [architecture and native acceptance boundary](https://github.com/kcook98765/kodi-lab/blob/919357eabb06206af86533696221da5d1e5dac73/docs/MANAGED-BRIDGE-PREPARATION.md).
 
 ## D-0492: Trusted Managed Lab is an independent managed-only role
 
@@ -8070,7 +8070,7 @@ input rate budget; completed/ambiguous receipts replay before new admission.
 Expired or unresolved interactive ownership remains fenced until native release
 is proven. Current agent authority is rechecked at actual managed dispatch.
 No keys are buffered or replayed on human release, and external authority is
-unchanged. See [GUI priority and qualification boundary](MANAGED-GUI-PRIORITY.md).
+unchanged. See [GUI priority and qualification boundary](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0495: Private project file creation may create bounded parent directories
 
@@ -8120,7 +8120,7 @@ retain capacity, input, hold, playback and uncertainty fences. Default final sta
 is stopped. Explicit Bridge recovery uses the original Reset and preparation
 version; it cannot create another Reset, and completed recovery replays no child.
 Human/legacy native-only Reset consent is unchanged; #302's human composition
-remains open. See [agent Reset contract](MANAGED-AGENT-RESET.md).
+remains open. See [agent Reset contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0499: Original package testing composes reviewed native delivery
 
@@ -8156,7 +8156,7 @@ human-approved repository publication and external-target authority separately.
 A future repository consumer needs supported pre-execution package/dependency
 pinning, explicit consent semantics, ownership and durable replay evidence;
 post-install readback cannot retroactively authorize an unintended selection.
-See [the feasibility decision and supported agent loop](MANAGED-ADDON-INSTALLATION.md).
+See [the feasibility decision and supported agent loop](MANAGED-V2-FRESH-INSTALL.md).
 
 ## 2026-11-12: Bounded owned source transfer for managed development (#339)
 
@@ -8317,3 +8317,28 @@ force/adoption/deletion operation or native acceptance is introduced.
 Migration 0018 adds bounded retained review history without changing prior rows;
 lossy downgrade refuses populated history. Details and administrator limitations
 are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).
+
+## D-0505: Managed-v2 keeps one interrupted operation at the broker boundary
+
+- Status: experimental on the managed-v2 branch under #405.
+- Decision: Keep Docker, profile writes and the managed Narrow Bridge client in a
+  single controller inside the restricted broker. Authorize closed operations
+  using the frontend socket identity and bearer scope. Use one profile pointer
+  and one last-operation record per managed state root. Recover by inspecting
+  current resources and reconciling staged writes. Leave an interrupted native
+  install unconfirmed unless the broker durably recorded the verified result.
+- Reason: The current profile and owned resources are sufficient to recover
+  ordinary interruptions. Container history and selected development sessions
+  have no role in the replacement.
+
+## D-0506 Managed Web and MCP share the Omega broker
+
+- Status: Stage 3 checkpoint on the draft managed-v2 branch.
+- Decision: Use the existing Web session and MCP credential checks before
+  forwarding a principal over the exact-UID broker socket. Keep a single
+  expiring claim on the shared working profile. Workspace, package and saved
+  snapshot storage are scoped to the client ID. Routine managed pages use
+  direct broker replies and omit container and selected-session identities.
+- Scope: Omega. Shared external services use the existing independent target
+  authority. The older migration graph and advanced managed paths require a
+  separate cutover before promoting managed-v2.

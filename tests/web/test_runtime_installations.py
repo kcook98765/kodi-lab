@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_eligibility import RuntimeEligibility
 from kodi_lab.application.runtime_installations import (
     REQUIRED_OPERATIONS,
     RuntimeInstallationService,
@@ -19,7 +20,7 @@ from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
-from .conftest import IMAGE_ID, INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
+from .conftest import IMAGE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 
 
 class Flow:
@@ -100,7 +101,6 @@ def test_remote_only_page_has_four_unavailable_choices(
     assert "data-install-action" not in primary
     assert "Piers" in primary
     assert "several GB of Docker storage" in primary
-    assert "Each step requires a separate action" in primary
     assert 'data-instance-action="start"' not in primary
 
 
@@ -168,7 +168,9 @@ def test_failed_retry_missing_reacquire_and_managed_link(
     flow = Flow()
     flow.attach(broker)
     monkeypatch.setattr(
-        RuntimeInstallationService, "_eligible_ready", lambda _self, _row: True
+        RuntimeInstallationService,
+        "_runtime_eligibility",
+        lambda _self, _row: RuntimeEligibility(True),
     )
     token = login(client)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
@@ -183,39 +185,22 @@ def test_failed_retry_missing_reacquire_and_managed_link(
     assert retried.status_code == 202
     flow.operation_id = None
     flow.generation = None
-    ready_id = seed_installation(database, "nexus", ready=True)
-    incomplete = client.get(f"/api/runtime-installations/{ready_id}").json()
-    assert incomplete["status"] == "setup_incomplete"
-    assert incomplete["action"] == "none"
-    assert "rerun the reviewed runtime installer" in incomplete["note"]
-    repair = client.post(
-        "/api/runtime-installations/nexus?action=retry", headers=headers
-    )
-    assert repair.status_code == 409
-    flow.operation_id = None
-    flow.generation = None
+    ready_id = seed_installation(database, "omega", ready=True)
+    linked = client.get(f"/api/runtime-installations/{ready_id}").json()
+    assert linked["status"] == "ready"
+    assert linked["action"] == "open"
+    assert linked["managed_instance_url"] == "/managed-kodi"
+    assert "Open Managed Kodi" in client.get("/runtimes").text
     flow.present = False
     missing = client.get(f"/api/runtime-installations/{ready_id}").json()
     assert missing["status"] == "missing" and missing["action"] == "reacquire"
     reacquired = client.post(
-        "/api/runtime-installations/nexus?action=reacquire", headers=headers
+        "/api/runtime-installations/omega?action=reacquire", headers=headers
     )
     assert reacquired.status_code == 202
     with database() as session:
         row = RuntimeRecipeInstallationRepository(session).get(ready_id)
         assert row is not None and row.runtime_revision_id == str(REVISION_ID)
-    flow.operation_id = None
-    flow.generation = None
-    flow.present = True
-    # Existing canonical managed-instance identity is resolved to a page link.
-    monkeypatch.setattr(
-        "kodi_lab.application.runtime_installations.recipe_target_id",
-        lambda _reviewed: INSTANCE_ID,
-    )
-    linked = client.get(f"/api/runtime-installations/{ready_id}").json()
-    assert linked["action"] == "open"
-    assert linked["managed_instance_url"] == f"/instances/{INSTANCE_ID}"
-    assert "Open managed instance" in client.get("/runtimes").text
 
 
 def test_unverified_ready_row_never_becomes_a_ready_install_action(

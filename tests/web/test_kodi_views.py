@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from datetime import UTC, datetime
-from html import escape
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -14,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import event, select
+from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
@@ -42,7 +40,6 @@ from kodi_lab.storage.models import (
     ExternalScreenshotPreferenceRow,
     HouseholdOnboardingRow,
     ReviewedBridgeBuildRow,
-    TargetRow,
 )
 from tests.application.test_production_bridges import _Verifier
 from tests.web.conftest import (
@@ -396,7 +393,6 @@ def test_views_do_not_mutate_or_probe(
             context.external_bridges,
             ["reverify", "attempt_pairing", "capture_screenshot"],
         ),
-        (context.status, ["list_statuses"]),
     ]:
         for name in names:
             monkeypatch.setattr(service, name, forbidden)
@@ -426,85 +422,6 @@ def test_views_do_not_mutate_or_probe(
         for s in statements
         if re.match(r"\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b", s, re.I)
     ]
-
-
-def test_multiple_household_and_development_separation(
-    client: TestClient,
-    database: sessionmaker[Session],
-    household: UUID,
-) -> None:
-    login(client)
-    service = cast(
-        ExternalTargetAdministrationService,
-        cast(FastAPI, client.app).state.kodi_lab.production_targets,
-    )
-    second = service.register(
-        logical_name="Bedroom",
-        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
-        host="192.168.50.41",
-        port=8080,
-        authentication_mode=ExternalAuthenticationMode.NONE,
-        configured_capabilities={"target_inspect"},
-    )
-    client.cookies.set("kodi_lab_admin_view", "development")
-    page = client.get("/production-targets").text
-    assert page.count('class="kodi-panel"') == 2
-    assert page.index("Bedroom") < page.index("Living room")
-    assert f'href="/kodi/{second.target_id}"' in page
-    with database() as session:
-        managed_name = session.scalar(
-            select(TargetRow.name).where(TargetRow.id == str(INSTANCE_ID))
-        )
-    assert managed_name is not None and escape(managed_name) not in page
-    overview = client.get("/kodi").text
-    assert "Living room" not in overview and "Bedroom" not in overview
-    assert 'data-slot="' not in overview
-    managed_page = client.get("/managed-kodi").text
-    assert managed_page.count('class="managed-slot"') == 4
-    assert "Current Managed Kodi" in managed_page
-    assert 'href="/development-session"' in managed_page
-    assert "Living room" not in managed_page and "Bedroom" not in managed_page
-    assert "<script>not markup</script>" not in page
-    # Save real controller-rendered fixture HTML only when explicitly requested
-    # by the browser validation runner. Never touches persistent preview data.
-    if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
-        root = Path(evidence)
-        root.mkdir(parents=True, exist_ok=True)
-        # Keep the escaping assertion above, then use a representative friendly
-        # managed name for the separate browser evidence fixture.
-        with database.begin() as session:
-            managed = session.get(TargetRow, str(INSTANCE_ID))
-            assert managed is not None
-            managed.name = "Managed test Kodi"
-        page = client.get("/kodi").text
-        routes = {
-            "/kodi": page,
-            f"/kodi/{household}": detail(client, household),
-            f"/kodi/{second.target_id}": detail(client, second.target_id),
-        }
-        with database.begin() as session:
-            bridge = session.get(ExternalBridgePairingRow, str(household))
-            assert bridge is not None
-            bridge.reachability_state = ExternalBridgeReachabilityState.UNREACHABLE
-        routes["/fixture/disconnected"] = detail(client, household)
-        routes["/fixture/disconnected-list"] = client.get("/kodi").text
-        with database.begin() as session:
-            bridge = session.get(ExternalBridgePairingRow, str(household))
-            assert bridge is not None
-            bridge.reachability_state = (
-                ExternalBridgeReachabilityState.IDENTITY_MISMATCH
-            )
-        routes["/fixture/attention"] = detail(client, household)
-        routes["/fixture/attention-list"] = client.get("/kodi").text
-        with database.begin() as session:
-            bridge = session.get(ExternalBridgePairingRow, str(household))
-            preference = session.get(ExternalScreenshotPreferenceRow, str(household))
-            assert bridge is not None and preference is not None
-            bridge.reachability_state = ExternalBridgeReachabilityState.REACHABLE
-            preference.enabled = False
-            preference.revision += 1
-        routes["/fixture/screenshots-disabled"] = detail(client, household)
-        (root / "fixture-routes.json").write_text(json.dumps(routes))
 
 
 def test_administration_priorities_and_pending_identity(

@@ -101,7 +101,7 @@ See [manifest entry launch](MANIFEST-ENTRY-LAUNCH.md).
 
 The managed lifecycle tools require explicit `managed.lifecycle` opt-in and exact
 managed-target grants; they never provision or manage external targets. See
-[resource controls](MANAGED-KODI-RESOURCES.md). Batch import requires source
+[resource controls](MANAGED-V2-FRESH-INSTALL.md). Batch import requires source
 inspection and workspace edit authority; see [batch import](WORKSPACE-BATCH-IMPORT.md).
 Optional post-action UI observations and `screenshot_retrieve` are initially
 managed-development only and preserve exact capture identity and current

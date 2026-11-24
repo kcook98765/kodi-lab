@@ -47,6 +47,7 @@ from kodi_lab.kodi.external import (
     ExternalKodiProbeResult,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
 from kodi_lab.mcp import transport as transport_module
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import build_mcp_tool_registry
@@ -266,7 +267,7 @@ def test_transport_precomputation_failure_preserves_real_receipts_and_reachabili
         transport = transport_module.build_mcp_http_transport(
             authentication=cast(Any, None),
             authorization=cast(Any, None),
-            registry=cast(Any, None),
+            managed=ManagedBrokerClient(tmp_path / "managed.sock"),
             tools=cast(Any, tools),
         )
         entry = transport.server.get_request_handler("tools/call")
@@ -707,9 +708,6 @@ def test_bridge_receipt_completion_failure_is_bounded_at_mcp_and_observer_bounda
         tools = McpTargetToolService(
             factory,
             cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
             production_screenshots=screenshots,
         )
         request_id = uuid4()
@@ -955,10 +953,6 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         assert principal is not None
         adapters = KodiTargetAdapterService(
             factory,
-            managed_status=cast(Any, None),
-            managed_inventory=cast(Any, None),
-            managed_remote=cast(Any, None),
-            managed_authority=cast(Any, None),
             endpoint_policy=ExternalEndpointPolicy(
                 allowed_ports=(8080,), test_loopback_enabled=True
             ),
@@ -972,9 +966,6 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         tools = McpTargetToolService(
             factory,
             authorization,
-            cast(Any, None),
-            cast(Any, None),
-            cast(Any, None),
             target_adapters=adapters,
             production_screenshots=screenshots,
         )

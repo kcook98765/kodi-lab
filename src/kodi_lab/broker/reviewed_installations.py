@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.preview import (
     PreviewAcknowledgement,
     admission_evidence,
@@ -28,6 +29,7 @@ from kodi_lab.runtime.preview import (
 )
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
+    load_installation_recipe,
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
@@ -191,6 +193,23 @@ def _installation_mounts_match(
             ):
                 return False
             expected[development] = ("bind", source, False)
+    managed_destination = "/var/lib/kodi-lab-managed"
+    if broker and isinstance(mounts, list):
+        managed_mounts = [
+            m
+            for m in mounts
+            if isinstance(m, dict) and m.get("Destination") == managed_destination
+        ]
+        if managed_mounts:
+            name = managed_mounts[0].get("Name")
+            if (
+                len(managed_mounts) != 1
+                or not isinstance(name, str)
+                or re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", name) is None
+                or name in {state_volume, lock_volume}
+            ):
+                return False
+            expected[managed_destination] = ("volume", name, True)
     binds = host.get("Binds")
     structured = host.get("Mounts")
     if broker and structured:
@@ -646,6 +665,15 @@ class DockerReviewedInstallationWorker:
                     )
                 except ValueError:
                     return False
+                if digest == load_installation_recipe(row.generation).digest:
+                    try:
+                        selected = (
+                            self._runtime_root / reviewed_image_file(row.generation)
+                        ).read_text()
+                    except FileNotFoundError:
+                        return False
+                    if selected != image_id:
+                        return False
             client = self._client()
             try:
                 try:

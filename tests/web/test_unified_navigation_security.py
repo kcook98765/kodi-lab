@@ -177,17 +177,14 @@ def test_discoverable_presets_do_not_bypass_production_or_custom_ceilings(
 
 
 @pytest.mark.parametrize("cookie", [None, "invalid"])
-@pytest.mark.parametrize("action", ["install", "create"])
 def test_absent_or_invalid_view_cookie_never_supplies_preview_consent(
-    client: TestClient, broker: FakeBroker, cookie: str | None, action: str
+    client: TestClient, broker: FakeBroker, cookie: str | None
 ) -> None:
     flow = preview_flow(broker)
     if cookie is not None:
         client.cookies.set("kodi_lab_admin_view", cookie)
-    path = "/api/runtime-installations/piers" + (
-        "/instances" if action == "create" else ""
-    )
-    body = approval(action)
+    path = "/api/runtime-installations/piers"
+    body = approval("install")
     assert client.post(path, json=body, headers=ORIGIN).status_code == 401
     csrf = login(client)
     assert client.post(path, json=body, headers=ORIGIN).status_code == 403
@@ -199,5 +196,5 @@ def test_absent_or_invalid_view_cookie_never_supplies_preview_consent(
     )
     assert not flow.launches
     result = client.post(path, json=body, headers=headers)
-    assert result.status_code == (202 if action == "install" else 409)
+    assert result.status_code == 202
     assert client.post(path, json={}, headers=headers).status_code == 422
