@@ -368,3 +368,30 @@ def test_mixed_archive_admission_and_service_consent(
     monkeypatch.setattr(controller, "installed", lambda _addon: None)
     with pytest.raises(Refusal, match="service_activation_consent_required"):
         controller.install(artifact.id, artifact.version, artifact.digest)
+
+
+def test_takeover_recovers_interrupted_snapshot_in_original_namespace(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    archived = controller.actor_snapshots(actor).root
+    stage = ".stage-" + ("a" * 32)
+    (controller.snapshots.root / stage).write_bytes(b"unrelated admin staging")
+    (archived / stage).write_bytes(b"interrupted agent snapshot")
+
+    def interrupted_save(*, name: str) -> None:
+        controller.checkpoint("snapshot_staging", snapshot=name, archive=stage)
+        raise InterruptedError
+
+    controller.actions["snapshot_save"] = interrupted_save
+    with pytest.raises(InterruptedError):
+        controller.perform("snapshot_save", {"name": "Partial"}, actor=actor)
+    restarted = Controller(root)
+    restarted.perform("managed_take_control", {}, actor="admin")
+    restarted.perform("managed_recover", {}, actor="admin")
+    assert not (archived / stage).exists()
+    assert (restarted.snapshots.root / stage).read_bytes() == b"unrelated admin staging"
