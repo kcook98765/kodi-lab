@@ -8,8 +8,6 @@ import base64
 import json
 import shutil
 import socket
-import subprocess
-import sys
 import time
 import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
@@ -20,8 +18,12 @@ import httpx2
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 
+from .broker import BrokerClient
 from .controller import Controller
+from .interruption_check import interruptions
+from .native_processes import processes
 from .packages import sha
+from .protocol import Refusal
 from .runtime import BRIDGE, IMAGE, atomic, docker, wait_until
 
 ROOT_ADDON = "script.labnative.probe"
@@ -95,7 +97,14 @@ def skin_candidate(runtime, root, version):
     return Controller(root).packages.workspace_package(SKIN)
 
 
-async def native_run(root, fixtures, no_skin=False, skin_only=False):
+async def native_run(
+    root,
+    fixtures,
+    no_skin=False,
+    skin_only=False,
+    interrupt_only=False,
+    third_party=None,
+):
     controller = Controller(root)
     runtime = controller.runtime
     evidence = root / "evidence"
@@ -128,29 +137,20 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/mcp"
-    with (evidence / "server.log").open("wb") as serverlog:
-        server = subprocess.Popen(
-            [
-                sys.executable,
-                "-B",
-                "-m",
-                "experiments.managed_v2.server",
-                str(root),
-                "--port",
-                str(port),
-            ],
-            stdout=serverlog,
-            stderr=serverlog,
-        )
+    with processes(root, port, evidence) as processes_:
         try:
-            await asyncio.to_thread(
-                wait_until,
-                lambda: (root / "observer.token").exists(),
-                10,
-                "mcp_server_wait",
+            owner_token = (root / "owner.token").read_text()
+            try:
+                BrokerClient(processes_.endpoint).request(owner_token, "authorize", {})
+            except Refusal as denied_peer:
+                assert str(denied_peer) == "operation_outcome_unconfirmed"
+            else:
+                raise AssertionError("broker accepted a non-frontend UID")
+            atomic(
+                evidence / "broker-peer-denial.txt",
+                b"Socket owner UID denied despite a valid bearer.\n",
             )
-            await asyncio.sleep(0.25)
-            async with session(url, (root / "owner.token").read_text()) as owner:
+            async with session(url, owner_token) as owner:
 
                 async def call(tool, args=None, *, required=True, client=owner):
                     started = time.monotonic()
@@ -236,6 +236,41 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
                         "same-version 1.1.0 before=snapshot-sentinel deps=a+leaf,b"
                     )
 
+                if interrupt_only:
+
+                    async def competing_call():
+                        async with session(
+                            url, (root / "owner.token").read_text()
+                        ) as peer:
+                            return await call(
+                                "managed_reset", required=False, client=peer
+                            )
+
+                    third = None
+                    if third_party:
+                        data = third_party.read_bytes()
+                        assert sha(data) == (
+                            "b1b099c3ac48f12c475c13c177420578"
+                            "a38b2beb1446dda0e73150e7469563a1"
+                        )
+                        third = p.approve(data)
+                        assert (third.id, third.version) == (
+                            "script.globalsearch",
+                            "9.0.7",
+                        )
+                    await interruptions(
+                        root,
+                        processes_,
+                        call,
+                        install,
+                        launch,
+                        a,
+                        p.approve(update),
+                        lambda: skin_candidate(runtime, root, "1.0.0"),
+                        competing_call,
+                        third,
+                    )
+                    return
                 if skin_only:
                     await call("managed_prepare")
                     await call("managed_start")
@@ -281,6 +316,20 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
                 runtime_ids.append(runtime.inspect()["Id"])
                 credential = json.loads(
                     (runtime.credentials / "state.json").read_text()
+                )
+                async with httpx2.AsyncClient(trust_env=False) as noauth:
+                    direct = await noauth.post(
+                        f"http://{runtime.address()}:8080/jsonrpc",
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "Application.GetProperties",
+                        },
+                    )
+                    assert direct.status_code == 401
+                atomic(
+                    evidence / "raw-rpc-denial.txt",
+                    b"Direct unauthenticated RPC: 401\n",
                 )
                 status = await call("managed_status")
                 assert (
@@ -437,8 +486,7 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
                     json.dumps(runtime_ids, indent=2).encode(),
                 )
         finally:
-            server.terminate()
-            server.wait(timeout=12)
+            processes_.close()
             if runtime.pointer.exists():
                 path = runtime.profile() / "temp/kodi.log"
                 if path.exists():
@@ -476,6 +524,9 @@ async def native_run(root, fixtures, no_skin=False, skin_only=False):
                             evidence / "native-catalog.json", json.dumps(rows).encode()
                         )
             runtime.cleanup_trial()
+            for key in ("owner", "observer"):
+                (root / (key + ".token")).unlink(missing_ok=True)
+            (root / "qualification-fault").unlink(missing_ok=True)
             final = docker("ps", "-q", "--no-trunc").splitlines()
             labels = f"label=io.kodi-lab.managed-v2={runtime.target}"
             cleanup = {
@@ -501,10 +552,17 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--no-skin", action="store_true")
     group.add_argument("--skin-only", action="store_true")
+    group.add_argument("--interrupt-only", action="store_true")
+    parser.add_argument("--third-party-zip", type=Path)
     args = parser.parse_args()
     asyncio.run(
         native_run(
-            args.state.resolve(), args.fixtures.resolve(), args.no_skin, args.skin_only
+            args.state.resolve(),
+            args.fixtures.resolve(),
+            args.no_skin,
+            args.skin_only,
+            args.interrupt_only,
+            args.third_party_zip,
         )
     )
 

@@ -1,33 +1,41 @@
-# Managed Kodi v2 Omega proof of concept
+# Managed Kodi v2 on Omega
 
-This fresh-state experiment runs a reviewed, unmodified Kodi 21.3 image with one named working profile volume and replaceable containers. It is an independent entry point on the managed-v2 development branch. The existing deployed Web, MCP, broker and external Kodi routes do not invoke it.
+This fresh-install lane runs unmodified Kodi 21.3 with one independent writable profile volume, replaceable containers, and a private feed. It is an experimental entry point for the replacement tracked in [#405](https://github.com/kcook98765/kodi-lab/issues/405).
 
-A private local controller owns a fixed Docker image, an isolated network, one Kodi container and a static feed. Its small MCP surface accepts an owner bearer or a read-only observer bearer on loopback. Native installation uses the current Narrow Bridge wire protocol and signature verification with a managed-only system add-on entry point. The baseline mounts the reviewed Bridge core, the closed resident operation and the managed repository as system assets. Per-run keys are outside the profile.
+## Process boundary
 
-Use a trusted disposable Linux host with the reviewed Omega OCI image already present, the locked Kodi Lab development environment, UID 1000, a reachable private Docker bridge, and disk headroom on the Docker and workspace filesystems. Start with an empty, mode-0700 state directory. Keep this proof separate from existing installs and run one test environment at a time.
+The Docker-capable broker owns the private state directory and runs the single lifecycle controller. The loopback Streamable HTTP MCP process sends closed requests over a Unix socket. The socket lives in a broker-owned directory and admits the configured frontend UID. The broker independently checks the bearer scope, operation name, and argument shape. Run the frontend as a distinct account with no Docker group membership and no private broker state mounts. Provision the socket group so the broker can set it and the frontend can connect. The separate broker process lock prevents accidental replacement of a live socket. One nonblocking mutation lock protects each operation.
+
+Kodi uses a Docker-reserved singleton name, the pinned image identity, an internal network, and an ownership-labelled profile volume. Native JSON-RPC uses a fresh HTTP credential. The managed Bridge uses a separate per-boot key and the existing signed Bridge protocol. The private repository and reviewed Bridge are system assets. Profile capture excludes Bridge authority and the native HTTP password.
+
+## Operations and recovery
+
+- Start checks the volume and waits for the actual Kodi version and authenticated Bridge identity. Stop checks clean native exit and removes the container. The one working profile survives container removal. Reset and snapshot restore stage a new profile and switch the pointer only after validating the replacement.
+- Save and Load require stopped Kodi. Save publishes an archive and digest metadata. Load checks the exact image, compressed digest, archive membership, profile settings, and database integrity. Named archives and agent source workspaces have independent lifetimes.
+- Import a bounded ZIP, package the owned workspace, or have an operator admit pinned repository bytes. One install request selects the exact ID, version, origin and SHA-256 from the private feed. Kodi resolves dependencies and applies updates or same-version replacement. The broker checks enabled state, repository origin and installed bytes. Direct deployment operates on a stopped profile and preserves userdata.
+- For a non-Estuary skin, the controller stops Kodi, records the saved skin settings, and atomically changes the selection. It restarts on Estuary, installs, and then restores and verifies the previous skin.
+- `managed_status` shows observed runtime state and the last mutation record. If a response is lost, inspect that record before starting another mutation. A verified completed install retains its result until another mutation. When the record is pending, the owner can call `managed_recover` to reconcile the observed resources. Recovery can discard unpublished staging files or restore the saved skin. It reports an interrupted install as unconfirmed and never repeats it implicitly.
 
 ## Focused checks and native run
+
+Use a disposable Linux host or isolated test lane with the exact reviewed Omega image already present, the locked development environment, UID 1000, private Docker bridge routing, and 8 GiB plus 128 MiB of disk headroom. The native harness uses noninteractive sudo to start the frontend as UID 65534 with no supplementary groups and to grant access to its temporary broker socket. It asserts that the frontend cannot access Docker or broker state. The operator programs raw native observations and crash injection outside MCP. Run one trial at a time.
 
 ```sh
 uv run --locked pytest -q tests/experiments/test_managed_v2.py
 uv run --locked ruff check experiments/managed_v2 tests/experiments/test_managed_v2.py
-install -d -m 700 /path/to/empty-trial
+
 umask 077
+install -d -m 700 /path/to/empty-integrated-trial
 uv run --locked python -m experiments.managed_v2.native_check \
-  /path/to/empty-trial /path/to/prior-native-install-experiment/artifacts
+  /path/to/empty-integrated-trial /path/to/private-native-fixtures
+
+install -d -m 700 /path/to/empty-interruption-trial
+uv run --locked python -m experiments.managed_v2.native_check \
+  /path/to/empty-interruption-trial /path/to/private-native-fixtures --interrupt-only
 ```
 
-The native check needs the synthetic Program, its three module ZIPs, the missing-dependency control and two synthetic decoy versions from the prior comparison. It uses the installed MCP SDK to make authenticated Streamable HTTP calls on an ephemeral loopback port. The skin lane uses a variant derived from the reviewed runtime's Estuary assets. Use the --skin-only option to run that lane by itself in a fresh state directory. Fixture and skin bytes stay outside Git. The test driver retains a named compressed profile snapshot, independent workspaces and scoped output. It removes owned containers, volumes, the network and transient credentials.
+The fixture set contains the Program, two direct modules, one transitive module, a missing-dependency control and two decoy versions. The alternative skin is derived from the reviewed runtime's Estuary assets. The interruption lane accepts an optional operator-acquired Global Search 9.0.7 ZIP with the pinned digest used in qualification. Fixture bytes stay outside Git. Teardown retires the trial's owned Docker resources and live credentials. The harness retains its named snapshot, independent source workspace and private evidence.
 
-## Operation model
+## Stage 2 scope
 
-- Prepare creates the one clean working profile for Omega. Start creates a new container of the reviewed image with that volume. Graceful Stop verifies exit and retires the container. Reset stages a clean replacement volume.
-- Snapshot calls list, save, load and delete names. Save and Load require confirmed stopped Kodi. Archive identity records the exact runtime and compressed SHA-256. Load verifies the bytes, tar members and Kodi database checks before switching the profile pointer. Kodi temp data and Bridge authority are omitted.
-- Import a bounded ZIP or package an owned workspace. A trusted operator can pre-admit bytes captured from an approved repository. Installation selects an exact ID, version and digest and stages it in the private managed feed. Kodi resolves dependencies. Direct deployment of the same installed add-on operates on a stopped volume and preserves userdata.
-- Calls are serialized through the controller. The Bridge accepts managed installation, add-on setting and identity operations, with fresh credentials for each boot. If the active skin differs from Estuary, the controller cleanly stops Kodi, writes the targeted skin setting and starts an authenticated replacement container on the same volume. After installation it repeats this cycle to restore the prior skin and its look-and-feel values. Native install refuses unexpected state. If the outcome is uncertain, the next mutation requires a confirmed Stop.
-
-## Prototype limits
-
-This lane is scoped to one trusted development writer and one observer on a disposable host. The broker is the local Docker-capable controller process. Its interface does not grant Docker to the agent. The control and feed network is isolated. Code running inside Kodi shares Kodi's process trust domain. Product isolation, external-target regression, catalog transport for live third-party feeds, broad add-on types, host power-loss recovery, the Web UI and WSL2 need separate qualification. There is no database migration, legacy MCP adapter or integration with a retained production profile.
-
-The eventual replacement can retire selected managed development sessions, container-bound workspace/restore receipts, duplicate managed lifecycle coordinators and Bridge repair/preparation flows. Keep reviewed acquisition and runtime artifacts, the authenticated Bridge protocol, archive safety and dependency readback concepts, bounded viewer controls and independent external authorization. The umbrella issue tracks later removal and broader acceptance. [Managed Kodi replacement](https://github.com/kcook98765/kodi-lab/issues/405)
+The lane has one development writer and one observer. It qualifies broker process termination and observed recovery on Omega. Host power loss, per-agent application ownership, production Web integration, WSL2, other Kodi lines and the mixed-extension dependency types needed by Aura remain separate work. Code admitted into Kodi shares the Kodi process trust domain. The next stage should cut the existing managed entry points over to this controller and remove the old managed broker, lifecycle and selected-session paths as part of that cutover. Keep external Kodi authority and shared viewer, acquisition and diagnostic capabilities.

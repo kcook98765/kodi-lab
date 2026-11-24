@@ -1,14 +1,17 @@
 """Named stopped-profile archives using one file per snapshot."""
 
 import hashlib
+import io
 import json
+import os
 import re
 import sqlite3
 import tarfile
 from pathlib import PurePosixPath
 from uuid import uuid4
+from xml.etree import ElementTree as ET
 
-from .runtime import BRIDGE, IMAGE, Refusal, atomic
+from .runtime import BRIDGE, IMAGE, Refusal, atomic, sync_dir
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
@@ -55,8 +58,9 @@ def validate_profile(path):
 
 
 class Snapshots:
-    def __init__(self, runtime):
+    def __init__(self, runtime, checkpoint=None):
         self.runtime = runtime
+        self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = runtime.root / "snapshots"
 
     def path(self, name):
@@ -78,6 +82,7 @@ class Snapshots:
         if path.exists() or len(self.list()) >= 8:
             raise Refusal("snapshot_exists_or_quota")
         staging = self.root / (".stage-" + uuid4().hex)
+        self.checkpoint("snapshot_staging", snapshot=name, archive=staging.name)
         source = self.runtime.profile()
         total = count = 0
         try:
@@ -103,11 +108,35 @@ class Snapshots:
                         raise Refusal("snapshot_limit_or_links")
                     if info.isreg():
                         with file.open("rb") as stream:
-                            tar.addfile(info, stream)
+                            if rel.as_posix() == "userdata/guisettings.xml":
+                                if info.size > 1024 * 1024:
+                                    raise Refusal("skin_settings_path_invalid")
+                                clean = stream.read()
+                                parser = ET.XMLParser(
+                                    target=ET.TreeBuilder(
+                                        insert_comments=True, insert_pis=True
+                                    )
+                                )
+                                settings = ET.fromstring(clean, parser=parser)
+                                credentials = settings.findall(
+                                    "setting[@id='services.webserverpassword']"
+                                )
+                                for entry in credentials:
+                                    settings.remove(entry)
+                                if credentials:
+                                    clean = ET.tostring(settings, encoding="utf-8")
+                                info.size = len(clean)
+                                tar.addfile(info, io.BytesIO(clean))
+                            else:
+                                tar.addfile(info, stream)
                     else:
                         tar.addfile(info)
             digest = archive_digest(staging)
+            with staging.open("rb") as stream:
+                os.fsync(stream.fileno())
+            self.checkpoint("snapshot_before_publish")
             staging.replace(path)
+            sync_dir(path.parent)
             atomic(
                 path.with_suffix(".json"),
                 json.dumps({"image": IMAGE, "sha256": digest}).encode(),
@@ -161,6 +190,11 @@ class Snapshots:
                     tar.extract(item, stage, filter="data")
             if not (stage / "userdata/guisettings.xml").is_file():
                 raise Refusal("snapshot_missing_profile")
+            settings = ET.parse(stage / "userdata/guisettings.xml")
+            if settings.getroot().tag != "settings" or settings.findall(
+                "setting[@id='services.webserverpassword']"
+            ):
+                raise Refusal("snapshot_profile_settings_invalid")
             validate_profile(stage)
             self.runtime.exchange(slot)
         except Exception:
@@ -168,6 +202,22 @@ class Snapshots:
                 self.runtime.retire(slot)
             raise
         return {"name": name, "state": "restored", "entries": len(seen)}
+
+    def discard_incomplete(self, record):
+        path = self.path(record["snapshot"])
+        stage = record["archive"]
+        if not re.fullmatch(r"\.stage-[0-9a-f]{32}", stage):
+            raise Refusal("snapshot_stage_identity")
+        (self.root / stage).unlink(missing_ok=True)
+        meta = path.with_suffix(".json")
+        if not meta.exists():
+            path.unlink(missing_ok=True)
+        elif json.loads(meta.read_text()) != {
+            "image": IMAGE,
+            "sha256": archive_digest(path),
+        }:
+            raise Refusal("snapshot_identity_mismatch")
+        sync_dir(self.root)
 
     def delete(self, name):
         path = self.path(name)

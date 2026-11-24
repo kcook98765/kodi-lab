@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hmac
 import json
 import logging
-import secrets
 from contextvars import ContextVar
 from pathlib import Path
 
@@ -17,33 +15,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from starlette.responses import Response
 
-from .controller import Controller
-from .runtime import Refusal, atomic
-
-READ = {"managed_status", "snapshot_list", "addon_inventory"}
-FIELDS = {
-    "managed_prepare": (),
-    "managed_start": (),
-    "managed_stop": (),
-    "managed_reset": (),
-    "managed_status": (),
-    "snapshot_list": (),
-    "snapshot_save": ("name",),
-    "snapshot_load": ("name",),
-    "snapshot_delete": ("name",),
-    "workspace_package": ("addon",),
-    "workspace_deploy": ("addon",),
-    "addon_install": ("addon", "version", "digest"),
-    "package_import": ("encoded", "digest"),
-    "addon_launch": ("addon",),
-    "addon_setting": ("addon", "key", "value"),
-    "addon_inventory": (),
-    "managed_skin": ("addon",),
-}
+from .broker import BrokerClient
+from .protocol import FIELDS, READ, Refusal, validate
 
 
-def application(controller, owner_token, observer_token):
-    owner = ContextVar("managed_v2_owner", default=False)
+def application(broker):
+    authorization = ContextVar("managed_v2_authorization", default=("", False))
 
     async def list_tools(_context, _params):
         return ListToolsResult(
@@ -59,21 +36,16 @@ def application(controller, owner_token, observer_token):
                     },
                 )
                 for name, params in FIELDS.items()
-                if owner.get() or name in READ
+                if authorization.get()[1] or name in READ
             ]
         )
 
     async def call(_context, params):
         args = params.arguments or {}
         try:
-            if (
-                params.name not in FIELDS
-                or set(args) != set(FIELDS[params.name])
-                or any(not isinstance(value, str) for value in args.values())
-            ):
-                raise Refusal("invalid_arguments")
+            validate(params.name, args)
             result = await asyncio.to_thread(
-                controller.perform, params.name, args, write=owner.get()
+                broker.request, authorization.get()[0], params.name, args
             )
             failed = isinstance(result["result"], dict) and (
                 result["result"].get("state") in {"failed", "unconfirmed"}
@@ -114,35 +86,35 @@ def application(controller, owner_token, observer_token):
             await sdk(scope, receive, send)
             return
         supplied = dict(scope["headers"]).get(b"authorization", b"")
-        write = hmac.compare_digest(supplied, b"Bearer " + owner_token)
-        if not write and not hmac.compare_digest(supplied, b"Bearer " + observer_token):
-            await Response(status_code=401, headers={"WWW-Authenticate": "Bearer"})(
-                scope, receive, send
-            )
+        try:
+            if not supplied.startswith(b"Bearer "):
+                raise Refusal("broker_access_denied")
+            token = supplied[7:].decode("ascii")
+            access = await asyncio.to_thread(broker.request, token, "authorize", {})
+        except UnicodeError:
+            await Response(status_code=401)(scope, receive, send)
             return
-        context = owner.set(write)
+        except Refusal as exc:
+            status = 401 if str(exc) == "broker_access_denied" else 503
+            await Response(status_code=status)(scope, receive, send)
+            return
+        context = authorization.set((token, access["write"]))
         try:
             await sdk(scope, receive, send)
         finally:
-            owner.reset(context)
+            authorization.reset(context)
 
     return app
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("root", type=Path)
+    parser.add_argument("socket", type=Path)
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
-    state = Controller(args.root)
-    tokens = [secrets.token_urlsafe(32).encode() for _ in range(2)]
-    for key, credential in zip(("owner", "observer"), tokens, strict=True):
-        atomic(state.runtime.root / (key + ".token"), credential)
-    try:
-        uvicorn.run(application(state, *tokens), host="127.0.0.1", port=args.port)
-    finally:
-        for key in ("owner", "observer"):
-            (state.runtime.root / (key + ".token")).unlink(missing_ok=True)
+    uvicorn.run(
+        application(BrokerClient(args.socket)), host="127.0.0.1", port=args.port
+    )
 
 
 if __name__ == "__main__":

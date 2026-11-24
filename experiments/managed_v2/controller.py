@@ -4,27 +4,34 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
+import re
 import shutil
 import sqlite3
 import time
 from uuid import uuid4
 
 from .packages import Packages, addon_id, manifest, sha, workspace_files
-from .runtime import ESTUARY, REPO, Refusal, Runtime, atomic
+from .protocol import READ, Refusal, validate
+from .runtime import ESTUARY, REPO, Runtime, atomic
 from .snapshots import Snapshots
 
 
 class Controller:
-    def __init__(self, root):
-        self.runtime = Runtime(root)
+    def __init__(self, root, *, interrupt=None):
+        self.runtime = Runtime(root, self.checkpoint)
+        self.record = self.runtime.root / "operation.json"
+        self.current = None
+        self.interrupt = interrupt or (lambda _event: None)
         self.packages = Packages(self.runtime.root, self.runtime.feed)
-        self.snapshots = Snapshots(self.runtime)
+        self.snapshots = Snapshots(self.runtime, self.checkpoint)
         self.actions = {
             "managed_prepare": self.runtime.prepare,
             "managed_start": self.runtime.start,
             "managed_stop": self.runtime.stop,
             "managed_reset": self.runtime.reset,
             "managed_status": self.status,
+            "managed_recover": self.recover,
             "snapshot_list": self.snapshots.list,
             "snapshot_save": self.snapshots.save,
             "snapshot_load": self.snapshots.load,
@@ -39,42 +46,163 @@ class Controller:
             "managed_skin": self.skin,
         }
 
+    def last_operation(self):
+        return json.loads(self.record.read_text()) if self.record.exists() else None
+
+    def checkpoint(self, event, **data):
+        if self.current is not None:
+            self.current.update(event=event, **data)
+            atomic(self.record, json.dumps(self.current).encode())
+            self.interrupt(event)
+
     def perform(self, name, args, *, write):
         started = time.monotonic()
-        if name not in self.actions:
-            raise Refusal("unknown_tool")
-        read = name in {"managed_status", "snapshot_list", "addon_inventory"}
-        if not read and not write:
+        if name not in READ and not write:
             raise Refusal("managed_write_denied")
         with self.runtime.exclusive():
-            if (self.runtime.root / "uncertain").exists() and name not in {
-                "managed_status",
-                "managed_stop",
-                "addon_inventory",
-                "snapshot_list",
-            }:
-                raise Refusal("native_outcome_uncertain_stop_required")
-            if name == "workspace_package":
-                pkg = self.actions[name](**args)
-                result = {"digest": pkg.digest, "addon": pkg.id, "version": pkg.version}
-            else:
+            validate(name, args)
+            previous = self.last_operation()
+            pending = previous if previous and previous["state"] == "pending" else None
+            if name in READ or name == "managed_recover":
                 result = self.actions[name](**args)
+            elif pending and pending.get("recovery_error") and name == "managed_stop":
+                # A failed skin recovery can leave the fallback booted.
+                result = self.runtime.stop()
+            else:
+                if pending:
+                    if not (
+                        pending.get("recovery_error")
+                        and name in {"managed_reset", "snapshot_load"}
+                    ):
+                        raise Refusal("managed_recovery_required")
+                    self.runtime.remove_exited()
+                self.current = {
+                    "id": uuid4().hex,
+                    "name": name,
+                    "state": "pending",
+                    "subject": {
+                        key: value
+                        for key, value in args.items()
+                        if key in {"addon", "version", "digest", "name"}
+                    },
+                }
+                try:
+                    self.checkpoint("begin")
+                    result = self.actions[name](**args)
+                    if name == "workspace_package":
+                        result = {
+                            "digest": result.digest,
+                            "addon": result.id,
+                            "version": result.version,
+                        }
+                    if not (
+                        self.current.get("native_pending") or self.current.get("skin")
+                    ):
+                        self.checkpoint("reply", state="complete", result=result)
+                except Refusal as exc:
+                    if self.current["event"] == "begin":
+                        self.checkpoint("refused", state="complete", error=str(exc))
+                    raise
+                finally:
+                    self.current = None
         return {
             "result": result,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
 
     def status(self):
-        return self.runtime.ready() or {
+        obj = self.runtime.inspect()
+        status = (self.runtime.ready() if obj else None) or {
             "state": (
                 "running_unconfirmed"
-                if self.runtime.inspect()
+                if obj and obj["State"]["Running"]
+                else "exited_unconfirmed"
+                if obj
                 else "stopped"
                 if self.runtime.pointer.exists()
                 else "unprepared"
             ),
-            "uncertain": (self.runtime.root / "uncertain").exists(),
         }
+        previous = self.last_operation()
+        if previous:
+            status["operation"] = {
+                key: previous[key]
+                for key in (
+                    "id",
+                    "name",
+                    "state",
+                    "subject",
+                    "event",
+                    "result",
+                    "error",
+                    "recovery_error",
+                )
+                if key in previous
+            }
+        return status
+
+    def recover(self):
+        record = self.last_operation()
+        if not record or record["state"] != "pending":
+            return {"state": "no_recovery_required"}
+        try:
+            self.reconcile(record)
+        except Refusal as exc:
+            record["recovery_error"] = str(exc)
+            atomic(self.record, json.dumps(record).encode())
+            raise
+        # No native install has been replayed or marked successful here.
+        report = {
+            "state": "recovered",
+            "interrupted": record["name"],
+            "completion": "unconfirmed",
+            "native_verification_required": bool(record.get("native_pending")),
+        }
+        atomic(
+            self.record,
+            json.dumps(
+                {
+                    "id": record["id"],
+                    "name": record["name"],
+                    "subject": record["subject"],
+                    "event": "recovered",
+                    "state": "complete",
+                    "result": report,
+                }
+            ).encode(),
+        )
+        return report
+
+    def reconcile(self, record):
+        native = self.runtime
+        if record.get("skin"):
+            skin = record["skin"]
+            if native.read_pointer() != skin["slot"]:
+                raise Refusal("skin_recovery_profile_mismatch")
+            native.stop()
+            native.write_skin(skin["addon"], saved=skin["settings"])
+            native.start_with_skin(skin["addon"])
+        elif record["name"] == "managed_start":
+            if not native.ready():
+                native.stop()
+        elif (
+            record["name"] == "managed_stop"
+            or record.get("native_pending")
+            or record["event"] in {"runtime_quit_requested", "runtime_removed"}
+        ):
+            native.stop()
+        elif "archive" in record:
+            self.snapshots.discard_incomplete(record)
+        elif "slot" in record:
+            active = native.read_pointer() if native.pointer.exists() else None
+            if active == record["slot"]:
+                native.require_volume(active)
+                if record.get("prior_slot"):
+                    native.retire(record["prior_slot"])
+            else:
+                native.retire(record["slot"])
+        elif "deploy" in record:
+            self.recover_deploy(record["deploy"])
 
     def import_zip(self, encoded, digest):
         if len(encoded) > 740_000:
@@ -184,8 +312,6 @@ class Controller:
             for p in catalog.values()
             for dep in p.node.findall("requires/import")
         )
-        fence = self.runtime.root / "uncertain"
-        atomic(fence, b"native install dispatched")
         intent = {
             "addon": addon,
             "version": version,
@@ -202,13 +328,13 @@ class Controller:
                 "missing_dependency",
                 "unexpected_window_before_install",
             } and not response.get("restore_error"):
-                fence.unlink()
+                self.checkpoint("native_refused", native_pending=False)
             return {"state": "failed", "native": response}
         record = self.verify(pkg)
         deps = self.dependencies(pkg, catalog)
         if response.get("prior_skin") != response.get("final_skin"):
             raise Refusal("skin_restore_unconfirmed")
-        fence.unlink()
+        self.checkpoint("native_verified", native_pending=False)
         return {
             "state": "verified",
             "package": record,
@@ -220,7 +346,7 @@ class Controller:
         native = self.runtime
         prior = native.active_skin()
         if prior == ESTUARY:
-            result = native.signed("managed_v2_install", intent)
+            result = self.dispatch_native(intent)
             return {"prior_skin": prior, "final_skin": native.active_skin(), **result}
 
         gui = native.rpc("GUI.GetProperties", properties=["currentwindow"])
@@ -235,17 +361,22 @@ class Controller:
         saved = None
         result = {}
         try:
-            native.stop(clear_fence=False)
+            native.stop()
             _, tree = native.skin_settings()
             saved = [
-                ET_bytes(entry)
+                ET_bytes(entry).decode()
                 for entry in tree.getroot()
                 if entry.get("id", "").startswith("lookandfeel.")
             ]
+            self.checkpoint(
+                "skin_saved",
+                skin={"addon": prior, "slot": native.read_pointer(), "settings": saved},
+            )
             native.write_skin(ESTUARY)
             native.start_with_skin(ESTUARY)
             actions.append("stop_edit_start:" + ESTUARY)
-            result = native.signed("managed_v2_install", intent)
+            self.checkpoint("estuary_active")
+            result = self.dispatch_native(intent)
             actions.extend(result.pop("actions", []))
         except Exception as exc:
             result["error"] = (
@@ -255,10 +386,11 @@ class Controller:
             )
         if saved is not None:
             try:
-                native.stop(clear_fence=False)
+                native.stop()
                 native.write_skin(prior, saved=saved)
                 native.start_with_skin(prior)
                 actions.append("stop_edit_start:" + prior)
+                self.checkpoint("skin_restored", skin=None)
             except Exception as exc:
                 result["restore_error"] = (
                     str(exc) if isinstance(exc, Refusal) else "skin_restore_unconfirmed"
@@ -270,6 +402,12 @@ class Controller:
         except Exception:
             skin = None
         return {"prior_skin": prior, "final_skin": skin, "actions": actions, **result}
+
+    def dispatch_native(self, intent):
+        self.checkpoint("native_dispatch", native_pending=True)
+        result = self.runtime.signed("managed_v2_install", intent)
+        self.checkpoint("native_reply")
+        return result
 
     def launch(self, addon):
         addon_id(addon)
@@ -297,12 +435,24 @@ class Controller:
             or not row["enabled"]
         ):
             raise Refusal("skin_not_enabled")
-        fence = self.runtime.root / "uncertain"
-        atomic(fence, b"native skin change dispatched")
-        self.runtime.stop(clear_fence=False)
+        prior = self.runtime.active_skin()
+        self.runtime.stop()
+        _, tree = self.runtime.skin_settings()
+        self.checkpoint(
+            "skin_saved",
+            skin={
+                "addon": prior,
+                "slot": self.runtime.read_pointer(),
+                "settings": [
+                    ET_bytes(entry).decode()
+                    for entry in tree.getroot()
+                    if entry.get("id", "").startswith("lookandfeel.")
+                ],
+            },
+        )
         self.runtime.write_skin(addon)
         result = self.runtime.start_with_skin(addon)
-        fence.unlink()
+        self.checkpoint("skin_changed", skin=None)
         return {"skin": result, "actions": ["stop_edit_start:" + addon]}
 
     def deploy(self, addon):
@@ -328,6 +478,15 @@ class Controller:
                 raise Refusal("native_install_required_for_manifest_change")
         stage = dst.with_name(".stage-" + uuid4().hex)
         backup = dst.with_name(".prior-" + uuid4().hex)
+        self.checkpoint(
+            "deploy_staging",
+            deploy={
+                "addon": addon,
+                "slot": self.runtime.read_pointer(),
+                "stage": stage.name,
+                "backup": backup.name,
+            },
+        )
         stage.mkdir()
         try:
             hashes = {}
@@ -355,6 +514,25 @@ class Controller:
             "files_verified": len(files),
             "version": candidate.attrib["version"],
         }
+
+    def recover_deploy(self, deploy):
+        self.runtime.require_stopped()
+        if (
+            deploy["slot"] != self.runtime.read_pointer()
+            or not re.fullmatch(r"\.stage-[0-9a-f]{32}", deploy["stage"])
+            or not re.fullmatch(r"\.prior-[0-9a-f]{32}", deploy["backup"])
+        ):
+            raise Refusal("deploy_recovery_identity")
+        addons = self.runtime.profile() / "addons"
+        dst = addons / addon_id(deploy["addon"])
+        stage, backup = (addons / deploy[key] for key in ("stage", "backup"))
+        if backup.exists():
+            if not dst.exists():
+                backup.rename(dst)
+            else:
+                shutil.rmtree(backup)
+        if stage.exists():
+            shutil.rmtree(stage)
 
 
 def ET_bytes(value):

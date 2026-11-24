@@ -197,3 +197,94 @@ def test_stopped_skin_rewrite_preserves_other_settings(tmp_path, monkeypatch):
         "lookandfeel.skin": "skin.fixture",
         "lookandfeel.skinzoom": "7",
     }
+
+
+def test_broker_rechecks_scope_and_closed_arguments(tmp_path):
+    import os
+
+    from experiments.managed_v2.broker import Broker
+
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    token_request = {"token": "reader", "name": "managed_reset", "args": {}}
+    with Broker(
+        tmp_path / "broker.sock", Controller(root), os.getuid(), ("owner", "reader")
+    ) as broker:
+        with pytest.raises(Refusal, match="managed_write_denied"):
+            broker.dispatch(token_request)
+        with pytest.raises(Refusal, match="invalid_broker_request"):
+            broker.dispatch({**token_request, "write": True})
+        with pytest.raises(Refusal, match="broker_access_denied"):
+            broker.dispatch({**token_request, "token": "wrong"})
+        with pytest.raises(Refusal, match="invalid_arguments"):
+            broker.dispatch({"token": "owner", "name": "docker", "args": {"cmd": "ps"}})
+
+
+def test_verified_result_survives_interrupted_reply(tmp_path):
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+
+    def interrupt(event):
+        if event == "reply":
+            raise InterruptedError
+
+    controller = Controller(root, interrupt=interrupt)
+    controller.actions["managed_start"] = lambda: {"state": "ready"}
+    with pytest.raises(InterruptedError):
+        controller.perform("managed_start", {}, write=True)
+    recorded = Controller(root).last_operation()
+    assert recorded["state"] == "complete"
+    assert recorded["result"] == {"state": "ready"}
+
+
+def test_failed_skin_recovery_stays_pending(tmp_path, monkeypatch):
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    native = controller.runtime
+    native.pointer.write_text("a" * 32)
+    monkeypatch.setattr(native, "stop", lambda: None)
+    monkeypatch.setattr(native, "write_skin", lambda *_a, **_kw: None)
+
+    def cannot_load(_addon):
+        raise Refusal("skin_boot_readback_unconfirmed")
+
+    monkeypatch.setattr(native, "start_with_skin", cannot_load)
+    controller.record.write_text(
+        json.dumps(
+            {
+                "id": "test",
+                "name": "addon_install",
+                "subject": {},
+                "state": "pending",
+                "event": "estuary_active",
+                "skin": {
+                    "slot": "a" * 32,
+                    "addon": "skin.fixture",
+                    "settings": [],
+                },
+            }
+        )
+    )
+    with pytest.raises(Refusal, match="skin_boot_readback_unconfirmed"):
+        controller.perform("managed_recover", {}, write=True)
+    assert controller.last_operation()["state"] == "pending"
+    assert (
+        controller.last_operation()["recovery_error"]
+        == "skin_boot_readback_unconfirmed"
+    )
+
+
+def test_snapshot_strips_managed_rpc_password(tmp_path):
+    native = Volumes(tmp_path)
+    userdata = native.source / "userdata"
+    userdata.mkdir()
+    (userdata / "guisettings.xml").write_text(
+        "<settings><setting id='services.webserverpassword'>do-not-restore</setting>"
+        "<setting id='lookandfeel.skin'>skin.fixture</setting></settings>"
+    )
+    snapshots = Snapshots(native)
+    snapshots.save("No authority")
+    snapshots.load("No authority")
+    content = (native.profile() / "userdata/guisettings.xml").read_text()
+    assert "webserverpassword" not in content and "skin.fixture" in content

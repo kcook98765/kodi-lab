@@ -8317,3 +8317,16 @@ force/adoption/deletion operation or native acceptance is introduced.
 Migration 0018 adds bounded retained review history without changing prior rows;
 lossy downgrade refuses populated history. Details and administrator limitations
 are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).
+
+## D-0505: Managed-v2 keeps one interrupted operation at the broker boundary
+
+- Status: experimental on the managed-v2 branch under #405.
+- Decision: Keep Docker, profile writes and the managed Narrow Bridge client in a
+  single controller inside the restricted broker. Authorize closed operations
+  using the frontend socket identity and bearer scope. Use one profile pointer
+  and one last-operation record per managed state root. Recover by inspecting
+  current resources and reconciling staged writes. Leave an interrupted native
+  install unconfirmed unless the broker durably recorded the verified result.
+- Reason: The current profile and owned resources are sufficient to recover
+  ordinary interruptions. Container history and selected development sessions
+  have no role in the replacement.

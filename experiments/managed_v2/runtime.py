@@ -21,6 +21,8 @@ from xml.etree import ElementTree as ET
 from kodi_lab.domain.external_targets import ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient, ValidatedExternalEndpoint
 
+from .protocol import Refusal as Refusal
+
 IMAGE = "sha256:7f779626cd56fb3bf86e14e39657fee5e8c5299a8f6f7abf59449a1163e7aa8e"
 BRIDGE = "service.kodi_lab_bridge"
 ESTUARY = "skin.estuary"
@@ -31,19 +33,26 @@ HERE = Path(__file__).resolve().parent
 OPENER = build_opener(ProxyHandler({}))
 
 
-class Refusal(Exception):
-    pass
-
-
 def atomic(path: Path, data: bytes) -> None:
     temporary = path.with_name(".stage-" + uuid4().hex)
     try:
         with temporary.open("xb") as stream:
+            os.fchmod(stream.fileno(), 0o600)
             stream.write(data)
             stream.flush()
+            os.fsync(stream.fileno())
         temporary.replace(path)
+        sync_dir(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def sync_dir(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def docker(*args: str) -> str:
@@ -95,7 +104,8 @@ class ManagedBridgeClient(ExternalBridgeClient):
 
 
 class Runtime:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, checkpoint=None):
+        self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
         mode = self.root.stat()
         if mode.st_mode & 0o077 or mode.st_uid != os.getuid():
@@ -123,7 +133,11 @@ class Runtime:
                 if directory.is_symlink():
                     raise Refusal("invalid_state_directory")
                 directory.mkdir(mode=0o700, exist_ok=True)
-        self.name = "kodi-v2-" + self.target.hex[:16]
+        self.name = "kodi-lab-managed-v2"
+        prefix = "kodi-v2-" + self.target.hex[:16]
+        self.feed_name = prefix + "-feed"
+        self.network_name = prefix + "-net"
+        self.volume_prefix = prefix + "-"
 
     @contextmanager
     def exclusive(self):
@@ -174,7 +188,7 @@ class Runtime:
         return obj
 
     def network(self) -> str:
-        name = self.name + "-net"
+        name = self.network_name
         matches = docker(
             "network", "ls", "-q", "--filter", "name=^" + name + "$"
         ).splitlines()
@@ -212,11 +226,12 @@ class Runtime:
         return path
 
     def volume(self, slot):
-        return self.name + "-" + slot[:12]
+        return self.volume_prefix + slot[:12]
 
     def stage(self, clean):
         self.capacity()
         slot = uuid4().hex
+        self.checkpoint("profile_staging", slot=slot)
         path = self.root / "volumes" / slot
         path.mkdir(mode=0o700)
         if clean:
@@ -246,17 +261,28 @@ class Runtime:
         return path
 
     def retire(self, slot):
-        path = self.require_volume(slot)
-        docker("volume", "rm", self.volume(slot))
-        shutil.rmtree(path)
+        if self.pointer.exists() and slot == self.read_pointer():
+            raise Refusal("cannot_retire_active_profile")
+        if not re.fullmatch(r"[0-9a-f]{32}", slot):
+            raise Refusal("profile_identity")
+        volume = self.volume(slot)
+        found = docker("volume", "ls", "-q", "--filter", "name=^" + volume + "$")
+        path = self.root / "volumes" / slot
+        if found:
+            self.require_volume(slot)
+            docker("volume", "rm", volume)
+        if path.exists() or path.is_symlink():
+            shutil.rmtree(self.profile(slot))
 
     def exchange(self, slot):
         self.require_stopped()
+        self.require_volume(slot)
         old = self.read_pointer() if self.pointer.exists() else None
+        self.checkpoint("profile_before_commit", prior_slot=old)
         atomic(self.pointer, slot.encode())
+        self.checkpoint("profile_committed")
         if old is not None:
             self.retire(old)
-        (self.root / "uncertain").unlink(missing_ok=True)
 
     def prepare(self):
         if self.pointer.exists():
@@ -292,7 +318,8 @@ class Runtime:
         for key, value in {
             "services.webserver": "true",
             "services.webserverport": "8080",
-            "services.webserverauthentication": "false",
+            "services.webserverauthentication": "true",
+            "services.webserverusername": "managed",
             "services.esenabled": "false",
             "general.addonupdates": "2",
             "addons.unknownsources": "false",
@@ -317,10 +344,10 @@ class Runtime:
             raise Refusal("kodi_stopped")
         networks = obj["NetworkSettings"]["Networks"]
         if (
-            set(networks) != {self.name + "-net"}
+            set(networks) != {self.network_name}
             or obj["HostConfig"]["PortBindings"]
             or not re.fullmatch(
-                r"\d+\.\d+\.\d+\.\d+", networks[self.name + "-net"]["IPAddress"]
+                r"\d+\.\d+\.\d+\.\d+", networks[self.network_name]["IPAddress"]
             )
         ):
             raise Refusal("runtime_network_identity")
@@ -329,16 +356,18 @@ class Runtime:
         ]
         if volumes != [self.volume(self.read_pointer())]:
             raise Refusal("live_profile_identity")
-        return networks[self.name + "-net"]["IPAddress"]
+        return networks[self.network_name]["IPAddress"]
 
     def rpc(self, method, **params):
         payload = json.dumps(
             {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
         ).encode()
+        password = (self.credentials / "rpc").read_text()
+        auth = base64.b64encode(("managed:" + password).encode()).decode()
         request = Request(
             "http://" + self.address() + ":8080/jsonrpc",
             payload,
-            {"Content-Type": "application/json"},
+            {"Content-Type": "application/json", "Authorization": "Basic " + auth},
         )
         with OPENER.open(request, timeout=5) as response:
             data = json.load(response)
@@ -393,6 +422,9 @@ class Runtime:
         slot = self.read_pointer()
         self.require_stopped()
         self.require_volume(slot)
+        rpc_password = secrets.token_urlsafe(32)
+        self.configure_rpc(rpc_password)
+        atomic(self.credentials / "rpc", rpc_password.encode())
         key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
         seed = {
             "format": 2,
@@ -405,14 +437,14 @@ class Runtime:
         }
         atomic(self.credentials / "state.json", json.dumps(seed).encode())
         network = self.network()
-        helper = self.inspect(self.name + "-feed")
+        helper = self.inspect(self.feed_name)
         if not helper:
             docker(
                 "run",
                 "-d",
                 *self.args(),
                 "--name",
-                self.name + "-feed",
+                self.feed_name,
                 "--network",
                 network,
                 "--network-alias",
@@ -474,37 +506,54 @@ class Runtime:
             f"dst=/usr/share/kodi/addons/{REPO},readonly",
             IMAGE,
         )
+        self.checkpoint("runtime_created")
         return wait_until(self.ready, 35, "bridge_readiness_unconfirmed")
 
     def require_stopped(self):
         if self.inspect() is not None:
             raise Refusal("clean_stop_required")
-        if (self.root / "unclean").exists():
-            raise Refusal("native_exit_unconfirmed")
 
-    def stop(self, *, clear_fence=True):
+    def check_live_profile(self, obj):
+        slot = self.read_pointer()
+        self.require_volume(slot)
+        if [mount["Name"] for mount in obj["Mounts"] if mount["Type"] == "volume"] != [
+            self.volume(slot)
+        ]:
+            raise Refusal("live_profile_identity")
+
+    def remove_exited(self):
+        # Explicit Reset/Load can discard an unclean exited profile after
+        # recovery explains the failure. A running instance is never forced down.
         obj = self.inspect()
-        if obj is None:
-            self.require_stopped()
-            return {"state": "stopped"}
-        if obj["State"]["Running"]:
-            atomic(self.root / "unclean", b"quit dispatched")
-            self.rpc("Application.Quit")
-            wait_until(
-                lambda: not self.inspect()["State"]["Running"],
-                20,
-                "native_exit_unconfirmed",
-            )
+        if obj:
+            self.check_live_profile(obj)
+            if obj["State"]["Running"]:
+                raise Refusal("clean_stop_required")
+            docker("rm", obj["Id"])
+        for filename in ("state.json", "rpc"):
+            (self.credentials / filename).unlink(missing_ok=True)
+
+    def stop(self):
+        obj = self.inspect()
+        if obj is not None:
+            self.check_live_profile(obj)
+            if obj["State"]["Running"]:
+                self.checkpoint("runtime_quit_requested")
+                self.rpc("Application.Quit")
+                wait_until(
+                    lambda: not self.inspect()["State"]["Running"],
+                    20,
+                    "native_exit_unconfirmed",
+                )
             stopped = self.inspect()
             if stopped["State"]["ExitCode"] or stopped["State"]["OOMKilled"]:
                 raise Refusal("unclean_native_exit")
             docker("rm", obj["Id"])
-            (self.root / "unclean").unlink()
-        else:
-            raise Refusal("already_exited_without_confirmed_stop")
+            self.checkpoint("runtime_removed")
         (self.credentials / "state.json").unlink(missing_ok=True)
-        if clear_fence:
-            (self.root / "uncertain").unlink(missing_ok=True)
+        (self.credentials / "rpc").unlink(missing_ok=True)
+        if self.pointer.exists():
+            self.configure_rpc(None)
         return {"state": "stopped"}
 
     def active_skin(self):
@@ -519,10 +568,29 @@ class Runtime:
             or file.stat().st_size > 1024 * 1024
         ):
             raise Refusal("skin_settings_path_invalid")
-        tree = ET.parse(file)
+        parser = ET.XMLParser(
+            target=ET.TreeBuilder(insert_comments=True, insert_pis=True)
+        )
+        tree = ET.parse(file, parser=parser)
         if tree.getroot().tag != "settings":
             raise Refusal("skin_settings_invalid")
         return file, tree
+
+    def configure_rpc(self, password):
+        file, tree = self.skin_settings()
+        root = tree.getroot()
+        values = {
+            "services.webserver": "true",
+            "services.webserverauthentication": "true",
+            "services.webserverusername": "managed",
+            "services.webserverpassword": password,
+        }
+        for key, value in values.items():
+            for old in root.findall(f"setting[@id='{key}']"):
+                root.remove(old)
+            if value is not None:
+                ET.SubElement(root, "setting", id=key).text = value
+        atomic(file, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
     def write_skin(self, addon, saved=None):
         if not re.fullmatch(r"skin\.[a-z0-9_.-]+", addon):
@@ -577,12 +645,13 @@ class Runtime:
     def cleanup_trial(self):
         """Operator-only teardown for this isolated root, including failed trials."""
         with self.exclusive():
-            for name in (self.name, self.name + "-feed"):
+            for name in (self.name, self.feed_name):
                 obj = self.inspect(name)
                 if obj:
                     if obj["State"]["Running"]:
                         docker("stop", "-t", "6", obj["Id"])
                     docker("rm", obj["Id"])
+            self.pointer.unlink(missing_ok=True)
             for directory in sorted((self.root / "volumes").iterdir()):
                 self.retire(directory.name)
             network = docker(
@@ -592,3 +661,4 @@ class Runtime:
                 docker("network", "rm", network)
             self.pointer.unlink(missing_ok=True)
             (self.credentials / "state.json").unlink(missing_ok=True)
+            (self.credentials / "rpc").unlink(missing_ok=True)
