@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import io
 import json
 import re
 import shutil
 import stat
+import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from .runtime import BRIDGE, REPO, Refusal, atomic
 
@@ -125,6 +127,13 @@ class Package:
 def read_zip(data: bytes) -> Package:
     if len(data) > MAX_ZIP:
         raise Refusal("package_limit")
+    try:
+        return _read_zip(data)
+    except (BadZipFile, EOFError, NotImplementedError, RuntimeError, zlib.error) as exc:
+        raise Refusal("invalid_package_zip") from exc
+
+
+def _read_zip(data: bytes) -> Package:
     with ZipFile(io.BytesIO(data)) as archive:
         items = archive.infolist()
         if len(items) > 3000 or sum(x.file_size for x in items) > MAX_TREE:
@@ -148,6 +157,12 @@ def read_zip(data: bytes) -> Package:
                 members[str(name.relative_to(root))] = sha(archive.read(item))
         if root is None or "addon.xml" not in members:
             raise Refusal("invalid_manifest")
+        if any(
+            ancestor.as_posix() in members
+            for path in members
+            for ancestor in PurePosixPath(path).parents
+        ):
+            raise Refusal("unsafe_zip_entry")
         node, category = manifest(archive.read(root + "/addon.xml"))
     if node.attrib["id"] != root:
         raise Refusal("package_root_mismatch")
@@ -203,12 +218,20 @@ class Packages:
                 archive.write(path, addon + "/" + name)
         return self.approve(output.getvalue())
 
-    def open_workspace(self, digest: str) -> dict[str, str]:
+    def open_workspace(self, digest: str, replace: str = "false") -> dict[str, str]:
         package = self.get(digest)
         target = self.workspaces / package.id
-        if target.exists() or target.is_symlink():
+        if target.is_symlink():
+            raise Refusal("workspace_identity")
+        exists = target.exists()
+        if exists and replace != "true":
             raise Refusal("workspace_exists")
-        if sum(path.is_dir() for path in self.workspaces.iterdir()) >= 16:
+        if replace == "true" and not target.is_dir():
+            raise Refusal("workspace_missing")
+        if (
+            not exists
+            and sum(path.is_dir() for path in self.workspaces.iterdir()) >= 16
+        ):
             raise Refusal("workspace_limit")
         from tempfile import TemporaryDirectory
 
@@ -224,7 +247,14 @@ class Packages:
                         output.open("xb") as dest,
                     ):
                         shutil.copyfileobj(source, dest)
-            stage.rename(target)
+            if exists:
+                # The broker runs on Linux with both paths on the same volume.
+                # Exchange keeps the current tree intact if publication fails.
+                exchange = ctypes.CDLL(None).renameat2
+                if exchange(-100, bytes(stage), -100, bytes(target), 2) != 0:
+                    raise Refusal("workspace_replace_unavailable")
+            else:
+                stage.rename(target)
         return {"addon": package.id, "version": package.version}
 
     def tree(self, addon: str) -> list[str]:

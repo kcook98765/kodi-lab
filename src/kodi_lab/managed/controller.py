@@ -407,9 +407,23 @@ class Controller:
             data = base64.b64decode(encoded, validate=True)
         except binascii.Error as error:
             raise Refusal("bad_package_encoding") from error
+        return self.admit_package(self.packages, data, digest)
+
+    def upload_package(self, data: bytes, digest: str, *, actor: str) -> OperationReply:
+        started = time.monotonic()
+        with self.omega.exclusive():
+            packages = Packages(self.actor_directory(actor), self.omega.feed)
+            result = self.admit_package(packages, data, digest)
+        return {
+            "result": result,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+        }
+
+    @staticmethod
+    def admit_package(packages: Packages, data: bytes, digest: str) -> Document:
         if sha(data) != digest:
             raise Refusal("package_digest_mismatch")
-        pkg = self.packages.approve(data)
+        pkg = packages.approve(data)
         return {"digest": pkg.digest, "addon": pkg.id, "version": pkg.version}
 
     def inventory(self) -> list[Document]:

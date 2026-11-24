@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 from zipfile import ZipFile
@@ -47,6 +48,55 @@ def test_exact_approval(tmp_path: Path) -> None:
 def test_zip_rejects_traversal() -> None:
     with pytest.raises(Refusal, match="unsafe_package_path"):
         read_zip(package("script.v2fixture/../default.py"))
+
+
+def test_binary_admission_and_explicit_atomic_workspace_replace(tmp_path: Path) -> None:
+    import os
+
+    from kodi_lab.managed.broker import Broker
+
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    actor = str(uuid4())
+    data = package()
+    digest = sha256(data).hexdigest()
+    with Broker(tmp_path / "upload.sock", controller, os.getuid()) as broker:
+        frame = {
+            "actor": actor,
+            "name": "package_upload",
+            "args": {"size": len(data), "digest": digest},
+        }
+        with pytest.raises(Refusal, match="incomplete_package_upload"):
+            broker.dispatch(frame, lambda _size: data[:-1])
+        with pytest.raises(Refusal, match="invalid_broker_request"):
+            broker.dispatch({**frame, "actor": "admin"}, lambda _size: data)
+        with pytest.raises(Refusal, match="package_digest_mismatch"):
+            broker.dispatch(frame, lambda _size: b"x" * len(data))
+        assert broker.dispatch(frame, lambda _size: data)["result"] == {
+            "addon": "script.v2fixture",
+            "version": "1.0.0",
+            "digest": digest,
+        }
+    with pytest.raises(Refusal, match="package_not_approved"):
+        controller.perform("workspace_open", {"digest": digest}, actor=str(uuid4()))
+    controller.perform("workspace_open", {"digest": digest}, actor=actor)
+    current = (
+        controller.actor_directory(actor) / "workspaces/script.v2fixture/default.py"
+    )
+    current.write_text("local change")
+    with pytest.raises(Refusal, match="workspace_exists"):
+        controller.perform("workspace_open", {"digest": digest}, actor=actor)
+    assert current.read_text() == "local change"
+    controller.perform(
+        "workspace_open", {"digest": digest, "replace": "true"}, actor=actor
+    )
+    assert current.read_text() == "print('inert fixture')"
+
+
+def test_malformed_zip_is_an_actionable_refusal() -> None:
+    with pytest.raises(Refusal, match="invalid_package_zip"):
+        read_zip(b"not a zip")
 
 
 def test_managed_logging_does_not_inherit_daemon_local_compression(

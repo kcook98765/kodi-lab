@@ -11,7 +11,7 @@ import socket
 import socketserver
 import stat
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from threading import Event
@@ -19,6 +19,7 @@ from typing import Protocol, cast
 
 from . import REVIEWED_IMAGE_FILE
 from .controller import Controller
+from .packages import HEX, MAX_ZIP
 from .protocol import OperationReply, Refusal, actor_key, validate
 from .viewer import display_lane
 
@@ -46,6 +47,20 @@ class BrokerClient:
         self.path = path
 
     def request(self, actor: str, name: str, args: Mapping[str, str]) -> OperationReply:
+        return self._exchange(actor, name, args)
+
+    def upload(self, actor: str, data: bytes, digest: str) -> OperationReply:
+        return self._exchange(
+            actor, "package_upload", {"size": len(data), "digest": digest}, data
+        )
+
+    def _exchange(
+        self,
+        actor: str,
+        name: str,
+        args: Mapping[str, str | int],
+        data: bytes = b"",
+    ) -> OperationReply:
         try:
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.settimeout(155)
@@ -53,6 +68,8 @@ class BrokerClient:
                 connection.sendall(
                     frame({"actor": actor, "name": name, "args": dict(args)})
                 )
+                if data:
+                    connection.sendall(data)
                 with connection.makefile("rb") as response:
                     reply = receive(response, MAX_REPLY)
         except (OSError, ValueError) as exc:
@@ -86,12 +103,31 @@ class Broker(socketserver.ThreadingUnixStreamServer):
         _, uid, _ = struct.unpack("3i", identity)
         return int(uid) == self.frontend_uid
 
-    def dispatch(self, request: object) -> OperationReply:
+    def dispatch(
+        self, request: object, reader: Callable[[int], bytes] | None = None
+    ) -> OperationReply:
         if not isinstance(request, dict) or set(request) != {"actor", "name", "args"}:
             raise Refusal("invalid_broker_request")
         # Only the exact application service UID can assert an actor. Web cookies
         # and agent bearer credentials never cross the broker socket.
         actor = actor_key(request["actor"])
+        if request["name"] == "package_upload":
+            args = request["args"]
+            if (
+                reader is None
+                or actor == "admin"
+                or not isinstance(args, dict)
+                or set(args) != {"size", "digest"}
+                or type(args["size"]) is not int
+                or not 0 < args["size"] <= MAX_ZIP
+                or not isinstance(args["digest"], str)
+                or not HEX.fullmatch(args["digest"])
+            ):
+                raise Refusal("invalid_broker_request")
+            data = reader(args["size"])
+            if len(data) != args["size"]:
+                raise Refusal("incomplete_package_upload")
+            return self.controller.upload_package(data, args["digest"], actor=actor)
         name, args = validate(request["name"], request["args"])
         return self.controller.perform(name, args, actor=actor)
 
@@ -107,7 +143,7 @@ class Handler(socketserver.StreamRequestHandler):
         else:
             try:
                 assert isinstance(self.server, Broker)
-                reply = {"value": self.server.dispatch(request)}
+                reply = {"value": self.server.dispatch(request, self.rfile.read)}
             except Refusal as exc:
                 reply = {"error": str(exc)}
             except Exception:

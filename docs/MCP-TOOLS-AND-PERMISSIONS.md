@@ -33,6 +33,24 @@ and same-version replacements. Direct source deployment updates the installed
 tree while Kodi is stopped. Follow it with Start and execute the add-on.
 An add-on may still need first-run configuration after native installation.
 
+### Managed package transfer
+
+The Toolkit's `managed-package-import` command sends the exact ZIP as one
+authenticated binary POST to the configured MCP URL. It returns the add-on ID,
+version and digest for `managed_addon_install` or `managed_workspace_open`.
+The server validates SHA-256, manifest, archive paths and expanded content.
+The binary upload accepts up to 32 MiB, with a 64 MiB expanded-tree limit,
+3,000 archive entries and a 30-second receive deadline. The 64 KiB MCP JSON
+limit remains in place. Transfer needs Trusted Managed Lab and is private to
+the credential's agent. Upload does not install or deploy.
+
+Open a first source package with `managed_workspace_open`. For an intentional
+bulk refresh of your existing workspace, upload the complete updated ZIP, then
+supply its admitted digest and `replace="true"`. This replaces the private
+workspace tree without changing installed Kodi files. Keep unpublished edits
+you want to retain. For ordinary text changes retain the digest-guarded
+`managed_workspace_edit` and direct deploy workflow.
+
 ## External Kodi
 
 | Task | MCP tools |

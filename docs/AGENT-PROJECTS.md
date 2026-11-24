@@ -1,5 +1,7 @@
 # Agent-owned projects
 
+> Historical pre-alpha workflow. Use the [managed-v2 fresh-install and recovery guide](MANAGED-V2-FRESH-INSTALL.md) and [current tool contract](MCP-TOOLS-AND-PERMISSIONS.md).
+
 For unattended managed installation and updates, use the
 [validated source-deployment loop](MANAGED-V2-FRESH-INSTALL.md). Repository
 `InstallAddon(id)` requires confirmation and cannot pin a reviewed package.

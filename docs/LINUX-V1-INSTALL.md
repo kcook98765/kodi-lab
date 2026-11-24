@@ -1,8 +1,8 @@
 # Linux amd64 V1 installation from a local deployment candidate
 
 This candidate installs Kodi Lab from bundled files. Managed Kodi runtimes are
-acquired later, one generation at a time, through the installed reviewed recipe
-worker. The candidate is local and unpublished. Preserve the Git commit and a
+acquired later through the reviewed recipe worker. Start with empty application
+and managed volumes. Migration from previous pre-alpha installations is unsupported. The candidate is local and unpublished. Preserve the Git commit and a
 trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
 hashes inside the bundle establish integrity against that trusted copy.
 

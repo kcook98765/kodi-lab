@@ -5,28 +5,17 @@ qualified initial-release platform alongside Ubuntu 24.04 amd64. This guide
 covers Windows-hosted Linux containers. Native Windows server execution,
 macOS and ARM64 are not qualified.
 
-## Accepted Windows workflow — 2026-11-13
+## Qualified managed-v2 scope
 
-[Owner-accepted #275](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793)
-records application `23dd1d63dfd49362a9925df470f0f5406f08c6e1`, tree
-`58ab41b3c0a857935caacce6419abf34ca75df9d`, schema `0014_human_reset_bridge`:
+Stage 10 qualified the normal PowerShell fresh bootstrap on Windows 11 with
+Ubuntu 24.04 WSL2 and Docker Desktop. Omega 21.3 passed native install, update,
+same-version replacement, direct deployment, snapshot and restart persistence,
+plus live noVNC and human input ownership. Docker Desktop's Engine socket
+is mounted in the restricted broker only. Matrix, Nexus and Piers were catalog
+checks on Windows. Piers remains a development preview.
 
-- Fresh installation, cold Omega 21.3 acquisition/Bridge preparation, native Ready,
-  retained Stop/Start, actual viewing and Take/Release Control passed.
-- Agent-owned project create/edit/validate, deployment/enablement and two observed
-  execution generations passed. Human priority, role withdrawal and revoked
-  bearer denial passed.
-- Exact old-image recovery from the retained original bundle, supported backup,
-  isolated recovery proof, repository transition and same-schema successor
-  adoption passed; retained-project preflight passed without Web attach/copy advice.
-- Actual Codex CLI **0.169.0** MCP inspection passed only with explicit
-  `--enable mcp_2026_07_28`. Default Codex compatibility is not qualified.
-
-A native external-device denial fixture was unavailable; source/integration
-negative checks passed. This does not qualify every Kodi runtime, browser or
-optional HTTPS configuration. [Image-retention #365](https://github.com/kcook98765/kodi-lab/issues/365)
-is a separate successor-safety follow-up, with original disappearance cause
-unproven. Changed upgrade paths require their own Windows verification.
+Use fresh application and managed volumes. Migration of previous pre-alpha
+installations is unsupported. [Stage 10 acceptance](https://github.com/kcook98765/kodi-lab/pull/406#issuecomment-7146880731)
 
 ## Earlier observed configurations (historical)
 
@@ -124,8 +113,7 @@ For the managed-v2 development candidate, download the PowerShell installer
 from the reviewed candidate commit and pass that same full commit with
 `-Revision`. The unqualified command below selects `main`, which still contains
 the retired architecture until the coordinated merge. Existing historical
-databases require a fresh installation; successor/upgrade instructions in this
-guide are historical and are not a managed-v2 migration procedure.
+databases require a fresh installation with empty application and managed volumes.
 
 Download [the PowerShell installer](https://raw.githubusercontent.com/kcook98765/kodi-lab/main/scripts/install-windows.ps1)
 to Windows, then run it as your ordinary Windows user:
@@ -318,97 +306,11 @@ does not require starting a Kodi instance. Anonymous protocol-valid MCP POSTs
 without a browser Origin must still receive `401 Bearer`; browser Origin policy
 may reject a request earlier. Keep existing MCP credentials and target grants.
 
-### Adopt an existing installation; disable or roll back
+### Recover a current-schema site
 
-An initialized installation must use a **successor bundle**, not another fresh
-install. Preserve its original `INSTALLATION.json`, bundle, private configuration
-and all evidence. Preserve its recorded Compose project, volumes, credentials,
-repository origin and runtime configuration. This procedure applies only to
-compatible baseline state; it cannot adopt a retired prerelease database. See
-the [schema applicability restriction](LINUX-V1-UPGRADE-ROLLBACK.md#applicability-before-the-first-public-release).
-
-Before building or loading a successor, run the approved successor source's
-image-retention preflight against the current installation while its services
-are still running:
-
-```sh
-python3 /path/to/approved-source/scripts/install.py retain-images \
-  --directory "$HOME/kodi-lab-install"
-```
-
-Keep the original verified bundle/archive and private receipts. Check physical
-Windows storage and Docker Desktop disk headroom separately from WSL free space.
-Follow [exact-image retention and recovery](LINUX-V1-UPGRADE-ROLLBACK.md#keep-exact-application-images-before-successor-staging)
-if a pinned old image is missing; never pull a bare `sha256:` ID or substitute a
-new image for the old administrator. This preflight adds local retention
-references and changes no application state or service.
-
-Stage and verify the approved successor in a new private directory containing
-only `bundle/`. Load its reviewed images and
-configure its `.env` using the supported bundle tool, carrying **all** old site
-and runtime settings; only application image identities and BUNDLE identity
-change. The bundle's files remain verified and untouched by ingress generation.
-Use the approved successor source's installer to prepare a separate site record:
-
-```sh
-python3 /path/to/approved-source/scripts/install.py configure-successor \
-  --directory "$HOME/kodi-lab-successor" \
-  --previous-installation "$HOME/kodi-lab-install" \
-  --web-https-proxy caddy --https-ingress-subnet 192.168.241.0/29 \
-  --https-port 18443 --windows-route WINDOWS_SPECIFIC_ROUTE_CIDR
-```
-
-Repeat `--windows-route` for all current specific Windows IPv4 routes. This
-command validates both bundles/configurations and generates `SITE.json`, a
-management helper, the canonical Windows overlay and Caddyfile **outside** the
-bundle. It pins the successor bundle/source, original receipt hash, unchanged
-engine/project, proxy image, canonical overlay/Caddyfile hashes, CA/config
-volume names and exact topology. Volume names derive from that
-same recorded project. It performs no initialization, credential reset,
-repository transition, database upgrade or service activation. Failure preserves
-partial site files for diagnosis; do not overwrite them blindly.
-
-Before any site files are written, `configure-successor` repeats the old bundle,
-image availability and retention checks. Repeat `retain-images` against the old
-installation immediately before stopping services. These checks do not replace
-the required old-administrator backup and isolated recovery proof. The changed
-preflight requires focused Windows/WSL2 verification; earlier Windows native
-acceptance does not qualify this new upgrade path.
-
-Follow [the supported upgrade sequence](LINUX-V1-UPGRADE-ROLLBACK.md#windows-successor-site-configuration):
-stop the old application services/proxy, obtain a fresh supported backup and
-isolated recovery proof, perform the reviewed repository-candidate transition
-and explicit administrator `upgrade`, verify receipts, then start through the
-successor helper. Use that helper's `compose -- ...` for successor service
-commands so the old project and all site overlays stay explicit. One-shot Web
-administrator jobs require Web to be stopped because its ingress IP is fixed.
-Retire the old helper/sign-in task from active use without deleting evidence;
-repoint any approved task only after successful qualification.
-
-For proxy-only disable/rollback, stop Caddy and Web through the active helper.
-Prepare another separate site directory with a verified/configured copy of the
-**same successor bundle**, run `configure-successor` against the active site
-**with `--remove-https-proxy --web-access-mode https`**, then start through the
-resulting helper. Omitted HTTPS options now preserve the active Caddy topology.
-This removes
-Web's forwarded trust/ingress attachment while retaining the same application
-state and project. No repository transition is needed when BUNDLE identity is
-unchanged. Preserve stopped Caddy, its volumes and old site evidence. HTTP MCP
-continues; direct HTTP browser login remains denied. Re-enabling uses the same
-reviewed subnet/project and retained CA. Application-bundle rollback follows
-the reverse-transition/restore guide; never start an old bundle blindly.
-
-Native Windows acceptance still must prove Desktop publication on loopback,
-non-conflicting Windows/WSL/VPN/Docker networks, actual direct versus proxy Web
-peers, exact trust, TLS SAN/chain and Firefox trust, login/logout/cookies,
-Origin/CSRF negatives, authorized WSS/noVNC and anonymous MCP denial, repository
-LAN restrictions, state/credential preservation, stop/start, Desktop restart,
-network recreation with the same addresses/CA, and rollback. Linux source tests
-and the isolated Caddy fixture do not establish any of those native results.
-
-Historical prerelease helper qualification is retained in the
-[Windows update triage record](WINDOWS-UPDATE-TRIAGE.md#historical-successor-helper-correction).
-It is not required for a fresh installation.
+Keep the original verified bundle, installation receipt and private backup.
+Use the [managed-v2 recovery procedure](MANAGED-V2-FRESH-INSTALL.md#state-and-recovery)
+for a current-schema backup. Use fresh volumes for the replacement.
 
 ## Repository LAN access and external targets
 
@@ -480,20 +382,12 @@ for live noVNC; it starts view-only. **Take Control** enables human input and
 needed. **Stop** retains that version's profile; **Reset** deliberately discards its settings and
 installed add-ons. See [retention and recovery](MANAGED-V2-FRESH-INSTALL.md).
 
-For add-on work, grant an agent **Trusted Managed Lab** in **Agents** and follow
-[agent-owned projects](AGENT-PROJECTS.md); this accepted workflow needs no Web
-workspace selection. **Advanced → Development tools → Current Managed Kodi**
-retains the [manually selected workflow](MANAGED-V2-FRESH-INSTALL.md). To connect Kodi
-on another device, use **External Kodi** and choose **External Production Kodi**
-or **External Development Kodi**. The Lab host and external device are separate.
-
-Agent access is optional and separately configured in **Agents & Permissions**
-(`/mcp-clients`). Follow the
-[read-only agent setup](../README.md#connect-your-ai-agent), grant only the exact
-target, then verify `target_list` and `target_status`. A Windows agent can use
-`http://127.0.0.1:18100/mcp` with its bearer credential, independently of repository
-forwarding. Clients on another computer require the existing
-[explicit LAN MCP configuration](NATIVE-LAN-MCP.md).
+For add-on work, issue the agent a Trusted Managed Lab credential in **Agents**
+and follow the [current MCP workflow](MCP-TOOLS-AND-PERMISSIONS.md). Local Windows
+and WSL clients can use `http://127.0.0.1:18100/mcp` with the bearer credential.
+Use the [explicit LAN MCP configuration](NATIVE-LAN-MCP.md) for another computer.
+External Production and External Development Kodi use their own registrations
+and target grants.
 
 The maintained installer checks its loopback repository listener before install
 initialization and `start`. For a manual bundle, run `python3 linux-v1-bundle

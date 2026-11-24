@@ -19,6 +19,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs
 from uuid import UUID, uuid4
 
+from anyio import to_thread
 from mcp.server.caching import CacheHint
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
@@ -94,9 +95,11 @@ from kodi_lab.kodi.ui_state_native import (
 )
 from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
+from kodi_lab.managed.packages import HEX, MAX_ZIP
 from kodi_lab.managed.protocol import (
     ADMIN,
     FIELDS,
+    OPTIONAL,
     READ,
     VERSION_SCOPED,
     Refusal,
@@ -336,11 +339,13 @@ class ModernMcpAuthMiddleware:
         concurrency: BoundedConcurrencyLimiter | None = None,
         transport_security: TransportSecuritySettings | None = None,
         instance_id: str | None = None,
+        package_upload: ASGIApp | None = None,
     ) -> None:
         self._app = app
         self._authentication = authentication
         self._transport_security = transport_security
         self._instance_id = instance_id
+        self._package_upload = package_upload
         self.failed_auth = failed_auth or BoundedTokenBucketLimiter(
             rate=5.0, burst=20, maximum_buckets=1024, idle_seconds=15 * 60
         )
@@ -380,6 +385,7 @@ class ModernMcpAuthMiddleware:
                 "mcp-name",
                 "content-length",
                 "content-type",
+                "x-kodi-lab-package-sha256",
             )
         ):
             await Response(status_code=400)(scope, receive, send)
@@ -388,6 +394,14 @@ class ModernMcpAuthMiddleware:
             await Response(status_code=405, headers={"Allow": "POST"})(
                 scope, receive, send
             )
+            return
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type == "application/zip" and self._package_upload is not None:
+            principal = self._principal(scope, headers)
+            if principal is None:
+                await self._authentication_failed(scope, receive, send)
+                return
+            await self._dispatch(scope, receive, send, principal, self._package_upload)
             return
         length = headers.get("content-length")
         if length is not None:
@@ -398,7 +412,6 @@ class ModernMcpAuthMiddleware:
             except ValueError:
                 await Response(status_code=400)(scope, receive, send)
                 return
-        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
             await Response(status_code=415)(scope, receive, send)
             return
@@ -487,22 +500,7 @@ class ModernMcpAuthMiddleware:
                 request_id=request_id,
             )
             return
-        query = parse_qs(
-            scope.get("query_string", b"").decode("latin-1"),
-            keep_blank_values=True,
-        )
-        if {key.lower() for key in query}.intersection(
-            {"token", "access_token", "bearer_token"}
-        ):
-            await self._authentication_failed(scope, replay_receive, send)
-            return
-        authorization = headers.get("authorization")
-        token = None
-        if authorization is not None and authorization.startswith("Bearer "):
-            candidate = authorization[7:]
-            if candidate and " " not in candidate and "\t" not in candidate:
-                token = candidate
-        principal = None if token is None else self._authentication.authenticate(token)
+        principal = self._principal(scope, headers)
         if principal is None:
             await self._authentication_failed(scope, replay_receive, send)
             return
@@ -522,16 +520,42 @@ class ModernMcpAuthMiddleware:
                 status_code=404,
             )
             return
+        await self._dispatch(scope, replay_receive, send, principal, self._app)
+
+    def _principal(self, scope: Scope, headers: Headers) -> McpPrincipal | None:
+        query = parse_qs(
+            scope.get("query_string", b"").decode("latin-1"),
+            keep_blank_values=True,
+        )
+        if {key.lower() for key in query}.intersection(
+            {"token", "access_token", "bearer_token"}
+        ):
+            return None
+        authorization = headers.get("authorization", "")
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]
+            if token and " " not in token and "\t" not in token:
+                return self._authentication.authenticate(token)
+        return None
+
+    async def _dispatch(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        principal: McpPrincipal,
+        app: ASGIApp,
+    ) -> None:
         client_key = str(principal.client_id)
         if not self.authenticated.allow(client_key):
-            await self._rate_limited(scope, replay_receive, send)
+            await self._rate_limited(scope, receive, send)
             return
         if not await self.concurrency.acquire(principal.client_id):
-            await self._rate_limited(scope, replay_receive, send)
+            await self._rate_limited(scope, receive, send)
             return
         reset = _principal_context.set(principal)
         try:
-            await self._app(scope, replay_receive, self._without_session_header(send))
+            await app(scope, receive, self._without_session_header(send))
         finally:
             _principal_context.reset(reset)
             await self.concurrency.release(principal.client_id)
@@ -594,16 +618,19 @@ class ModernMcpAuthMiddleware:
         )(scope, receive, send)
 
     @staticmethod
-    async def _read_body(receive: Receive) -> bytes | None:
+    async def _read_body(
+        receive: Receive, limit: int = MCP_MAX_REQUEST_BODY
+    ) -> bytes | None:
         body = bytearray()
         more = True
         while more:
             message = await receive()
             if message["type"] != "http.request":
                 return bytes(body)
-            body.extend(message.get("body", b""))
-            if len(body) > MCP_MAX_REQUEST_BODY:
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > limit:
                 return None
+            body.extend(chunk)
             more = message.get("more_body", False)
         return bytes(body)
 
@@ -999,12 +1026,12 @@ def build_mcp_http_transport(
                     ),
                     **(
                         {
-                            "allow_services": {
+                            OPTIONAL[name]: {
                                 "type": "string",
                                 "enum": ["true", "false"],
                             }
                         }
-                        if name == "addon_install"
+                        if name in OPTIONAL
                         else {}
                     ),
                 },
@@ -1471,6 +1498,58 @@ def build_mcp_http_transport(
         host="127.0.0.1",
     )
     instance_id = str(uuid4())
+    upload_slot = asyncio.Lock()
+
+    async def package_upload(scope: Scope, receive: Receive, send: Send) -> None:
+        async def refuse(code: str, status: int) -> None:
+            await JSONResponse({"code": code}, status_code=status)(scope, receive, send)
+
+        principal = _principal_context.get()
+        if not authorization.managed_lab_enabled(principal):
+            await refuse("permission_denied", 403)
+            return
+        headers = Headers(scope=scope)
+        length = headers.get("content-length")
+        digest = headers.get("x-kodi-lab-package-sha256", "")
+        if length is None:
+            await refuse("package_length_required", 411)
+            return
+        if not re.fullmatch(r"[0-9]{1,12}", length) or not HEX.fullmatch(digest):
+            await refuse("invalid_package_upload_headers", 400)
+            return
+        size = int(length)
+        if not 0 < size <= MAX_ZIP:
+            await refuse("package_limit", 413)
+            return
+        if upload_slot.locked():
+            await refuse("package_upload_busy", 429)
+            return
+        async with upload_slot:
+            try:
+                async with asyncio.timeout(30):
+                    data = await ModernMcpAuthMiddleware._read_body(receive, size)
+                if data is None or len(data) != size:
+                    await refuse("incomplete_package_upload", 400)
+                    return
+                result = await to_thread.run_sync(
+                    managed.upload, str(principal.client_id), data, digest
+                )
+            except TimeoutError:
+                await refuse("package_upload_timeout", 408)
+                return
+            except Refusal as error:
+                code = str(error)
+                status = (
+                    503
+                    if code.startswith("operation_outcome_")
+                    else 409
+                    if code == "managed_busy"
+                    else 422
+                )
+                await refuse(code, status)
+                return
+        await JSONResponse(result)(scope, receive, send)
+
     protected = ModernMcpAuthMiddleware(
         sdk_app,
         authentication,
@@ -1479,6 +1558,7 @@ def build_mcp_http_transport(
         concurrency=concurrency_limiter,
         transport_security=transport_security,
         instance_id=instance_id,
+        package_upload=package_upload,
     )
     return McpHttpTransport(
         app=protected,
