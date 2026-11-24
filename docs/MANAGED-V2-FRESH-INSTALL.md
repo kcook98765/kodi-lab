@@ -7,11 +7,13 @@ Existing application databases require a fresh installation.
 
 Configure the approved repository bundle and deployment address with the
 [normal installer](HOST-INSTALLER.md). After starting the services, sign in
-and use **Kodi Runtimes** to acquire the reviewed Omega 21.3 runtime. Wait for
-**Ready**, then open **Managed Kodi** to prepare and start the working profile.
+and use **Kodi Runtimes** to acquire a reviewed runtime. Piers RC2 remains a
+preview and requires exact recipe approval. Wait for **Ready**, then open
+**Managed Kodi** to choose the version and prepare its working profile.
 The broker prepares the authenticated Narrow Bridge. Use the managed page
 for status, noVNC viewing, Take Control, Stop, Reset and named snapshots.
-Ordinary Stop and Start preserve the profile. Reset creates a clean profile.
+Ordinary Stop and Start preserve the selected version's profile. Reset creates
+a clean profile. Stop the current instance before switching versions.
 
 Under **Agents**, issue credentials and explicitly enable Trusted Managed Lab.
 Agents acquire exclusive use, admit a package and call the native installer.

@@ -21,6 +21,7 @@ from kodi_lab.kodi.remote import (
     fixed_request_mapping,
 )
 
+from . import RELEASES, reviewed_image_file
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
 from .protocol import (
     ADMIN,
@@ -43,6 +44,7 @@ class Controller:
         *,
         daemon_root: Path | None = None,
         reviewed_image: Path | None = None,
+        handoff_root: Path | None = None,
         interrupt: Callable[[str], None] | None = None,
     ) -> None:
         self.runtime = Runtime(
@@ -51,6 +53,20 @@ class Controller:
             daemon_root=daemon_root,
             reviewed_image=reviewed_image,
         )
+        self.omega = self.runtime
+        self.runtimes = {"omega": self.omega}
+        if handoff_root is not None:
+            assert daemon_root is not None
+            for generation in RELEASES.keys() - {"omega"}:
+                path = root / generation
+                path.mkdir(mode=0o700, exist_ok=True)
+                self.runtimes[generation] = Runtime(
+                    path,
+                    self.checkpoint,
+                    daemon_root=daemon_root / generation,
+                    reviewed_image=handoff_root / reviewed_image_file(generation),
+                    generation=generation,
+                )
         self.input_attempt: UUID | None = None
         self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
@@ -61,10 +77,10 @@ class Controller:
         self.agents = self.runtime.root / "agents"
         self.agents.mkdir(mode=0o700, exist_ok=True)
         self.actions: dict[str, Callable[..., object]] = {
-            "managed_prepare": self.runtime.prepare,
-            "managed_start": self.runtime.start,
-            "managed_stop": self.runtime.stop,
-            "managed_reset": self.runtime.reset,
+            "managed_prepare": lambda: self.runtime.prepare(),
+            "managed_start": lambda: self.runtime.start(),
+            "managed_stop": lambda: self.runtime.stop(),
+            "managed_reset": lambda: self.runtime.reset(),
             "managed_status": self.status,
             "managed_recover": self.recover,
             "snapshot_list": lambda **args: self.snapshots.list(**args),
@@ -83,15 +99,15 @@ class Controller:
             "addon_setting": self.setting,
             "addon_inventory": self.inventory,
             "managed_gui": self.gui,
-            "managed_screen": self.runtime.screen,
-            "managed_logs": self.runtime.logs,
+            "managed_screen": lambda: self.runtime.screen(),
+            "managed_logs": lambda: self.runtime.logs(),
             "managed_navigate": self.navigate,
             "managed_skin": self.skin,
         }
 
     def actor_directory(self, actor: str) -> Path:
         if actor == "admin":
-            return self.runtime.root
+            return self.omega.root
         root = self.agents / actor_key(actor)
         root.mkdir(mode=0o700, exist_ok=True)
         for name in ("snapshots", "approved", "workspaces"):
@@ -103,7 +119,7 @@ class Controller:
         return Packages(
             self.actor_directory(self.actor),
             self.runtime.feed,
-            catalog_root=self.runtime.root,
+            catalog_root=self.omega.root,
         )
 
     @property
@@ -148,7 +164,7 @@ class Controller:
     def finish_input(self, attempt: UUID | None, terminated: bool) -> None:
         if not terminated or attempt is None:
             return
-        with self.runtime.exclusive():
+        with self.omega.exclusive():
             if self.input_attempt == attempt:
                 if self.owner() == "admin":
                     self.lease_path.unlink(missing_ok=True)
@@ -208,13 +224,20 @@ class Controller:
     def perform(self, name: str, args: dict[str, str], *, actor: str) -> OperationReply:
         started = time.monotonic()
         actor_key(actor)
-        with self.runtime.exclusive():
-            validate(name, args)
+        with self.omega.exclusive():
+            _, args = validate(name, args)
+            arguments = dict(args)
+            generation = arguments.pop("generation", "omega")
+            runtime = self.runtimes.get(generation)
+            if runtime is None:
+                raise Refusal("managed_generation_unavailable")
+            self.runtime = runtime
             self.actor = actor
             try:
-                result = self.perform_locked(name, args)
+                result = self.perform_locked(name, arguments)
             finally:
                 self.actor = "admin"
+                self.runtime = self.omega
         return {
             "result": result,
             "elapsed_seconds": round(time.monotonic() - started, 3),
@@ -235,6 +258,8 @@ class Controller:
                     "version": result.version,
                 }
             return result
+        if pending and pending.get("generation", "omega") != self.runtime.generation:
+            raise Refusal("managed_recovery_required")
         if pending and pending.get("recovery_error") and name == "managed_stop":
             return self.runtime.stop()
         if pending:
@@ -247,6 +272,7 @@ class Controller:
         self.current = {
             "id": uuid4().hex,
             "name": name,
+            "generation": self.runtime.generation,
             "actor": self.actor,
             "state": "pending",
             "subject": {
@@ -282,6 +308,8 @@ class Controller:
             ),
         }
         previous = self.last_operation()
+        status["generation"] = self.runtime.generation
+        status["available_generations"] = list(RELEASES)
         status["owner"] = self.owner()
         status["view_control"] = self.input_attempt is not None
         status["view_target"] = str(self.runtime.target)
@@ -291,6 +319,7 @@ class Controller:
                 for key in (
                     "id",
                     "name",
+                    "generation",
                     "state",
                     "subject",
                     "event",
@@ -306,6 +335,8 @@ class Controller:
         record = self.last_operation()
         if not record or record["state"] != "pending":
             return {"state": "no_recovery_required"}
+        if record.get("generation", "omega") != self.runtime.generation:
+            raise Refusal("managed_recovery_generation_mismatch")
         try:
             self.reconcile(record)
         except Refusal as exc:
@@ -325,6 +356,7 @@ class Controller:
                 {
                     "id": record["id"],
                     "name": record["name"],
+                    "generation": self.runtime.generation,
                     "actor": record.get("actor", "admin"),
                     "subject": record["subject"],
                     "event": "recovered",

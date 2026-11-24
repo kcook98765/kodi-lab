@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.managed import REVIEWED_IMAGE_FILE
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.preview import (
     PreviewAcknowledgement,
     admission_evidence,
@@ -665,10 +665,10 @@ class DockerReviewedInstallationWorker:
                     )
                 except ValueError:
                     return False
-                if digest == load_installation_recipe("omega").digest:
+                if digest == load_installation_recipe(row.generation).digest:
                     try:
                         selected = (
-                            self._runtime_root / REVIEWED_IMAGE_FILE
+                            self._runtime_root / reviewed_image_file(row.generation)
                         ).read_text()
                     except FileNotFoundError:
                         return False

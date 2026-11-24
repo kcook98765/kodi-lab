@@ -27,6 +27,8 @@ async def stream_view(
     cookie_name: str,
     same_origin: Callable[[WebSocket], bool],
     require_https: bool,
+    *,
+    generation: str = "omega",
 ) -> None:
     token = websocket.cookies.get(cookie_name)
     session = await asyncio.to_thread(resolve, token)
@@ -53,7 +55,12 @@ async def stream_view(
     try:
         async with asyncio.timeout(4):
             value = (
-                await asyncio.to_thread(broker.request, "admin", "managed_status", {})
+                await asyncio.to_thread(
+                    broker.request,
+                    "admin",
+                    "managed_status",
+                    {"generation": generation} if generation != "omega" else {},
+                )
             )["result"]
             if not isinstance(value, dict) or value.get("state") != "ready":
                 raise ValueError("Kodi is not ready")

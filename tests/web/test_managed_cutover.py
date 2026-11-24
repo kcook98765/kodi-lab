@@ -46,6 +46,20 @@ def test_managed_page_replaces_slot_receipts_and_uses_session_authority(
     assert "Legacy Current Managed" not in page.text
     assert client.get("/managed-kodi/omega/development").status_code == 404
     assert client.get("/api/managed-kodi/requests/old").status_code == 404
+    nexus = "/api/managed-kodi/nexus/actions"
+    assert client.post(nexus, json=operation, headers=headers).status_code == 200
+    assert calls[-1] == ("admin", "managed_start", {"generation": "nexus"})
+    assert (
+        client.post(
+            nexus,
+            json={**operation, "arguments": {"generation": "matrix"}},
+            headers=headers,
+        ).status_code
+        == 400
+    )
+    assert (
+        'data-managed-kodi="nexus"' in client.get("/managed-kodi?generation=nexus").text
+    )
 
 
 def test_managed_view_rejects_cross_origin_before_contacting_broker(

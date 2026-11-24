@@ -3,8 +3,13 @@
 {% block title %}Managed Kodi · Kodi Lab{% endblock %}
 {% block content %}
 <h1>Managed Kodi</h1>
-<section aria-labelledby="omega-heading" id="managed-omega" data-csrf="{{ csrf_token }}">
-  <h2 id="omega-heading">Omega 21.3</h2>
+<nav aria-label="Managed Kodi versions">
+  {% for key, label in versions.items() %}
+  <a href="/managed-kodi?generation={{ key }}"{% if key == generation %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+<section aria-labelledby="managed-heading" id="managed-{{ generation }}" data-managed-kodi="{{ generation }}" data-csrf="{{ csrf_token }}">
+  <h2 id="managed-heading">{{ versions[generation] }}</h2>
   <p id="managed-status" role="status">Checking Kodi…</p>
   <div>
     <button type="button" data-action="managed_prepare">Prepare</button>

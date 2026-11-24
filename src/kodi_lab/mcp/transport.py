@@ -92,8 +92,16 @@ from kodi_lab.kodi.ui_state_native import (
     MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
     MANAGED_BRIDGE_RECOVERY_REASONS,
 )
+from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
-from kodi_lab.managed.protocol import ADMIN, FIELDS, READ, Refusal, validate
+from kodi_lab.managed.protocol import (
+    ADMIN,
+    FIELDS,
+    READ,
+    VERSION_SCOPED,
+    Refusal,
+    validate,
+)
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import (
@@ -978,6 +986,17 @@ def build_mcp_http_transport(
                 "type": "object",
                 "properties": {
                     **{key: {"type": "string"} for key in FIELDS[name]},
+                    **(
+                        {
+                            "generation": {
+                                "type": "string",
+                                "enum": list(RELEASES),
+                                "default": "omega",
+                            }
+                        }
+                        if name in VERSION_SCOPED
+                        else {}
+                    ),
                     **(
                         {
                             "allow_services": {

@@ -21,12 +21,18 @@ from .runtime import docker
 def display_lane(
     controller: Controller, path: Path, frontend_uid: int, frontend_gid: int
 ) -> DisplayLane:
-    runtime = controller.runtime
-
     def admit(request: ViewRequest) -> DockerViewTunnel:
         interactive = request.mode == "interactive"
-        with runtime.exclusive():
-            if request.instance != runtime.target:
+        with controller.omega.exclusive():
+            runtime = next(
+                (
+                    item
+                    for item in controller.runtimes.values()
+                    if item.target == request.instance
+                ),
+                None,
+            )
+            if runtime is None:
                 raise Refusal("managed_view_target_invalid")
             obj = runtime.inspect()
             if not obj or not obj["State"]["Running"]:

@@ -641,11 +641,15 @@ class RuntimeInstallationService:
                 phase="Runtime files missing",
                 action="none" if development_variant else "reacquire",
             )
-        if generation == "omega" and not development_variant:
+        if not development_variant:
             return replace(
                 current,
                 action="open",
-                managed_instance_url="/managed-kodi",
+                managed_instance_url=(
+                    "/managed-kodi"
+                    if generation == "omega"
+                    else f"/managed-kodi?generation={generation}"
+                ),
             )
         return current
 

@@ -25,7 +25,7 @@ from kodi_lab.broker.reviewed_installations import (
     worker_name,
 )
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.managed import REVIEWED_IMAGE_FILE
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
     load_installation_recipe,
@@ -327,7 +327,7 @@ def test_protocol_is_closed_to_three_generations_and_semantic_fields(
     assert raised.value.code == "invalid_params"
 
 
-@pytest.mark.parametrize("generation", ["omega", "piers"])
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
 def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
     monkeypatch: pytest.MonkeyPatch,
@@ -363,12 +363,11 @@ def test_image_presence_uses_only_ready_operation_and_exact_recipe_identity(
         "Architecture": "amd64",
         "Config": {"Labels": {"io.kodi-lab.recipe-digest": image_digest}},
     }
-    if generation == "omega":
-        assert not worker.image_present(operation_id)
-        pin = worker._runtime_root / REVIEWED_IMAGE_FILE
-        pin.write_text("sha256:" + "b" * 64)
-        assert not worker.image_present(operation_id)
-        pin.write_text(IMAGE)
+    assert not worker.image_present(operation_id)
+    pin = worker._runtime_root / reviewed_image_file(generation)
+    pin.write_text("sha256:" + "b" * 64)
+    assert not worker.image_present(operation_id)
+    pin.write_text(IMAGE)
     assert worker.image_present(operation_id)
     row.recipe_digest = "sha256:" + "b" * 64
     assert not worker.image_present(operation_id)

@@ -2,8 +2,8 @@ import RFB from "./vendor/novnc/core/rfb.js";
 
 "use strict";
 
-const panel = document.querySelector("#managed-omega");
-const base = "/api/managed-kodi/omega";
+const panel = document.querySelector("[data-managed-kodi]");
+const base = "/api/managed-kodi/" + panel.dataset.managedKodi;
 const statusLine = document.querySelector("#managed-status");
 const feedback = document.querySelector("#managed-feedback");
 const saved = document.querySelector("#managed-snapshot");
@@ -67,7 +67,7 @@ async function refresh() {
   ready = state === "ready";
   if (!ready && client !== null) disconnect();
   if (ready && watching && client === null && !control) connect();
-  recover.hidden = operation?.state !== "pending";
+  recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
   statusLine.textContent = `${state.replaceAll("_", " ")} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
   const selected = saved.value;
   const options = data.snapshots.map(({name}) => new Option(name, name));

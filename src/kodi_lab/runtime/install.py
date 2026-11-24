@@ -33,7 +33,7 @@ from kodi_lab.domain import (
     RuntimeValidationEvidence,
     RuntimeValidationResult,
 )
-from kodi_lab.managed import REVIEWED_IMAGE_FILE
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.managed.runtime import atomic
 from kodi_lab.remote_lifecycle import validate as remote_validate
 from kodi_lab.runtime.assembly import AssemblyResult, assemble_reviewed_image
@@ -619,12 +619,15 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
 def _publish_managed_image(
     runtime_root: Path, reviewed: ReviewedRecipe, image_id: str
 ) -> None:
-    """Pass only the current approved Omega recipe's validated, immutable ID."""
-    if reviewed.digest != load_installation_recipe("omega").digest:
+    """Pass only a current approved recipe's validated, immutable ID."""
+    generation = reviewed.recipe.generation
+    if reviewed.digest != load_installation_recipe(generation).digest:
         return
     if re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None:
         raise RecipeInstallationError("validated managed image identity is invalid")
-    atomic(runtime_root / REVIEWED_IMAGE_FILE, image_id.encode(), mode=0o644)
+    atomic(
+        runtime_root / reviewed_image_file(generation), image_id.encode(), mode=0o644
+    )
 
 
 def install_reviewed_runtime(

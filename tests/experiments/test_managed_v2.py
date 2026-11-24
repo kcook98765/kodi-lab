@@ -442,3 +442,81 @@ def test_human_release_waits_for_rfb_helper_exit(tmp_path: Path) -> None:
         "owner": agent,
         "idle_timeout_seconds": 900,
     }
+
+
+def test_generation_scope_preserves_one_owner_and_separate_profiles(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    handoff = tmp_path / "handoff"
+    handoff.mkdir()
+    controller = Controller(root, handoff_root=handoff, daemon_root=root)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    with pytest.raises(Refusal, match="managed_owned"):
+        controller.perform("managed_start", {"generation": "nexus"}, actor=str(uuid4()))
+    with pytest.raises(Refusal, match="invalid_arguments"):
+        controller.perform("managed_status", {"generation": "../other"}, actor=actor)
+    assert controller.runtimes["matrix"].pointer != controller.runtimes["nexus"].pointer
+    assert len({runtime.target for runtime in controller.runtimes.values()}) == 4
+    assert controller.runtime is controller.omega
+
+
+def test_start_blocks_other_running_managed_version_before_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kodi_lab.managed import runtime as module
+
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    runtime = Runtime(root, generation="nexus")
+    monkeypatch.setattr(runtime, "capacity", lambda: "approved")
+    monkeypatch.setattr(runtime, "inspect", lambda: None)
+
+    def other_running(*args: str) -> str:
+        assert args[:3] == ("ps", "-q", "--filter")
+        assert "label=io.kodi-lab.managed-v2" in args
+        return "running-matrix"
+
+    monkeypatch.setattr(module, "docker", other_running)
+    with pytest.raises(Refusal, match="another_managed_runtime_running"):
+        runtime.start()
+    assert not list(runtime.credentials.iterdir())
+
+
+def test_interrupted_operation_can_only_recover_its_original_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root, daemon_root=root, handoff_root=tmp_path)
+    pending = {
+        "id": uuid4().hex,
+        "name": "managed_start",
+        "generation": "piers",
+        "subject": {},
+        "state": "pending",
+    }
+    controller.record.write_text(json.dumps(pending))
+    with pytest.raises(Refusal, match="managed_recovery_generation_mismatch"):
+        controller.perform("managed_recover", {"generation": "nexus"}, actor="admin")
+    assert controller.last_operation() == pending
+
+    observed = []
+
+    def reconcile(_record: dict[str, object]) -> None:
+        observed.append(controller.runtime.generation)
+
+    monkeypatch.setattr(controller, "reconcile", reconcile)
+    result = controller.perform(
+        "managed_recover", {"generation": "piers"}, actor="admin"
+    )
+    assert result["result"] == {
+        "state": "recovered",
+        "interrupted": "managed_start",
+        "completion": "unconfirmed",
+        "native_verification_required": False,
+    }
+    assert observed == ["piers"]
+    assert controller.runtime is controller.omega

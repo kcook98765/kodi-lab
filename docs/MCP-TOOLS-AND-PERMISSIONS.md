@@ -12,6 +12,12 @@ An administrator enables **Trusted Managed Lab** for the agent. The agent uses
 finished. A conflicting human or agent owner blocks mutation. Before saving,
 loading or resetting a profile, stop Kodi through the managed lifecycle.
 
+Check `managed_status` for the available generations. Runtime-scoped tools
+accept `generation` (`matrix`, `nexus`, `omega`, or `piers`) and default
+to `omega`. Stop the current runtime before starting another. The working
+profiles are independent. Ownership and the private workspace namespace span
+versions. Load snapshots only into their original reviewed image identity.
+
 | Task | MCP tools |
 | --- | --- |
 | Lifecycle and authority | `managed_status`, `managed_prepare`, `managed_start`, `managed_stop`, `managed_reset`, `managed_acquire`, `managed_release` |

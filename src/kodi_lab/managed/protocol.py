@@ -4,6 +4,8 @@ from collections.abc import Callable
 from typing import Any, TypedDict
 from uuid import UUID
 
+from . import RELEASES
+
 # Docker, Kodi JSON-RPC and the durable operation document are decoded at
 # their respective boundaries. The closed request and outer reply are typed.
 Document = dict[str, Any]
@@ -69,6 +71,17 @@ FIELDS = {
 }
 
 
+VERSION_SCOPED = (
+    FIELDS.keys()
+    - PRIVATE
+    - {
+        "managed_acquire",
+        "managed_release",
+        "managed_take_control",
+    }
+)
+
+
 class Refusal(Exception):
     pass
 
@@ -91,10 +104,11 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
         or name not in FIELDS
         or not isinstance(args, dict)
         or not (
-            set(args) == set(FIELDS[name])
-            or (
-                name == "addon_install"
-                and set(args) == {*FIELDS[name], "allow_services"}
+            set(FIELDS[name]).issubset(args)
+            and set(args).issubset(
+                set(FIELDS[name])
+                | ({"generation"} if name in VERSION_SCOPED else set())
+                | ({"allow_services"} if name == "addon_install" else set())
             )
         )
         or any(
@@ -103,5 +117,7 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
             for key, value in args.items()
         )
     ):
+        raise Refusal("invalid_arguments")
+    if "generation" in args and args["generation"] not in RELEASES:
         raise Refusal("invalid_arguments")
     return name, args

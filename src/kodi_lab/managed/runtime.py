@@ -1,4 +1,4 @@
-"""Single Omega runtime and profile for the fresh-install experiment."""
+"""Reviewed Kodi runtime and its independent working profile."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from kodi_lab.domain.external_targets import ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 
+from . import RELEASES
 from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
 
@@ -81,7 +82,7 @@ def descriptor() -> bytes:
     repo = ET.SubElement(
         addon, "extension", point="xbmc.addon.repository", name="Kodi Lab Managed Feed"
     )
-    directory = ET.SubElement(repo, "dir", minversion="21.0.0")
+    directory = ET.SubElement(repo, "dir", minversion="19.0.0")
     for key, params, tail in (
         ("info", {"compressed": "false"}, "/addons.xml"),
         ("checksum", {"verify": "sha256"}, "/addons.xml.sha256"),
@@ -133,7 +134,11 @@ class Runtime:
         *,
         daemon_root: Path | None = None,
         reviewed_image: Path | None = None,
+        generation: str = "omega",
     ) -> None:
+        self.generation = generation
+        self.system = "/app/share/kodi" if generation == "piers" else "/usr/share/kodi"
+        self.addons_system = self.system + "/addons"
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
         self.daemon_root = daemon_root if daemon_root is not None else self.root
@@ -165,7 +170,11 @@ class Runtime:
                 if directory.is_symlink():
                     raise Refusal("invalid_state_directory")
                 directory.mkdir(mode=0o700, exist_ok=True)
-        self.name = "kodi-lab-managed-v2"
+        self.name = (
+            "kodi-lab-managed-v2"
+            if generation == "omega"
+            else f"kodi-lab-managed-v2-{generation}"
+        )
         prefix = "kodi-v2-" + self.target.hex[:16]
         self.feed_name = prefix + "-feed"
         self.network_name = prefix + "-net"
@@ -339,7 +348,7 @@ class Runtime:
     def prepare(self) -> Document:
         if self.pointer.exists():
             self.profile()
-            return {"state": "prepared", "profile": "omega"}
+            return {"state": "prepared", "profile": self.generation}
         image = self.capacity()
         build = self.root / ("baseline-" + uuid4().hex)
         build.mkdir(mode=0o700)
@@ -347,7 +356,7 @@ class Runtime:
         try:
             docker(
                 "cp",
-                image_seed + ":/usr/share/kodi/system/addon-manifest.xml",
+                f"{image_seed}:{self.system}/system/addon-manifest.xml",
                 str(build / "manifest.xml"),
             )
         finally:
@@ -398,7 +407,7 @@ class Runtime:
         build.rename(self.material)
         atomic(self.image_pin, image.encode())
         self.exchange(self.stage(clean=True))
-        return {"state": "prepared", "profile": "omega"}
+        return {"state": "prepared", "profile": self.generation}
 
     def address(self) -> str:
         obj = self.inspect()
@@ -499,8 +508,14 @@ class Runtime:
                 "Application.GetProperties", properties=["name", "version"]
             )
             bridge = self.signed("bridge_identity")
+            actual = version["version"]
+            if self.generation == "piers":
+                from kodi_lab.runtime.ostree_validation import native_identity
+
+                native_identity(version, "22.0-rc.2")
             if (
-                (version["version"]["major"], version["version"]["minor"]) != (21, 3)
+                version.get("name") != "Kodi"
+                or (actual["major"], actual["minor"]) != RELEASES[self.generation]
                 or bridge["addon_id"] != BRIDGE
                 or "managed_v2_install" not in bridge["capabilities"]
                 or bridge["build_fingerprint"] != self.bridge_fingerprint()
@@ -521,6 +536,15 @@ class Runtime:
             if result:
                 return result
             raise Refusal("existing_runtime_not_ready")
+        if docker(
+            "ps",
+            "-q",
+            "--filter",
+            "label=" + LABEL,
+            "--filter",
+            "name=^/kodi-lab-managed-v2(-matrix|-nexus|-piers)?$",
+        ):
+            raise Refusal("another_managed_runtime_running")
         slot = self.read_pointer()
         self.require_stopped()
         self.require_volume(slot)
@@ -599,13 +623,13 @@ class Runtime:
             f"type=bind,src={self.daemon_path(self.credentials)},dst=/managed-v2-credentials,readonly",
             "--mount",
             f"type=bind,src={self.daemon_path(self.material / 'manifest.xml')},"
-            "dst=/usr/share/kodi/system/addon-manifest.xml,readonly",
+            f"dst={self.system}/system/addon-manifest.xml,readonly",
             "--mount",
             f"type=bind,src={self.daemon_path(self.material / 'bridge')},"
-            f"dst=/usr/share/kodi/addons/{BRIDGE},readonly",
+            f"dst={self.addons_system}/{BRIDGE},readonly",
             "--mount",
             f"type=bind,src={self.daemon_path(self.material / 'repository')},"
-            f"dst=/usr/share/kodi/addons/{REPO},readonly",
+            f"dst={self.addons_system}/{REPO},readonly",
             self.image,
         )
         self.checkpoint("runtime_created")
@@ -756,7 +780,7 @@ class Runtime:
     def reset(self) -> Document:
         self.require_stopped()
         self.exchange(self.stage(clean=True))
-        return {"state": "stopped", "profile": "omega"}
+        return {"state": "stopped", "profile": self.generation}
 
     def cleanup_trial(self) -> None:
         """Operator-only teardown for this isolated root, including failed trials."""

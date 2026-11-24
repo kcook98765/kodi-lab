@@ -126,6 +126,7 @@ def serve(
         root,
         daemon_root=daemon_root,
         reviewed_image=path.parent.parent / REVIEWED_IMAGE_FILE,
+        handoff_root=path.parent.parent,
     )
     parent = path.parent.stat()
     if parent.st_uid != os.getuid() or parent.st_mode & 0o022:

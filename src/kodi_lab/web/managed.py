@@ -12,8 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.templating import Jinja2Templates
 
 from kodi_lab.auth.service import AuthenticatedWebSession
+from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient
-from kodi_lab.managed.protocol import Refusal
+from kodi_lab.managed.protocol import VERSION_SCOPED, Refusal
 
 from .managed_view import stream_view
 
@@ -58,12 +59,23 @@ def managed_router(
     @router.get("/managed-kodi", response_class=HTMLResponse, name="managed_kodi_page")
     def page(
         request: Request,
+        generation: str = "omega",
         authenticated: AuthenticatedWebSession = session,
     ) -> Response:
+        require_version(generation)
+        versions = {
+            key: f"{key.title()} {major}.{minor}"
+            + (" RC2 (Preview)" if key == "piers" else "")
+            for key, (major, minor) in RELEASES.items()
+        }
         return templates.TemplateResponse(
             request,
             "managed-kodi.html",
-            {"csrf_token": authenticated.csrf_token},
+            {
+                "csrf_token": authenticated.csrf_token,
+                "generation": generation,
+                "versions": versions,
+            },
             headers={"Cache-Control": "no-store"},
         )
 
@@ -72,9 +84,9 @@ def managed_router(
         version: str,
         _admin: AuthenticatedWebSession = session,
     ) -> Response:
-        require_omega(version)
+        require_version(version)
         try:
-            result = broker.request("admin", "managed_status", {})["result"]
+            result = broker.request("admin", "managed_status", scope(version))["result"]
             saved = broker.request("admin", "snapshot_list", {})["result"]
         except Refusal as exc:
             return refused(exc)
@@ -89,11 +101,19 @@ def managed_router(
         action: ManagedAction,
         _admin: AuthenticatedWebSession = mutation,
     ) -> Response:
-        require_omega(version)
+        require_version(version)
+        if "generation" in action.arguments:
+            raise HTTPException(400, "Use the managed runtime in the route")
         if action.operation not in WEB_OPERATIONS:
             raise HTTPException(404, "Unknown managed action")
         try:
-            result = broker.request("admin", action.operation, action.arguments)
+            result = broker.request(
+                "admin",
+                action.operation,
+                {**action.arguments, **scope(version)}
+                if action.operation in VERSION_SCOPED
+                else action.arguments,
+            )
         except Refusal as exc:
             return refused(exc)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
@@ -103,9 +123,9 @@ def managed_router(
         version: str,
         _admin: AuthenticatedWebSession = session,
     ) -> Response:
-        require_omega(version)
+        require_version(version)
         try:
-            result = broker.request("admin", "managed_screen", {})["result"]
+            result = broker.request("admin", "managed_screen", scope(version))["result"]
             if not isinstance(result, dict) or not isinstance(result.get("png"), str):
                 raise Refusal("managed_screenshot_unavailable")
             image = base64.b64decode(result["png"], validate=True)
@@ -117,17 +137,30 @@ def managed_router(
             image, media_type="image/png", headers={"Cache-Control": "no-store"}
         )
 
-    @router.websocket("/api/managed-kodi/omega/view")
-    async def viewer(websocket: WebSocket) -> None:
+    @router.websocket("/api/managed-kodi/{version}/view")
+    async def viewer(websocket: WebSocket, version: str) -> None:
+        if version not in RELEASES:
+            await websocket.close(code=4404)
+            return
         await stream_view(
-            websocket, broker, resolve_session, cookie_name, same_origin, require_https
+            websocket,
+            broker,
+            resolve_session,
+            cookie_name,
+            same_origin,
+            require_https,
+            generation=version,
         )
 
     return router
 
 
-def require_omega(version: str) -> None:
-    if version != "omega":
+def scope(version: str) -> dict[str, str]:
+    return {"generation": version} if version != "omega" else {}
+
+
+def require_version(version: str) -> None:
+    if version not in RELEASES:
         raise HTTPException(404, "Managed runtime is unavailable")
 
 
