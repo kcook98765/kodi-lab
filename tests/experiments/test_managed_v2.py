@@ -274,6 +274,12 @@ def test_failed_skin_recovery_stays_pending(tmp_path, monkeypatch):
         == "skin_boot_readback_unconfirmed"
     )
 
+    monkeypatch.setattr(native, "stop", lambda: {"state": "stopped"})
+    assert controller.perform("managed_stop", {}, write=True)["result"] == {
+        "state": "stopped"
+    }
+    assert controller.last_operation()["skin"]["addon"] == "skin.fixture"
+
 
 def test_snapshot_strips_managed_rpc_password(tmp_path):
     native = Volumes(tmp_path)

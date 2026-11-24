@@ -105,11 +105,12 @@ class TrialProcesses:
         sources = self.endpoint.parent / "code"
         package = sources / "experiments/managed_v2"
         package.mkdir(parents=True)
+        for directory in (sources, package.parent, package):
+            directory.chmod(0o755)
         for name in ("__init__", "broker", "protocol", "server"):
-            shutil.copyfile(
-                SOURCE / "experiments/managed_v2" / (name + ".py"),
-                package / (name + ".py"),
-            )
+            entry = package / (name + ".py")
+            shutil.copyfile(SOURCE / "experiments/managed_v2" / entry.name, entry)
+            entry.chmod(0o444)
         self.server = subprocess.Popen(
             [
                 "sudo",
