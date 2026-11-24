@@ -129,6 +129,7 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     assert 'action="/logout"' in navigation.group()
     assert f'name="csrf_token" value="{csrf}"' in navigation.group()
     assert html.count("navigation.js") == 1
+    assert 'class="admin-layout ' in html
     assert html.count("<main ") == 1
 
 

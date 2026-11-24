@@ -39,7 +39,6 @@ def config() -> dict[str, Any]:
         "0.0.0.0/29",
         "8.8.8.0/29",
         "::1/128",
-        "10.250.0.0/29",
         "192.168.1.0/29",
         "proxy",
         "192.168.241.2,172.18.0.1",
@@ -194,7 +193,7 @@ def test_proxy_failure_retains_partial_installation_and_never_reinitializes(
         install.install(options(host))
     assert (
         json.loads((host.root / "INSTALLATION.json").read_text())["completed_stage"]
-        == "network_ready"
+        == "password_set"
     )
     assert (host.root / "Caddyfile").is_file()
     before = list(host.commands)
@@ -253,7 +252,7 @@ def test_merged_compose_exposes_only_loopback_and_two_ingress_members(
         if "https_ingress" in service.get("networks", {})
     } == {"web", "caddy"}
     assert set(services["caddy"]["networks"]) == {"https_ingress"}
-    assert set(services["web"]["networks"]) == {"default", "managed", "https_ingress"}
+    assert set(services["web"]["networks"]) == {"default", "https_ingress"}
     assert services["web"]["environment"]["FORWARDED_ALLOW_IPS"] == "192.168.241.2"
     assert rendered["networks"]["https_ingress"].get("internal", False) is False
     assert (
