@@ -443,6 +443,11 @@ def windows_overlay(port: int, ingress: dict[str, Any] | None = None) -> str:
     result = (
         "services:\n  repository:\n    ports: !override\n"
         f'      - "127.0.0.1:{port}:8110"\n'
+        # Managed paths refer to the Engine's Linux volume filesystem. Desktop's
+        # host socket rewrites these as WSL distribution bind paths. Its VM socket
+        # preserves Engine paths and stays confined to the same restricted broker.
+        "  broker:\n    volumes:\n"
+        "      - /var/run/docker.sock.raw:/var/run/docker.sock\n"
     )
     if ingress is None:
         return result

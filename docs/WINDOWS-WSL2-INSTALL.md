@@ -416,8 +416,13 @@ Web/MCP stay on loopback. The WSL installer creates a small, recorded
 `compose.windows.yaml` outside the verified bundle. It **replaces** the
 repository's host publication with `127.0.0.1:18121`; it does not add a wildcard
 listener. The repository advertises the chosen Windows LAN address on `18120`.
-The Docker socket, route mount, peer identity checks and managed network rules
-are unchanged. A plain Compose ports list would append a second binding;
+Only the restricted broker receives Docker Desktop's VM socket,
+`/var/run/docker.sock.raw`, mounted at its existing `/var/run/docker.sock` path.
+This preserves Engine-owned Linux volume bind paths when the broker creates
+managed containers; the host socket otherwise translates them into Ubuntu
+distribution paths. The route mount, peer identity checks and managed network
+rules are unchanged. See [Docker's VM socket guidance](https://docs.docker.com/extensions/extensions-sdk/guides/use-docker-socket-from-backend/).
+A plain Compose ports list would append a second binding;
 this override uses the supported `!override` tag.
 
 For Kodi devices to use that advertised address, configure Windows forwarding
