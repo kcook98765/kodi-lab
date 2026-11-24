@@ -29,7 +29,11 @@ from kodi_lab.application.addon_dependencies import (
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
 )
-from kodi_lab.application.agent_workspaces import AgentWorkspaceService
+from kodi_lab.application.agent_workspaces import (
+    AgentWorkspaceConflictError,
+    AgentWorkspaceNotFoundError,
+    AgentWorkspaceService,
+)
 from kodi_lab.application.external_bridges import (
     ExternalBridgeService,
     ExternalBridgeServiceError,
@@ -56,8 +60,6 @@ from kodi_lab.development import (
     DevelopmentSourceValidationError,
     parse_captured_addon_xml,
 )
-from kodi_lab.development.activation import ManagedIterationEvidence
-from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.development.sources import (
     COPIED_SMOKE_UNSUPPORTED_REASONS,
     copied_video_plugin_unsupported_reason,
@@ -65,9 +67,7 @@ from kodi_lab.development.sources import (
 from kodi_lab.domain import (
     AgentWorkspaceBytesState,
     AgentWorkspaceState,
-    DevelopmentSourceDeploymentConfidence,
     GlobalHeavyOperationKind,
-    ManagedInstanceMutationKind,
     TargetType,
 )
 from kodi_lab.domain.smoke_diagnostics import (
@@ -102,7 +102,6 @@ from kodi_lab.repository.workspace_package import (
 )
 from kodi_lab.storage.models import (
     AgentWorkspaceCaptureOperationRow,
-    AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     DevelopmentPublicationHoldRow,
     DevelopmentPublicationRow,
@@ -113,11 +112,9 @@ from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     ExternalDevelopmentSourceBaselineRow,
     ExternalKodiTargetRow,
-    ManagedInstanceRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
-    McpWorkspaceLaunchRow,
     McpWorkspaceValidationRow,
     RepositoryWorkspaceDeploymentRow,
     RepositoryWorkspaceValidationSnapshotRow,
@@ -125,10 +122,8 @@ from kodi_lab.storage.models import (
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
-    DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
-    ManagedInstanceMutationLeaseRepository,
 )
 from kodi_lab.workspace import (
     AgentWorkspaceStorageError,
@@ -286,7 +281,6 @@ def _matches_existing_adoption(
         and operation.state == "succeeded"
         and operation.phase == "finalize"
         and not operation.mutation_started
-        and not operation.target_stopped
         and not operation.sync_started
         and not operation.sync_completed
         and not operation.target_started
@@ -392,7 +386,6 @@ class WorkspaceDeploymentResult(BaseModel):
     phase: str = Field(default="finalize", max_length=32)
     failed_phase: str | None = Field(default=None, max_length=32)
     failure_cause: str | None = Field(default=None, max_length=128)
-    recovery_state: str | None = Field(default=None, max_length=32)
     publication_id: UUID | None = None
     repository_id: str | None = Field(default=None, max_length=64)
     installation_kind: str | None = Field(default=None, max_length=16)
@@ -401,9 +394,7 @@ class WorkspaceDeploymentResult(BaseModel):
     expected_manifest_digest: str | None = None
     next_action: str | None = Field(default=None, max_length=160)
     result_classification: str = Field(max_length=64)
-    iteration_evidence: ManagedIterationEvidence | None = None
     deployment_work_skipped: bool = False
-    managed_verification: ManagedDeploymentVerification | None = None
     inventory_classification: str = Field(max_length=16)
     addon_enabled: bool | None = None
     started_at: datetime | None = None
@@ -463,12 +454,6 @@ class WorkspaceDevelopmentProjection(BaseModel):
     execution_state: str | None = None
     execution_generation: int | None = Field(default=None, ge=0)
     execution_target_id: UUID | None = None
-    launch_id: UUID | None = None
-    launch_request_id: UUID | None = None
-    launch_state: str | None = None
-    launch_generation: int | None = None
-    launch_target_id: UUID | None = None
-    launch_extension_ordinal: int | None = None
 
 
 class ExternalBaselineResult(BaseModel):
@@ -498,7 +483,6 @@ class _DeploymentTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     target_class: str
-    runtime_revision_id: UUID | None = None
     bridge_id: UUID | None = None
 
 
@@ -1061,7 +1045,6 @@ class McpWorkspaceDevelopmentService:
                     workspace_id=publication.workspace_id,
                     development_source_id=workspace.development_source_id,
                     target_id=str(target_id),
-                    runtime_revision_id=None,
                     target_class="external_development",
                     deployment_mode="repository",
                     bridge_id=pairing.pinned_bridge_id,
@@ -1075,7 +1058,6 @@ class McpWorkspaceDevelopmentService:
                     state="succeeded",
                     phase="finalize",
                     mutation_started=False,
-                    target_stopped=False,
                     sync_started=False,
                     sync_completed=False,
                     target_started=False,
@@ -1710,6 +1692,36 @@ class McpWorkspaceDevelopmentService:
             )
         return receipt.state
 
+    def validate_workspace(
+        self,
+        workspace_id: UUID,
+        *,
+        source_id: UUID,
+        expected_generation: int,
+        recheck_authority: Callable[[], object],
+    ) -> tuple[UUID, datetime]:
+        try:
+            observed = self._workspaces.validate_structure(
+                workspace_id, expected_generation=expected_generation
+            )
+        except (
+            AgentWorkspaceConflictError,
+            AgentWorkspaceNotFoundError,
+            AgentWorkspaceStorageError,
+        ) as error:
+            raise McpWorkspaceDevelopmentError("workspace_validation_failed") from error
+        recheck_authority()
+        evidence_id = self.record_validation(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            generation=observed.observed_generation,
+            addon_id=observed.addon_id,
+            addon_version=observed.addon_version,
+            extension_types=observed.extension_types,
+            validated_at=observed.validated_at,
+        )
+        return evidence_id, observed.validated_at
+
     def record_validation(
         self,
         *,
@@ -1874,7 +1886,7 @@ class McpWorkspaceDevelopmentService:
             self._finish_execution(row.id, "failed", "rate_limited")
             raise McpWorkspaceDevelopmentError("rate_limited")
         try:
-            self._acquire_execution(row, digest)
+            self._acquire_execution(row)
             with workspace_coordination_lock(
                 self._data_root, workspace_id, exclusive=True, blocking=False
             ):
@@ -1943,22 +1955,7 @@ class McpWorkspaceDevelopmentService:
                     McpWorkspaceExecutionOperationRow.id.desc(),
                 )
             )
-            launch = session.scalar(
-                select(McpWorkspaceLaunchRow)
-                .where(McpWorkspaceLaunchRow.workspace_id == str(workspace_id))
-                .order_by(
-                    McpWorkspaceLaunchRow.requested_at.desc(),
-                    McpWorkspaceLaunchRow.id.desc(),
-                )
-                .limit(1)
-            )
         return WorkspaceDevelopmentProjection(
-            launch_id=None if launch is None else UUID(launch.id),
-            launch_request_id=None if launch is None else UUID(launch.request_id),
-            launch_state=None if launch is None else launch.state,
-            launch_generation=None if launch is None else launch.generation,
-            launch_target_id=None if launch is None else UUID(launch.target_id),
-            launch_extension_ordinal=None if launch is None else launch.ordinal,
             validation_id=None if validation is None else UUID(validation.id),
             validation_state=None if validation is None else validation.classification,
             validation_generation=None if validation is None else validation.generation,
@@ -1997,21 +1994,6 @@ class McpWorkspaceDevelopmentService:
         )
 
     def retention_blocker(self, workspace_id: UUID, generation: int) -> str | None:
-        with self._sessions() as session:
-            if (
-                session.scalar(
-                    select(McpWorkspaceLaunchRow.id)
-                    .where(
-                        McpWorkspaceLaunchRow.workspace_id == str(workspace_id),
-                        McpWorkspaceLaunchRow.state.in_(
-                            ("pending", "dispatching", "ambiguous")
-                        ),
-                    )
-                    .limit(1)
-                )
-                is not None
-            ):
-                return "launch_requires_reconciliation"
         with self._sessions() as session:
             captured_history = session.scalar(
                 select(AgentWorkspaceCaptureOperationRow.id)
@@ -2212,11 +2194,6 @@ class McpWorkspaceDevelopmentService:
                     workspace_id=str(workspace_id),
                     development_source_id=str(workspace.development_source_id),
                     target_id=str(target_id),
-                    runtime_revision_id=(
-                        None
-                        if target.runtime_revision_id is None
-                        else str(target.runtime_revision_id)
-                    ),
                     target_class=target.target_class,
                     deployment_mode=deployment_mode,
                     repository_origin=(
@@ -2240,7 +2217,6 @@ class McpWorkspaceDevelopmentService:
                     state="pending",
                     phase="claimed",
                     mutation_started=False,
-                    target_stopped=False,
                     sync_started=False,
                     sync_completed=False,
                     target_started=False,
@@ -2515,15 +2491,6 @@ class McpWorkspaceDevelopmentService:
         now = self._clock()
         expires = now + OPERATION_LEASE
         with self._sessions.begin() as session:
-            mutation = True
-            if row.target_class == "internal_lab":
-                mutation = ManagedInstanceMutationLeaseRepository(session).claim(
-                    UUID(row.target_id),
-                    operation_id=UUID(row.id),
-                    token_digest=digest,
-                    now=now,
-                    expires_at=expires,
-                )
             heavy = GlobalHeavyOperationLeaseRepository(session).claim(
                 operation_id=UUID(row.id),
                 token_digest=digest,
@@ -2538,40 +2505,12 @@ class McpWorkspaceDevelopmentService:
                 )
                 .values(state="running", phase="preflight", started_at=_to_text(now))
             )
-            if not (
-                mutation and heavy and int(getattr(changed, "rowcount", 0) or 0) == 1
-            ):
+            if not (heavy and int(getattr(changed, "rowcount", 0) or 0) == 1):
                 raise McpWorkspaceDevelopmentError("deployment_conflict")
 
-    def _acquire_execution(
-        self, row: McpWorkspaceExecutionOperationRow, digest: str
-    ) -> None:
+    def _acquire_execution(self, row: McpWorkspaceExecutionOperationRow) -> None:
         now = self._clock()
         with self._sessions.begin() as session:
-            deployment = session.get(
-                McpWorkspaceDeploymentOperationRow, row.deployment_id
-            )
-            mutation = True
-            if deployment is None:
-                raise McpWorkspaceDevelopmentError("execution_not_deployed")
-            if deployment.target_class == "internal_lab":
-                leases = ManagedInstanceMutationLeaseRepository(session)
-                owned = leases.current(UUID(row.target_id))
-                mutation = bool(
-                    owned is not None
-                    and owned.operation_kind
-                    is ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION
-                    and owned.operation_id == row.id
-                    and owned.lease_token_digest == digest
-                    and owned.lease_expires_at is not None
-                    and owned.lease_expires_at > _to_text(now)
-                ) or leases.claim(
-                    UUID(row.target_id),
-                    operation_id=UUID(row.id),
-                    token_digest=digest,
-                    now=now,
-                    expires_at=now + OPERATION_LEASE,
-                )
             changed = session.execute(
                 update(McpWorkspaceExecutionOperationRow)
                 .where(
@@ -2580,7 +2519,7 @@ class McpWorkspaceDevelopmentService:
                 )
                 .values(state="running", phase="preflight", started_at=_to_text(now))
             )
-            if not (mutation and int(getattr(changed, "rowcount", 0) or 0) == 1):
+            if not (int(getattr(changed, "rowcount", 0) or 0) == 1):
                 raise McpWorkspaceDevelopmentError("deployment_conflict")
 
     def _run_deployment(
@@ -3419,44 +3358,11 @@ class McpWorkspaceDevelopmentService:
             row.completed_at = _to_text(now)
             if row.started_at is None:
                 row.started_at = _to_text(now)
-            if (
-                state == "reconciliation_required"
-                and row.sync_started
-                and not row.sync_completed
-            ):
-                DevelopmentSourceDeploymentRepository(session).mark_confidence(
-                    UUID(row.target_id),
-                    UUID(row.development_source_id),
-                    DevelopmentSourceDeploymentConfidence.UNKNOWN,
-                )
-            mutation = ManagedInstanceMutationLeaseRepository(session)
             heavy = GlobalHeavyOperationLeaseRepository(session)
             if digest is None:
-                if row.target_class == "internal_lab":
-                    mutation.release_for_operation(UUID(row.target_id), UUID(row.id))
                 heavy.release_for_operation(UUID(row.id))
             else:
-                if row.target_class == "internal_lab":
-                    mutation.release(
-                        UUID(row.target_id),
-                        operation_id=UUID(row.id),
-                        token_digest=digest,
-                    )
                 heavy.release(operation_id=UUID(row.id), token_digest=digest)
-
-            if row.state == "succeeded" and row.managed_verification_json is not None:
-                instance = session.get(ManagedInstanceRow, row.target_id)
-                if instance is not None:
-                    proof = ManagedDeploymentVerification.model_validate_json(
-                        row.managed_verification_json
-                    )
-                    # Release advances the observation epoch, without a native
-                    # action. Retain both checked and committed revisions.
-                    row.managed_verification_json = proof.model_copy(
-                        update={
-                            "runtime_state_revision": instance.runtime_state_revision,
-                        }
-                    ).model_dump_json()
 
     def _finish_execution(
         self,
@@ -3477,10 +3383,6 @@ class McpWorkspaceDevelopmentService:
             if row is None or row.state not in {"pending", "running"}:
                 return
             row.state = state
-            if state in {"ambiguous", "reconciliation_required"}:
-                from kodi_lab.application.live_display import cancel_active_live_display
-
-                cancel_active_live_display(UUID(row.target_id))
             row.phase = "finalize"
             row.failure_code = failure_code
             row.completed_at = _to_text(now)
@@ -3507,19 +3409,6 @@ class McpWorkspaceDevelopmentService:
             row.addon_exception_detail = (
                 None if addon_exception is None else addon_exception.detail
             )
-            deployment = session.get(
-                McpWorkspaceDeploymentOperationRow, row.deployment_id
-            )
-            if deployment is not None and deployment.target_class == "internal_lab":
-                leases = ManagedInstanceMutationLeaseRepository(session)
-                if digest is None:
-                    leases.release_for_operation(UUID(row.target_id), UUID(row.id))
-                else:
-                    leases.release(
-                        UUID(row.target_id),
-                        operation_id=UUID(row.id),
-                        token_digest=digest,
-                    )
 
     def _replay_deployment(
         self,
@@ -3659,7 +3548,6 @@ class McpWorkspaceDevelopmentService:
             phase=row.phase,
             failed_phase=row.failure_phase,
             failure_cause=row.failure_cause,
-            recovery_state=row.recovery_state,
             publication_id=None if linked is None else UUID(linked.publication_id),
             repository_id=None if linked is None else linked.repository_id,
             installation_kind=(
@@ -3679,39 +3567,8 @@ class McpWorkspaceDevelopmentService:
             next_action=next_action,
             result_classification=row.result_classification or "verified",
             deployment_work_skipped=row.result_classification == "verified_existing",
-            managed_verification=(
-                None
-                if row.managed_verification_json is None
-                else ManagedDeploymentVerification.model_validate_json(
-                    row.managed_verification_json
-                )
-            ),
             inventory_classification=row.inventory_classification,
             addon_enabled=row.addon_enabled,
-            iteration_evidence=(
-                ManagedIterationEvidence(
-                    file_application=(
-                        "verified_existing_at_operation"
-                        if row.result_classification == "verified_existing"
-                        else "verified_at_operation"
-                        if row.sync_completed
-                        and row.source_manifest_digest
-                        and row.verified_destination_digest
-                        else "not_verified"
-                    ),
-                    kodi_restart=(
-                        "observed_at_operation"
-                        if row.state == "succeeded"
-                        and row.target_stopped
-                        and row.target_started
-                        and row.inventory_classification == "matched"
-                        else "not_observed"
-                    ),
-                )
-                if row.target_class == "internal_lab"
-                and row.deployment_mode == "direct"
-                else None
-            ),
             started_at=started,
             completed_at=completed,
         )
@@ -3847,17 +3704,12 @@ class McpWorkspaceDevelopmentService:
             McpDevelopmentRequestRow.operation_id
             == McpWorkspaceExecutionOperationRow.id
         )
-        execution_promotion_reference = exists().where(
-            AgentWorkspacePromotionPlanRow.originating_mcp_execution_id
-            == McpWorkspaceExecutionOperationRow.id
-        )
         expired_execution_ids = (
             select(McpWorkspaceExecutionOperationRow.id)
             .where(
                 McpWorkspaceExecutionOperationRow.completed_at < cutoff,
                 execution_terminal_evidence_is_consistent_sql(),
                 ~execution_request_reference,
-                ~execution_promotion_reference,
             )
             .order_by(
                 McpWorkspaceExecutionOperationRow.completed_at,
@@ -3885,10 +3737,6 @@ class McpWorkspaceDevelopmentService:
             McpDevelopmentRequestRow.operation_id
             == McpWorkspaceDeploymentOperationRow.id
         )
-        deployment_promotion_reference = exists().where(
-            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
-            == McpWorkspaceDeploymentOperationRow.id
-        )
         repository_history_reference = exists().where(
             RepositoryWorkspaceDeploymentRow.operation_id
             == McpWorkspaceDeploymentOperationRow.id
@@ -3900,7 +3748,6 @@ class McpWorkspaceDevelopmentService:
                 deployment_terminal_evidence_is_consistent_sql(),
                 ~current_workspace_deployment,
                 ~deployment_request_reference,
-                ~deployment_promotion_reference,
                 ~repository_history_reference,
             )
             .order_by(

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.development.activation import (
     ActivationAssessment,
     assess_declared_extensions,
@@ -24,33 +23,15 @@ from kodi_lab.domain import (
     AgentWorkspaceBytesState,
     AgentWorkspaceState,
     DevelopmentSourceDeploymentConfidence,
-    InstanceType,
     TargetType,
 )
-from kodi_lab.storage.agent_project_context import owned_project_workspace
-from kodi_lab.storage.development_sessions import (
-    DevelopmentSessionConflict,
-    require_workspace_session_admission,
-)
 from kodi_lab.storage.models import (
-    ManagedBridgeTrustRow,
-    McpWorkspaceDeploymentOperationRow,
     McpWorkspaceValidationRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
-    DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
-    GlobalHeavyOperationLeaseRepository,
-    ManagedInstanceDevelopmentSourceRepository,
-    ManagedInstanceMutationLeaseRepository,
-    ManagedInstanceRepository,
-)
-from kodi_lab.storage.workspace_deployments import (
-    failed_verified_workspace_copy,
-    failed_verified_workspace_copy_sql,
-    selected_profile_lineage_sql,
 )
 
 _VERIFIED = DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
@@ -89,7 +70,7 @@ class PrerequisiteCheck(BaseModel):
     ]
     state: Literal["satisfied", "blocked", "unknown", "not_required"]
     reason: Literal[
-        "managed_direct_only",
+        "external_development_required",
         "development_session_not_active",
         "stored_session_scope_matches",
         "session_scope_not_assessed",
@@ -182,7 +163,6 @@ class WorkspaceDeploymentPreflightService:
         operation: DeploymentPreflightInput,
         *,
         read_session: Session | None = None,
-        client_id: UUID | None = None,
     ) -> DeploymentPreflightResult:
         checks: list[PrerequisiteCheck] = []
         actions: list[PreflightNextAction] = []
@@ -202,11 +182,6 @@ class WorkspaceDeploymentPreflightService:
                     action=name,
                     authority=authority,
                     target_state=state,
-                    status_url=f"/instances/{operation.target_id}/history"
-                    if name == "review_history"
-                    else "/development-session"
-                    if name == "review_session"
-                    else None,
                 )
             )
             if item not in actions:
@@ -217,7 +192,6 @@ class WorkspaceDeploymentPreflightService:
         ) as session:
             workspace = AgentWorkspaceRepository(session).get(operation.workspace_id)
             target = session.get(TargetRow, str(operation.target_id))
-            instance = ManagedInstanceRepository(session).get(operation.target_id)
             source = (
                 None
                 if workspace is None
@@ -225,37 +199,15 @@ class WorkspaceDeploymentPreflightService:
                     workspace.development_source_id
                 )
             )
-            managed = (
+            external = (
                 target is not None
-                and target.target_type is TargetType.MANAGED
-                and instance is not None
-                and instance.instance_type is InstanceType.DISPOSABLE
-                and operation.deployment_mode != "repository"
+                and target.target_type is TargetType.EXTERNAL_DEVELOPMENT
             )
-            check("scope", "satisfied" if managed else "unknown", "managed_direct_only")
-            if managed:
-                assert instance is not None
-                try:
-                    selected = require_workspace_session_admission(
-                        session,
-                        target_id=str(operation.target_id),
-                        revision_id=str(instance.runtime_revision_id),
-                        workspace_id=str(operation.workspace_id),
-                        source_id="" if source is None else str(source.id),
-                    )
-                except DevelopmentSessionConflict as error:
-                    check("session", "blocked", error.code)
-                    action("review_session", "web_administrator")
-                else:
-                    check(
-                        "session",
-                        "not_required" if selected is None else "satisfied",
-                        "development_session_not_active"
-                        if selected is None
-                        else "stored_session_scope_matches",
-                    )
-            else:
-                check("session", "unknown", "session_scope_not_assessed")
+            check(
+                "scope",
+                "satisfied" if external else "blocked",
+                "external_development_required",
+            )
             current = None if workspace is None else workspace.generation
             ready = (
                 workspace is not None
@@ -326,249 +278,9 @@ class WorkspaceDeploymentPreflightService:
             )
             if not source_current:
                 action("review_source", "web_administrator")
-            trust = (
-                session.get(ManagedBridgeTrustRow, str(operation.target_id))
-                if managed
-                else None
-            )
-            trust_state = (
-                "uninstalled"
-                if managed and trust is None
-                else "unknown"
-                if trust is None
-                else trust.state
-            )
-            if managed:
-                assert instance is not None
-                # Match deployment's positive owner/binding/grant/current-role
-                # proof. MCP supplies its authenticated principal's client ID.
-                project = source is not None and owned_project_workspace(
-                    session,
-                    workspace_id=str(operation.workspace_id),
-                    source_id=str(source.id),
-                    client_id=None if client_id is None else str(client_id),
-                )
-                attached = (
-                    source is not None
-                    and ManagedInstanceDevelopmentSourceRepository(session).get(
-                        operation.target_id, source.id
-                    )
-                    is not None
-                )
-                check(
-                    "attachment",
-                    "not_required"
-                    if project
-                    else "satisfied"
-                    if attached
-                    else "blocked",
-                    "owned_project_attachment_not_required"
-                    if project
-                    else "source_attached"
-                    if attached
-                    else "source_not_attached",
-                )
-                if not attached and not project:
-                    action("attach_source", "web_administrator")
-                baseline = (
-                    None
-                    if source is None
-                    else DevelopmentSourceDeploymentRepository(session).get(
-                        operation.target_id, source.id
-                    )
-                )
-                baseline_reason = (
-                    "source_baseline_missing"
-                    if baseline is None
-                    else "source_baseline_runtime_mismatch"
-                    if baseline.runtime_revision_id != instance.runtime_revision_id
-                    else "source_baseline_unknown"
-                    if baseline.confidence
-                    is DevelopmentSourceDeploymentConfidence.UNKNOWN
-                    else "source_baseline_stale"
-                    if (baseline.confidence is not _VERIFIED)
-                    else "source_baseline_requires_container_proof"
-                )
-                prior = (
-                    None
-                    if source is None
-                    else session.scalar(
-                        select(McpWorkspaceDeploymentOperationRow)
-                        .where(
-                            McpWorkspaceDeploymentOperationRow.workspace_id
-                            == str(operation.workspace_id),
-                            McpWorkspaceDeploymentOperationRow.target_id
-                            == str(operation.target_id),
-                            McpWorkspaceDeploymentOperationRow.development_source_id
-                            == str(source.id),
-                            McpWorkspaceDeploymentOperationRow.runtime_revision_id
-                            == str(instance.runtime_revision_id),
-                            selected_profile_lineage_sql(),
-                            (McpWorkspaceDeploymentOperationRow.state == "succeeded")
-                            | (
-                                (McpWorkspaceDeploymentOperationRow.state == "failed")
-                                & McpWorkspaceDeploymentOperationRow.recovery_state.in_(
-                                    ["contained_requested_tree", "contained_prior_tree"]
-                                )
-                            ),
-                            McpWorkspaceDeploymentOperationRow.source_manifest_digest.is_not(
-                                None
-                            ),
-                            McpWorkspaceDeploymentOperationRow.verified_destination_digest.is_not(
-                                None
-                            ),
-                        )
-                        .limit(1)
-                    )
-                )
-                if (
-                    prior is not None
-                    and baseline is not None
-                    and baseline.runtime_revision_id == instance.runtime_revision_id
-                ):
-                    baseline_reason = "prior_workspace_requires_container_proof"
-                # A later no-write conflict must not hide the earlier completed
-                # copy. This is guidance about retained evidence only: it does
-                # not enroll recovery, prove current bytes or trust a failure.
-                copied = (
-                    None
-                    if source is None
-                    else session.scalar(
-                        select(McpWorkspaceDeploymentOperationRow)
-                        .where(
-                            McpWorkspaceDeploymentOperationRow.workspace_id
-                            == str(operation.workspace_id),
-                            McpWorkspaceDeploymentOperationRow.target_id
-                            == str(operation.target_id),
-                            McpWorkspaceDeploymentOperationRow.development_source_id
-                            == str(source.id),
-                            McpWorkspaceDeploymentOperationRow.runtime_revision_id
-                            == str(instance.runtime_revision_id),
-                            McpWorkspaceDeploymentOperationRow.target_class
-                            == "internal_lab",
-                            McpWorkspaceDeploymentOperationRow.deployment_mode
-                            == "direct",
-                            McpWorkspaceDeploymentOperationRow.sync_completed.is_(True),
-                            McpWorkspaceDeploymentOperationRow.completed_at.is_not(
-                                None
-                            ),
-                            selected_profile_lineage_sql(),
-                        )
-                        .order_by(
-                            McpWorkspaceDeploymentOperationRow.completed_at.desc(),
-                            # A tied failure is review evidence, never permission
-                            # to choose a successful receipt as current authority.
-                            failed_verified_workspace_copy_sql().desc(),
-                        )
-                        .limit(1)
-                    )
-                )
-                provenance_review = (
-                    copied is not None
-                    and failed_verified_workspace_copy(copied)
-                    and copied.completed_at is not None
-                    and (
-                        baseline is None
-                        or baseline.verified_at
-                        <= datetime.fromisoformat(
-                            copied.completed_at.replace("Z", "+00:00")
-                        )
-                    )
-                )
-                if provenance_review:
-                    assert copied is not None and copied.completed_at is not None
-                    check(
-                        "deployment_provenance",
-                        "unknown",
-                        "deployment_provenance_review_required",
-                        datetime.fromisoformat(
-                            copied.completed_at.replace("Z", "+00:00")
-                        ),
-                    )
-                    action("review_history", "web_administrator")
-                # Owned projects do not consume the legacy source baseline.
-                # Keep copy-history uncertainty separate: neither a prior copy
-                # nor this exemption proves current container/tree readiness.
-                check(
-                    "source_baseline",
-                    "not_required"
-                    if project
-                    else "unknown"
-                    if baseline_reason
-                    in {
-                        "source_baseline_requires_container_proof",
-                        "prior_workspace_requires_container_proof",
-                    }
-                    else "blocked",
-                    "owned_project_baseline_not_required"
-                    if project
-                    else baseline_reason,
-                    None if project or baseline is None else baseline.verified_at,
-                )
-                if (
-                    not project
-                    and not provenance_review
-                    and baseline_reason
-                    not in {
-                        "source_baseline_requires_container_proof",
-                        "prior_workspace_requires_container_proof",
-                    }
-                ):
-                    action("copy_source", "web_administrator", "stopped")
-                lease = ManagedInstanceMutationLeaseRepository(session).current(
-                    operation.target_id
-                )
-                check(
-                    "target_lease",
-                    "satisfied" if lease is None else "blocked",
-                    "target_idle" if lease is None else "target_busy",
-                )
-                global_lease = GlobalHeavyOperationLeaseRepository(session).current()
-                check(
-                    "global_lease",
-                    "satisfied" if global_lease is None else "blocked",
-                    "global_idle" if global_lease is None else "global_busy",
-                )
-                if lease is not None or global_lease is not None:
-                    action("review_history", "web_administrator")
-        if managed:
-            reconciliation = ManagedInstanceReconciliationService(
-                self._sessions
-            ).status(operation.target_id, read_session=read_session)
-            check(
-                "reconciliation",
-                "blocked" if reconciliation.blocking else "satisfied",
-                "reconciliation_required" if reconciliation.blocking else "reconciled",
-            )
-            if reconciliation.blocking:
-                action("review_history", "web_administrator")
         check("native", "unknown", "native_not_observed")
-        check(
-            "bridge",
-            "not_required" if managed else "unknown",
-            "bridge_not_required_for_direct_deployment"
-            if managed
-            else "bridge_not_assessed",
-        )
+        check("bridge", "unknown", "bridge_not_assessed")
         check("addon", "unknown", "addon_not_observed")
-        action("inspect_native", "web_administrator")
-        # Keep missing-baseline evidence visible, but do not direct a source
-        # mutation through known ownership, lease or recovery blockers. Once
-        # those clear, a fresh assessment can offer the ordinary stopped copy.
-        if any(
-            item.state == "blocked"
-            and item.name
-            in {
-                "session",
-                "source",
-                "attachment",
-                "target_lease",
-                "global_lease",
-                "reconciliation",
-            }
-            for item in checks
-        ):
-            actions = [item for item in actions if item.action != "copy_source"]
         return DeploymentPreflightResult(
             workspace_id=operation.workspace_id,
             target_id=operation.target_id,
@@ -576,17 +288,16 @@ class WorkspaceDeploymentPreflightService:
             requested_generation=operation.expected_generation,
             current_generation=current,
             requested_mode=operation.deployment_mode,
-            resolved_mode="direct" if managed else None,
+            resolved_mode=None,
             checked_at=datetime.now(UTC),
             verdict="blocked"
-            if managed and any(item.state == "blocked" for item in checks)
+            if any(item.state == "blocked" for item in checks)
             else "unknown",
             checks=tuple(checks),
             next_actions=tuple(actions),
-            bridge_trust_state=cast(BridgeTrustState, trust_state),
             activation_assessment=(
                 assess_declared_extensions(validation.extension_types_json)
-                if managed
+                if external
                 and ready
                 and generation_current
                 and source_current

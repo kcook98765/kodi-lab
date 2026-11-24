@@ -54,7 +54,6 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
-from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
     EXECUTION_UNSUPPORTED_REASONS,
@@ -76,9 +75,6 @@ from kodi_lab.application.production_transient_approvals import (
 from kodi_lab.application.workspace_deployment_preflight import (
     DeploymentPreflightInput,
     DeploymentPreflightResult,
-)
-from kodi_lab.application.workspace_imports import (
-    IMPORT_ERROR_REASONS,
 )
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
@@ -112,7 +108,8 @@ from kodi_lab.mcp.tools import (
     TargetStatusResult,
     WorkspaceDeployInput,
     WorkspaceExecuteInput,
-    WorkspaceTargetOperationInput,
+    WorkspaceValidateInput,
+    WorkspaceValidateResult,
 )
 from kodi_lab.screenshot_diagnostics import (
     emit_screenshot_observation,
@@ -162,52 +159,19 @@ _MCP_AUDIT_SCHEMA_VERSION = 1
 _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
     {
         *MANAGED_TOOLS,
-        "managed_selection_preview",
-        "managed_select",
+        "addon_list",
+        "inspect_ui_state",
         "log_read",
         "log_scan",
-        "managed_ensure_ready",
-        "managed_release",
-        "managed_status",
-        "managed_reset",
-        "managed_start",
-        "managed_stop",
-        "inspect_ui_state",
-        "system_info",
-        "addon_list",
-        "development_source_list",
-        "project_create",
-        "project_import",
-        "project_transfer",
-        "project_status",
-        "package_import",
-        "package_status",
-        "package_install",
-        "package_install_status",
-        "promotion_request",
         "remote_action",
         "screenshot_capture",
-        "screenshot_retrieve",
+        "system_info",
         "target_list",
         "target_status",
-        "workspace_create",
         "workspace_deploy",
-        "workspace_edit",
-        "workspace_source_scan",
-        "workspace_capture",
-        "workspace_import_preview",
         "workspace_deploy_preflight",
-        "workspace_import",
-        "workspace_execute",
-        "workspace_launch",
-        "development_launch",
-        "addon_settings_set",
-        "addon_settings_result",
-        "workspace_execution_recover",
-        "workspace_read",
-        "workspace_status",
-        "workspace_tree",
         "workspace_validate",
+        "workspace_execute",
     }
 )
 _MCP_AUDIT_SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -349,72 +313,6 @@ class _RemoteActionInput(BaseModel):
     request_id: UUID
     target_id: UUID
     action: BrowserRemoteAction
-    observe_ui: bool = Field(
-        default=False,
-        description=(
-            "On managed development targets, return independently authorized "
-            "post-action UI state and retain an exact capture binding for "
-            "screenshot_retrieve."
-        ),
-    )
-
-
-class _ScreenshotRetrieveInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    target_id: UUID
-    request_id: UUID
-    capture_id: UUID
-
-
-class _DevelopmentSourceListInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: str | None = Field(default=None, min_length=36, max_length=36)
-    limit: int = Field(default=50, ge=1, le=100)
-
-
-class _WorkspaceStatusInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID | None = None
-    cursor: str | None = Field(default=None, min_length=36, max_length=36)
-    limit: int = Field(default=50, ge=1, le=100)
-
-
-class _WorkspaceSourceScanInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID = Field(
-        description=(
-            "Bound workspace ID from workspace_status; this is not a target ID "
-            "or source ID."
-        )
-    )
-
-
-class _WorkspaceTreeInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID
-    relative_path: str = Field(default="", max_length=512)
-    cursor: str | None = Field(default=None, min_length=1, max_length=512)
-    limit: int = Field(default=100, ge=1, le=200)
-
-
-class _WorkspaceReadInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID
-    relative_path: str = Field(min_length=1, max_length=512)
-    start_line: int = Field(default=1, ge=1)
-    max_lines: int = Field(default=200, ge=1, le=2000)
-
-
-class _WorkspaceCreateInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: UUID
-    source_id: UUID
 
 
 class ModernMcpAuthMiddleware:
@@ -884,7 +782,7 @@ def build_mcp_http_transport(
             title="Read Kodi log stats or a bounded excerpt",
             description=(
                 "Inspect current kodi.log or previous kodi.old.log on one granted "
-                "managed or external target. Defaults to stats without content. "
+                "external target. Defaults to stats without content. "
                 "Use mode=tail for at most 500 lines and 8192 raw bytes. "
                 "For older excerpts pass before=start_byte and snapshot_id; "
                 "log_changed means refresh stats after append, truncation or rotation. "
@@ -993,18 +891,6 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
-        "promotion_request": Tool(
-            name="promotion_request",
-            title="Request human-reviewed source promotion",
-            description=(
-                "Prepare one replay-safe exact-generation promotion plan for "
-                "Web administrator review; this tool cannot approve or apply it."
-            ),
-            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
-            output_schema=PromotionRequestResult.model_json_schema(),
-            annotations=control_annotations,
-            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
-        ),
         "target_list": Tool(
             name="target_list",
             title="List authorized Kodi targets",
@@ -1027,6 +913,18 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_validate": Tool(
+            name="workspace_validate",
+            title="Validate an external development workspace generation",
+            description=(
+                "Check the exact bound workspace generation and save validation "
+                "evidence for an authorized external development deployment."
+            ),
+            input_schema=WorkspaceValidateInput.model_json_schema(),
+            output_schema=WorkspaceValidateResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_deploy_preflight": Tool(
             name="workspace_deploy_preflight",
             title="Inspect durable deployment prerequisites",
@@ -1034,8 +932,7 @@ def build_mcp_http_transport(
                 "Read exact workspace/generation/target setup facts without a "
                 "deployment attempt. This durable-only assessment does not probe "
                 "native Kodi, Bridge or add-on liveness and never returns ready. "
-                "External/repository modes are unsupported/unknown. Recheck all "
-                "prerequisites during a later mutation; no reservation or repair."
+                "Recheck the external target and workspace before mutation."
             ),
             input_schema=DeploymentPreflightInput.model_json_schema(),
             output_schema=DeploymentPreflightResult.model_json_schema(),
@@ -1046,20 +943,10 @@ def build_mcp_http_transport(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
             description=(
-                "Deploy one validated exact workspace generation. Managed disposable "
-                "(internal_lab) targets use direct deployment without repository "
-                "publication, Web approval, user Kodi install/update, or Web Recheck. "
-                "An eligible managed video-plugin result verified_existing with "
-                "deployment_work_skipped=true freshly verifies and reuses an exact "
-                "existing deployment without copy, restart or execution. Other "
-                "managed deployments retain stopped-copy/restart verification. "
-                "If first-copy enablement leaves Kodi's Disabled add-ons startup "
-                "question open, use managed_stop then managed_start for that version "
-                "before workspace_launch; retain those separate lifecycle receipts. "
-                "An opted-in external_development target with repository readiness "
-                "uses repository publication, Web approval, user Kodi install/update, "
-                "and exact installed-tree Recheck. external_production targets never "
-                "accept development workspace deployment in any mode."
+                "Deploy one validated workspace generation to an authorized "
+                "external development Kodi. Direct mode uses its paired Bridge. "
+                "Repository mode requires explicit approval, native Kodi update, "
+                "and verification of the exact installed tree."
             ),
             input_schema=WorkspaceDeployInput.model_json_schema(),
             output_schema=WorkspaceDeploymentResult.model_json_schema(),
@@ -1071,8 +958,8 @@ def build_mcp_http_transport(
             title="Run a bounded workspace smoke or diagnostic",
             description=(
                 "For an exact completed deployment, run the default bounded "
-                "Python video-plugin smoke or the managed-target fixed negative "
-                "Kodi RPC diagnostic. Both requests are server-owned. Plugin "
+                "Python video-plugin smoke on an authorized external development Kodi. "
+                "Plugin "
                 "code may use the target's existing network access. "
                 + WORKSPACE_SMOKE_SUCCESS_DESCRIPTION
             ),
@@ -1175,6 +1062,15 @@ def build_mcp_http_transport(
             )
             return response
         if params.name not in inventory:
+            _audit_safely(
+                principal,
+                params.name,
+                None,
+                _timestamp(),
+                "authorization_denied",
+                result_code="unknown_tool",
+                protocol_request_id=_context.request_id,
+            )
             return _tool_error_result("unknown_tool")
         started = _timestamp()
         target_id: UUID | None = None
@@ -1182,7 +1078,6 @@ def build_mcp_http_transport(
         workspace_id: UUID | None = None
         request_id: UUID | None = None
         generation: int | None = None
-        promotion_plan_id: UUID | None = None
         audit_outcome = "internal_error"
         result_code = "internal_error"
         result_reason: str | None = None
@@ -1206,8 +1101,8 @@ def build_mcp_http_transport(
                 | TargetStatusResult
                 | DeploymentPreflightResult
                 | WorkspaceDeploymentResult
+                | WorkspaceValidateResult
                 | WorkspaceExecutionResult
-                | PromotionRequestResult
             )
             if params.name == "log_scan":
                 parsed_log_scan = _KodiLogScanInput.model_validate(arguments)
@@ -1267,7 +1162,6 @@ def build_mcp_http_transport(
                     target_id=target_id,
                     request_id=parsed_remote.request_id,
                     action=parsed_remote.action,
-                    observe_ui=parsed_remote.observe_ui,
                 )
             elif params.name == "screenshot_capture":
                 parsed_screenshot = _ScreenshotCaptureInput.model_validate(arguments)
@@ -1313,6 +1207,16 @@ def build_mcp_http_transport(
                 result = await asyncio.to_thread(
                     tools.target_status, principal, target_id=target_id
                 )
+            elif params.name == "workspace_validate":
+                validation = WorkspaceValidateInput.model_validate(arguments)
+                workspace_id = validation.workspace_id
+                generation = validation.expected_generation
+                if not development_limiter.allow(str(principal.client_id)):
+                    raise McpAuthorizationError("rate_limited")
+                result = await asyncio.to_thread(
+                    tools.workspace_validate, principal, validation
+                )
+                source_id = result.source_id
             elif params.name == "workspace_deploy_preflight":
                 parsed_preflight = DeploymentPreflightInput.model_validate(arguments)
                 workspace_id, target_id, generation = (
@@ -1340,19 +1244,6 @@ def build_mcp_http_transport(
                     tools.workspace_execute, principal, parsed_execution
                 )
                 source_id = result.source_id
-            elif params.name == "promotion_request":
-                parsed_promotion = WorkspaceTargetOperationInput.model_validate(
-                    arguments
-                )
-                workspace_id = parsed_promotion.workspace_id
-                target_id = parsed_promotion.target_id
-                request_id = parsed_promotion.request_id
-                generation = parsed_promotion.expected_generation
-                result = await asyncio.to_thread(
-                    tools.promotion_request, principal, parsed_promotion
-                )
-                source_id = result.source_id
-                promotion_plan_id = result.promotion_plan_id
             else:
                 raise McpAuthorizationError("permission_denied")
         except ValidationError:
@@ -1387,7 +1278,6 @@ def build_mcp_http_transport(
                 workspace_id=workspace_id,
                 request_id=request_id,
                 generation=generation,
-                promotion_plan_id=promotion_plan_id,
             )
             if diagnostic_context is not None:
                 observe_screenshot_diagnostic(
@@ -1464,7 +1354,6 @@ def build_mcp_http_transport(
                     workspace_id=workspace_id,
                     request_id=request_id,
                     generation=generation,
-                    promotion_plan_id=promotion_plan_id,
                 )
                 if diagnostic_context is not None:
                     observe_screenshot_diagnostic(
@@ -1483,7 +1372,6 @@ def build_mcp_http_transport(
                 workspace_id=workspace_id,
                 request_id=request_id,
                 generation=generation,
-                promotion_plan_id=promotion_plan_id,
             )
             if diagnostic_context is not None:
                 observe_screenshot_diagnostic(
@@ -1514,7 +1402,6 @@ def build_mcp_http_transport(
             workspace_id=workspace_id,
             request_id=request_id,
             generation=generation,
-            promotion_plan_id=promotion_plan_id,
         )
         if diagnostic_context is not None:
             observe_screenshot_diagnostic(
@@ -1525,10 +1412,10 @@ def build_mcp_http_transport(
     server: Server[dict[str, Any]] = Server(
         name="kodi-lab",
         title="Kodi Lab",
-        description="Authenticated Kodi Lab target inspection",
+        description="Authenticated managed and external Kodi tools",
         instructions=(
-            "Kodi Lab MCP schema 1. Every target-scoped call requires an "
-            "explicit target_id."
+            "Managed tools use the shared Kodi working environment. External "
+            "target-scoped calls require an explicit target_id."
         ),
         version=MCP_SERVER_VERSION,
         cache_hints={
@@ -1594,7 +1481,6 @@ _SAFE_TOOL_REASONS = {
             "managed_observation_unsupported",
         }
     ),
-    "workspace_import_rejected": IMPORT_ERROR_REASONS,
     "development_source_scan_unsafe": frozenset(
         {"source_identity_changed", "source_invalid", "registered_source_unavailable"}
     ),
@@ -1807,7 +1693,6 @@ def _audit_safely(
     workspace_id: UUID | None = None,
     request_id: UUID | None = None,
     generation: int | None = None,
-    promotion_plan_id: UUID | None = None,
 ) -> None:
     try:
         _audit(
@@ -1822,7 +1707,6 @@ def _audit_safely(
             workspace_id=workspace_id,
             request_id=request_id,
             generation=generation,
-            promotion_plan_id=promotion_plan_id,
         )
     except Exception:
         # The request result or original exception remains canonical if the
@@ -1845,7 +1729,6 @@ def _audit(
     workspace_id: UUID | None = None,
     request_id: UUID | None = None,
     generation: int | None = None,
-    promotion_plan_id: UUID | None = None,
 ) -> None:
     safe_tool, tool_correlation = _bounded_audit_tool(tool_name)
     record: dict[str, object] = {
@@ -1861,7 +1744,6 @@ def _audit(
         "workspace_id": None if workspace_id is None else str(workspace_id),
         "request_id": None if request_id is None else str(request_id),
         "generation": _bounded_audit_integer(generation),
-        "plan_id": None if promotion_plan_id is None else str(promotion_plan_id),
         "started_at": started_at,
         "completed_at": _timestamp(),
         "outcome": _bounded_audit_code(outcome),
@@ -1885,7 +1767,7 @@ def _tool_capability(tool_name: str) -> str:
         "log_scan": "target_inspect",
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
-        "development_launch": "workspace_execution",
+        "workspace_execute": "workspace_execution",
         "screenshot_capture": "screenshot",
     }.get(tool_name, "not_applicable")
 

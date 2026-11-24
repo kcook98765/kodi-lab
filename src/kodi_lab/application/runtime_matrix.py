@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application.errors import TargetNotFoundError
 from kodi_lab.application.runtime_eligibility import (
     RuntimeIneligibilityReason,
     RuntimeRevisionEligibilityPolicy,
@@ -31,11 +29,9 @@ from kodi_lab.runtime.recipes import (
     supported_generations,
 )
 from kodi_lab.storage.repositories import (
-    ManagedInstanceRepository,
     RuntimeDefinitionRepository,
     RuntimeRevisionRepository,
     RuntimeValidationEvidenceRepository,
-    TargetRepository,
 )
 
 
@@ -98,7 +94,6 @@ class RuntimeMatrixEntry(BaseModel):
     requires_legacy_opt_in: bool
     requires_prerelease_opt_in: bool
     requires_custom_build_trust: bool
-    pinned_instance_count: int = Field(ge=0)
     supported_generation: str | None = None
     validated_install_record: bool = False
 
@@ -110,22 +105,6 @@ class RuntimeMatrixResponse(BaseModel):
     include_prerelease: bool
     trusted_custom_builds_enabled: bool
     runtimes: list[RuntimeMatrixEntry]
-
-
-class TargetRuntimeSelection(BaseModel):
-    """Read-only resolution result for one trusted Target identity."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    target_id: UUID
-    target_name: str = Field(max_length=256)
-    required_canonical_release: str = Field(max_length=32)
-    required_display_version: str = Field(max_length=64)
-    runtime_definition_id: UUID | None
-    selected_revision_number: int | None
-    selectable: bool
-    ineligibility_reason: MatrixIneligibilityReason | None
-    availability_detail: str = Field(max_length=256)
 
 
 class RuntimeMatrixService:
@@ -147,10 +126,8 @@ class RuntimeMatrixService:
         policy = self._policy(include_legacy, include_prerelease)
         with self._session_factory() as session:
             definitions = RuntimeDefinitionRepository(session).list()
-            pin_counts = self._pin_counts(session)
             entries = [
-                self._entry(session, definition, policy, pin_counts[definition.id])
-                for definition in definitions
+                self._entry(session, definition, policy) for definition in definitions
             ]
             existing_ids = {definition.id for definition in definitions}
             for generation in supported_generations():
@@ -175,7 +152,7 @@ class RuntimeMatrixService:
                     kodi_version=recipe.kodi_version,
                     support_tier=RuntimeSupportTier.CURRENT,
                 )
-                entry = self._entry(session, definition, policy, 0)
+                entry = self._entry(session, definition, policy)
                 entries.append(
                     entry.model_copy(
                         update={
@@ -195,78 +172,11 @@ class RuntimeMatrixService:
             runtimes=entries,
         )
 
-    def resolve_target(
-        self,
-        target_id: UUID,
-        *,
-        include_legacy: bool = False,
-        include_prerelease: bool = False,
-    ) -> TargetRuntimeSelection:
-        policy = self._policy(include_legacy, include_prerelease)
-        with self._session_factory() as session:
-            target = TargetRepository(session).get(target_id)
-            if target is None:
-                raise TargetNotFoundError(target_id)
-            matches = [
-                item
-                for item in RuntimeDefinitionRepository(session).list()
-                if item.kodi_release == target.kodi_release
-            ]
-            if not matches:
-                return TargetRuntimeSelection(
-                    target_id=target.id,
-                    target_name=target.name,
-                    required_canonical_release=target.kodi_release.canonical,
-                    required_display_version=self._display(target.kodi_release),
-                    runtime_definition_id=None,
-                    selected_revision_number=None,
-                    selectable=False,
-                    ineligibility_reason=(
-                        MatrixIneligibilityReason.RUNTIME_DEFINITION_UNAVAILABLE
-                    ),
-                    availability_detail="No curated runtime matches this Target.",
-                )
-            if len(matches) > 1:
-                return TargetRuntimeSelection(
-                    target_id=target.id,
-                    target_name=target.name,
-                    required_canonical_release=target.kodi_release.canonical,
-                    required_display_version=self._display(target.kodi_release),
-                    runtime_definition_id=None,
-                    selected_revision_number=None,
-                    selectable=False,
-                    ineligibility_reason=(
-                        MatrixIneligibilityReason.AMBIGUOUS_RUNTIME_DEFINITION
-                    ),
-                    availability_detail=(
-                        "The curated catalog has conflicting exact runtimes."
-                    ),
-                )
-            definition = matches[0]
-            entry = self._entry(
-                session,
-                definition,
-                policy,
-                self._pin_counts(session)[definition.id],
-            )
-            return TargetRuntimeSelection(
-                target_id=target.id,
-                target_name=target.name,
-                required_canonical_release=target.kodi_release.canonical,
-                required_display_version=self._display(target.kodi_release),
-                runtime_definition_id=definition.id,
-                selected_revision_number=entry.selected_revision_number,
-                selectable=entry.selectable,
-                ineligibility_reason=entry.ineligibility_reason,
-                availability_detail=entry.availability_detail,
-            )
-
     def _entry(
         self,
         session: Session,
         definition: RuntimeDefinition,
         policy: RuntimeSelectionPolicy,
-        pinned_instance_count: int,
     ) -> RuntimeMatrixEntry:
         revisions = RuntimeRevisionRepository(session).list_for_definition_descending(
             definition.id
@@ -341,7 +251,6 @@ class RuntimeMatrixService:
                 if candidate is None
                 else candidate.requires_trusted_build_confirmation
             ),
-            pinned_instance_count=pinned_instance_count,
         )
 
     def _policy(
@@ -355,16 +264,6 @@ class RuntimeMatrixService:
             else None,
             trusted_custom_builds_enabled=self._trusted_custom_builds_enabled,
         )
-
-    @staticmethod
-    def _pin_counts(session: Session) -> Counter[UUID]:
-        revisions = RuntimeRevisionRepository(session)
-        counts: Counter[UUID] = Counter()
-        for instance in ManagedInstanceRepository(session).list():
-            revision = revisions.get(instance.runtime_revision_id)
-            if revision is not None:
-                counts[revision.runtime_definition_id] += 1
-        return counts
 
     @staticmethod
     def _display(release: KodiReleaseIdentity) -> str:

@@ -34,52 +34,37 @@ from kodi_lab.application.production_navigation import (
     require_navigation_preference,
     require_production_remote_unblocked,
 )
-from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
-from kodi_lab.application.runtime_status import (
-    ManagedRuntimeStatusService,
-    SemanticUsabilityState,
-)
 from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceError,
     require_screenshot_preference,
 )
-from kodi_lab.application.screenshots import ManagedScreenshotService
-from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.domain import (
     AgentWorkspace,
     AgentWorkspaceBytesState,
     AgentWorkspaceState,
     DevelopmentSource,
     DevelopmentSourceKind,
-    InstanceType,
     TargetType,
 )
 from kodi_lab.domain.managed_lab import (
-    TRUSTED_MANAGED_LAB_PERMISSIONS,
     TRUSTED_MANAGED_LAB_ROLE_VERSION,
 )
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
-from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS, BrowserRemoteAction
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.mcp.registry import (
     McpToolDefinition,
     McpToolRegistry,
     TargetClass,
-    ToolEffect,
-    ToolRateClass,
     ToolScope,
 )
-from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
     emit_screenshot_stage,
 )
-from kodi_lab.storage.managed_clean_reset import active_clean_reset
 from kodi_lab.storage.models import (
     AgentProjectRow,
     ExternalProductionPolicyRow,
-    ManagedInstanceMutationLeaseRow,
-    ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
     McpClientRow,
@@ -90,7 +75,6 @@ from kodi_lab.storage.models import (
     McpProductionTargetScopeRow,
     McpTargetPresetAssignmentRow,
     ProductionMutationControlRow,
-    RuntimeRevisionRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
@@ -130,97 +114,19 @@ class TargetAuthorityProvider(Protocol):
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority: ...
 
 
-class InternalManagedTargetAuthorityProvider:
-    """Current Phase 11 resolver; later target adapters supply other classes."""
-
-    def __init__(
-        self,
-        session_factory: sessionmaker[Session] | None = None,
-        *,
-        reconciliation: ManagedInstanceReconciliationService | None = None,
-        screenshots: ManagedScreenshotService | None = None,
-        status: ManagedRuntimeStatusService | None = None,
-    ) -> None:
-        self._session_factory = session_factory
-        self._reconciliation = reconciliation
-        self._screenshots = screenshots
-        self._status = status
-
-    def capabilities(self, target_id: UUID) -> frozenset[str]:
-        capabilities = {"managed_runtime_status", "target_inspect", "addon_inventory"}
-        instance = None
-        if self._session_factory is not None:
-            with self._session_factory() as session:
-                instance = session.get(ManagedInstanceRow, str(target_id))
-            if (
-                instance is not None
-                and instance.instance_type is InstanceType.DISPOSABLE
-            ):
-                capabilities.update({"workspace_deployment", "workspace_execution"})
-        if instance is not None and self._screenshots is not None:
-            if instance is not None and self._screenshots.supports_runtime_revision(
-                UUID(instance.runtime_revision_id)
-            ):
-                capabilities.add("managed_screenshot")
-                capabilities.add("screenshot")
-            revision_id = UUID(instance.runtime_revision_id)
-            if revision_id in REMOTE_RUNTIME_REVISION_IDS:
-                capabilities.add("semantic_remote")
-            elif self._session_factory is not None:
-                with self._session_factory() as session:
-                    if supports_reviewed_recipe_capability(
-                        session, revision_id, "navigation"
-                    ):
-                        capabilities.add("semantic_remote")
-        return frozenset(capabilities)
-
-    def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
-        return self._resolve(target_id, observe_runtime=True)
-
-    def resolve_ui_state(self, target_id: UUID) -> TargetTechnicalAuthority:
-        # UI observation requires reconciled authority here. Its managed
-        # collector checks fresh health/readiness/identity inside the target gate.
-        return self._resolve(target_id, observe_runtime=False)
-
-    def _resolve(
-        self, target_id: UUID, *, observe_runtime: bool
-    ) -> TargetTechnicalAuthority:
-        capabilities = self.capabilities(target_id)
-        states: set[str] = set()
-        if observe_runtime and self._status is not None:
-            runtime = self._status.get(target_id)
-            if runtime.container_state is ContainerRuntimeState.RUNNING:
-                states.add("running")
-            if (
-                runtime.process_state is KodiProcessState.RUNNING
-                and runtime.usability_state is SemanticUsabilityState.USABLE
-            ):
-                states.add("ready")
-        if (
-            self._reconciliation is not None
-            and not self._reconciliation.status(target_id).blocking
-        ):
-            states.add("reconciled")
-        return TargetTechnicalAuthority(
-            target_class=TargetClass.INTERNAL_LAB,
-            capabilities=capabilities,
-            current_states=frozenset(states),
-        )
-
-
 class McpAuthorizationService:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
         registry: McpToolRegistry,
         *,
-        targets: TargetAuthorityProvider | None = None,
+        targets: TargetAuthorityProvider,
         production_rates: ProductionReadRateLimiter | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._session_factory = session_factory
         self._registry = registry
-        self._targets = targets or InternalManagedTargetAuthorityProvider()
+        self._targets = targets
         self._production_rates = production_rates or ProductionReadRateLimiter()
         self._clock = clock
 
@@ -232,33 +138,6 @@ class McpAuthorizationService:
         if not client.enabled:
             raise McpAuthorizationError("permission_denied")
         self._require_current_credential(session, principal, client)
-        return True
-
-    def _managed_lab_target(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        client: McpClientRow,
-        target_id: UUID,
-    ) -> bool:
-        if not self._managed_lab_role(session, principal, client):
-            return False
-        target = session.get(TargetRow, str(target_id))
-        instance = session.get(ManagedInstanceRow, str(target_id))
-        revision = (
-            None
-            if instance is None
-            else session.get(RuntimeRevisionRow, instance.runtime_revision_id)
-        )
-        if target is None or target.target_type is not TargetType.MANAGED:
-            return False
-        if (
-            instance is None
-            or instance.instance_type is not InstanceType.DISPOSABLE
-            or revision is None
-            or revision.approval_state != "approved"
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
         return True
 
     def has_managed_lab_role(self, session: Session, principal: McpPrincipal) -> bool:
@@ -292,24 +171,6 @@ class McpAuthorizationService:
             # changes authorization on managed/development targets.
             names.add("remote_action")
         return tuple(sorted(names))
-
-    def authorize_project(
-        self, session: Session, principal: McpPrincipal, tool_name: str
-    ) -> None:
-        if tool_name not in {
-            "project_create",
-            "project_status",
-            "project_import",
-            "project_transfer",
-            "package_import",
-            "package_status",
-        }:
-            raise McpAuthorizationError("permission_denied")
-        client = self._require_client_permission(
-            session, principal, self._definition(tool_name)
-        )
-        if not self._managed_lab_role(session, principal, client):
-            raise McpAuthorizationError("permission_denied")
 
     def authorize_unscoped(
         self, principal: McpPrincipal, tool_name: str
@@ -352,259 +213,6 @@ class McpAuthorizationService:
         if definition.resolved_scope is not ToolScope.TARGET:
             raise McpAuthorizationError("permission_denied")
         return self._authorize_target_definition(principal, definition, target_id)
-
-    def authorize_managed_observation_error_detail(
-        self, principal: McpPrincipal, tool_name: str, target_id: UUID
-    ) -> None:
-        """Recheck durable scope before publishing managed Bridge failure facts.
-
-        This read grants no successful observation or mutation authority and
-        performs no additional native probe after the failed observation.
-        """
-        definition = self._definition(tool_name)
-        if tool_name not in {"inspect_ui_state", "log_read", "log_scan"}:
-            raise McpAuthorizationError("permission_denied")
-        with self._session_factory() as session:
-            client = session.get(McpClientRow, str(principal.client_id))
-            if client is None or not client.enabled:
-                raise McpAuthorizationError("permission_denied")
-            if self._managed_lab_target(session, principal, client, target_id):
-                return
-            if not definition.permissions.issubset(
-                self._permissions(session, client.preset_id)
-            ):
-                raise McpAuthorizationError("permission_denied")
-            self._require_current_credential(session, principal, client)
-            if client.preset_id in {
-                str(PRODUCTION_INSPECTION_PRESET_ID),
-                str(PRODUCTION_REMOTE_KODI_PRESET_ID),
-                str(PRODUCTION_VISUAL_PRESET_ID),
-            }:
-                raise McpAuthorizationError("permission_denied")
-            target = session.get(TargetRow, str(target_id))
-            assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-            if (
-                target is None
-                or target.target_type is not TargetType.MANAGED
-                or session.get(ManagedInstanceRow, str(target_id)) is None
-                or assignment is None
-                or session.get(
-                    McpClientTargetGrantRow,
-                    (str(principal.client_id), str(target_id)),
-                )
-                is None
-            ):
-                raise McpAuthorizationError("target_not_found_or_not_authorized")
-            if not definition.permissions.issubset(
-                self._permissions(session, assignment.preset_id)
-            ):
-                raise McpAuthorizationError("permission_denied")
-
-    def recheck_workspace_launch(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        workspace_id: UUID,
-        target_id: UUID,
-        *,
-        tool_name: str = "workspace_launch",
-    ) -> None:
-        definition = self._definition(tool_name)
-        client = self._require_client_permission(session, principal, definition)
-        self._require_current_credential(session, principal, client)
-        binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
-        workspace = AgentWorkspaceRepository(session).get(workspace_id)
-        if (
-            binding is None
-            or binding.client_id != str(principal.client_id)
-            or workspace is None
-            or str(workspace.development_source_id) != binding.development_source_id
-            or session.get(
-                McpClientDevelopmentSourceGrantRow,
-                (str(principal.client_id), binding.development_source_id),
-            )
-            is None
-        ):
-            raise McpAuthorizationError("workspace_not_found_or_not_authorized")
-        managed_role = self._managed_lab_target(session, principal, client, target_id)
-        target = session.get(TargetRow, str(target_id))
-        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-        instance = session.get(ManagedInstanceRow, str(target_id))
-        if (
-            target is None
-            or target.target_type is not TargetType.MANAGED
-            or instance is None
-            or (not managed_role and assignment is None)
-            or (
-                not managed_role
-                and session.get(
-                    McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
-                )
-                is None
-            )
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not managed_role and (
-            assignment is None
-            or not definition.permissions.issubset(
-                self._permissions(session, assignment.preset_id)
-            )
-        ):
-            raise McpAuthorizationError("permission_denied")
-
-        if tool_name == "development_launch":
-            from kodi_lab.storage.agent_project_context import owned_project_workspace
-            from kodi_lab.storage.development_sessions import (
-                DevelopmentSessionConflict,
-                active_session,
-            )
-
-            try:
-                current = active_session(session)
-            except DevelopmentSessionConflict as error:
-                raise McpAuthorizationError(
-                    "development_session_requires_review"
-                ) from error
-            if managed_role and owned_project_workspace(
-                session,
-                workspace_id=str(workspace_id),
-                source_id=binding.development_source_id,
-                client_id=str(principal.client_id),
-            ):
-                if current is not None and current.phase != "bound":
-                    raise McpAuthorizationError("development_session_requires_review")
-                return
-            if (
-                current is None
-                or current.phase != "bound"
-                or current.target_id != str(target_id)
-                or current.workspace_id != str(workspace_id)
-                or current.source_id != binding.development_source_id
-                or current.runtime_revision_id != instance.runtime_revision_id
-                or current.container_id is None
-            ):
-                raise McpAuthorizationError("development_session_requires_review")
-
-    def recheck_managed_lifecycle(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        tool_name: str,
-        target_id: UUID,
-    ) -> None:
-        """Recheck current credentials and exact policy in the mutation transaction.
-
-        Technical running/readiness checks remain in the managed lifecycle. This
-        recheck performs no network calls or runtime projection writes.
-        """
-        definition = self._definition(tool_name)
-        if (
-            tool_name not in {"managed_ensure_ready", "managed_release"}
-            or definition.permissions != frozenset({"managed.lifecycle"})
-            or definition.allowed_target_classes
-            != frozenset({TargetClass.INTERNAL_LAB})
-        ):
-            raise McpAuthorizationError("permission_denied")
-        client = self._require_client_permission(session, principal, definition)
-        self._require_current_credential(session, principal, client)
-        managed_role = self._managed_lab_target(session, principal, client, target_id)
-        target = session.get(TargetRow, str(target_id))
-        instance = session.get(ManagedInstanceRow, str(target_id))
-        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-        grant = session.get(
-            McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
-        )
-        if (
-            target is None
-            or target.target_type is not TargetType.MANAGED
-            or instance is None
-            or (not managed_role and assignment is None)
-            or (not managed_role and grant is None)
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not managed_role and (
-            assignment is None
-            or not definition.permissions.issubset(
-                self._permissions(session, assignment.preset_id)
-            )
-        ):
-            raise McpAuthorizationError("permission_denied")
-
-    def recheck_managed_versions(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        tool_name: str,
-        target_id: UUID | None = None,
-    ) -> None:
-        """Explicit version authority, including an approved empty registration.
-
-        There is no implicit target creation/grant. An administrator must already
-        have granted this exact canonical target and opted both policies in.
-        """
-        from kodi_lab.storage.managed_lifecycle_owner import WEB_ADMIN_OWNER
-        from kodi_lab.storage.managed_version_slots import managed_version_slots
-
-        if principal.client_id == WEB_ADMIN_OWNER:
-            raise McpAuthorizationError("permission_denied")
-        definition = self._definition(tool_name)
-        if (
-            tool_name
-            not in {"managed_status", "managed_start", "managed_stop", "managed_reset"}
-            or definition.permissions
-            != (
-                frozenset({"managed.versions", "managed.reset"})
-                if tool_name == "managed_reset"
-                else frozenset({"managed.versions"})
-            )
-            or definition.allowed_target_classes
-            != frozenset({TargetClass.INTERNAL_LAB})
-        ):
-            raise McpAuthorizationError("permission_denied")
-        client = self._require_client_permission(session, principal, definition)
-        self._require_current_credential(session, principal, client)
-        if target_id is None:
-            if tool_name != "managed_status":
-                raise McpAuthorizationError("permission_denied")
-            return
-        slot = next(
-            (
-                slot
-                for slot in managed_version_slots()
-                if slot.canonical_target_id == target_id
-            ),
-            None,
-        )
-        if (
-            slot is not None
-            and self._managed_lab_role(session, principal, client)
-            and (
-                session.get(TargetRow, str(target_id)) is None
-                or session.get(ManagedInstanceRow, str(target_id)) is None
-            )
-        ):
-            raise McpAuthorizationError("installation_required")
-        managed_role = self._managed_lab_target(session, principal, client, target_id)
-        target = session.get(TargetRow, str(target_id))
-        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-        grant = session.get(
-            McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
-        )
-        if (
-            slot is None
-            or target is None
-            or target.target_type is not TargetType.MANAGED
-            or target.kodi_version != slot.kodi_version
-            or (not managed_role and (assignment is None or grant is None))
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not managed_role and (
-            assignment is None
-            or not definition.permissions.issubset(
-                self._permissions(session, assignment.preset_id)
-            )
-        ):
-            raise McpAuthorizationError("permission_denied")
 
     def authorize_production_navigation(
         self,
@@ -697,91 +305,6 @@ class McpAuthorizationService:
             except ProductionInspectionError as error:
                 raise McpAuthorizationError(error.code) from error
 
-    def recheck_native_zip_installation(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        target_id: UUID,
-        *,
-        require_running: bool = True,
-        runtime_revision_id: str | None = None,
-    ) -> None:
-        """Pure database admission for serialized publication/completion."""
-        client = session.get(McpClientRow, str(principal.client_id))
-        target = session.get(TargetRow, str(target_id))
-        instance = session.get(ManagedInstanceRow, str(target_id))
-        grant = session.get(
-            McpClientTargetGrantRow,
-            {"client_id": str(principal.client_id), "target_id": str(target_id)},
-        )
-        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-        if client is None or not client.enabled:
-            raise McpAuthorizationError("permission_denied")
-        self._require_current_credential(session, principal, client)
-        managed_role = self._managed_lab_target(session, principal, client, target_id)
-        if (
-            target is None
-            or target.target_type is not TargetType.MANAGED
-            or instance is None
-            or instance.instance_type is not InstanceType.DISPOSABLE
-            or (not managed_role and (grant is None or assignment is None))
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
-        if not managed_role and (
-            assignment is None
-            or "addon.install"
-            not in self._permissions(session, client.preset_id).intersection(
-                self._permissions(session, assignment.preset_id)
-            )
-        ):
-            raise McpAuthorizationError("permission_denied")
-        if require_running and (
-            active_clean_reset(session, str(target_id)) is not None
-            or session.get(ManagedInstanceMutationLeaseRow, str(target_id)) is not None
-        ):
-            raise McpAuthorizationError("active_operation_requires_review")
-        if require_running and instance.runtime_state.value != "running":
-            raise McpAuthorizationError("target_not_running")
-        if (
-            runtime_revision_id is not None
-            and instance.runtime_revision_id != runtime_revision_id
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
-
-    def authorize_native_zip_installation(
-        self, principal: McpPrincipal, target_id: UUID, *, require_running: bool = True
-    ) -> None:
-        """Shared authority for the native-delivery API and its MCP adapter.
-
-        Trusted Managed Lab covers approved disposable targets. Legacy clients
-        still need the explicit install permission, exact grant and target policy.
-        The permission remains absent from every built-in preset.
-        """
-        with self._session_factory() as session:
-            self.recheck_native_zip_installation(
-                session, principal, target_id, require_running=require_running
-            )
-        self._authorize_target_definition(
-            principal,
-            McpToolDefinition(
-                name="native_zip_installation",
-                schema_revision=1,
-                permissions=frozenset({"addon.install"}),
-                effect=ToolEffect.MUTATING,
-                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-                required_capabilities=frozenset({"addon_inventory"}),
-                required_states=frozenset({"running", "ready", "reconciled"})
-                if require_running
-                else frozenset(),
-                rate_class=ToolRateClass.DEVELOPMENT_DEPLOY,
-                adapter="native_zip.operator_install",
-                production_eligible=False,
-                target_scope_required=True,
-                scope=ToolScope.TARGET,
-            ),
-            target_id,
-        )
-
     def authorize_target_eligibility(
         self, principal: McpPrincipal, tool_name: str, target_id: UUID
     ) -> McpToolDefinition:
@@ -810,12 +333,7 @@ class McpAuthorizationService:
             )
             target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-            if (
-                grant is None
-                or target is None
-                or assignment is None
-                or target.target_type is TargetType.MANAGED
-            ):
+            if grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
             if target.target_type is TargetType.EXTERNAL_PRODUCTION:
                 assert assignment is not None
@@ -1087,64 +605,15 @@ class McpAuthorizationService:
                 or str(workspace.development_source_id) != binding.development_source_id
             ):
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
-            if (
-                tool_name == "promotion_request"
-                and session.get(AgentProjectRow, binding.development_source_id)
-                is not None
-            ):
-                raise McpAuthorizationError("promotion_not_allowed")
-            if (
-                target_grant is None
-                or target is None
-                or assignment is None
-                or target.target_type is TargetType.MANAGED
-            ):
+            if target_grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
             self._enforce_workspace_production_veto(target, tool_name=tool_name)
             client_permissions = self._permissions(session, client.preset_id)
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):
-                raise McpAuthorizationError(
-                    "promotion_not_allowed"
-                    if tool_name == "promotion_request"
-                    else "deployment_not_allowed"
-                )
+                raise McpAuthorizationError("deployment_not_allowed")
         return workspace
-
-    def recheck_retained_selection(
-        self,
-        session: Session,
-        principal: McpPrincipal,
-        tool_name: str,
-        workspace_id: UUID,
-        target_id: UUID,
-    ) -> None:
-        definition = self._definition(tool_name)
-        if tool_name not in {
-            "managed_selection_preview",
-            "managed_select",
-        } or definition.permissions != frozenset(
-            {"managed.lifecycle", "workspace.inspect"}
-        ):
-            raise McpAuthorizationError("permission_denied")
-        try:
-            self.authorize_workspace_target_scope(
-                principal, tool_name, workspace_id, target_id, read_session=session
-            )
-        except McpAuthorizationError as error:
-            if error.code == "deployment_not_allowed":
-                raise McpAuthorizationError("permission_denied") from error
-            raise
-        client = self._require_client_permission(session, principal, definition)
-        self._require_current_credential(session, principal, client)
-        target = session.get(TargetRow, str(target_id))
-        if (
-            target is None
-            or target.target_type is not TargetType.MANAGED
-            or session.get(ManagedInstanceRow, str(target_id)) is None
-        ):
-            raise McpAuthorizationError("target_not_found_or_not_authorized")
 
     def authorize_workspace_target(
         self,
@@ -1161,17 +630,9 @@ class McpAuthorizationService:
         definition = self._definition(tool_name)
         technical = self._technical(target_id)
         if technical.target_class not in definition.allowed_target_classes:
-            raise McpAuthorizationError(
-                "promotion_not_allowed"
-                if tool_name == "promotion_request"
-                else "deployment_not_allowed"
-            )
+            raise McpAuthorizationError("deployment_not_allowed")
         if not definition.required_capabilities.issubset(technical.capabilities):
-            raise McpAuthorizationError(
-                "promotion_not_allowed"
-                if tool_name == "promotion_request"
-                else "deployment_not_allowed"
-            )
+            raise McpAuthorizationError("deployment_not_allowed")
         if not definition.required_states.issubset(technical.current_states):
             missing = definition.required_states.difference(technical.current_states)
             if "running" in missing:
@@ -1196,8 +657,6 @@ class McpAuthorizationService:
             TargetType.EXTERNAL_PRODUCTION.value,
         }:
             return
-        if tool_name == "promotion_request":
-            raise McpAuthorizationError("promotion_not_allowed")
         if tool_name in {"workspace_deploy", "workspace_execute"}:
             raise McpAuthorizationError("deployment_not_allowed")
         raise McpAuthorizationError("permission_denied")
@@ -1364,16 +823,9 @@ class McpAuthorizationService:
         client = session.get(McpClientRow, str(principal.client_id))
         if client is None or not client.enabled:
             raise McpAuthorizationError("permission_denied")
-        self._managed_lab_role(session, principal, client)
+        self._require_current_credential(session, principal, client)
         permissions = self._permissions(session, client.preset_id)
-        if client.managed_lab_role_version == TRUSTED_MANAGED_LAB_ROLE_VERSION:
-            permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
         if not definition.permissions.issubset(permissions):
-            raise McpAuthorizationError("permission_denied")
-        if (
-            TargetClass.INTERNAL_LAB not in definition.allowed_target_classes
-            or definition.production_eligible
-        ):
             raise McpAuthorizationError("permission_denied")
         return client
 
@@ -1486,7 +938,7 @@ class McpAuthorizationService:
     ) -> int | None:
         with self._session_factory() as session:
             target = session.get(TargetRow, str(target_id))
-            if target is None or target.target_type is TargetType.MANAGED:
+            if target is None:
                 return None
             try:
                 return require_screenshot_preference(
@@ -1516,33 +968,6 @@ class McpAuthorizationService:
                 .order_by(McpClientTargetGrantRow.target_id)
                 .limit(1001)
             ).all()
-            client = session.get(McpClientRow, str(principal.client_id))
-            if client is not None and self._managed_lab_role(
-                session, principal, client
-            ):
-                values = sorted(
-                    set(values)
-                    | set(
-                        session.scalars(
-                            select(ManagedInstanceRow.target_id)
-                            .join(
-                                TargetRow, TargetRow.id == ManagedInstanceRow.target_id
-                            )
-                            .join(
-                                RuntimeRevisionRow,
-                                RuntimeRevisionRow.id
-                                == ManagedInstanceRow.runtime_revision_id,
-                            )
-                            .where(
-                                TargetRow.target_type == TargetType.MANAGED,
-                                ManagedInstanceRow.instance_type
-                                == InstanceType.DISPOSABLE,
-                                RuntimeRevisionRow.approval_state == "approved",
-                            )
-                            .limit(1001)
-                        ).all()
-                    )
-                )
         if len(values) > 1000:
             raise McpAuthorizationError("response_too_large")
         return tuple(UUID(item) for item in values)
@@ -1558,10 +983,7 @@ class McpAuthorizationService:
             client = session.get(McpClientRow, str(client_id))
             if client is None or not client.enabled:
                 return frozenset()
-            permissions = self._permissions(session, client.preset_id)
-            if client.managed_lab_role_version == TRUSTED_MANAGED_LAB_ROLE_VERSION:
-                permissions |= TRUSTED_MANAGED_LAB_PERMISSIONS
-            return permissions
+            return self._permissions(session, client.preset_id)
 
     @staticmethod
     def _production_preset_contract(preset_id: UUID) -> tuple[str, frozenset[str]]:

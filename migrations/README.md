@@ -1,6 +1,6 @@
 # Fresh application database
 
-`0001_managed_v2` initializes a new Kodi Lab application database. The installed
+`0001_foundation` initializes a new Kodi Lab application database. The installed
 entrypoint is `kodi-lab-admin initialize`. The initializer rejects previous
 Kodi Lab revisions and unversioned SQLite files before writing. Use a new
 application state volume.

@@ -7,7 +7,7 @@ Native original-ZIP GUI consumer installation remains **unverified and is not
 currently pursued** ([#305, Not planned](https://github.com/kcook98765/kodi-lab/issues/305)).
 The intake, delivery and verification mechanisms below remain implemented; a
 staged URL or receipt is not native installation acceptance. For supported
-automated development, use [agent-owned source deployment](MANAGED-ADDON-INSTALLATION.md).
+automated development, use [agent-owned source deployment](MANAGED-V2-FRESH-INSTALL.md).
 Existing repository functionality and ZIP security checks are unchanged.
 
 This is an operator-assisted development workflow for one authorized disposable

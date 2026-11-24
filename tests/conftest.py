@@ -12,8 +12,8 @@ from uuid import uuid4
 
 import pytest
 
-from kodi_lab.snapshot.storage import MIN_FREE_BYTES
 from scripts.test_scratch import OwnedScratch
+from scripts.validation_tiers import MIN_FREE_BYTES
 
 pytest_plugins = ("tests.efficiency_plugin",)
 

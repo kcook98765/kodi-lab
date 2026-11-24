@@ -5,7 +5,7 @@ Audit baseline: main `11ccb777598b754ad73cb691e6ac8489c052ff11`,
 runtime execution, prompt acceptance or new authority was exercised.
 
 For the separate investigation of repository `InstallAddon(id)`, see the
-[managed agent installation decision](MANAGED-ADDON-INSTALLATION.md). All four
+[managed agent installation decision](MANAGED-V2-FRESH-INSTALL.md). All four
 approved versions require confirmation and lack an exact-package builtin input.
 
 **Defer an unattended one-call installer.** The reviewed public interfaces do

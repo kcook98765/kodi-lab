@@ -90,7 +90,6 @@ for path in /data /config; do
     test -w "$path/caddy" && test -x "$path/caddy"
 done
 """
-MANAGED_NETWORK = "kodi-lab-managed-v1"
 MIN_FREE_BYTES = 8 * 1024**3
 SOURCE_REPOSITORY = "https://github.com/kcook98765/kodi-lab.git"
 COMPOSE_COMMANDS = {"config", "exec", "logs", "ps", "run", "stop", "up"}
@@ -189,40 +188,7 @@ def available_port(address: str, port: int) -> None:
         probe.bind((address, port))
 
 
-def check_networks(source: Path) -> None:
-    names = run(
-        ["docker", "network", "ls", "--format", "{{.Name}}"], source, capture=True
-    )
-    if MANAGED_NETWORK in names.splitlines():
-        raise ValueError(
-            "managed network already exists; use the existing installation "
-            "or upgrade guide"
-        )
-    routes = json.loads(
-        run(["ip", "-j", "-4", "route", "show", "table", "all"], source, capture=True)
-    )
-    claimed = [
-        item["dst"] for item in routes if item.get("dst") not in {None, "default"}
-    ]
-    ids = run(["docker", "network", "ls", "-q"], source, capture=True).split()
-    if ids:
-        networks = json.loads(
-            run(["docker", "network", "inspect", *ids], source, capture=True)
-        )
-        claimed.extend(
-            entry["Subnet"]
-            for network in networks
-            for entry in (network.get("IPAM") or {}).get("Config") or []
-            if entry.get("Subnet")
-        )
-    managed = ipaddress.ip_network("10.250.0.0/24")
-    if any(
-        managed.overlaps(ipaddress.ip_network(value, strict=False)) for value in claimed
-    ):
-        raise ValueError("10.250.0.0/24 overlaps a host route or Docker network")
-
-
-def compose(root: Path, data: dict[str, Any], *, managed: bool = False) -> list[str]:
+def compose(root: Path, data: dict[str, Any]) -> list[str]:
     command = [
         "docker",
         "compose",
@@ -239,8 +205,6 @@ def compose(root: Path, data: dict[str, Any], *, managed: bool = False) -> list[
         command += ["-f", str(root / "compose.windows.yaml")]
     if data.get("web_access_mode") == "lan-http":
         command += ["-f", str(root / "bundle/compose.lan-http.yaml")]
-    if managed:
-        command += ["-f", str(root / "bundle/compose.lab.yaml")]
     return [*command, "--profile", "lab"]
 
 
@@ -330,11 +294,9 @@ def ingress_config(subnet: str, port: int, routes: list[str]) -> dict[str, Any]:
     normalized = sorted({str(ipaddress.IPv4Network(value)) for value in routes})
     if any(ipaddress.IPv4Network(value).prefixlen == 0 for value in normalized):
         raise ValueError("omit the default Windows route; supply all specific routes")
-    for value in [*normalized, "10.250.0.0/24"]:
+    for value in normalized:
         if network.overlaps(ipaddress.ip_network(value)):
-            raise ValueError(
-                "HTTPS ingress overlaps Windows routes or the managed network"
-            )
+            raise ValueError("HTTPS ingress overlaps Windows routes")
     return {
         "subnet": subnet,
         "gateway": str(network[1]),
@@ -484,7 +446,6 @@ def windows_overlay(port: int, ingress: dict[str, Any] | None = None) -> str:
     )
     if ingress is None:
         return result
-    # The lab overlay merges managed/default membership into this map.
     return result + (
         "  web:\n    environment:\n"
         f'      FORWARDED_ALLOW_IPS: "{ingress["caddy_ip"]}"\n'
@@ -1005,7 +966,6 @@ def bootstrap(args: argparse.Namespace) -> None:
         if shutil.which(executable) is None:
             raise ValueError(f"install prerequisite: {executable}")
     engine(destination.parent, host)
-    check_networks(destination.parent)
     source_parent = installation_path(
         str(
             Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
@@ -1102,7 +1062,6 @@ def install(args: argparse.Namespace) -> None:
     ):
         raise ValueError("choose distinct unprivileged ports (1024 through 65535)")
     engine_id = engine(source, host)
-    check_networks(source)
     available_port("127.0.0.1", args.web_port)
     if mode == "lan-http":
         available_port(web_bind, args.web_port)
@@ -1213,7 +1172,6 @@ def install(args: argparse.Namespace) -> None:
         listener_preflight(root, data)
         if engine(source, host) != engine_id:
             raise ValueError("Docker engine changed during installation")
-        check_networks(source)
         check_ingress_network(root, data)
         command = compose(root, data)
         run([*command, "config", "--quiet"], root)
@@ -1265,18 +1223,6 @@ def install(args: argparse.Namespace) -> None:
                     "set-password",
                 ],
             ),
-            (
-                "network_ready",
-                [
-                    "run",
-                    "--rm",
-                    "--no-deps",
-                    "--entrypoint",
-                    "kodi-lab-runtime",
-                    "broker",
-                    "network-ensure",
-                ],
-            ),
         ]
         for stage, arguments in steps:
             run([*command, *arguments], root)
@@ -1284,7 +1230,7 @@ def install(args: argparse.Namespace) -> None:
         prepare_caddy(root, data, create=True)
         run(
             [
-                *compose(root, data, managed=True),
+                *compose(root, data),
                 "up",
                 "-d",
                 "--wait",
@@ -1589,7 +1535,7 @@ def main() -> int:
                 successor_preflight(root, data)
             if activating:
                 prepare_caddy(root, data)
-            run([*compose(root, data, managed=True), *arguments], root)
+            run([*compose(root, data), *arguments], root)
             if activating:
                 check_ingress_network(root, data)
             if args.action == "start":

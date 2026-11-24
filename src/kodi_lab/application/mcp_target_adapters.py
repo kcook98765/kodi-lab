@@ -17,11 +17,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
+    ExternalAddonInventory,
     KodiAddonInventoryItem,
     KodiAddonProvenance,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
-    ManagedInstanceAddonInventory,
 )
 from kodi_lab.application.browser_remote import (
     BrowserRemoteError,
@@ -354,7 +354,7 @@ class KodiTargetAdapterService:
                 raise KodiTargetAdapterError("target_not_found_or_not_authorized")
         return tuple(results)
 
-    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+    def addon_inventory(self, target_id: UUID) -> ExternalAddonInventory:
         target_type = self._target_type(target_id)
         if target_type is TargetType.EXTERNAL_PRODUCTION:
             snapshot = self._production_snapshot(
@@ -841,7 +841,7 @@ class KodiTargetAdapterService:
     def _target_type(self, target_id: UUID) -> TargetType:
         with self._sessions() as session:
             row = session.get(TargetRow, str(target_id))
-        if row is None or row.target_type is TargetType.MANAGED:
+        if row is None:
             raise KodiTargetAdapterError("target_not_found_or_not_authorized")
         return row.target_type
 
@@ -1182,12 +1182,12 @@ class KodiTargetAdapterService:
 
     def _normalized_external_inventory(
         self, target_id: UUID, result: KodiAddonInventoryResult
-    ) -> ManagedInstanceAddonInventory:
+    ) -> ExternalAddonInventory:
         unknown = KodiAddonProvenance(
             classification=KodiAddonProvenanceClassification.UNKNOWN,
             evidence_status=KodiAddonProvenanceEvidenceStatus.UNKNOWN,
         )
-        return ManagedInstanceAddonInventory(
+        return ExternalAddonInventory(
             instance_id=target_id,
             observed_at=self._now(),
             kodi_release=result.identity.kodi_release.canonical,

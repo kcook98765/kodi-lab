@@ -14,22 +14,15 @@ from sqlalchemy import select
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
+    ExternalAddonInventory,
     KodiAddonInventoryItem,
     KodiAddonProvenance,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
-    ManagedInstanceAddonInventory,
-)
-from kodi_lab.application.agent_workspace_promotions import (
-    AgentWorkspacePromotionService,
 )
 from kodi_lab.application.external_bridges import ExternalBridgeServiceError
 from kodi_lab.application.mcp_development_requests import (
     prune_expired_safe_development_requests,
-)
-from kodi_lab.application.mcp_promotion_requests import (
-    McpPromotionRequestError,
-    McpPromotionRequestService,
 )
 from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
 from kodi_lab.domain import TargetType
@@ -99,14 +92,14 @@ class RepositoryTargetFixture:
     bridge_error: str | None = None
     executions: int = 0
 
-    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+    def addon_inventory(self, target_id: UUID) -> ExternalAddonInventory:
         assert target_id == EXTERNAL_TARGET_ID
         if self.offline:
             raise OSError("disposable Kodi offline")
         items = [_item(REPOSITORY, "1.0.0", True)]
         if self.installed_version is not None:
             items.append(_item(ADDON, self.installed_version, self.enabled))
-        return ManagedInstanceAddonInventory(
+        return ExternalAddonInventory(
             instance_id=target_id,
             observed_at=NOW,
             kodi_release=self.kodi_release,
@@ -260,25 +253,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
             expected_generation=generation,
             target_id=EXTERNAL_TARGET_ID,
         )
-    promotion_service = McpPromotionRequestService(
-        env.sessions,
-        AgentWorkspacePromotionService(
-            env.sessions,
-            data_root=tmp_path / "data",
-            development_root=tmp_path / "sources",
-            verification_publisher=lambda _session, _operation: uuid4(),
-            clock=lambda: NOW,
-        ),
-        clock=lambda: NOW,
-    )
-    with pytest.raises(McpPromotionRequestError, match="deployment_required"):
-        promotion_service.request(
-            client_id=env.client_id,
-            request_id=uuid4(),
-            workspace_id=env.workspace_id,
-            expected_generation=generation,
-            target_id=EXTERNAL_TARGET_ID,
-        )
     with env.sessions() as session:
         assert (
             session.scalar(
@@ -306,14 +280,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
     assert published.state == "running" and published.phase == "awaiting_kodi_update"
     with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
         env.development.execute(
-            client_id=env.client_id,
-            request_id=uuid4(),
-            workspace_id=env.workspace_id,
-            expected_generation=generation,
-            target_id=EXTERNAL_TARGET_ID,
-        )
-    with pytest.raises(McpPromotionRequestError, match="deployment_required"):
-        promotion_service.request(
             client_id=env.client_id,
             request_id=uuid4(),
             workspace_id=env.workspace_id,
@@ -402,15 +368,6 @@ def test_first_install_approval_pending_observation_and_exact_tree(
         target_id=EXTERNAL_TARGET_ID,
     )
     assert executed.state == "succeeded" and target.executions == 1
-    promotion = promotion_service.request(
-        client_id=env.client_id,
-        request_id=uuid4(),
-        workspace_id=env.workspace_id,
-        expected_generation=generation,
-        target_id=EXTERNAL_TARGET_ID,
-    )
-    assert promotion.review_state == "reviewable"
-    assert promotion.web_review_required
 
 
 def test_correct_version_wrong_tree_fails_closed(tmp_path: Path) -> None:

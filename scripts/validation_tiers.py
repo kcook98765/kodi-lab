@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parent.parent
+MIN_FREE_BYTES = 2 * 1024**3
 MIN_SHM_FREE_BYTES = 3 * 1024**3
 
 

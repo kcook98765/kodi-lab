@@ -15,14 +15,6 @@ class EnvironmentIdentity:
 
 _IDENTITIES = MappingProxyType(
     {
-        TargetType.MANAGED: EnvironmentIdentity(
-            display_name="Managed Kodi",
-            ownership=(
-                "Kodi runs inside Kodi Lab. Kodi Lab hosts it and controls "
-                "its managed runtime."
-            ),
-            icon_path="M4 3h16v7H4z M4 14h16v7H4z M7 6h2 M7 17h2",
-        ),
         TargetType.EXTERNAL_PRODUCTION: EnvironmentIdentity(
             display_name="External Production Kodi",
             ownership=(

@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session, sessionmaker
 
-from tests.web.conftest import EXTERNAL_TARGET_ID, login, seed_external_target
-from tests.web.test_environment_identity import IdentityLabels
+from tests.web.conftest import login
 from tests.web.test_kodi_views import household as household
 
 
@@ -36,34 +32,6 @@ def test_onboarding_wording_preserves_modes_and_existing_mechanisms(
     assert "data-js-gate disabled" in page.text
     assert 'method="post" action="/add-kodi" data-connect-form' in page.text
     assert client.get("/add-kodi?mode=production").status_code == 422
-
-
-def test_grouped_identity_is_not_repeated_on_every_card(
-    client: TestClient, database: sessionmaker[Session], household: UUID
-) -> None:
-    seed_external_target(database)
-    login(client)
-    client.cookies.set("kodi_lab_admin_view", "development")
-    overview = client.get("/kodi").text
-    assert IdentityLabels(overview).types == ["managed"]
-    assert 'id="external-summary-heading">External Kodi' in overview
-    for path, kind in [
-        ("/production-targets", "external_production"),
-        ("/external-targets", "external_development"),
-    ]:
-        assert IdentityLabels(client.get(path).text).types == [kind]
-    assert IdentityLabels(client.get(f"/kodi/{household}").text).types == [
-        "external_production"
-    ]
-    for target, kind in [
-        (household, "external_production"),
-        (EXTERNAL_TARGET_ID, "external_development"),
-    ]:
-        page = client.get(f"/reconnect-kodi/{target}")
-        assert page.status_code == 200
-        assert IdentityLabels(page.text).types == [kind]
-        assert "outside Kodi Lab" in page.text
-        assert "Verified relationship" not in page.text
 
 
 @pytest.mark.parametrize(

@@ -24,7 +24,6 @@ class ToolRateClass(StrEnum):
     DEVELOPMENT_VALIDATE = "development_validate"
     DEVELOPMENT_DEPLOY = "development_deploy"
     DEVELOPMENT_EXECUTE = "development_execute"
-    DEVELOPMENT_PROMOTION_REQUEST = "development_promotion_request"
     MANAGED_LIFECYCLE = "managed_lifecycle"
 
 
@@ -37,7 +36,6 @@ class ToolScope(StrEnum):
 
 
 class TargetClass(StrEnum):
-    INTERNAL_LAB = "internal_lab"
     EXTERNAL_DEVELOPMENT = "external_development"
     EXTERNAL_PRODUCTION = "external_production"
 
@@ -137,10 +135,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "workspace.capture",
                 "development.execute",
                 "development.launch",
-                "development.request_promotion",
-                "managed.lifecycle",
-                "managed.versions",
-                "managed.reset",
                 "development.settings.write",
             }
         )
@@ -207,24 +201,6 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
-        )
-    )
-    registry.register(
-        McpToolDefinition(
-            name="promotion_request",
-            schema_revision=1,
-            permissions=frozenset({"development.request_promotion"}),
-            effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
-            required_capabilities=frozenset(
-                {"workspace_deployment", "workspace_execution"}
-            ),
-            required_states=frozenset({"running", "ready", "reconciled"}),
-            rate_class=ToolRateClass.DEVELOPMENT_PROMOTION_REQUEST,
-            adapter="agent_workspace.prepare_promotion_for_web_review",
-            production_eligible=False,
-            target_scope_required=False,
-            scope=ToolScope.WORKSPACE_TARGET,
         )
     )
     registry.register(
@@ -334,6 +310,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_validate",
+            schema_revision=1,
+            permissions=frozenset({"workspace.inspect"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.EXTERNAL_DEVELOPMENT}),
+            required_capabilities=frozenset({"agent_workspace"}),
+            required_states=frozenset({"ready", "present"}),
+            rate_class=ToolRateClass.DEVELOPMENT_VALIDATE,
+            adapter="agent_workspace.validate_structure",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE,
         )
     )
     registry.register(

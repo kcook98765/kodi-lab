@@ -15,7 +15,7 @@ from kodi_lab.storage.packaged_migrations import database_is_empty, migrate_data
 from tests.migration_support import migration_config
 from tests.schema_manifest import schema_manifest
 
-BASELINE = "0001_managed_v2"
+BASELINE = "0001_foundation"
 
 
 def test_fresh_contract_and_safe_reinitialization(
@@ -58,6 +58,7 @@ def test_fresh_contract_and_safe_reinitialization(
         "",
         "0001_targets_instances",
         "0001_initial_release",
+        "0001_managed_v2",
         "0018_source_addition_reviews",
         "0036_mcp_core_foundation",
         "0076_managed_resource_policy",

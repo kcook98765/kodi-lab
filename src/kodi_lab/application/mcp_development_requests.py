@@ -5,26 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from pydantic import ValidationError
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from kodi_lab.development.noop import ManagedDeploymentVerification
 from kodi_lab.storage.models import (
     AgentWorkspaceCreationOperationRow,
-    AgentWorkspacePromotionHandoffRow,
-    AgentWorkspacePromotionJournalRow,
-    AgentWorkspacePromotionOperationRow,
-    AgentWorkspacePromotionPlanPathRow,
-    AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     ExternalBridgeDeploymentReceiptRow,
     McpAgentWorkspaceBindingRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
-    PromotionVerificationOperationRow,
     RepositoryWorkspaceDeploymentRow,
 )
 
@@ -36,7 +28,6 @@ DEVELOPMENT_REQUEST_PRUNE_CANDIDATE_LIMIT = 256
 WORKSPACE_CREATE_OPERATION_KIND = "workspace_create"
 WORKSPACE_DEPLOY_OPERATION_KIND = "workspace_deploy"
 WORKSPACE_EXECUTE_OPERATION_KIND = "workspace_execute"
-PROMOTION_REQUEST_OPERATION_KIND = "promotion_request"
 
 _TERMINAL_VERIFICATION_STATES = {"succeeded", "failed", "incomplete"}
 _DEPLOYMENT_RESULT_CLASSIFICATIONS = {
@@ -72,24 +63,6 @@ def _deployment_success_evidence_is_consistent(
     session: Session,
     operation: McpWorkspaceDeploymentOperationRow,
 ) -> bool:
-    if operation.result_classification == "verified_existing":
-        try:
-            proof = ManagedDeploymentVerification.model_validate_json(
-                operation.managed_verification_json or ""
-            )
-        except ValidationError:
-            return False
-        return bool(
-            proof.reused_deployment_id is not None
-            and str(proof.reused_deployment_id) != operation.id
-            and proof.native_restart_count == 0
-            and proof.bytes_staged == proof.bytes_transferred == 0
-            and session.scalar(
-                select(_verified_noop_evidence_sql()).where(
-                    McpWorkspaceDeploymentOperationRow.id == operation.id
-                )
-            )
-        )
     common = bool(
         operation.state == "succeeded"
         and operation.phase == "finalize"
@@ -112,14 +85,6 @@ def _deployment_success_evidence_is_consistent(
     )
     if not common:
         return False
-    if operation.target_class == "internal_lab":
-        return bool(
-            operation.target_stopped
-            and operation.addon_enabled is True
-            and operation.result_classification in _DEPLOYMENT_RESULT_CLASSIFICATIONS
-            and operation.runtime_revision_id is not None
-            and operation.bridge_id is None
-        )
     if operation.deployment_mode == "repository":
         linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
         return bool(
@@ -144,8 +109,6 @@ def _deployment_success_evidence_is_consistent(
     receipt = session.get(ExternalBridgeDeploymentReceiptRow, operation.id)
     return bool(
         operation.target_class == "external_development"
-        and not operation.target_stopped
-        and operation.runtime_revision_id is None
         and operation.bridge_id is not None
         and operation.bridge_request_id == operation.request_id
         and operation.bridge_receipt_id is not None
@@ -179,7 +142,6 @@ def _deployment_pre_mutation_failure_evidence_is_consistent(
         and operation.completed_at is not None
         and operation.failure_code is not None
         and not operation.mutation_started
-        and not operation.target_stopped
         and not operation.sync_started
         and not operation.sync_completed
         and not operation.target_started
@@ -249,46 +211,6 @@ def _execution_pre_dispatch_failure_evidence_is_consistent(
     )
 
 
-def _verified_noop_evidence_sql() -> ColumnElement[bool]:
-    row = McpWorkspaceDeploymentOperationRow
-    proof = row.managed_verification_json
-    return and_(
-        row.state == "succeeded",
-        row.phase == "finalize",
-        row.started_at.is_not(None),
-        row.completed_at.is_not(None),
-        row.initiator_kind == "mcp",
-        row.client_id.is_not(None),
-        row.target_class == "internal_lab",
-        row.deployment_mode == "direct",
-        row.result_classification == "verified_existing",
-        row.failure_code.is_(None),
-        row.mutation_started.is_(False),
-        row.target_stopped.is_(False),
-        row.sync_started.is_(False),
-        row.sync_completed.is_(False),
-        row.target_started.is_(False),
-        row.inventory_classification == "matched",
-        row.addon_enabled.is_(True),
-        row.source_manifest_digest.is_not(None),
-        row.verified_destination_digest.is_not(None),
-        proof.is_not(None),
-        func.json_valid(proof) == 1,
-        func.json_extract(proof, "$.container_id") == row.original_container_id,
-        func.json_extract(proof, "$.runtime_revision_id") == row.runtime_revision_id,
-        func.json_extract(proof, "$.source_manifest_digest")
-        == row.source_manifest_digest,
-        func.json_extract(proof, "$.destination_manifest_digest")
-        == row.verified_destination_digest,
-        func.length(func.json_extract(proof, "$.reused_deployment_id")) == 36,
-        func.json_extract(proof, "$.reused_deployment_id") != row.id,
-        func.json_extract(proof, "$.native_restart_count") == 0,
-        func.json_extract(proof, "$.bytes_staged") == 0,
-        func.json_extract(proof, "$.bytes_transferred") == 0,
-        func.json_extract(proof, "$.readiness_checked") == 1,
-    )
-
-
 def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
     """SQL form used by bounded terminal-operation cleanup."""
 
@@ -325,7 +247,6 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
         .correlate(operation)
     )
     return or_(
-        _verified_noop_evidence_sql(),
         and_(
             operation.state == "succeeded",
             operation.phase == "finalize",
@@ -344,20 +265,8 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
             operation.addon_enabled.is_not(None),
             or_(
                 and_(
-                    operation.target_class == "internal_lab",
-                    operation.target_stopped.is_(True),
-                    operation.addon_enabled.is_(True),
-                    operation.runtime_revision_id.is_not(None),
-                    operation.bridge_id.is_(None),
-                    operation.result_classification.in_(
-                        tuple(sorted(_DEPLOYMENT_RESULT_CLASSIFICATIONS))
-                    ),
-                ),
-                and_(
                     operation.target_class == "external_development",
                     operation.deployment_mode == "direct",
-                    operation.target_stopped.is_(False),
-                    operation.runtime_revision_id.is_(None),
                     operation.bridge_id.is_not(None),
                     operation.bridge_request_id == operation.request_id,
                     operation.bridge_receipt_id.is_not(None),
@@ -371,8 +280,6 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
                 and_(
                     operation.target_class == "external_development",
                     operation.deployment_mode == "repository",
-                    operation.target_stopped.is_(False),
-                    operation.runtime_revision_id.is_(None),
                     operation.bridge_id.is_not(None),
                     operation.bridge_request_id.is_(None),
                     operation.bridge_receipt_id.is_(None),
@@ -394,7 +301,6 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
             operation.completed_at.is_not(None),
             operation.failure_code.is_not(None),
             operation.mutation_started.is_(False),
-            operation.target_stopped.is_(False),
             operation.sync_started.is_(False),
             operation.sync_completed.is_(False),
             operation.target_started.is_(False),
@@ -451,256 +357,6 @@ def execution_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
             operation.result_classification.is_(None),
         ),
     )
-
-
-def _promotion_terminal_verification_exists() -> ColumnElement[bool]:
-    operation = AgentWorkspacePromotionOperationRow
-    verification = PromotionVerificationOperationRow
-    handoff = AgentWorkspacePromotionHandoffRow
-    coherent_progress = or_(
-        and_(
-            verification.sync_started.is_(False),
-            verification.sync_completed.is_(False),
-            verification.start_dispatched.is_(False),
-            verification.handoff_consumed.is_(False),
-            verification.sync_result == "pending",
-        ),
-        and_(
-            verification.sync_started.is_(True),
-            verification.sync_completed.is_(False),
-            verification.start_dispatched.is_(False),
-            verification.handoff_consumed.is_(False),
-            verification.sync_result.in_(("failed", "incomplete")),
-        ),
-        and_(
-            verification.sync_started.is_(True),
-            verification.sync_completed.is_(True),
-            verification.handoff_consumed.is_(True),
-            verification.sync_result == "succeeded",
-        ),
-    )
-    terminal_outcome = or_(
-        and_(
-            verification.state == "succeeded",
-            verification.failure_code.is_(None),
-            verification.stop_completed.is_(True),
-            verification.sync_started.is_(True),
-            verification.sync_completed.is_(True),
-            verification.start_dispatched.is_(True),
-            verification.handoff_consumed.is_(True),
-            verification.sync_result == "succeeded",
-            verification.reload_result == "succeeded",
-            verification.inventory_result == "succeeded",
-            verification.log_result.in_(("clean", "unrelated_warnings")),
-            verification.current_version.is_not(None),
-            verification.current_enabled.is_not(None),
-        ),
-        and_(
-            verification.state.in_(("failed", "incomplete")),
-            coherent_progress,
-            or_(
-                verification.failure_code.is_not(None),
-                verification.sync_result.in_(("failed", "incomplete")),
-                verification.reload_result.in_(("failed", "incomplete")),
-                verification.inventory_result.in_(("failed", "incomplete")),
-                verification.log_result.in_(("target_errors", "incomplete")),
-            ),
-        ),
-    )
-    coherent_handoff = (
-        exists()
-        .where(
-            handoff.id == verification.handoff_id,
-            handoff.operation_id == operation.id,
-            handoff.workspace_id == operation.workspace_id,
-            handoff.development_source_id == operation.development_source_id,
-            handoff.verification_operation_id == verification.id,
-            handoff.expected_addon_id.is_not(None),
-            handoff.expected_name.is_not(None),
-            handoff.expected_version.is_not(None),
-            handoff.expected_enabled.is_not(None),
-            or_(
-                and_(
-                    verification.sync_completed.is_(True),
-                    handoff.consumed_at.is_not(None),
-                ),
-                and_(
-                    verification.sync_completed.is_(False),
-                    handoff.consumed_at.is_(None),
-                ),
-            ),
-        )
-        .correlate(operation, verification)
-    )
-    return (
-        exists()
-        .where(
-            verification.source_promotion_id == operation.id,
-            verification.workspace_id == operation.workspace_id,
-            verification.development_source_id == operation.development_source_id,
-            verification.state.in_(tuple(sorted(_TERMINAL_VERIFICATION_STATES))),
-            verification.phase == "finalize",
-            verification.completed_at.is_not(None),
-            verification.lease_token_digest.is_(None),
-            verification.lease_expires_at.is_(None),
-            terminal_outcome,
-            coherent_handoff,
-        )
-        .correlate(operation)
-    )
-
-
-def _promotion_plan_is_definitively_terminal_predicate() -> ColumnElement[bool]:
-    plan = AgentWorkspacePromotionPlanRow
-    operation = AgentWorkspacePromotionOperationRow
-    handoff = AgentWorkspacePromotionHandoffRow
-    journal = AgentWorkspacePromotionJournalRow
-    path = AgentWorkspacePromotionPlanPathRow
-
-    def journal_exactly_matches(expected_state: str) -> ColumnElement[bool]:
-        expected_identity = (
-            and_(
-                journal.applied_device.is_not(None),
-                journal.applied_inode.is_not(None),
-            )
-            if expected_state == "applied"
-            else and_(
-                journal.applied_device.is_(None),
-                journal.applied_inode.is_(None),
-            )
-        )
-        matching_journal = (
-            exists()
-            .where(
-                journal.operation_id == operation.id,
-                journal.ordinal == path.ordinal,
-                journal.relative_path == path.relative_path,
-                journal.state == expected_state,
-                expected_identity,
-            )
-            .correlate(operation, path)
-        )
-        matching_path = (
-            exists()
-            .where(
-                path.plan_id == plan.id,
-                path.ordinal == journal.ordinal,
-                path.relative_path == journal.relative_path,
-            )
-            .correlate(plan, journal)
-        )
-        return and_(
-            exists().where(path.plan_id == plan.id).correlate(plan),
-            ~exists()
-            .where(path.plan_id == plan.id, ~matching_journal)
-            .correlate(plan, operation),
-            ~exists()
-            .where(journal.operation_id == operation.id, ~matching_path)
-            .correlate(plan, operation),
-        )
-
-    no_source_operation = and_(
-        plan.source_operation_id.is_(None),
-        or_(
-            and_(
-                plan.state == "conflicted",
-                plan.reviewable_at.is_(None),
-                plan.expires_at.is_(None),
-                plan.invalidation_reason.is_(None),
-            ),
-            and_(
-                plan.state == "expired",
-                plan.reviewable_at.is_not(None),
-                plan.expires_at.is_not(None),
-                plan.invalidation_reason == "promotion_plan_expired",
-            ),
-            and_(
-                plan.state == "invalidated",
-                plan.invalidation_reason.is_not(None),
-            ),
-        ),
-        ~exists().where(operation.plan_id == plan.id),
-    )
-    failed_source_operation = and_(
-        plan.state == "invalidated",
-        plan.invalidation_reason.is_not(None),
-        operation.state == "failed",
-        operation.phase == "finalize",
-        operation.started_at.is_not(None),
-        operation.completed_at.is_not(None),
-        operation.failure_code.is_not(None),
-        operation.reconciliation_required.is_(False),
-        operation.application_started.is_(False),
-        operation.backup_verified.is_(False),
-        operation.backup_artifact_id.is_(None),
-        operation.lease_token_digest.is_(None),
-        operation.lease_expires_at.is_(None),
-        ~exists().where(handoff.operation_id == operation.id).correlate(operation),
-        ~exists()
-        .where(PromotionVerificationOperationRow.source_promotion_id == operation.id)
-        .correlate(operation),
-        journal_exactly_matches("not_attempted"),
-    )
-    succeeded_source_operation = and_(
-        plan.state == "consumed",
-        plan.invalidation_reason.is_(None),
-        operation.state == "succeeded",
-        operation.phase == "finalize",
-        operation.started_at.is_not(None),
-        operation.completed_at.is_not(None),
-        operation.failure_code.is_(None),
-        operation.reconciliation_required.is_(False),
-        operation.application_started.is_(True),
-        operation.backup_verified.is_(True),
-        operation.backup_artifact_id.is_not(None),
-        operation.lease_token_digest.is_(None),
-        operation.lease_expires_at.is_(None),
-        journal_exactly_matches("applied"),
-        _promotion_terminal_verification_exists(),
-    )
-    source_operation = (
-        exists()
-        .where(
-            operation.id == plan.source_operation_id,
-            operation.plan_id == plan.id,
-            operation.workspace_id == plan.workspace_id,
-            operation.development_source_id == plan.development_source_id,
-            or_(failed_source_operation, succeeded_source_operation),
-        )
-        .correlate(plan)
-    )
-    return or_(no_source_operation, source_operation)
-
-
-def _promotion_workflow_is_terminal(session: Session, plan_id: str) -> bool:
-    """Answer terminality with one scalar query and no plan collection loading."""
-
-    return bool(
-        session.scalar(
-            select(_promotion_plan_is_definitively_terminal_predicate()).where(
-                AgentWorkspacePromotionPlanRow.id == plan_id
-            )
-        )
-    )
-
-
-def _referenced_promotion_workflows_are_terminal(
-    session: Session, operation_id: str, *, deployment: bool
-) -> bool:
-    reference = (
-        AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
-        if deployment
-        else AgentWorkspacePromotionPlanRow.originating_mcp_execution_id
-    )
-    blocking_reference_exists = session.scalar(
-        select(
-            exists().where(
-                reference == operation_id,
-                ~_promotion_plan_is_definitively_terminal_predicate(),
-            )
-        )
-    )
-    return not bool(blocking_reference_exists)
 
 
 def _creation_is_replay_safe(
@@ -764,9 +420,6 @@ def _deployment_is_replay_safe(
         or operation.workspace_id != request.workspace_id
         or operation.development_source_id != request.development_source_id
         or operation.completed_at is None
-        or not _referenced_promotion_workflows_are_terminal(
-            session, operation.id, deployment=True
-        )
     ):
         return False
     return bool(
@@ -789,30 +442,11 @@ def _execution_is_replay_safe(
         or operation.workspace_id != request.workspace_id
         or operation.development_source_id != request.development_source_id
         or operation.completed_at is None
-        or not _referenced_promotion_workflows_are_terminal(
-            session, operation.id, deployment=False
-        )
     ):
         return False
     return bool(
         _execution_success_evidence_is_consistent(operation)
         or _execution_pre_dispatch_failure_evidence_is_consistent(operation)
-    )
-
-
-def _promotion_request_is_replay_safe(
-    session: Session, request: McpDevelopmentRequestRow
-) -> bool:
-    if request.operation_id is None or request.creation_operation_id is not None:
-        return False
-    plan = session.get(AgentWorkspacePromotionPlanRow, request.operation_id)
-    return bool(
-        plan is not None
-        and plan.workspace_id == request.workspace_id
-        and plan.development_source_id == request.development_source_id
-        and plan.originating_mcp_client_id == request.client_id
-        and plan.originating_mcp_request_id == request.request_id
-        and _promotion_workflow_is_terminal(session, plan.id)
     )
 
 
@@ -829,8 +463,6 @@ def development_request_is_replay_safe_to_forget(
         return _deployment_is_replay_safe(session, request)
     if request.operation_kind == WORKSPACE_EXECUTE_OPERATION_KIND:
         return _execution_is_replay_safe(session, request)
-    if request.operation_kind == PROMOTION_REQUEST_OPERATION_KIND:
-        return _promotion_request_is_replay_safe(session, request)
     return False
 
 
@@ -890,48 +522,6 @@ def prune_expired_safe_development_requests(
                     ),
                 ),
                 McpWorkspaceExecutionOperationRow.completed_at.is_not(None),
-            ),
-        ),
-        and_(
-            McpDevelopmentRequestRow.operation_kind == PROMOTION_REQUEST_OPERATION_KIND,
-            exists().where(
-                AgentWorkspacePromotionPlanRow.id
-                == McpDevelopmentRequestRow.operation_id,
-                or_(
-                    and_(
-                        AgentWorkspacePromotionPlanRow.state.in_(
-                            ("conflicted", "invalidated", "expired")
-                        ),
-                        AgentWorkspacePromotionPlanRow.source_operation_id.is_(None),
-                    ),
-                    and_(
-                        AgentWorkspacePromotionPlanRow.state == "invalidated",
-                        exists().where(
-                            AgentWorkspacePromotionOperationRow.id
-                            == AgentWorkspacePromotionPlanRow.source_operation_id,
-                            AgentWorkspacePromotionOperationRow.state == "failed",
-                            ~AgentWorkspacePromotionOperationRow.reconciliation_required,
-                        ),
-                    ),
-                    and_(
-                        AgentWorkspacePromotionPlanRow.state == "consumed",
-                        exists().where(
-                            AgentWorkspacePromotionOperationRow.id
-                            == AgentWorkspacePromotionPlanRow.source_operation_id,
-                            AgentWorkspacePromotionOperationRow.state == "succeeded",
-                            exists().where(
-                                PromotionVerificationOperationRow.source_promotion_id
-                                == AgentWorkspacePromotionOperationRow.id,
-                                PromotionVerificationOperationRow.state.in_(
-                                    tuple(sorted(_TERMINAL_VERIFICATION_STATES))
-                                ),
-                                PromotionVerificationOperationRow.completed_at.is_not(
-                                    None
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
             ),
         ),
     )

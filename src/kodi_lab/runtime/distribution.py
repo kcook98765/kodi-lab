@@ -37,7 +37,6 @@ from kodi_lab.domain import (
 from kodi_lab.remote_lifecycle import lifecycle_lock
 from kodi_lab.remote_lifecycle import validate as remote_validate
 from kodi_lab.runtime.curated_catalog import CURATED_SUPPRESSION_REVISIONS
-from kodi_lab.runtime.managed_network import ensure_managed_network
 from kodi_lab.runtime.manifest import RuntimeBuildManifest
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
@@ -460,9 +459,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     load_command.add_argument("name", choices=RUNTIME_NAMES)
     load_command.add_argument("archive", type=Path)
     commands.add_parser("bootstrap", help="verify all images and seed catalog")
-    commands.add_parser(
-        "network-ensure", help="verify or create the fixed managed network"
-    )
     arguments = parser.parse_args(argv)
     try:
         if os.environ.get("KODI_LAB_RELEASE_BUNDLE") == "1" and arguments.command in {
@@ -539,18 +535,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 target_id = recipe_target_id(load_novnc_phase1_recipe())
                 print(f"experimental viewer target={target_id}")
-            return 0
-        if arguments.command == "network-ensure":
-            import docker
-
-            client = docker.from_env()
-            try:
-                created = ensure_managed_network(client.api)
-            finally:
-                client.close()
-            print(
-                "Managed network created." if created else "Managed network verified."
-            )
             return 0
         runtimes = load_curated_runtimes()
         if arguments.command == "list":

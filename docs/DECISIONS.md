@@ -7527,7 +7527,7 @@ START operation and mutation lease. The broker resolves it through the lease's
 operation ID and validates a one-use opaque request proof, exact identity and
 fresh resource admission before dispatch. A generic START receipt cannot authorize
 this path. Existing development Start remains strict; ordinary readiness is
-native-only. See [the contract](ORDINARY-MANAGED-START.md).
+native-only. See [the contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## Durable Create intent foundation (issue #196, milestone 1)
 
@@ -7690,7 +7690,7 @@ singleton paths remain; conflicting resources must be reviewed explicitly.
 The current reviewed recipes define the four canonical logical slot identities.
 Version-oriented lifecycle coordination, separate destructive MCP authority and
 the four-action Web/MCP experience remain follow-up work, documented in
-[the audit and delivery scope](ISSUE-238-MANAGED-SLOTS.md).
+[the audit and delivery scope](MANAGED-V2-FRESH-INSTALL.md).
 
 
 ## Version-oriented agent lifecycle (issue #238, phase 2, 2026-11-06)
@@ -7714,7 +7714,7 @@ running admission cap remains one.
 
 Do not silently migrate old profiles. Automatic switching, separately authorized
 destructive Reset and four-version ordinary Web controls remain subsequent
-phases. See [the lifecycle contract](MANAGED-VERSION-LIFECYCLE.md).
+phases. See [the lifecycle contract](MANAGED-V2-FRESH-INSTALL.md).
 
 
 ## Agent-controlled clean Reset (issue #238, phase 3, 2026-11-06)
@@ -7742,7 +7742,7 @@ admission. Late screenshot publication checks the original observation token
 inside its writer transaction. Default Reset leaves a new stopped clean profile;
 optional Start remains separate from native and Bridge/agent readiness. Do not
 automatically switch versions or redesign ordinary Web controls in this phase.
-See [the clean Reset contract](MANAGED-CLEAN-RESET.md).
+See [the clean Reset contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## 2026-11-06 — Ordinary managed Kodi Web controls (#238 Phase 4)
 
@@ -7807,7 +7807,7 @@ inside the existing per-card disclosure. Keep its separate confirmation dialog,
 checkbox and focus restoration. Recovery, failure/protection messages, pending
 requests and Reset trust warnings stay primary even while Advanced is collapsed.
 No lifecycle, MCP, Preview, database, runtime or external-page changes. See the
-[DOM/receipt review and presentation contract](MANAGED-CONTROLS.md).
+[DOM/receipt review and presentation contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0482: External Production presentation follows recorded trust and ownership
 
@@ -8070,7 +8070,7 @@ input rate budget; completed/ambiguous receipts replay before new admission.
 Expired or unresolved interactive ownership remains fenced until native release
 is proven. Current agent authority is rechecked at actual managed dispatch.
 No keys are buffered or replayed on human release, and external authority is
-unchanged. See [GUI priority and qualification boundary](MANAGED-GUI-PRIORITY.md).
+unchanged. See [GUI priority and qualification boundary](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0495: Private project file creation may create bounded parent directories
 
@@ -8120,7 +8120,7 @@ retain capacity, input, hold, playback and uncertainty fences. Default final sta
 is stopped. Explicit Bridge recovery uses the original Reset and preparation
 version; it cannot create another Reset, and completed recovery replays no child.
 Human/legacy native-only Reset consent is unchanged; #302's human composition
-remains open. See [agent Reset contract](MANAGED-AGENT-RESET.md).
+remains open. See [agent Reset contract](MANAGED-V2-FRESH-INSTALL.md).
 
 ## D-0499: Original package testing composes reviewed native delivery
 
@@ -8156,7 +8156,7 @@ human-approved repository publication and external-target authority separately.
 A future repository consumer needs supported pre-execution package/dependency
 pinning, explicit consent semantics, ownership and durable replay evidence;
 post-install readback cannot retroactively authorize an unintended selection.
-See [the feasibility decision and supported agent loop](MANAGED-ADDON-INSTALLATION.md).
+See [the feasibility decision and supported agent loop](MANAGED-V2-FRESH-INSTALL.md).
 
 ## 2026-11-12: Bounded owned source transfer for managed development (#339)
 

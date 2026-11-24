@@ -30,8 +30,7 @@ using MCP-compatible coding agents.
 - Keep external Kodi under independent per-device permissions, including for
   agents that already have Trusted Managed Lab authority.
 - Use the Web UI to install managed versions, connect external Kodi, authorize
-  agents, view screens and Take Control. Recovery and legacy project controls
-  remain under **Advanced**.
+  agents, view screens and Take Control.
 
 ## Architecture at a glance
 
@@ -52,19 +51,12 @@ After signing in, **Overview** (`/kodi`) links to three choices:
 | **External Kodi** (`/external-kodi`) | Connect an existing household or development Kodi, with independent permissions. |
 | **Agents** (`/mcp-clients`) | Connect an agent and deliberately grant its managed or external authority. |
 
-Managed setup downloads and validates a reviewed runtime when needed. Starting
-and viewing Managed Kodi needs no agent, workspace or Bridge pairing. Trusted
-agents manage their own projects through MCP without Web workspace selection.
-Legacy selected-project workflows remain under **Advanced → Development tools**;
-see the [walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md).
+Managed setup acquires a reviewed image, then prepares an independent profile and
+its authenticated Narrow Bridge. Trusted agents use private workspaces and
+snapshots through MCP. See the [fresh-install walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md).
 
-The external pages offer **Connect External Production Kodi** or **Connect External
-Development Kodi** through the existing connection and pairing workflow. Kodi Lab
-does not host or own those installations and never grants automatic production access.
-Screenshots use ordinary inspection authorization; each external Kodi also
-requires Allow screenshots set to On (default Off). Control and development
-have separate permission requirements. Kodi Lab provides no general-purpose shell or OS access to that
-device; see [external setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
+External registrations, reviewed Bridge pairing and agent permissions are
+administered independently for production and development targets.
 
 ## Requirements
 
@@ -186,79 +178,26 @@ The Kodi add-on repository has its own address and network configuration.
 
 ## First-Time Setup
 
-To use Kodi hosted by Kodi Lab:
+1. Install the reviewed Omega runtime under **Kodi Runtimes** and wait for **Ready**.
+2. Open **Managed Kodi**, select **Prepare** and **Start**, and wait for authenticated readiness.
+3. Open **View Screen** for view-only noVNC. Use **Take Control** for human input and release it when finished.
+4. Stop Kodi to preserve the working profile. Save a named snapshot before Reset if you want to keep that environment.
 
-1. Sign in. From **Overview**, open **Managed Kodi** and choose Matrix, Nexus,
-   Omega or Piers (preview).
-2. If installation is needed, choose **Create Managed Kodi for this version…**,
-   then **Install and prepare**. Setup leaves Kodi stopped by default. Return
-   using **Return to Managed Kodi versions**.
-3. Select **Start Kodi** for the installed version. An empty slot requires
-   **Create Managed Kodi for this version…** first. Wait for **Running** and **View Screen** to
-   become available, then choose **View Screen → Start Viewing**.
-   Viewing starts view-only; **Take Control** is a separate explicit action.
-4. Select **Stop Kodi** to preserve that version's settings and installed add-ons.
-
-This manual **Install and prepare → Start Kodi → View Screen → Stop Kodi** workflow
-is available now. Only one managed Kodi runs at a time: deliberately Stop one
-version before starting another. Agents can compose the same explicit Stop and
-Start operations; Kodi Lab does not evict a running version automatically.
-Fresh Web installation also prepares the compatible reviewed Narrow Bridge.
-Native readiness and stored Bridge trust remain separate from live inspection
-and successful add-on execution. In **Agents**, choose **Managed Kodi agent** and
-deliberately enable **Trusted Managed Lab** once. The agent can create/import
-its projects and use installed versions without Web workspace selection.
-External devices still require separate explicit permissions.
-
-**Reset Kodi**, under the version's **Advanced options**, requires confirmation
-and intentionally discards its writable Kodi profile, settings and installed
-add-ons, preparing a clean stopped replacement. Independent sources, workspaces
-and Git data have separate retention and survive this Reset. Save anything
-important first; see [managed state recovery](docs/MANAGED-STATE-RECOVERY.md).
-After replacement, use **Set up for add-on testing** to prepare Bridge and
-deployment again. Installing a newer reviewed runtime recipe does not
-automatically migrate existing profiles. See the
-[managed Kodi Web walkthrough](docs/MANAGED-KODI-WEB.md) for recovery and advanced
-administration, and the [agent lifecycle](docs/MANAGED-VERSION-LIFECYCLE.md) and
-[clean Reset](docs/MANAGED-CLEAN-RESET.md) contracts for separately authorized agents.
-
-To connect Kodi on another device, open **External Kodi**, then choose **External Production Kodi** or
-**External Development Kodi** from Overview and follow its connection workflow.
-See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge),
-[reconnection](docs/KODI-RECONNECT.md), and
-[repository address recovery](docs/REPOSITORY-ADDRESS-RECOVERY.md).
+Under **External Kodi**, choose **External Production Kodi** or
+**External Development Kodi** and follow the independent connection and pairing
+workflow. See [external Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
 
 ## Develop an add-on
 
-**Choose add-on project → Choose Kodi version → Develop and test.**
+Grant the agent **Trusted Managed Lab** authority under **Agents**. The agent
+acquires exclusive use of the working environment, admits a reviewed ZIP or
+packages its private workspace, then asks Kodi Lab to install the exact package
+through Kodi's native repository installer. Kodi resolves the declared
+dependencies. Use direct source deployment for ordinary edits, and native
+installation again when package or dependency requirements change. Stop Kodi
+before saving or loading a snapshot. Release exclusive use when finished.
 
-Install the desired managed versions in the Web UI. In **Agents**, choose
-**Managed Kodi agent**, explicitly enable **Trusted Managed Lab**, and issue
-the agent a credential. The agent creates a project or imports a bounded reviewed
-source package, edits and validates its private workspace, then selects an
-installed managed version for deployment, launch and inspection. It can Stop one
-version and Start another, use supported GUI actions, or Reset an idle profile
-with reviewed Bridge preparation. No individual source registration or Web
-workspace selection is needed for this workflow.
-
-See [agent-owned projects](docs/AGENT-PROJECTS.md),
-[Trusted Managed Lab](docs/TRUSTED-MANAGED-LAB.md) and
-[agent Reset](docs/MANAGED-AGENT-RESET.md) for supported inputs, exact operation
-identity and recovery. Source implementation and fixture success are distinct
-from the [completed core native qualification](docs/PIERS-RC2-QUALIFICATION.md).
-[Agent-first development #303](https://github.com/kcook98765/kodi-lab/issues/303)
-is complete. Native original-ZIP GUI installation remains unverified and is not
-currently pursued ([#305, Not planned](https://github.com/kcook98765/kodi-lab/issues/305)).
-Unattended repository install-by-ID is unsupported and is not currently pursued
-([#339, Not planned](https://github.com/kcook98765/kodi-lab/issues/339)). Existing
-repository features and ZIP intake/delivery protections remain available under
-their documented limits.
-
-The existing manually selected workflow remains under **Advanced → Development
-tools → Current Managed Kodi**. Its [local development root](docs/LINUX-V1-INSTALL.md#optional-local-add-on-source-development),
-[project onboarding](docs/LOCAL-PROJECT-ONBOARDING.md) and
-[walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md) retain their
-separate source, workspace and client permissions.
+See the [MCP tool and permission reference](docs/MCP-TOOLS-AND-PERMISSIONS.md).
 
 ## Connect Your AI Agent
 
@@ -319,22 +258,9 @@ export KODI_LAB_MCP_TOKEN
 opencode
 ```
 
-Ask the agent to discover its available tools with MCP `tools/list`, list Kodi
-targets with `target_list({})`, then use the returned exact `target_id` for
-`target_status`, `addon_list` and
-[`system_info({"target_id":"<UUID>"})`](docs/SYSTEM-INFO.md).
-System diagnostics use existing inspection access and work without Bridge;
-optional reviewed Bridge enrichment adds process and profile-filesystem facts.
-Native managed status and add-on inspection need no Bridge setup. Screenshots
-use ordinary inspection permission; external Kodi also needs
-Allow screenshots set to On and verified Bridge support. Richer UI/log inspection
-can require optional Bridge setup. Each tool uses the selected target's ID.
-Configuration syntax and compatibility vary by client. Tested **Codex CLI
-0.169.0** connected only with explicit `--enable mcp_2026_07_28`; default Codex
-compatibility is not qualified. See the [accepted Windows client evidence](https://github.com/kcook98765/kodi-lab/issues/275#issuecomment-6870625793).
-See [OpenCode's MCP instructions](https://opencode.ai/docs/mcp-servers/),
-the [client compatibility notes](docs/PHASE11-MCP.md#final-client-and-conformance-matrix)
-and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).
+Ask the agent to discover its available tools with MCP `tools/list`. Use
+`managed_status` for the shared managed environment. Use `target_list` and the
+returned exact `target_id` for external Kodi.
 
 ## Supported Kodi Versions
 
@@ -372,19 +298,16 @@ for the Matrix r4 and historical Piers RC1 native development paths. The
   [Web access and optional HTTPS](docs/WEB-NETWORKING.md).
 - **Kodi and add-on development:** [Current Managed Kodi walkthrough](docs/MANAGED-V2-FRESH-INSTALL.md),
   [external Kodi and repository setup](docs/LINUX-V1-INSTALL.md),
-  [managed development workflow](docs/MANAGED-AGENT-LOOP.md), and
   [UI inspection](docs/UI-OBSERVATION.md).
 - **Diagnostics:** [System information](docs/SYSTEM-INFO.md) and
   [bounded log reads, searches and counts](docs/KODI-LOGS.md).
 - **Agents and architecture:** [MCP tools and permissions](docs/MCP-TOOLS-AND-PERMISSIONS.md),
-  [MCP development reference](docs/PHASE12-MCP-DEVELOPMENT.md),
   [remote-agent networking](docs/NATIVE-LAN-MCP.md), and
   [architecture and security boundaries](docs/ARCHITECTURE.md).
-- **Operations:** [Managed state recovery](docs/MANAGED-STATE-RECOVERY.md),
+- **Operations:** [Managed state recovery](docs/MANAGED-V2-FRESH-INSTALL.md#state-and-recovery),
   [backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md),
   and [optional repository HTTPS](docs/REPOSITORY-NETWORKING.md).
 - **Project:** [Contributing](CONTRIBUTING.md),
-  [managed runtime updates](docs/MANAGED-RUNTIME-UPDATES.md),
   [Code of Conduct](CODE_OF_CONDUCT.md), [security reporting](SECURITY.md),
   and [accessibility](ACCESSIBILITY.md).
 

@@ -1590,7 +1590,6 @@ class McpAdministrationService:
                 .where(
                     TargetRow.target_type.in_(
                         [
-                            TargetType.MANAGED,
                             TargetType.EXTERNAL_DEVELOPMENT,
                             TargetType.EXTERNAL_PRODUCTION,
                         ]
@@ -1612,7 +1611,6 @@ class McpAdministrationService:
         with self._session_factory() as session:
             target = session.get(TargetRow, str(target_id))
             if target is None or target.target_type not in {
-                TargetType.MANAGED,
                 TargetType.EXTERNAL_DEVELOPMENT,
                 TargetType.EXTERNAL_PRODUCTION,
             }:
@@ -1705,18 +1703,10 @@ class McpAdministrationService:
         return row
 
     @staticmethod
-    def _require_managed_target(session: Session, target_id: UUID) -> None:
-        target = session.get(TargetRow, str(target_id))
-        if target is None or target.target_type is not TargetType.MANAGED:
-            raise McpAdministrationError("managed_target_not_found")
-
-    @staticmethod
     def _require_mcp_target(session: Session, target_id: UUID) -> None:
         target = session.get(TargetRow, str(target_id))
         if target is None:
             raise McpAdministrationError("managed_target_not_found")
-        if target.target_type is TargetType.MANAGED:
-            return
         if target.target_type in {
             TargetType.EXTERNAL_DEVELOPMENT,
             TargetType.EXTERNAL_PRODUCTION,

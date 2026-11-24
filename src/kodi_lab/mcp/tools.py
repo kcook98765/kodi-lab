@@ -19,11 +19,6 @@ from kodi_lab.application.addon_inventory import (
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.mcp_administration import McpPrincipal
-from kodi_lab.application.mcp_promotion_requests import (
-    McpPromotionRequestError,
-    McpPromotionRequestService,
-    PromotionRequestResult,
-)
 from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionReceiptError,
     McpRemoteActionReceiptService,
@@ -67,9 +62,7 @@ from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
-from kodi_lab.development.launch import ManifestLaunchEntry
 from kodi_lab.development.sources import (
-    CopiedSmokeUnsupportedReason,
     DevelopmentSourceValidationError,
 )
 from kodi_lab.domain import (
@@ -86,7 +79,6 @@ from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.kodi.system_info import SystemInfo
 from kodi_lab.kodi.ui_state import UiObservation
-from kodi_lab.kodi.ui_state_native import MANAGED_BRIDGE_RECOVERY_REASONS
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
 from kodi_lab.storage.models import (
@@ -554,12 +546,6 @@ class WorkspaceValidateInput(BaseModel):
     )
 
 
-class PackageInstallationStatusInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    operation_id: UUID
-    verify: bool = False
-
-
 class WorkspaceTargetOperationInput(BaseModel):
     """The exact closed input shared by deployment and fixed execution."""
 
@@ -569,11 +555,6 @@ class WorkspaceTargetOperationInput(BaseModel):
     workspace_id: UUID
     expected_generation: int = Field(ge=0)
     target_id: UUID
-
-
-class WorkspaceLaunchInput(WorkspaceTargetOperationInput):
-    extension_ordinal: int = Field(ge=0, le=63, strict=True)
-    expected_generation: int = Field(ge=0, strict=True)
 
 
 class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
@@ -587,15 +568,6 @@ class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
         ),
     )
     execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE
-
-
-class WorkspaceExecutionRecoverInput(BaseModel):
-    """Select an existing ambiguous operation; all runtime details are derived."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: UUID
-    execution_operation_id: UUID
 
 
 class WorkspaceDeployInput(WorkspaceTargetOperationInput):
@@ -613,17 +585,10 @@ class WorkspaceDeployInput(WorkspaceTargetOperationInput):
         description=(
             "auto selects repository only for an external_development target with "
             "repository readiness; otherwise it selects direct, subject to target "
-            "eligibility checks. direct is the managed deployment path; repository "
-            "uses the external-development human approval and Kodi update path."
+            "eligibility checks. Direct uses the paired Bridge. Repository uses "
+            "human approval and Kodi native updates."
         ),
     )
-
-
-class WorkspaceValidatedPath(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    path: str = Field(max_length=512)
-    change_kind: Literal["added", "modified"]
 
 
 class WorkspaceValidateResult(BaseModel):
@@ -633,66 +598,8 @@ class WorkspaceValidateResult(BaseModel):
     workspace_id: UUID
     source_id: UUID
     observed_generation: int = Field(ge=0)
+    evidence_id: UUID
     validated_at: datetime
-    addon_id: str = Field(max_length=128)
-    addon_version: str = Field(max_length=128)
-    extension_types: tuple[str, ...] = Field(max_length=64)
-    launch_entries: tuple[ManifestLaunchEntry, ...] = Field(default=(), max_length=64)
-    fixed_smoke_eligible: bool | None = Field(
-        default=None,
-        description=(
-            "Manifest-only eligibility for the existing bounded video smoke. "
-            "Deployment and target authority must still pass; this does not "
-            "authorize direct script launch."
-        ),
-    )
-    fixed_smoke_unsupported_reason: CopiedSmokeUnsupportedReason | None = None
-    identity_classification: Literal["stable", "changed"]
-    addon_id_classification: Literal["unchanged", "changed"]
-    version_classification: Literal["unchanged", "changed"]
-    extension_type_classification: Literal["unchanged", "changed"]
-    changed_file_count: int = Field(ge=0, le=50_000)
-    added_file_count: int = Field(ge=0, le=50_000)
-    modified_file_count: int = Field(ge=0, le=50_000)
-    deletion_classification: Literal["none"] = "none"
-    binary_change_classification: Literal["none"] = "none"
-    type_transition_classification: Literal["none"] = "none"
-    promotable: StrictBool
-    promotable_classification: Literal[
-        "promotable", "addon_identity_changed", "agent_owned_project"
-    ]
-    changed_paths: tuple[WorkspaceValidatedPath, ...] = Field(max_length=64)
-    truncated: StrictBool
-
-
-class ManagedSelectionPreviewInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    target_id: UUID = Field(strict=False)
-    workspace_id: UUID = Field(strict=False)
-
-
-class ManagedSelectionResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    request_id: UUID
-    generation: int
-    target_id: UUID
-    workspace_id: UUID
-    source_id: UUID
-    phase: str
-    selected: bool
-
-
-class ManagedEnsureReadyInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    request_id: UUID = Field(strict=False)
-    target_id: UUID = Field(strict=False)
-    hold_minutes: int = Field(default=0, ge=0, le=240)
-
-
-class ManagedReleaseInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    request_id: UUID = Field(strict=False)
-    target_id: UUID = Field(strict=False)
 
 
 class McpTargetToolService:
@@ -702,7 +609,6 @@ class McpTargetToolService:
         authorization: McpAuthorizationService,
         remote_actions: McpRemoteActionReceiptService | None = None,
         workspace_development: McpWorkspaceDevelopmentService | None = None,
-        promotion_requests: McpPromotionRequestService | None = None,
         target_adapters: KodiTargetAdapterService | None = None,
         production_screenshots: ProductionScreenshotService | None = None,
         production_transient_approvals: (
@@ -713,34 +619,36 @@ class McpTargetToolService:
         self._authorization = authorization
         self._remote_actions = remote_actions
         self._workspace_development = workspace_development
-        self._promotion_requests = promotion_requests
         self._target_adapters = target_adapters
         self._production_screenshots = production_screenshots
         self._production_transient_approvals = production_transient_approvals
 
-    def promotion_request(
-        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
-    ) -> PromotionRequestResult:
-        self._authorization.authorize_workspace_target(
-            principal,
-            "promotion_request",
-            operation.workspace_id,
-            operation.target_id,
+    def workspace_validate(
+        self, principal: McpPrincipal, operation: WorkspaceValidateInput
+    ) -> WorkspaceValidateResult:
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_validate", operation.workspace_id
         )
-        if self._promotion_requests is None:
+        if self._workspace_development is None:
             raise McpAuthorizationError("capability_unavailable")
         try:
-            result = self._promotion_requests.request(
-                client_id=principal.client_id,
-                request_id=operation.request_id,
-                workspace_id=operation.workspace_id,
+            evidence_id, validated_at = self._workspace_development.validate_workspace(
+                operation.workspace_id,
+                source_id=workspace.development_source_id,
                 expected_generation=operation.expected_generation,
-                target_id=operation.target_id,
+                recheck_authority=lambda: self._authorization.authorize_workspace(
+                    principal, "workspace_validate", operation.workspace_id
+                ),
             )
-        except McpPromotionRequestError as error:
+        except McpWorkspaceDevelopmentError as error:
             raise McpAuthorizationError(error.code) from error
-        self._require_development_bounded(result)
-        return result
+        return WorkspaceValidateResult(
+            workspace_id=operation.workspace_id,
+            source_id=workspace.development_source_id,
+            observed_generation=operation.expected_generation,
+            evidence_id=evidence_id,
+            validated_at=validated_at,
+        )
 
     def workspace_deploy_preflight(
         self, principal: McpPrincipal, operation: DeploymentPreflightInput
@@ -755,7 +663,7 @@ class McpTargetToolService:
 
         authorize()
         result = WorkspaceDeploymentPreflightService(self._session_factory).inspect(
-            operation, client_id=principal.client_id
+            operation
         )
         authorize()
         self._require_development_bounded(result)
@@ -828,11 +736,8 @@ class McpTargetToolService:
         target_id: UUID,
         request_id: UUID,
         action: BrowserRemoteAction,
-        observe_ui: bool = False,
     ) -> McpRemoteActionResult | ProductionTransientResult:
         if self._remote_actions is None:
-            raise McpAuthorizationError("capability_unavailable")
-        if observe_ui:
             raise McpAuthorizationError("capability_unavailable")
 
         if self._authorization.is_production_target(target_id):
@@ -944,15 +849,6 @@ class McpTargetToolService:
                     "target_not_found_or_not_authorized"
                 ) from error
             except KodiTargetAdapterError as error:
-                if (
-                    error.code == "identity_mismatch"
-                    and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
-                ):
-                    # Detailed failure facts require current target authority,
-                    # including when generic identity errors skip the log fence.
-                    self._authorization.authorize_managed_observation_error_detail(
-                        principal, tool_name, target_id
-                    )
                 raise McpAuthorizationError(error.code, reason=error.reason) from error
             self._require_bounded(result)
             return result
@@ -991,15 +887,6 @@ class McpTargetToolService:
                     "target_not_found_or_not_authorized"
                 ) from error
             except KodiTargetAdapterError as error:
-                if (
-                    error.code == "identity_mismatch"
-                    and error.reason in MANAGED_BRIDGE_RECOVERY_REASONS
-                ):
-                    # Detailed failure facts require current target authority,
-                    # including when generic identity errors skip the log fence.
-                    self._authorization.authorize_managed_observation_error_detail(
-                        principal, "inspect_ui_state", target_id
-                    )
                 raise McpAuthorizationError(error.code, reason=error.reason) from error
             self._require_bounded(result)
             return result

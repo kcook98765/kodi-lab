@@ -466,7 +466,7 @@ Kodi stopped by default. When **Running** and **View Screen** are available,
 choose **View Screen → Start Viewing**. Viewing starts view-only and needs no
 agent, workspace or Bridge pairing. **Stop Kodi** retains that version's profile;
 **Reset Kodi** under **Advanced options** deliberately discards its settings and
-installed add-ons. See [retention and recovery](MANAGED-KODI-WEB.md#stop-and-reset).
+installed add-ons. See [retention and recovery](MANAGED-V2-FRESH-INSTALL.md).
 
 For add-on work, grant an agent **Trusted Managed Lab** in **Agents** and follow
 [agent-owned projects](AGENT-PROJECTS.md); this accepted workflow needs no Web

@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import os
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import cast
-from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -46,7 +42,6 @@ class IdentityLabels(HTMLParser):
 @pytest.mark.parametrize(
     ("kind", "name", "ownership"),
     [
-        (TargetType.MANAGED, "Managed Kodi", "Kodi runs inside Kodi Lab."),
         (
             TargetType.EXTERNAL_PRODUCTION,
             "External Production Kodi",
@@ -129,51 +124,3 @@ def test_development_identity_does_not_assert_production_trust(
     assert 'data-status="connected"' not in response.text
     assert client.get(f"/kodi/{EXTERNAL_TARGET_ID}").status_code == 404
     assert str(EXTERNAL_TARGET_ID) not in client.get("/kodi").text
-
-
-def test_identity_pages_keep_links_and_accessible_labels(
-    client: TestClient, database: sessionmaker[Session], household: UUID
-) -> None:
-    seed_external_target(database)
-    paths = ("/kodi", f"/kodi/{household}", "/production-targets", "/external-targets")
-    for path in paths:
-        assert client.get(path, follow_redirects=False).status_code in (401, 303)
-    login(client)
-    client.cookies.set("kodi_lab_admin_view", "development")
-    pages = {}
-    for path in paths:
-        response = client.get(path)
-        assert response.status_code == 200
-        assert response.headers["cache-control"] == "no-store"
-        labels = IdentityLabels(response.text)
-        assert labels.types and labels.decorative_icons == len(labels.types)
-        for kind in labels.types:
-            assert environment_identity(kind).display_name in response.text
-        pages[path] = response.text
-    overview = pages["/kodi"]
-    assert IdentityLabels(overview).types == ["managed"]
-    assert "Production devices:" in overview and "Development devices:" in overview
-    for destination in (
-        "/managed-kodi",
-        "/external-kodi",
-        "/mcp-clients",
-    ):
-        assert f'href="{destination}"' in overview
-    external = client.get("/external-kodi").text
-    for destination in ("/production-targets", "/external-targets"):
-        assert f'href="{destination}"' in external
-    assert 'data-status="connected"' in pages[f"/kodi/{household}"]
-    assert 'data-slot="omega"' not in overview
-    managed = client.get("/managed-kodi").text
-    assert set(IdentityLabels(managed).types) == {"managed"}
-    assert 'data-slot="omega"' in managed
-    assert "data-slot-install" in managed
-    assert 'data-slot-action="start"' in managed
-    assert "data-slot-primary-actions hidden" in managed  # Empty slots show Create.
-    assert str(household) not in managed
-    assert "Living room" not in managed
-    # Optional controller-rendered fixtures for an entirely intercepted browser.
-    if evidence := os.getenv("KODI_ENVIRONMENT_IDENTITY_EVIDENCE"):
-        output = Path(evidence)
-        output.mkdir(parents=True, exist_ok=True)
-        (output / "pages.json").write_text(json.dumps(pages))

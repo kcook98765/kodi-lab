@@ -159,9 +159,11 @@ class ProductionProfileWebClient:
         login = self._get("/login")
         self._require_login_form(login)
         unexpected_host = self._get("/login", host="attacker.invalid")
-        missing = self._get("/api/instances")
-        malformed = self._get("/api/instances", cookie_value="not-a-valid-session")
-        invalid = self._get("/api/instances", cookie_value="A" * 43)
+        missing = self._get("/api/external-targets")
+        malformed = self._get(
+            "/api/external-targets", cookie_value="not-a-valid-session"
+        )
+        invalid = self._get("/api/external-targets", cookie_value="A" * 43)
         self._client.cookies.clear()
         if unexpected_host.status_code != 400:
             raise ProductionProfileWebClientError("trusted_host_not_rejected")
@@ -282,7 +284,7 @@ class ProductionProfileWebClient:
             raise ProductionProfileWebClientError("logout_contract_mismatch")
         if self._session_cookie_value(required=False) is not None:
             raise ProductionProfileWebClientError("logout_cookie_not_deleted")
-        replay = self._get("/api/instances", cookie_value=prior_cookie)
+        replay = self._get("/api/external-targets", cookie_value=prior_cookie)
         if replay.status_code != 401:
             raise ProductionProfileWebClientError("logged_out_session_reused")
         self._client.cookies.clear()

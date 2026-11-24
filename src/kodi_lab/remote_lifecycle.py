@@ -34,7 +34,6 @@ from kodi_lab.repository.development import (
     verify_artifact_inventory,
 )
 from kodi_lab.repository.stable import load_current as load_stable_current
-from kodi_lab.snapshot.recovery import published_snapshot_inventory
 from kodi_lab.storage.packaged_migrations import (
     database_is_empty,
     migrate_database,
@@ -58,7 +57,6 @@ EXCLUDED = frozenset(
         ".upgrade-pending.json",
         ".restore-pending.json",
         ".recovery-pending.json",
-        "snapshots",
         "screenshots",
         "development-source-staging",
         "locks",
@@ -72,17 +70,8 @@ ROLLBACK_ROOTS = frozenset(
         "secrets",
         "master-key",
         ".state.json",
-        "addon-zips",
         "agent-workspaces",
         "agent-projects",
-        "source-promotions",
-    }
-)
-NESTED_STAGING = frozenset(
-    {
-        "addon-zips/staging",
-        "addon-zips/replacement-staging",
-        "addon-zips/install-staging",
     }
 )
 BACKUP_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -621,12 +610,6 @@ def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
     }
     if core:
         safe_mode = mode == (0o700 if directory else 0o600)
-    elif "addon-zips" in path.parts:
-        suffix = path.parts[path.parts.index("addon-zips") + 1 :]
-        expected = (
-            0o700 if directory and len(suffix) <= 1 else (0o500 if directory else 0o400)
-        )
-        safe_mode = mode == expected
     elif "agent-projects" in path.parts:
         suffix = path.parts[path.parts.index("agent-projects") + 1 :]
         # Seed publication seals directories/files to 0500/0400. Preserve a
@@ -652,7 +635,7 @@ def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
                 and mode == 0o600
                 and item.st_size == 0
             )
-    elif directory and path.name in {"agent-workspaces", "source-promotions"}:
+    elif directory and path.name == "agent-workspaces":
         safe_mode = mode == 0o700
     elif directory:
         safe_mode = mode & 0o500 == 0o500
@@ -665,22 +648,9 @@ def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
 
 def _skip(path: Path) -> bool:
     return (
-        path.as_posix() in NESTED_STAGING
-        or (
-            len(path.parts) == 3
-            and path.parts[:2] == ("addon-zips", "artifacts")
-            and path.parts[2].startswith(".publishing-")
-        )
-        or (
-            len(path.parts) == 2
-            and path.parts[0] == "agent-workspaces"
-            and path.parts[1].startswith(".staging-")
-        )
-        or (
-            len(path.parts) == 3
-            and path.parts[0] == "source-promotions"
-            and path.parts[2].startswith(".staging-")
-        )
+        len(path.parts) == 2
+        and path.parts[0] == "agent-workspaces"
+        and path.parts[1].startswith(".staging-")
     )
 
 
@@ -691,7 +661,6 @@ def _application_locks(path: Path) -> None:
     for scope in path.iterdir():
         if scope.name not in {
             "household-onboarding",
-            "managed-agent-lifecycle",
             "external-reconnect",
         }:
             raise HostBootstrapError("unclassified application lock scope")
@@ -866,9 +835,6 @@ def backup(root: Path, database_url: str) -> str:
             "directories": [path.as_posix() for path in directories],
             "directory_modes": directory_modes,
             "backup_set": "application-rollback-v2",
-            "snapshot_dependencies": published_snapshot_inventory(
-                root, web_gid=os.getgid()
-            ),
             "repository_identity": repository_identity,
             "complete": True,
         }
@@ -940,31 +906,6 @@ def _verify_backup(
     modern = metadata.get("backup_set") == "application-rollback-v2"
     if metadata.get("backup_set") not in (None, "application-rollback-v2"):
         raise HostBootstrapError("backup set is invalid")
-    snapshot_dependencies = metadata.get("snapshot_dependencies")
-    if modern:
-        if (
-            not isinstance(snapshot_dependencies, dict)
-            or len(snapshot_dependencies) > 10000
-        ):
-            raise HostBootstrapError("snapshot dependency inventory is invalid")
-        for name, hashes in snapshot_dependencies.items():
-            try:
-                canonical = str(UUID(name)) == name
-            except (TypeError, ValueError, AttributeError):
-                canonical = False
-            if (
-                not canonical
-                or not isinstance(hashes, dict)
-                or set(hashes) != {"manifest.json", "state.tar"}
-                or any(
-                    not isinstance(digest, str)
-                    or not re.fullmatch(r"[0-9a-f]{64}", digest)
-                    for digest in hashes.values()
-                )
-            ):
-                raise HostBootstrapError("snapshot dependency inventory is invalid")
-    elif snapshot_dependencies is not None:
-        raise HostBootstrapError("snapshot dependency inventory is invalid")
     directory_modes = metadata.get("directory_modes")
     if modern:
         if (
@@ -1130,22 +1071,12 @@ def _verify_restored(root: Path, metadata: dict[str, object]) -> None:
             raise HostBootstrapError("restored directory mode differs from backup")
 
 
-def _verify_snapshot_dependencies(root: Path, metadata: dict[str, object]) -> None:
-    actual = published_snapshot_inventory(root, web_gid=os.getgid())
-    expected = metadata.get("snapshot_dependencies", {})
-    if actual != expected:
-        raise HostBootstrapError(
-            "published snapshots differ from backup dependency set"
-        )
-
-
 def recover_clean(
     root: Path, database_url: str, identifier: str, confirmation: str
 ) -> str:
     """Restore one verified application backup into a fresh, private volume.
 
     An operator copies the private backup directory into ``backups/ID`` first.
-    Published broker snapshots may be restored separately before this command.
     No receipt from a destroyed volume or historical container is required.
     """
 
@@ -1153,10 +1084,9 @@ def recover_clean(
         if identifier != confirmation:
             raise HostBootstrapError("recovery confirmation must repeat the backup ID")
         members = {entry.name for entry in root.iterdir()}
-        if members - {".lifecycle.lock", "backups", "snapshots"}:
+        if members - {".lifecycle.lock", "backups"}:
             raise HostBootstrapError("clean recovery requires empty application state")
         metadata = _verify_backup(root, identifier)
-        _verify_snapshot_dependencies(root, metadata)
         repository_identity = metadata.get("repository_identity")
         repository_root = (
             _repository_root() if repository_identity is not None else None
@@ -1231,7 +1161,6 @@ def restore(
         if receipt.get("backup_id") != identifier:
             raise HostBootstrapError("backup does not match the most recent upgrade")
         metadata = _verify_backup(root, identifier)
-        _verify_snapshot_dependencies(root, metadata)
         repository_identity = metadata.get("repository_identity")
         repository_root = (
             _repository_root() if repository_identity is not None else None

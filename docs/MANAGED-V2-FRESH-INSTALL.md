@@ -1,39 +1,39 @@
 # Managed-v2 fresh installation
 
-This development branch uses the packaged Web, broker and repository services.
-Use a fresh release Compose project and empty application and managed volumes.
-The schema revision is `0001_managed_v2`. Existing application databases
-are refused. Omega 21.3 is the current managed runtime. Its reviewed binary-package
-recipe validates a local image and records the resulting immutable image ID.
+Use the packaged Web, broker and repository services with empty application
+and managed volumes. The installer initializes `0001_foundation` with
+`kodi-lab-admin initialize`. Deployments use `compose.release.yaml --profile lab`.
+Existing application databases require a fresh installation.
 
-Use the installed `kodi-lab-admin initialize` command before starting Web.
-Configure the repository with its reviewed release bundle and choose a
-deployment address using the normal installer. Start the packaged broker,
-Web and repository, then sign in. Under **Kodi Runtimes**, install reviewed
-Omega. When the installer reports **Ready**, open **Managed Kodi**, prepare
-the working profile and start Kodi. Use this page for viewing, Take Control,
-Stop, Reset and snapshots. During preparation the profile is bound to the
-reviewed image. Ordinary container replacement does not change that binding.
+Configure the approved repository bundle and deployment address with the
+[normal installer](HOST-INSTALLER.md). After starting the services, sign in
+and use **Kodi Runtimes** to acquire the reviewed Omega 21.3 runtime. Wait for
+**Ready**, then open **Managed Kodi** to prepare and start the working profile.
+The broker prepares the authenticated Narrow Bridge. Use the managed page
+for status, noVNC viewing, Take Control, Stop, Reset and named snapshots.
+Ordinary Stop and Start preserve the profile. Reset creates a clean profile.
 
-Under **Agents**, issue credentials with the Trusted Managed Lab role for
-managed development. Ordinary managed work uses **acquire**, **start**,
-**package import** and **native install**. Direct deploy can update a stopped
-profile without reinstalling the package. Explicitly release the lease when
-work is finished. External registrations and grants are administered
-independently under **External Kodi**.
+Under **Agents**, issue credentials and explicitly enable Trusted Managed Lab.
+Agents acquire exclusive use, admit a package and call the native installer.
+For ordinary edits, stop Kodi, deploy from the private workspace, then start
+and execute the changed add-on. Release exclusive use when finished.
+Administer external registrations and grants independently under **External Kodi**.
 
 ## State and recovery
 
-The application backup covers SQLite and the Web volume's private records.
-Repository publication files live in their own volume and are covered by the
-configured repository backup process. Preserve the matching credentials and
-repository inventory when recovering that data.
+Stop Web and quiesce repository writes before running the packaged
+`kodi-lab-admin backup` command. The application backup contains SQLite, the
+application key and private external records and workspaces. With the repository
+configured, the backup also contains the matching external development
+publication data. Keep the backup private. To recover, stage that verified
+backup in `backups/ID` on the empty application volume and run
+`kodi-lab-admin recover-clean ID --confirm ID` with the matching repository
+configuration. Follow the [backup and recovery procedure](LINUX-V1-UPGRADE-ROLLBACK.md).
 
-The separate broker-owned managed volume contains the working profile, named
-snapshot archives, package approval store, private workspaces and latest
-operation. A snapshot captures a validated stopped Kodi profile. Database and workspace backups are separate. To retain the entire managed lab, copy
-the separate managed volume with Kodi stopped and the broker quiescent. Keep
-the volume private and retain the exact Docker image separately. Application
-backup and profile snapshots do not contain Docker image layers. Use the managed UI or
-MCP to save and load named snapshots for everyday work. Do not place private
-profiles, archives or the credential store in a repository publication.
+The broker-owned managed volume holds Kodi's working profile, private snapshots,
+workspaces, package approvals and the latest operation. A managed snapshot
+captures the stopped Kodi profile. Save named snapshots for everyday environment
+switching or restoration. To preserve the whole managed lab, stop Kodi and
+quiesce the broker before copying its separate volume. Preserve the matching
+reviewed runtime image separately. Keep these artifacts and their credentials
+private.

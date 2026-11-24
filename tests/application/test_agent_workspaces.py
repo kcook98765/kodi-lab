@@ -22,7 +22,6 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceNotFoundError,
     AgentWorkspaceService,
 )
-from kodi_lab.application.reconciliation import StaleOperationReconciliationDispatcher
 from kodi_lab.development.deployment import (
     DevelopmentTreeManifest,
     capture_development_tree,
@@ -356,21 +355,9 @@ def test_cleanup_same_operation_resumes_after_stale_destructive_crash(
     assert service.get(workspace_id).bytes_state.value == "cleaned"
 
 
-def test_abandonment_and_cleanup_protect_active_or_reconciliation_work(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_abandonment_and_cleanup_protect_reconciliation_work(tmp_path: Path) -> None:
     service, _source = _service(tmp_path)
     workspace_id = _create(service)
-    monkeypatch.setattr(
-        "kodi_lab.application.agent_workspaces."
-        "AgentWorkspacePromotionPlanRepository.active_for_workspace",
-        lambda *_args, **_kwargs: object(),
-    )
-    with pytest.raises(AgentWorkspaceConflictError) as active:
-        service.abandon(workspace_id)
-    assert active.value.code == "workspace_promotion_active"
-    monkeypatch.undo()
-
     with service._session_factory.begin() as session:
         workspace = AgentWorkspaceRepository(session).get(workspace_id)
         assert workspace is not None
@@ -389,35 +376,6 @@ def test_abandonment_and_cleanup_protect_active_or_reconciliation_work(
     with pytest.raises(AgentWorkspaceCleanupError) as protected:
         cleanup.queue(workspace_id)
     assert protected.value.code == "workspace_reconciliation_blocked"
-
-
-def test_cleanup_blocks_active_promotion_and_verification(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    service, _source = _service(tmp_path)
-    workspace_id = _create(service)
-    service.abandon(workspace_id)
-    cleanup = AgentWorkspaceCleanupService(
-        service._session_factory,
-        data_root=tmp_path / "data",
-    )
-    monkeypatch.setattr(
-        "kodi_lab.application.agent_workspace_cleanup."
-        "AgentWorkspacePromotionOperationRepository.active_for_workspace",
-        lambda *_args, **_kwargs: object(),
-    )
-    with pytest.raises(AgentWorkspaceCleanupError) as promotion:
-        cleanup.queue(workspace_id)
-    assert promotion.value.code == "workspace_cleanup_promotion_active"
-    monkeypatch.undo()
-    monkeypatch.setattr(
-        "kodi_lab.application.agent_workspace_cleanup."
-        "PromotionVerificationOperationRepository.blocking_for_workspace",
-        lambda *_args, **_kwargs: [object()],
-    )
-    with pytest.raises(AgentWorkspaceCleanupError) as verification:
-        cleanup.queue(workspace_id)
-    assert verification.value.code == "workspace_cleanup_verification_blocked"
 
 
 def test_cleanup_does_not_adopt_unexplained_missing_storage(tmp_path: Path) -> None:
@@ -522,50 +480,6 @@ def test_read_rejects_type_mismatch_special_entry_and_fixed_bound(
     with pytest.raises(AgentWorkspaceStorageError) as oversized:
         service.read_file(workspace_id, "large.txt")
     assert oversized.value.code == "agent_workspace_file_too_large"
-
-
-def test_expired_creation_is_failed_and_releases_global_lease(tmp_path: Path) -> None:
-    engine = create_engine(f"sqlite:///{tmp_path / 'stale.db'}")
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(engine, expire_on_commit=False)
-    development_root = tmp_path / "sources"
-    source_root = development_root / "plugin.video.example"
-    source_root.mkdir(parents=True)
-    now = [datetime(2026, 9, 18, tzinfo=UTC)]
-    with factory.begin() as session:
-        DevelopmentSourceRepository(session).create(
-            DevelopmentSource(
-                id=SOURCE_ID,
-                logical_name="Example source",
-                source_kind=DevelopmentSourceKind.LOCAL_DIRECTORY,
-                relative_locator="plugin.video.example",
-                addon_id="plugin.video.example",
-                observed_name="Example",
-                observed_version="1.0.0",
-                extension_types=("xbmc.python.pluginsource",),
-                registered_at=now[0],
-                validated_at=now[0],
-            )
-        )
-    ids = iter((WORKSPACE_ID, BASELINE_ID, OPERATION_ID))
-    service = AgentWorkspaceService(
-        factory,
-        data_root=tmp_path / "data",
-        development_root=development_root,
-        clock=lambda: now[0],
-        uuid_factory=lambda: next(ids),
-    )
-    queued = service.queue_creation(SOURCE_ID)
-    assert service.acquire(queued.operation_id) is not None
-    now[0] += timedelta(minutes=31)
-
-    result = StaleOperationReconciliationDispatcher(
-        factory, clock=lambda: now[0], data_root=tmp_path / "data"
-    ).sweep_global()
-
-    assert result.terminalized_operations == [queued.operation_id]
-    assert service.creation_status(queued.operation_id).state.value == "failed"
-    assert service.get(queued.workspace_id).state.value == "abandoned"
 
 
 def test_captured_addon_identity_must_match_registration(tmp_path: Path) -> None:

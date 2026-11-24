@@ -87,7 +87,7 @@ Deploy matching Web, broker and schema `0018_source_addition_reviews` together.
 The additive migration changes no existing authority rows. It refuses schema
 downgrade when review history exists; restore a compatible pre-upgrade backup
 for application rollback. See [upgrade/rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
-[managed-state recovery](MANAGED-STATE-RECOVERY.md).
+[managed-state recovery](MANAGED-V2-FRESH-INSTALL.md).
 
 Source/fixture validation is separate from native qualification. Before production,
 qualify one separately authorized disposable managed Omega skin iteration: normal

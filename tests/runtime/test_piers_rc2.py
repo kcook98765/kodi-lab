@@ -14,9 +14,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from kodi_lab.application.managed_bridge_trust import require_approved_identity
 from kodi_lab.application.runtime_installations import preview_acknowledgement
-from kodi_lab.broker.managed_bridge_trust import approved_bridge_build
 from kodi_lab.runtime.ostree import (
     CommandResult,
     OstreeAcquisitionError,
@@ -189,30 +187,6 @@ def test_rc2_healthcheck_rejects_old_native_identity(
             health["main"]()
 
 
-def test_rc2_reuses_reviewed_bridge_but_requires_exact_live_release() -> None:
-    approved = approved_bridge_build("22.0-rc.2")
-    assert approved == approved_bridge_build("22.0-rc.1")
-    identity = SimpleNamespace(
-        **{
-            k: approved[k]
-            for k in (
-                "addon_id",
-                "addon_version",
-                "protocol_version",
-                "build_fingerprint",
-            )
-        },
-        kodi_version="22.0",
-        kodi_release="22.0-rc.2",
-        capabilities=["ui_observation"],
-    )
-    require_approved_identity(identity, "22.0-rc.2")  # type: ignore[arg-type]
-    identity.kodi_release = "22.0-rc.1"
-    with pytest.raises(RuntimeError, match="managed_bridge_identity_mismatch"):
-        require_approved_identity(identity, "22.0-rc.2")  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize("old_app", [False, True])
 def test_context_binds_the_acquired_release_instead_of_the_old_default(
     monkeypatch: pytest.MonkeyPatch, old_app: bool
 ) -> None:

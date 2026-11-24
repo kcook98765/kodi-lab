@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from kodi_lab.snapshot.storage import MIN_FREE_BYTES
+from scripts.validation_tiers import MIN_FREE_BYTES
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,7 +32,7 @@ def test_release_watchdog_arguments_and_run_owned_cleanup(
     uv.write_text(
         "#!/usr/bin/env python3\n"
         "import sys\n"
-        "if any('from kodi_lab.snapshot.storage import MIN_FREE_BYTES' in arg "
+        "if any('from scripts.validation_tiers import MIN_FREE_BYTES' in arg "
         "for arg in sys.argv):\n"
         f"    print({MIN_FREE_BYTES})\n"
     )

@@ -4,7 +4,7 @@ Qualification date: 2026-11-12 on Claw, Ubuntu 24.04, linux/amd64.
 Application candidate: `a92d9229ea61c7c24008e6db3757fe526c301f7a`, tree
 `b86fc2d7829957ec1aea039ab90cc6a0fdd5ad69`, schema `0013_agent_packages`.
 This follows the separate [repository installer investigation](MANAGED-ADDON-INSTALLATION-QUALIFICATION.md).
-It qualifies [owned source deployment](MANAGED-ADDON-INSTALLATION.md), not native GUI ZIP installation.
+It qualifies [owned source deployment](MANAGED-V2-FRESH-INSTALL.md), not native GUI ZIP installation.
 
 ## Native results
 

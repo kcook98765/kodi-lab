@@ -136,7 +136,7 @@ HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
 
 If that version is already prepared, use **Start Kodi** directly. **Stop Kodi**
 keeps its profile; **Reset Kodi** deliberately discards it. See the
-[managed walkthrough](MANAGED-KODI-WEB.md) for retention and recovery details.
+[managed walkthrough](MANAGED-V2-FRESH-INSTALL.md) for retention and recovery details.
 
 Refresh or return to the page to find the same saved setup. If it is paused,
 use **Check status**, then **Resume setup**; do not start a second installation.
@@ -223,7 +223,7 @@ delete volumes or rerun `initialize` to bypass a partially initialized database.
 
 For compatible-state backups, restore and future application transitions, use
 [backup and rollback](LINUX-V1-UPGRADE-ROLLBACK.md) and
-[state recovery](MANAGED-STATE-RECOVERY.md). The initial schema is
+[state recovery](MANAGED-V2-FRESH-INSTALL.md). The initial schema is
 `0001_initial_release`; unsupported prerelease state is rejected and has no
 conversion path. Keep the original receipt, bundle, private state, runtime
 images and snapshot artifacts. Never edit identity receipts, delete volumes or

@@ -28,7 +28,7 @@ from tests.storage.test_remote_lifecycle import _url, repository_migrations
 
 # Keep the existing real migration fixture when running this file independently.
 __all__ = ["migration_templates", "repository_migrations"]
-SCOPES = ("household-onboarding", "managed-agent-lifecycle", "external-reconnect")
+SCOPES = ("household-onboarding", "external-reconnect")
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def historical_state(
         generate_master_key(root)
         database = root / lifecycle.DATABASE
         assert not database.exists()
-        migration_templates.clone("0001_initial_release", database)
+        migration_templates.clone("0001_foundation", database)
         # Match the original prefix's umask-created private database permissions.
         database.chmod(0o600)
 
@@ -211,7 +211,7 @@ def test_backup_verifier_rejects_archived_application_locks(
     historical_state(root)
     identifier = lifecycle.backup(root, _url(root))
     archive = root / "backups" / identifier
-    lock = _lock(archive, "managed-agent-lifecycle")
+    lock = _lock(archive, "external-reconnect")
     if recorded:
         manifest_path = archive / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
@@ -242,7 +242,7 @@ def test_lock_fixture_keeps_keys_and_database_mutations_private(
         assert database.stat().st_nlink == 1
         with sqlite3.connect(database) as db:
             assert db.execute("SELECT version_num FROM alembic_version").fetchone() == (
-                "0001_initial_release",
+                "0001_foundation",
             )
     assert (
         _identity(first / lifecycle.DATABASE)[:2]

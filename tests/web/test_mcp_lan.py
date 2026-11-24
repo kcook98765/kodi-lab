@@ -18,7 +18,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
@@ -35,7 +34,7 @@ from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
-from kodi_lab.mcp.lan import McpLanStatus, check_lan_endpoint, is_private_lan_address
+from kodi_lab.mcp.lan import McpLanStatus, check_lan_endpoint
 from kodi_lab.storage.models import ExternalProductionPolicyRow, McpCredentialRow
 from kodi_lab.web import app as app_module
 from kodi_lab.web.app import create_app
@@ -45,12 +44,10 @@ from .conftest import (
     UNRELATED_INSTANCE_ID,
     FakeBroker,
     FakeExternalKodi,
-    coordinator_factory,
     login,
 )
 from .test_kodi_views import household as household
 from .test_mcp import _administration, _authority, _post
-from .test_mcp_stdio import _live_loopback_server, _make_target_ready
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 LAN_URL = "https://192.168.50.10:18443/mcp"
@@ -69,7 +66,6 @@ def _lan_app(
         session_factory=database,
         broker=broker,
         auth=context.auth,
-        coordinator_factory=coordinator_factory,
         external_target_transport=httpx.MockTransport(external_kodi.handle),
     )
 
@@ -304,45 +300,6 @@ def _tls_proxy(
     finally:
         process.terminate()
         process.wait(timeout=5)
-
-
-def test_real_sdk_through_private_tls_proxy_has_auth_and_home_scope_parity(
-    client: TestClient,
-    database: sessionmaker[Session],
-    broker: FakeBroker,
-    external_kodi: FakeExternalKodi,
-    household: UUID,
-    tmp_path: Path,
-) -> None:
-    bind = os.environ.get("KODI_LAB_TEST_LAN_IPV4", "")
-    if not is_private_lan_address(bind):
-        pytest.skip(
-            "set KODI_LAB_TEST_LAN_IPV4 to this test host's private LAN address"
-        )
-    _make_target_ready(client)
-    with socket.socket() as listener:
-        listener.bind((bind, 0))
-        port = listener.getsockname()[1]
-    url = f"https://{bind}:{port}/mcp"
-    remote_enabled = os.environ.get("KODI_LAB_TEST_RYZEN") == "1"
-    app = _lan_app(client, database, broker, external_kodi, url)
-    with (
-        TestClient(app, base_url="https://127.0.0.1") as authority,
-        _live_loopback_server(app) as (upstream, _),
-        _tls_proxy(
-            tmp_path,
-            bind,
-            upstream,
-            port=port,
-            authorized_cidr=str(ipaddress.IPv4Network(f"{bind}/24", strict=False))
-            if remote_enabled
-            else None,
-        ) as (url, ca),
-    ):
-        cast(FastAPI, authority.app).state.kodi_lab.settings.web_port = urlsplit(
-            upstream
-        ).port
-        _exercise_proxy(authority, database, external_kodi, household, url, ca)
 
 
 def _exercise_proxy(

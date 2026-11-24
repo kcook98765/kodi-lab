@@ -17,7 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 from fastapi import (
@@ -49,11 +49,8 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
-    StrictInt,
-    field_validator,
     model_validator,
 )
-from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
@@ -61,57 +58,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from kodi_lab.application.addon_inventory import (
-    InventoryAdapterFactory,
-    ManagedInstanceAddonInventoryService,
-)
-from kodi_lab.application.addon_repositories import (
-    AddonRepositoryAdministrationService,
-    AddonRepositoryCandidateRead,
-    AddonRepositoryConflictError,
-    AddonRepositoryExecutor,
-    AddonRepositoryFetchCoordinator,
-    AddonRepositoryFetchStatus,
-    AddonRepositoryNotFoundError,
-    AddonRepositoryRefreshCoordinator,
-    AddonRepositoryRefreshStatus,
-    AddonRepositoryServiceError,
-    AddonRepositorySourceRead,
-)
-from kodi_lab.application.addon_zip_enablements import (
-    AddonZipEnablementError,
-)
-from kodi_lab.application.addon_zip_imports import (
-    AddonZipImportConflictError,
-    AddonZipImportCoordinator,
-    AddonZipImportExecutor,
-)
-from kodi_lab.application.addon_zip_installations import (
-    AddonZipInstallationError,
-    AddonZipInstallationStatus,
-)
-from kodi_lab.application.addon_zip_presentation import (
-    AddonZipArtifactSummary,
-    AddonZipImportStatus,
-    AddonZipPresentationService,
-)
-from kodi_lab.application.addon_zip_smoke_tests import (
-    AddonZipSmokeTestConflictError,
-    AddonZipSmokeTestError,
-    AddonZipSmokeTestNotFoundError,
-    AddonZipSmokeTestStatus,
-)
 from kodi_lab.application.agent_workspace_cleanup import (
     AgentWorkspaceCleanupError,
     AgentWorkspaceCleanupExecutor,
     AgentWorkspaceCleanupService,
     AgentWorkspaceCleanupStatus,
-)
-from kodi_lab.application.agent_workspace_promotions import (
-    AgentWorkspacePromotionConflictError,
-    AgentWorkspacePromotionError,
-    AgentWorkspacePromotionService,
-    AgentWorkspacePromotionTargetRead,
 )
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceActivityRead,
@@ -137,42 +88,19 @@ from kodi_lab.application.development_capability_amendments import (
     DevelopmentCapabilityAmendmentRead,
     DevelopmentCapabilityAmendmentService,
 )
-from kodi_lab.application.development_source_deployments import (
-    DevelopmentSourceDeploymentConflictError,
-    DevelopmentSourceDeploymentError,
-    DevelopmentSourceDeploymentStatus,
-    DevelopmentSourceDeploymentUnsupportedError,
-)
-from kodi_lab.application.development_source_enablements import (
-    DevelopmentSourceEnablementError,
-)
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourceDetail,
     DevelopmentSourcePresentationService,
     DevelopmentSourceSummary,
-)
-from kodi_lab.application.development_source_smoke_tests import (
-    DevelopmentSourceSmokeTestConflictError,
-    DevelopmentSourceSmokeTestError,
-    DevelopmentSourceSmokeTestNotFoundError,
-    DevelopmentSourceSmokeTestStatus,
 )
 from kodi_lab.application.development_sources import (
     DevelopmentSourceAdministrationService,
     DevelopmentSourceRead,
 )
 from kodi_lab.application.errors import (
-    DevelopmentSourceAddonConflictError,
-    DevelopmentSourceAlreadyAttachedError,
-    DevelopmentSourceAttachmentError,
-    DevelopmentSourceAttachmentValidationError,
     DevelopmentSourceConflictError,
     DevelopmentSourceDataValidationError,
-    DevelopmentSourceIdentityChangedError,
-    DevelopmentSourceNotAttachedError,
     DevelopmentSourceNotFoundError,
-    ManagedInstanceNotFoundError,
-    PersistentDevelopmentSourceAttachmentUnsupportedError,
     TargetNotFoundError,
 )
 from kodi_lab.application.external_bridges import (
@@ -202,31 +130,14 @@ from kodi_lab.application.external_targets import (
     ExternalTargetRead,
     ProductionMutationControlRead,
 )
-from kodi_lab.application.historical_workspace_execution_containment import (
-    HistoricalContainmentError,
-)
 from kodi_lab.application.household_onboarding import (
     HouseholdKodiOnboardingService,
     HouseholdOnboardingResult,
     HouseholdResumeRequest,
     HouseholdStartRequest,
 )
-from kodi_lab.application.instance_delete_operations import (
-    ManagedInstanceDeleteConflictError,
-    ManagedInstanceDeleteNotFoundError,
-    ManagedInstanceDeleteUnsupportedError,
-)
-from kodi_lab.application.instance_history import (
-    DeletedManagedInstanceHistoryNotFoundError,
-)
-from kodi_lab.application.lifecycle_operations import (
-    LifecycleOperationConflictError,
-)
 from kodi_lab.application.local_projects import (
     LocalProjectOnboardingService,
-)
-from kodi_lab.application.managed_resources import (
-    ManagedResourceProtected,
 )
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
@@ -251,7 +162,6 @@ from kodi_lab.application.mcp_administration import (
     McpTargetPolicyRead,
     McpWorkspaceBindingRead,
 )
-from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.application.mcp_workspace_development import (
@@ -262,10 +172,6 @@ from kodi_lab.application.mcp_workspace_development import (
 from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
 from kodi_lab.application.mcp_workspace_retention import (
     McpWorkspaceRetentionService,
-)
-from kodi_lab.application.mutations import (
-    ManagedInstanceMutationConflictError,
-    ManagedInstanceMutationCoordinator,
 )
 from kodi_lab.application.official_bridge_builds import recognize_official_bridge
 from kodi_lab.application.production_capability_amendments import (
@@ -287,26 +193,6 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRead,
     ProductionTransientApprovalService,
 )
-from kodi_lab.application.promotion_verifications import (
-    PromotionVerificationError,
-    PromotionVerificationService,
-)
-from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
-from kodi_lab.application.reconciliation import (
-    CoordinationCorruptionError,
-    ManagedInstanceReconciliationRequiredError,
-    ManagedInstanceReconciliationService,
-    ReconciliationAction,
-    StaleOperationReconciliationDispatcher,
-)
-from kodi_lab.application.repository_replacements import (
-    RepositoryReplacementError,
-    RepositoryReplacementStatus,
-    RepositoryReplacementUnsupportedError,
-)
-from kodi_lab.application.reset_operations import (
-    ResetOperationConflictError,
-)
 from kodi_lab.application.runtime_installations import (
     GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
 )
@@ -317,46 +203,15 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationService,
     RuntimeInstallationUnavailable,
 )
-from kodi_lab.application.runtime_lifecycle import (
-    LifecycleConflictError,
-    ReadinessCoordinatorFactory,
-)
 from kodi_lab.application.runtime_matrix import (
     RuntimeMatrixResponse,
     RuntimeMatrixService,
-    TargetRuntimeSelection,
-)
-from kodi_lab.application.runtime_reconstruction import (
-    ReconstructionConflictError,
-)
-from kodi_lab.application.runtime_status import (
-    ManagedRuntimeStatusService,
 )
 from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceError,
     ScreenshotPreferenceRead,
     ScreenshotPreferenceService,
     ScreenshotPreferenceUpdate,
-)
-from kodi_lab.application.screenshots import (
-    ScreenshotServiceError,
-)
-from kodi_lab.application.snapshot_delete_operations import (
-    SnapshotDeleteConflictError,
-    SnapshotDeleteNotFoundError,
-    SnapshotDeleteStatus,
-    SnapshotDeleteUnsupportedError,
-)
-from kodi_lab.application.snapshot_operations import (
-    SnapshotCreateConflictError,
-    SnapshotCreateStatus,
-    SnapshotCreateUnsupportedError,
-)
-from kodi_lab.application.snapshot_restore_operations import (
-    SnapshotRestoreConflictError,
-    SnapshotRestoreStatus,
-    SnapshotRestoreUnsupportedError,
-    SnapshotSourceInstanceDeletedError,
 )
 from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
@@ -385,15 +240,8 @@ from kodi_lab.broker.errors import (
 )
 from kodi_lab.config import Settings
 from kodi_lab.development import (
-    MAX_COMPRESSED_BYTES,
-    AddonRepositoryError,
-    AddonZipValidationError,
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
-    create_upload_stage,
-    finish_upload_stage,
-    remove_upload_stage,
-    write_upload_chunk,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.domain import (
@@ -402,7 +250,6 @@ from kodi_lab.domain import (
     ExternalAuthenticationMode,
     ExternalProtocolKind,
     TargetType,
-    normalize_development_source_logical_name,
 )
 from kodi_lab.kodi.bridge import (
     BRIDGE_CAPABILITIES,
@@ -410,7 +257,6 @@ from kodi_lab.kodi.bridge import (
     ExternalBridgeClient,
 )
 from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
-from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.window_resolver import WindowResolver
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
@@ -454,7 +300,6 @@ from kodi_lab.web.managed import managed_router
 from kodi_lab.web.presentation import (
     ERROR_MESSAGES,
     STATE_LABELS,
-    managed_next_step,
     state_label,
 )
 from kodi_lab.workspace import AgentWorkspaceStorageError
@@ -521,40 +366,10 @@ class _WorkspaceMutationBodyLimitMiddleware:
         await response(scope, receive, send)
 
 
-class ManagedPreviewPolicyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: bool = Field(strict=True)
-    attempt_id: UUID
-    target_fps: Literal[1, 3] = 1
-
-
-class DevelopmentSourceEnablementRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    allow_service_start: StrictBool = False
-
-
 class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
     model_config = ConfigDict(extra="forbid")
-
-
-class ManagedEnrollmentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    enrolled: bool
-
-
-class ManagedKeepAwakeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    minutes: int = Field(ge=0, le=240)
-
-
-class BrowserRemoteRequest(BaseModel):
-    """One closed semantic action and no Kodi/network/runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: BrowserRemoteAction
 
 
 class DevelopmentSourceRegistrationRequest(BaseModel):
@@ -646,158 +461,6 @@ class AgentWorkspaceExactPatchRequest(BaseModel):
             if len(encoded) > 2 * 1024 * 1024:
                 raise ValueError("patch field exceeds the 2 MiB limit")
         return self
-
-
-class AddonRepositoryRegistrationRequest(BaseModel):
-    """Closed repository registration with no credentials or fetch controls."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    logical_name: str = Field(min_length=1, max_length=120)
-    index_url: str = Field(min_length=1, max_length=2304)
-
-
-class ResetConfirmationRequest(BaseModel):
-    """One explicit confirmation bit, with no runtime or Docker authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class ReconstructionConfirmationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmed: Literal[True]
-    observation_token: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class ReconstructionResolutionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    confirmed: Literal[True]
-    expected_state: Literal[
-        "exact_old_container", "unprovisioned", "expected_fresh_stopped"
-    ]
-
-
-class DevelopmentSourceDeploymentAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: DevelopmentSourceDeploymentStatus
-    status_url: str
-
-
-class DevelopmentSourceSmokeTestAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: DevelopmentSourceSmokeTestStatus
-    status_url: str
-
-
-class AddonZipImportAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipImportStatus
-    status_url: str
-
-
-class AddonZipInstallationAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipInstallationStatus
-    status_url: str
-
-
-class AddonZipSmokeTestAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonZipSmokeTestStatus
-    status_url: str
-
-
-class AddonRepositoryRefreshAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonRepositoryRefreshStatus
-    status_url: str
-
-
-class AddonRepositoryFetchAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: AddonRepositoryFetchStatus
-    status_url: str
-
-
-class RepositoryReplacementConfirmationRequest(BaseModel):
-    """One immediate confirmation bit and no replacement authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class RepositoryReplacementAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: RepositoryReplacementStatus
-    status_url: str
-
-
-class AgentWorkspacePromotionConfirmationRequest(BaseModel):
-    """One immediate confirmation bit and no source-write authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotCreateRequest(BaseModel):
-    """Optional display metadata with no storage or runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    label: str | None = None
-
-
-class SnapshotCreateAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotCreateStatus
-
-
-class SnapshotRestoreRequest(BaseModel):
-    """One destructive confirmation bit and no artifact or runtime authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotRestoreAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotRestoreStatus
-
-
-class SnapshotDeleteRequest(BaseModel):
-    """One permanent-deletion confirmation bit and no storage authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
-class SnapshotDeleteAccepted(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    snapshot_id: UUID
-    operation: SnapshotDeleteStatus
-
-
-class ManagedInstanceDeleteRequest(BaseModel):
-    """Explicit destructive choice with no Snapshot-list or Docker authority."""
-
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-    preserve_snapshots: StrictBool
 
 
 class McpClientCreateRequest(BaseModel):
@@ -934,6 +597,11 @@ class ExternalTargetConfirmationRequest(BaseModel):
 
     confirmed: Literal[True]
     observation_id: UUID
+
+
+class ExternalTargetRetirementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
 
 
 class ExternalTargetEnabledRequest(BaseModel):
@@ -1092,112 +760,14 @@ class ReviewedBridgeResumeRequest(BaseModel):
     expected_generation: int = Field(ge=1)
 
 
-class HistoricalContainmentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: UUID
-    expected_runtime_state_revision: int = Field(ge=0)
-    confirmed: Literal[True]
-
-
-class SourceAdditionPreviewForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    paths: str = Field(min_length=1, max_length=16416)
-
-    @field_validator("paths")
-    @classmethod
-    def bounded_paths(cls, value: str) -> str:
-        paths = value.splitlines()
-        if not 1 <= len(paths) <= 32 or any(not path for path in paths):
-            raise ValueError("Enter 1 to 32 nonempty file paths, one per line.")
-        return value
-
-
-class SourceAdditionApprovalForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    review_ack: Literal["yes"]
-    approved_paths: list[str] = Field(min_length=1, max_length=32)
-
-
-class SessionSourceCopyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    request_id: UUID
-    expected_generation: StrictInt = Field(ge=1)
-
-
-class SessionSourceCopyForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_generation: int = Field(ge=1)
-
-
-class DiagnosticCaptureForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_runtime_revision_id: UUID
-    expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    capture_ack: Literal["yes"]
-    deployment_operation_id: str = Field(default="", max_length=36)
-
-
-class DiagnosticDiscardForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    expected_state: Literal["capturing", "retained", "failed"]
-    expected_payload_sha256: str = Field(default="", max_length=64)
-    discard_ack: Literal["yes"]
-
-
-class SessionReplacementReviewForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    selection_json: str = Field(max_length=4096)
-    evidence: list[str] = Field(min_length=1, max_length=8)
-    review_ack: Literal["yes"]
-    crash_reports_ack: Literal["yes"]
-
-
-class SessionReplacementCancelForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    cancel_ack: Literal["yes"]
-
-
-class SessionReplacementActionForm(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    csrf_token: str = Field(max_length=256)
-    request_id: UUID
-    expected_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    confirmation_ack: Literal["yes"]
-
-
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
     auth: WebAuthenticationService
     throttler: LoginThrottler
-    status: ManagedRuntimeStatusService
     matrix: RuntimeMatrixService
-    readiness: ReadinessTaskRegistry
-    reconciliation: ManagedInstanceReconciliationService
-    stale_dispatcher: StaleOperationReconciliationDispatcher
-    addon_inventory: ManagedInstanceAddonInventoryService
     development_sources: DevelopmentSourcePresentationService
     development_source_administration: DevelopmentSourceAdministrationService
-    addon_zips: AddonZipPresentationService
-    addon_zip_imports: AddonZipImportCoordinator
-    addon_zip_import_executor: AddonZipImportExecutor
-    addon_repositories: AddonRepositoryAdministrationService
-    addon_repository_refreshes: AddonRepositoryRefreshCoordinator
-    addon_repository_refresh_executor: AddonRepositoryExecutor
-    addon_repository_fetches: AddonRepositoryFetchCoordinator
-    addon_repository_fetch_executor: AddonRepositoryExecutor
     agent_workspaces: AgentWorkspaceService
     workspace_source_captures: WorkspaceSourceCaptureService | None
     workspace_capture_presentation: WorkspaceCapturePresentationService | None
@@ -1207,9 +777,6 @@ class WebApplicationContext:
     mcp_workspace_retention: McpWorkspaceRetentionService
     mcp_workspace_development: McpWorkspaceDevelopmentService
     local_projects: LocalProjectOnboardingService
-    mcp_promotion_requests: McpPromotionRequestService
-    agent_workspace_promotions: AgentWorkspacePromotionService
-    promotion_verifications: PromotionVerificationService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     external_targets: ExternalTargetAdministrationService
     external_onboarding: ExternalKodiOnboardingService
@@ -1234,23 +801,12 @@ def create_app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     broker: Any,
-    readiness: ReadinessTaskRegistry | None = None,
     auth: WebAuthenticationService | None = None,
     throttler: LoginThrottler | None = None,
-    coordinator_factory: ReadinessCoordinatorFactory | None = None,
-    addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
     development_source_administration_service: (
         DevelopmentSourceAdministrationService | None
     ) = None,
-    addon_repository_administration_service: (
-        AddonRepositoryAdministrationService | None
-    ) = None,
-    addon_repository_refresh_coordinator: AddonRepositoryRefreshCoordinator
-    | None = None,
-    addon_repository_fetch_coordinator: AddonRepositoryFetchCoordinator | None = None,
     agent_workspace_service: AgentWorkspaceService | None = None,
-    agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
-    promotion_verification_service: PromotionVerificationService | None = None,
     agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
     browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
@@ -1271,34 +827,6 @@ def create_app(
             "repository origin migration is incomplete; resume it before Web startup"
         )
 
-    task_registry = readiness or ReadinessTaskRegistry()
-    stale_dispatcher = StaleOperationReconciliationDispatcher(
-        session_factory,
-        broker=broker,
-        readiness=task_registry,
-        data_root=settings.data_root,
-    )
-    reconciliation = ManagedInstanceReconciliationService(
-        session_factory,
-        broker=broker,
-        data_root=settings.data_root,
-        readiness=task_registry,
-    )
-    status_service = ManagedRuntimeStatusService(
-        session_factory,
-        broker,
-        task_registry,
-        reconciliation,
-        recover_running_readiness=True,
-        coordinator_factory=lambda _status_broker, profile: (
-            coordinator_factory or KodiReadinessCoordinator
-        )(broker, profile),
-    )
-    addon_inventory = ManagedInstanceAddonInventoryService(
-        session_factory,
-        broker,
-        adapter_factory=addon_inventory_adapter_factory,
-    )
     remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
     agent_workspaces = agent_workspace_service or AgentWorkspaceService(
         session_factory,
@@ -1480,76 +1008,6 @@ def create_app(
             session_factory, development_source_validator
         )
     )
-    addon_zips = AddonZipPresentationService(session_factory)
-    addon_zip_imports = AddonZipImportCoordinator(
-        session_factory,
-        data_root=settings.data_root,
-        stale_dispatcher=stale_dispatcher,
-    )
-    addon_zip_import_executor = AddonZipImportExecutor(addon_zip_imports)
-    addon_repositories = (
-        addon_repository_administration_service
-        or AddonRepositoryAdministrationService(
-            session_factory,
-            mutation_coordinator=ManagedInstanceMutationCoordinator(
-                session_factory,
-                stale_dispatcher=stale_dispatcher,
-                reconciliation=reconciliation,
-            ),
-        )
-    )
-    addon_repository_refreshes = (
-        addon_repository_refresh_coordinator
-        or AddonRepositoryRefreshCoordinator(session_factory)
-    )
-    addon_repository_fetches = (
-        addon_repository_fetch_coordinator
-        or AddonRepositoryFetchCoordinator(
-            session_factory, data_root=settings.data_root
-        )
-    )
-    addon_repository_refresh_executor = AddonRepositoryExecutor(
-        addon_repository_refreshes, thread_name="repository-refresh"
-    )
-    addon_repository_fetch_executor = AddonRepositoryExecutor(
-        addon_repository_fetches, thread_name="repository-fetch"
-    )
-
-    def require_promotion_verification_reconciliation(instance_id: UUID) -> None:
-        reconciliation.require_allowed(
-            instance_id, ReconciliationAction.PROMOTION_VERIFICATION
-        )
-
-    promotion_verifications = (
-        promotion_verification_service
-        or PromotionVerificationService(
-            session_factory,
-            broker,
-            addon_inventory,
-            reconciliation_gate=require_promotion_verification_reconciliation,
-        )
-    )
-
-    def require_promotion_reconciliation(instance_id: UUID) -> None:
-        reconciliation.require_allowed(
-            instance_id, ReconciliationAction.AGENT_WORKSPACE_PROMOTION
-        )
-
-    agent_workspace_promotions = (
-        agent_workspace_promotion_service
-        or AgentWorkspacePromotionService(
-            session_factory,
-            data_root=settings.data_root,
-            development_root=settings.development_root,
-            reconciliation_gate=require_promotion_reconciliation,
-            verification_publisher=promotion_verifications.publish_durable,
-            verification_starter=promotion_verifications.queue_and_run,
-            live_proof_reader=addon_inventory.get_promotion_proof,
-        )
-    )
-    mcp_promotion_requests = McpPromotionRequestService(
-        session_factory, agent_workspace_promotions
-    )
     runtime_installations = RuntimeInstallationService(
         session_factory, broker, data_root=settings.data_root
     )
@@ -1580,7 +1038,6 @@ def create_app(
             mcp_authorization,
             remote_receipts,
             mcp_workspace_development,
-            mcp_promotion_requests,
             target_adapters=mcp_target_adapters,
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
@@ -1602,25 +1059,12 @@ def create_app(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
-        status=status_service,
         matrix=RuntimeMatrixService(
             session_factory,
             trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
         ),
-        readiness=task_registry,
-        reconciliation=reconciliation,
-        stale_dispatcher=stale_dispatcher,
-        addon_inventory=addon_inventory,
         development_sources=development_sources,
         development_source_administration=development_source_administration,
-        addon_zips=addon_zips,
-        addon_zip_imports=addon_zip_imports,
-        addon_zip_import_executor=addon_zip_import_executor,
-        addon_repositories=addon_repositories,
-        addon_repository_refreshes=addon_repository_refreshes,
-        addon_repository_refresh_executor=addon_repository_refresh_executor,
-        addon_repository_fetches=addon_repository_fetches,
-        addon_repository_fetch_executor=addon_repository_fetch_executor,
         agent_workspaces=agent_workspaces,
         workspace_source_captures=workspace_source_captures,
         workspace_capture_presentation=workspace_capture_presentation,
@@ -1630,9 +1074,6 @@ def create_app(
         mcp_workspace_retention=mcp_workspace_retention,
         mcp_workspace_development=mcp_workspace_development,
         local_projects=local_projects,
-        mcp_promotion_requests=mcp_promotion_requests,
-        agent_workspace_promotions=agent_workspace_promotions,
-        promotion_verifications=promotion_verifications,
         browser_remote_rate_limiter=remote_rate_limiter,
         external_targets=external_targets,
         external_onboarding=external_onboarding,
@@ -1704,12 +1145,7 @@ def create_app(
                     "Development feed requires reconciliation."
                 )
                 (development_repository.root / "ACK").unlink(missing_ok=True)
-        context.agent_workspace_promotions.sweep_startup()
-        context.promotion_verifications.sweep_startup()
         context.mcp_workspace_development.sweep_startup()
-        context.addon_zip_import_executor.start()
-        context.addon_repository_refresh_executor.start()
-        context.addon_repository_fetch_executor.start()
         context.agent_workspace_executor.start()
         context.agent_workspace_cleanup_executor.start()
         context.mcp_workspace_retention.sweep(force=True)
@@ -1717,12 +1153,8 @@ def create_app(
             try:
                 yield
             finally:
-                context.addon_zip_import_executor.close()
-                context.addon_repository_refresh_executor.close()
-                context.addon_repository_fetch_executor.close()
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()
-                context.readiness.close()
 
     app = FastAPI(
         title="Kodi Lab",
@@ -1750,7 +1182,6 @@ def create_app(
         state_labels=STATE_LABELS,
         error_messages=ERROR_MESSAGES,
         state_label=state_label,
-        managed_next_step=managed_next_step,
         environment_identity=environment_identity,
     )
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
@@ -1843,50 +1274,6 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
 
-    @app.exception_handler(HistoricalContainmentError)
-    async def historical_containment_error(
-        _request: Request, error: HistoricalContainmentError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            error.code,
-            "Historical workspace execution containment was not established.",
-        )
-
-    @app.exception_handler(ManagedInstanceNotFoundError)
-    async def instance_not_found(
-        _request: Request, _error: ManagedInstanceNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404, "managed_instance_not_found", "Managed instance not found."
-        )
-
-    @app.exception_handler(ScreenshotServiceError)
-    async def screenshot_error(
-        _request: Request, error: ScreenshotServiceError
-    ) -> JSONResponse:
-        status_code = {
-            "screenshot_capture_in_progress": 409,
-            "visual_rate_limited": 429,
-            "visual_instance_not_running": 409,
-            "visual_kodi_not_ready": 409,
-            "screenshot_unsupported": 409,
-            "screenshot_invalid_result": 502,
-            "screenshot_capture_unavailable": 503,
-        }.get(error.code, 503)
-        return _json_error(status_code, error.code, error.safe_message)
-
-    @app.exception_handler(ManagedResourceProtected)
-    async def managed_resource_error(
-        _request: Request,
-        error: ManagedResourceProtected,
-    ) -> JSONResponse:
-        return _json_error(
-            404 if error.code == "managed_target_required" else 409,
-            error.code,
-            "Review the managed target's current operation or resource policy.",
-        )
-
     @app.exception_handler(BrowserRemoteError)
     async def browser_remote_error(
         _request: Request, error: BrowserRemoteError
@@ -1950,19 +1337,6 @@ def create_app(
     ) -> JSONResponse:
         return _json_error(422, "development_source_unsafe", "Source scan was unsafe.")
 
-    @app.exception_handler(AgentWorkspacePromotionError)
-    async def agent_workspace_promotion_failed(
-        _request: Request, error: AgentWorkspacePromotionError
-    ) -> JSONResponse:
-        http_status = (
-            409
-            if isinstance(error, AgentWorkspacePromotionConflictError)
-            else 404
-            if error.code.endswith("not_found")
-            else 422
-        )
-        return _json_error(http_status, error.code, error.safe_message)
-
     @app.exception_handler(AgentWorkspaceCleanupError)
     async def agent_workspace_cleanup_failed(
         _request: Request, error: AgentWorkspaceCleanupError
@@ -1972,51 +1346,6 @@ def create_app(
             error.code,
             error.safe_message,
         )
-
-    @app.exception_handler(PromotionVerificationError)
-    async def promotion_verification_failed(
-        _request: Request, error: PromotionVerificationError
-    ) -> JSONResponse:
-        return _json_error(
-            404 if error.code.endswith("not_found") else 409,
-            error.code,
-            error.safe_message,
-        )
-
-    @app.exception_handler(AddonRepositoryNotFoundError)
-    async def addon_repository_not_found(
-        _request: Request, error: AddonRepositoryNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, "Repository resource not found.")
-
-    @app.exception_handler(AddonRepositoryConflictError)
-    async def addon_repository_conflict(
-        _request: Request, error: AddonRepositoryConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonRepositoryError)
-    async def addon_repository_policy_failed(
-        _request: Request, error: AddonRepositoryError
-    ) -> JSONResponse:
-        return _json_error(422, error.code, error.safe_message)
-
-    @app.exception_handler(AddonRepositoryServiceError)
-    async def addon_repository_failed(
-        _request: Request, error: AddonRepositoryServiceError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(RepositoryReplacementError)
-    async def repository_replacement_failed(
-        _request: Request, error: RepositoryReplacementError
-    ) -> JSONResponse:
-        http_status = (
-            status.HTTP_422_UNPROCESSABLE_CONTENT
-            if isinstance(error, RepositoryReplacementUnsupportedError)
-            else status.HTTP_409_CONFLICT
-        )
-        return _json_error(http_status, error.code, str(error)[:256])
 
     @app.exception_handler(RequestValidationError)
     async def bounded_request_validation(
@@ -2116,253 +1445,6 @@ def create_app(
             ),
         )
         return _json_error(409, code, message)
-
-    @app.exception_handler(DevelopmentSourceAttachmentError)
-    async def development_source_attachment_failed(
-        _request: Request, error: DevelopmentSourceAttachmentError
-    ) -> JSONResponse:
-        if isinstance(error, DevelopmentSourceAlreadyAttachedError):
-            code = "development_source_already_attached"
-            message = "Development source is already attached to this instance."
-        elif isinstance(error, DevelopmentSourceNotAttachedError):
-            code = "development_source_not_attached"
-            message = "Development source is not attached to this instance."
-        elif isinstance(error, DevelopmentSourceAddonConflictError):
-            code = "development_source_addon_conflict"
-            message = "The instance already has a source for this add-on ID."
-        elif isinstance(error, DevelopmentSourceIdentityChangedError):
-            code = error.code
-            message = "Development source add-on identity changed after registration."
-        elif isinstance(error, DevelopmentSourceAttachmentValidationError):
-            code = "development_source_attachment_validation_failed"
-            message = "Development source validation failed before attachment."
-        elif isinstance(error, PersistentDevelopmentSourceAttachmentUnsupportedError):
-            code = "development_source_attachment_unsupported"
-            message = (
-                "Development-source attachment is supported only for disposable "
-                "instances."
-            )
-        else:
-            code = "development_source_attachment_conflict"
-            message = "Development-source attachment could not be changed."
-        return _json_error(409, code, message)
-
-    @app.exception_handler(DevelopmentSourceDeploymentConflictError)
-    async def development_source_deployment_conflict(
-        _request: Request, error: DevelopmentSourceDeploymentConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceDeploymentUnsupportedError)
-    async def development_source_deployment_unsupported(
-        _request: Request, error: DevelopmentSourceDeploymentUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceDeploymentError)
-    async def development_source_deployment_failed(
-        _request: Request, error: DevelopmentSourceDeploymentError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceEnablementError)
-    async def development_source_enablement_failed(
-        _request: Request, error: DevelopmentSourceEnablementError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestNotFoundError)
-    async def development_source_smoke_test_not_found(
-        _request: Request, error: DevelopmentSourceSmokeTestNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestConflictError)
-    async def development_source_smoke_test_conflict(
-        _request: Request, error: DevelopmentSourceSmokeTestConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(DevelopmentSourceSmokeTestError)
-    async def development_source_smoke_test_failed(
-        _request: Request, error: DevelopmentSourceSmokeTestError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipImportConflictError)
-    async def addon_zip_import_conflict(
-        _request: Request, error: AddonZipImportConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "addon_zip_import_conflict", str(error)[:256])
-
-    @app.exception_handler(AddonZipValidationError)
-    async def addon_zip_upload_invalid(
-        _request: Request, error: AddonZipValidationError
-    ) -> JSONResponse:
-        return _json_error(422, error.code, error.safe_message)
-
-    @app.exception_handler(AddonZipInstallationError)
-    async def addon_zip_installation_failed(
-        _request: Request, error: AddonZipInstallationError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipEnablementError)
-    async def addon_zip_enablement_failed(
-        _request: Request, error: AddonZipEnablementError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestNotFoundError)
-    async def addon_zip_smoke_test_not_found(
-        _request: Request, error: AddonZipSmokeTestNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestConflictError)
-    async def addon_zip_smoke_test_conflict(
-        _request: Request, error: AddonZipSmokeTestConflictError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(AddonZipSmokeTestError)
-    async def addon_zip_smoke_test_failed(
-        _request: Request, error: AddonZipSmokeTestError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(LifecycleConflictError)
-    async def lifecycle_conflict(
-        _request: Request, error: LifecycleConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "lifecycle_conflict", str(error)[:256])
-
-    @app.exception_handler(ResetOperationConflictError)
-    async def reset_operation_conflict(
-        _request: Request, error: ResetOperationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "reset_operation_conflict", str(error)[:256])
-
-    @app.exception_handler(ReconstructionConflictError)
-    async def reconstruction_conflict(
-        _request: Request, error: ReconstructionConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "reconstruction_conflict", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceMutationConflictError)
-    async def mutation_conflict(
-        _request: Request, error: ManagedInstanceMutationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "managed_instance_mutation_conflict", str(error)[:256])
-
-    @app.exception_handler(LifecycleOperationConflictError)
-    async def lifecycle_operation_conflict(
-        _request: Request, error: LifecycleOperationConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "lifecycle_operation_conflict", str(error)[:256])
-
-    @app.exception_handler(DeletedManagedInstanceHistoryNotFoundError)
-    async def deleted_history_not_found(
-        _request: Request, _error: DeletedManagedInstanceHistoryNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404,
-            "deleted_instance_history_not_found",
-            "Deleted instance history was not found.",
-        )
-
-    @app.exception_handler(ManagedInstanceReconciliationRequiredError)
-    async def reconciliation_required(
-        _request: Request, error: ManagedInstanceReconciliationRequiredError
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": error.code,
-                    "message": error.status.safe_reason,
-                    "reconciliation": error.status.model_dump(mode="json"),
-                }
-            },
-        )
-
-    @app.exception_handler(CoordinationCorruptionError)
-    async def coordination_corruption(
-        _request: Request, error: CoordinationCorruptionError
-    ) -> JSONResponse:
-        return _json_error(409, error.code, str(error)[:256])
-
-    @app.exception_handler(SnapshotCreateConflictError)
-    async def snapshot_create_conflict(
-        _request: Request, error: SnapshotCreateConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_create_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotCreateUnsupportedError)
-    async def snapshot_create_unsupported(
-        _request: Request, error: SnapshotCreateUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_create_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotRestoreConflictError)
-    async def snapshot_restore_conflict(
-        _request: Request, error: SnapshotRestoreConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_restore_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotRestoreUnsupportedError)
-    async def snapshot_restore_unsupported(
-        _request: Request, error: SnapshotRestoreUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_restore_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotSourceInstanceDeletedError)
-    async def snapshot_source_deleted(
-        _request: Request, _error: SnapshotSourceInstanceDeletedError
-    ) -> JSONResponse:
-        return _json_error(
-            409,
-            "source_instance_deleted",
-            "The preserved Snapshot source ManagedInstance has been deleted.",
-        )
-
-    @app.exception_handler(SnapshotDeleteConflictError)
-    async def snapshot_delete_conflict(
-        _request: Request, error: SnapshotDeleteConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_delete_conflict", str(error)[:256])
-
-    @app.exception_handler(SnapshotDeleteUnsupportedError)
-    async def snapshot_delete_unsupported(
-        _request: Request, error: SnapshotDeleteUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "snapshot_delete_unsupported", str(error)[:256])
-
-    @app.exception_handler(SnapshotDeleteNotFoundError)
-    async def snapshot_delete_not_found(
-        _request: Request, _error: SnapshotDeleteNotFoundError
-    ) -> JSONResponse:
-        return _json_error(404, "snapshot_not_found", "Snapshot not found.")
-
-    @app.exception_handler(ManagedInstanceDeleteConflictError)
-    async def instance_delete_conflict(
-        _request: Request, error: ManagedInstanceDeleteConflictError
-    ) -> JSONResponse:
-        return _json_error(409, "instance_delete_conflict", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceDeleteUnsupportedError)
-    async def instance_delete_unsupported(
-        _request: Request, error: ManagedInstanceDeleteUnsupportedError
-    ) -> JSONResponse:
-        return _json_error(409, "instance_delete_unsupported", str(error)[:256])
-
-    @app.exception_handler(ManagedInstanceDeleteNotFoundError)
-    async def instance_delete_not_found(
-        _request: Request, _error: ManagedInstanceDeleteNotFoundError
-    ) -> JSONResponse:
-        return _json_error(
-            404, "managed_instance_not_found", "Managed instance not found."
-        )
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -3332,54 +2414,6 @@ def create_app(
                 "lifecycle_activity": context.agent_workspaces.list_lifecycle_activity(
                     workspace_id
                 ),
-                "promotion_targets": (
-                    context.agent_workspace_promotions.eligible_targets(workspace_id)
-                    if workspace.state.value == "ready"
-                    else []
-                ),
-                "promotion_plan": context.agent_workspace_promotions.active_plan(
-                    workspace_id
-                ),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/addon-zips", response_class=HTMLResponse)
-    async def addon_zip_list_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "addon-zips.html",
-            {
-                "artifacts": context.addon_zips.list_artifacts(),
-                "csrf_token": authenticated.csrf_token,
-            },
-        )
-
-    @app.get("/addon-repositories", response_class=HTMLResponse)
-    async def addon_repository_page(request: Request) -> Response:
-        try:
-            authenticated = current_session(request)
-        except HTTPException:
-            return RedirectResponse("/login", status_code=303)
-        repositories = context.addon_repositories.list()
-        return templates.TemplateResponse(
-            request,
-            "addon-repositories.html",
-            {
-                "repository_cards": [
-                    (
-                        item,
-                        context.addon_repository_refreshes.candidates(
-                            item.repository_id
-                        ),
-                    )
-                    for item in repositories
-                ],
-                "instances": context.status.list_statuses(),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -4525,7 +3559,7 @@ def create_app(
     )
     def deactivate_external_target(
         target_id: UUID,
-        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _payload: ExternalTargetRetirementRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
         return retire_external_connection(context.external_targets, target_id)
@@ -4774,7 +3808,7 @@ def create_app(
     )
     def deactivate_production_target(
         target_id: UUID,
-        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _payload: ExternalTargetRetirementRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
         return retire_external_connection(context.production_targets, target_id)
@@ -5036,22 +4070,6 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> RuntimeMatrixResponse:
         return context.matrix.list_matrix(
-            include_legacy=_selection_bool(include_legacy),
-            include_prerelease=_selection_bool(include_prerelease),
-        )
-
-    @app.get(
-        "/api/targets/{target_id}/runtime-selection",
-        response_model=TargetRuntimeSelection,
-    )
-    def target_runtime_selection(
-        target_id: UUID,
-        include_legacy: Literal["false", "true"] = "false",
-        include_prerelease: Literal["false", "true"] = "false",
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> TargetRuntimeSelection:
-        return context.matrix.resolve_target(
-            target_id,
             include_legacy=_selection_bool(include_legacy),
             include_prerelease=_selection_bool(include_prerelease),
         )
@@ -5343,108 +4361,6 @@ def create_app(
     ) -> list[AgentWorkspaceLifecycleActivityRead]:
         return context.agent_workspaces.list_lifecycle_activity(workspace_id)
 
-    @app.get(
-        "/api/agent-workspaces/{workspace_id}/promotion-targets",
-        response_model=list[AgentWorkspacePromotionTargetRead],
-    )
-    def list_agent_workspace_promotion_targets(
-        workspace_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AgentWorkspacePromotionTargetRead]:
-        return context.agent_workspace_promotions.eligible_targets(workspace_id)
-
-    @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
-    def list_addon_repositories(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonRepositorySourceRead]:
-        return context.addon_repositories.list()
-
-    @app.post(
-        "/api/addon-repositories",
-        response_model=AddonRepositorySourceRead,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def register_addon_repository(
-        body: AddonRepositoryRegistrationRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.register(body.logical_name, body.index_url)
-
-    @app.get(
-        "/api/addon-repositories/{repository_id}",
-        response_model=AddonRepositorySourceRead,
-    )
-    def get_addon_repository(
-        repository_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositorySourceRead:
-        return context.addon_repositories.get(repository_id)
-
-    @app.post(
-        "/api/addon-repositories/{repository_id}/refresh",
-        response_model=AddonRepositoryRefreshAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def refresh_addon_repository(
-        repository_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositoryRefreshAccepted:
-        operation = context.addon_repository_refreshes.queue(repository_id)
-        context.addon_repository_refresh_executor.submit(operation.operation_id)
-        return AddonRepositoryRefreshAccepted(
-            operation=operation,
-            status_url=f"/api/addon-repository-refresh-operations/{operation.operation_id}",
-        )
-
-    @app.get(
-        "/api/addon-repository-refresh-operations/{operation_id}",
-        response_model=AddonRepositoryRefreshStatus,
-    )
-    def addon_repository_refresh_status(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositoryRefreshStatus:
-        return context.addon_repository_refreshes.get(operation_id)
-
-    @app.get(
-        "/api/addon-repositories/{repository_id}/candidates",
-        response_model=list[AddonRepositoryCandidateRead],
-    )
-    def list_addon_repository_candidates(
-        repository_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonRepositoryCandidateRead]:
-        return context.addon_repository_refreshes.candidates(repository_id)
-
-    @app.post(
-        "/api/addon-repositories/{repository_id}/candidates/{candidate_id}/fetch",
-        response_model=AddonRepositoryFetchAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    def fetch_addon_repository_candidate(
-        repository_id: UUID,
-        candidate_id: UUID,
-        _body: EmptyActionRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonRepositoryFetchAccepted:
-        operation = context.addon_repository_fetches.queue(repository_id, candidate_id)
-        context.addon_repository_fetch_executor.submit(operation.operation_id)
-        return AddonRepositoryFetchAccepted(
-            operation=operation,
-            status_url=f"/api/addon-repository-fetch-operations/{operation.operation_id}",
-        )
-
-    @app.get(
-        "/api/addon-repository-fetch-operations/{operation_id}",
-        response_model=AddonRepositoryFetchStatus,
-    )
-    def addon_repository_fetch_status(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonRepositoryFetchStatus:
-        return context.addon_repository_fetches.get(operation_id)
-
     @app.post(
         "/api/development-sources",
         response_model=DevelopmentSourceRead,
@@ -5457,45 +4373,6 @@ def create_app(
         return context.development_source_administration.register_source(
             logical_name=body.logical_name,
             relative_locator=body.relative_locator,
-        )
-
-    @app.get("/api/addon-zips", response_model=list[AddonZipArtifactSummary])
-    def list_addon_zips(
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> list[AddonZipArtifactSummary]:
-        return context.addon_zips.list_artifacts()
-
-    @app.get(
-        "/api/addon-zip-import-operations/{operation_id}",
-        response_model=AddonZipImportStatus,
-    )
-    def addon_zip_import_operation(
-        operation_id: UUID,
-        _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> AddonZipImportStatus:
-        operation = context.addon_zip_imports.get(operation_id)
-        if operation is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        return context.addon_zips.import_status(operation)
-
-    @app.post(
-        "/api/addon-zips",
-        response_model=AddonZipImportAccepted,
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    async def upload_addon_zip(
-        request: Request,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> AddonZipImportAccepted:
-        artifact_id = uuid4()
-        logical_label = await _stream_addon_zip_multipart(
-            request, settings.data_root, artifact_id
-        )
-        operation = context.addon_zip_imports.queue(artifact_id, logical_label)
-        context.addon_zip_import_executor.submit(operation.id)
-        return AddonZipImportAccepted(
-            operation=context.addon_zips.import_status(operation),
-            status_url=f"/api/addon-zip-import-operations/{operation.id}",
         )
 
     @app.get(
@@ -5549,162 +4426,6 @@ def _websocket_same_origin(websocket: WebSocket) -> bool:
 
 def _selection_bool(value: Literal["false", "true"]) -> bool:
     return value == "true"
-
-
-async def _stream_addon_zip_multipart(
-    request: Request, data_root: Path, artifact_id: UUID
-) -> str:
-    """Stream exactly one ZIP part into UUID staging; never retain its filename."""
-
-    media_type, options = parse_options_header(request.headers.get("content-type"))
-    boundary = options.get(b"boundary")
-    if (
-        media_type != b"multipart/form-data"
-        or boundary is None
-        or not 1 <= len(boundary) <= 200
-    ):
-        raise AddonZipValidationError(
-            "addon_zip_multipart_invalid",
-            "A bounded multipart ZIP upload is required.",
-        )
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            if int(content_length) > MAX_COMPRESSED_BYTES + 1024 * 1024:
-                raise AddonZipValidationError(
-                    "addon_zip_compressed_size_exceeded",
-                    "Uploaded ZIP exceeds the 256 MiB compressed limit.",
-                )
-        except ValueError as error:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart length is invalid."
-            ) from error
-
-    fd, _path = create_upload_stage(data_root, artifact_id)
-    current_header_name = bytearray()
-    current_header_value = bytearray()
-    headers: dict[bytes, bytes] = {}
-    current_part: str | None = None
-    zip_parts = 0
-    label_parts = 0
-    zip_bytes = 0
-    label_bytes = bytearray()
-    complete = False
-
-    def part_begin() -> None:
-        nonlocal current_part
-        current_part = None
-        headers.clear()
-
-    def header_begin() -> None:
-        current_header_name.clear()
-        current_header_value.clear()
-
-    def header_field(data: bytes, start: int, end: int) -> None:
-        current_header_name.extend(data[start:end])
-
-    def header_value(data: bytes, start: int, end: int) -> None:
-        current_header_value.extend(data[start:end])
-
-    def header_end() -> None:
-        name = bytes(current_header_name).lower()
-        if name in headers:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Duplicate multipart header."
-            )
-        headers[name] = bytes(current_header_value)
-
-    def headers_finished() -> None:
-        nonlocal current_part, label_parts, zip_parts
-        disposition = headers.get(b"content-disposition")
-        disposition_type, disposition_options = parse_options_header(disposition)
-        if disposition_type != b"form-data":
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Multipart content disposition is invalid.",
-            )
-        raw_name = disposition_options.get(b"name")
-        if raw_name == b"zip":
-            zip_parts += 1
-            current_part = "zip"
-        elif raw_name == b"logical_label":
-            label_parts += 1
-            current_part = "logical_label"
-        else:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Only one ZIP and one logical label are accepted.",
-            )
-        if zip_parts > 1 or label_parts > 1:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart fields must be unique."
-            )
-
-    def part_data(data: bytes, start: int, end: int) -> None:
-        nonlocal zip_bytes
-        chunk = data[start:end]
-        if current_part == "zip":
-            zip_bytes = write_upload_chunk(fd, chunk, zip_bytes)
-        elif current_part == "logical_label":
-            if len(label_bytes) + len(chunk) > 1024:
-                raise AddonZipValidationError(
-                    "addon_zip_label_invalid", "Logical label is too long."
-                )
-            label_bytes.extend(chunk)
-        else:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid", "Multipart state is invalid."
-            )
-
-    def ended() -> None:
-        nonlocal complete
-        complete = True
-
-    parser = MultipartParser(
-        boundary,
-        {
-            "on_part_begin": part_begin,
-            "on_header_begin": header_begin,
-            "on_header_field": header_field,
-            "on_header_value": header_value,
-            "on_header_end": header_end,
-            "on_headers_finished": headers_finished,
-            "on_part_data": part_data,
-            "on_end": ended,
-        },
-        max_size=MAX_COMPRESSED_BYTES + 1024 * 1024,
-        max_header_count=4,
-        max_header_size=1024,
-    )
-    try:
-        async for chunk in request.stream():
-            parser.write(chunk)
-        parser.finalize()
-        if not complete or zip_parts != 1 or label_parts != 1:
-            raise AddonZipValidationError(
-                "addon_zip_multipart_invalid",
-                "Exactly one ZIP and one logical label are required.",
-            )
-        try:
-            label = label_bytes.decode("utf-8", "strict")
-        except UnicodeDecodeError as error:
-            raise AddonZipValidationError(
-                "addon_zip_label_invalid", "Logical label must be UTF-8."
-            ) from error
-        try:
-            normalized = normalize_development_source_logical_name(label)
-        except ValueError as error:
-            raise AddonZipValidationError(
-                "addon_zip_label_invalid", "Logical label is invalid."
-            ) from error
-        finish_upload_stage(fd, zip_bytes)
-        return normalized
-    except Exception:
-        remove_upload_stage(data_root, artifact_id)
-        raise
-    finally:
-        parser.close()
-        os.close(fd)
 
 
 def _login_failure(

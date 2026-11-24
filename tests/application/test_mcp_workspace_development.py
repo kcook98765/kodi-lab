@@ -5,107 +5,59 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Literal, cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
+    ExternalAddonInventory,
     KodiAddonInventoryItem,
     KodiAddonProvenance,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
-    ManagedInstanceAddonInventory,
-)
-from kodi_lab.application.agent_workspace_promotions import (
-    AgentWorkspacePromotionService,
 )
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
 from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationService,
 )
-from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_workspace_development import (
-    MANAGED_DEPLOYMENT_INTERVAL_SECONDS,
     BoundedIntervalRateLimiter,
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
     WorkspaceDeploymentResult,
     WorkspaceExecutionKind,
-    WorkspaceExecutionResult,
 )
-from kodi_lab.broker.docker_inventory import (
-    ContainerHealthState,
-    ContainerRuntimeState,
-    KodiProcessState,
-)
-from kodi_lab.broker.operations import (
-    CaptureSmokeLogResult,
-    CopySyncAttachedDevelopmentSourceResult,
-    ManagedContainerInventoryEntry,
-    ManagedContainerInventoryResult,
-    ObserveManagedKodiRuntimeResult,
-    ReadSmokeLogResult,
-    VerifyAttachedDevelopmentSourceDestinationResult,
-)
-from kodi_lab.development.deployment import expected_destination_digest
 from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceKind,
     ExternalAdministrativeState,
     ExternalBridgePairingState,
     ExternalBridgeReachabilityState,
-    KodiReleaseIdentity,
-)
-from kodi_lab.domain.smoke_diagnostics import (
-    AddonExceptionDiagnostic,
-    SmokeDiagnosticStatus,
 )
 from kodi_lab.kodi.addons import (
-    KodiAddonDetailsRecord,
-    KodiAddonInventoryRecord,
-    KodiAddonInventoryResult,
-    KodiAddonSmokeAmbiguousError,
     KodiAddonSmokeResult,
-    KodiAddonSmokeTimeoutError,
-    KodiReportedAddonDependency,
 )
 from kodi_lab.kodi.bridge import BridgeAddonTree, BridgeDeploymentReceipt
-from kodi_lab.kodi.readiness import (
-    KodiApplicationIdentity,
-)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
-    AgentWorkspacePromotionPlanRow,
-    DevelopmentSourceDeploymentOperationRow,
-    DevelopmentSourceDeploymentRow,
     ExternalBridgeDeploymentReceiptRow,
     ExternalBridgePairingRow,
     ExternalDevelopmentSourceBaselineRow,
     ExternalKodiTargetRow,
-    ManagedInstanceDevelopmentSourceRow,
-    ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
-    McpClientDevelopmentSourceGrantRow,
-    McpClientTargetGrantRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
-    McpWorkspaceExecutionOperationRow,
-    RuntimeDefinitionRow,
-    RuntimeExecutionProfileRow,
-    RuntimeRevisionRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceRepository,
 )
-from kodi_lab.workspace import capture_workspace_deployment_tree
 
 SOURCE_ID = UUID("72000000-0000-4000-8000-000000000001")
 TARGET_ID = UUID("72000000-0000-4000-8000-000000000002")
@@ -118,230 +70,6 @@ NOW = datetime(2026, 9, 20, 18, 0, tzinfo=UTC)
 NOW_TEXT = "2026-09-20T18:00:00.000000Z"
 EXTERNAL_TARGET_ID = UUID("72000000-0000-4000-8000-000000000006")
 EXTERNAL_BRIDGE_ID = UUID("72000000-0000-4000-8000-000000000007")
-
-
-class FakeInventory:
-    def __init__(self, kodi_release: str = "21.3") -> None:
-        self.kodi_release = kodi_release
-
-    def get(self, target_id: UUID) -> ManagedInstanceAddonInventory:
-        assert target_id == TARGET_ID
-        return ManagedInstanceAddonInventory(
-            instance_id=target_id,
-            observed_at=NOW,
-            kodi_release=self.kodi_release,
-            query_status=AddonInventoryQueryStatus.AVAILABLE,
-            complete=True,
-            items=[
-                KodiAddonInventoryItem(
-                    addon_id="plugin.video.slice4",
-                    name="Slice 4",
-                    version="1.0.0",
-                    enabled=True,
-                    kodi_type="xbmc.python.pluginsource",
-                    provenance=KodiAddonProvenance(
-                        classification=(KodiAddonProvenanceClassification.UNKNOWN),
-                        evidence_status=KodiAddonProvenanceEvidenceStatus.UNKNOWN,
-                    ),
-                )
-            ],
-        )
-
-
-@dataclass
-class FakeBroker:
-    state: ContainerRuntimeState = ContainerRuntimeState.RUNNING
-    stop_count: int = 0
-    sync_count: int = 0
-    start_count: int = 0
-    last_stop_kwargs: dict[str, Any] | None = None
-    last_start_kwargs: dict[str, Any] | None = None
-    verify_count: int = 0
-    fail_sync: BaseException | None = None
-    sync_result_classification: Literal["synchronized", "unchanged"] = "synchronized"
-    sync_source_digest: str = "sha256:" + "1" * 64
-    sync_destination_digest: str = "sha256:" + "2" * 64
-    capture_count: int = 0
-    read_count: int = 0
-    capture_failure: bool = False
-    read_failure: bool = False
-    smoke_diagnostic: AddonExceptionDiagnostic | None = None
-    capture_hook: Callable[[str], str | None] | None = None
-
-    def capture_smoke_log_cursor(self, *, execution_id: str) -> CaptureSmokeLogResult:
-        self.capture_count += 1
-        selected = (
-            None if self.capture_hook is None else self.capture_hook(execution_id)
-        )
-        if self.capture_failure:
-            raise RuntimeError("log unavailable")
-        return CaptureSmokeLogResult(
-            execution_id=execution_id,
-            container_id=selected or CONTAINER_ID,
-            cursor="cursor",
-        )
-
-    def read_smoke_log_window(
-        self, *, execution_id: str, cursor: str
-    ) -> ReadSmokeLogResult:
-        assert cursor == "cursor"
-        self.read_count += 1
-        if self.read_failure:
-            raise RuntimeError("parser unavailable")
-        return ReadSmokeLogResult(
-            execution_id=execution_id,
-            container_id=CONTAINER_ID,
-            diagnostic=self.smoke_diagnostic
-            or AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.NO_MATCH),
-        )
-
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
-        return ManagedContainerInventoryResult(
-            containers=[
-                ManagedContainerInventoryEntry(
-                    managed_instance_id=str(TARGET_ID),
-                    container_id=CONTAINER_ID,
-                    image_id=IMAGE_ID,
-                    runtime_state=self.state,
-                    health_state=(
-                        ContainerHealthState.HEALTHY
-                        if self.state is ContainerRuntimeState.RUNNING
-                        else ContainerHealthState.NOT_CONFIGURED
-                    ),
-                )
-            ]
-        )
-
-    def observe_managed_kodi_runtime(
-        self, *, managed_instance_id: str, expected_container_id: str
-    ) -> ObserveManagedKodiRuntimeResult:
-        assert managed_instance_id == str(TARGET_ID)
-        assert expected_container_id == CONTAINER_ID
-        return ObserveManagedKodiRuntimeResult(
-            managed_instance_id=managed_instance_id,
-            runtime_revision_id=str(RUNTIME_REVISION_ID),
-            container_id=expected_container_id,
-            runtime_state=ContainerRuntimeState.RUNNING,
-            process_state=KodiProcessState.RUNNING,
-            ipv4_address="10.250.0.4",
-            jsonrpc_port=8080,
-        )
-
-    def stop_managed_container(self, **_kwargs: Any) -> object:
-        self.stop_count += 1
-        self.last_stop_kwargs = _kwargs
-        self.state = ContainerRuntimeState.STOPPED
-        return SimpleNamespace(
-            container_id=CONTAINER_ID, runtime_state=ContainerRuntimeState.STOPPED
-        )
-
-    def start_managed_container(self, **_kwargs: Any) -> object:
-        self.start_count += 1
-        self.last_start_kwargs = _kwargs
-        self.state = ContainerRuntimeState.RUNNING
-        return SimpleNamespace(
-            container_id=CONTAINER_ID, runtime_state=ContainerRuntimeState.RUNNING
-        )
-
-    def copy_sync_mcp_workspace(
-        self, **kwargs: Any
-    ) -> CopySyncAttachedDevelopmentSourceResult:
-        self.sync_count += 1
-        if self.fail_sync is not None:
-            raise self.fail_sync
-        return CopySyncAttachedDevelopmentSourceResult(
-            managed_instance_id=str(TARGET_ID),
-            development_source_id=str(SOURCE_ID),
-            deployment_operation_id=kwargs["deployment_operation_id"],
-            runtime_revision_id=str(RUNTIME_REVISION_ID),
-            container_id=CONTAINER_ID,
-            result_classification=self.sync_result_classification,
-            source_manifest_digest=self.sync_source_digest,
-            verified_destination_digest=self.sync_destination_digest,
-            observed_source_name="Slice 4",
-            observed_source_version="1.0.0",
-            new_count=0,
-            changed_count=0 if self.sync_result_classification == "unchanged" else 1,
-            unchanged_count=1,
-            destination_only_count=0,
-            transferred_bytes=0
-            if self.sync_result_classification == "unchanged"
-            else 8,
-        )
-
-    def verify_mcp_workspace_destination(
-        self, **_kwargs: Any
-    ) -> VerifyAttachedDevelopmentSourceDestinationResult:
-        self.verify_count += 1
-        return VerifyAttachedDevelopmentSourceDestinationResult(
-            managed_instance_id=str(TARGET_ID),
-            development_source_id=str(SOURCE_ID),
-            runtime_revision_id=str(RUNTIME_REVISION_ID),
-            container_id=CONTAINER_ID,
-            addon_id="plugin.video.slice4",
-            addon_version="1.0.0",
-            matched=True,
-            video_plugin_descriptor_eligible=True,
-        )
-
-
-@dataclass
-class SmokeCounter:
-    count: int = 0
-
-    def invoke(self, addon_id: str) -> KodiAddonSmokeResult:
-        assert addon_id == "plugin.video.slice4"
-        self.count += 1
-        return KodiAddonSmokeResult(item_count=1, duration_ms=2)
-
-
-class InventoryAdapter:
-    def __init__(
-        self,
-        kodi_release: str = "21.3",
-        extra: KodiAddonInventoryRecord | None = None,
-    ) -> None:
-        self.kodi_release = kodi_release
-        self.extra = extra
-
-    def get_inventory(self) -> KodiAddonInventoryResult:
-        release = KodiReleaseIdentity.parse(self.kodi_release)
-        return KodiAddonInventoryResult(
-            identity=KodiApplicationIdentity(
-                "Kodi",
-                release.major,
-                release.minor,
-                "releasecandidate"
-                if release.channel.value == "rc"
-                else release.channel.value,
-                release.prerelease_ordinal,
-            ),
-            items=(
-                KodiAddonInventoryRecord(
-                    addon_id="plugin.video.slice4",
-                    name="Slice 4",
-                    version="1.0.0",
-                    enabled=True,
-                    kodi_type="xbmc.python.pluginsource",
-                ),
-            )
-            + (() if self.extra is None else (self.extra,)),
-        )
-
-
-class DetailsAdapter:
-    def __init__(self, dependency: KodiReportedAddonDependency | None = None) -> None:
-        self.dependency = dependency
-
-    def get_addon_details(self, addon_id: str) -> KodiAddonDetailsRecord:
-        return KodiAddonDetailsRecord(
-            addon_id=addon_id,
-            name="Slice 4",
-            version="1.0.0",
-            enabled=True,
-            kodi_type="xbmc.python.pluginsource",
-            dependencies=() if self.dependency is None else (self.dependency,),
-        )
 
 
 @dataclass
@@ -417,9 +145,9 @@ class FakeExternalTargetAdapters:
     bridge: FakeExternalDevelopmentBridge
     execution_count: int = 0
 
-    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+    def addon_inventory(self, target_id: UUID) -> ExternalAddonInventory:
         tree = self.bridge.inspect_addon(target_id, "plugin.video.slice4")
-        return ManagedInstanceAddonInventory(
+        return ExternalAddonInventory(
             instance_id=target_id,
             observed_at=NOW,
             kodi_release="21.3",
@@ -455,8 +183,6 @@ class Environment:
     sessions: sessionmaker[Session]
     workspaces: AgentWorkspaceService
     development: McpWorkspaceDevelopmentService
-    broker: FakeBroker
-    smoke: SmokeCounter
     client_id: UUID
     workspace_id: UUID
 
@@ -481,10 +207,7 @@ def _environment(
     *,
     database_path: Path | None = None,
     use_default_rates: bool = False,
-    kodi_release: str = "21.3",
     dependency: tuple[str, str | None] | None = None,
-    dependency_inventory: KodiAddonInventoryRecord | None = None,
-    reported_dependency: KodiReportedAddonDependency | None = None,
 ) -> Environment:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(
@@ -510,141 +233,8 @@ def _environment(
         encoding="utf-8",
     )
     (source_root / "main.py").write_text("pass\n", encoding="utf-8")
-    digest = "sha256:" + "c" * 64
     with sessions.begin() as session:
         DevelopmentSourceRepository(session).create(_source())
-        session.add(
-            RuntimeDefinitionRow(
-                id=str(RUNTIME_DEFINITION_ID),
-                slug=f"kodi-{kodi_release}-slice4",
-                kodi_version=kodi_release,
-            )
-        )
-        session.flush()
-        session.add(
-            RuntimeRevisionRow(
-                id=str(RUNTIME_REVISION_ID),
-                runtime_definition_id=str(RUNTIME_DEFINITION_ID),
-                revision_number=1,
-                source_kind="official_package",
-                source_reference="slice4-test",
-                content_digest=digest,
-                manifest_reference="runtime/slice4.json",
-                manifest_digest=digest,
-                built_at=NOW_TEXT,
-                build_log_reference=None,
-                approval_state="approved",
-                approved_at=NOW_TEXT,
-                approval_note=None,
-                requires_trusted_build_confirmation=False,
-                trusted_build_confirmed_at=None,
-            )
-        )
-        session.add(
-            TargetRow(
-                id=str(TARGET_ID),
-                name="Slice 4 disposable",
-                target_type="managed",
-                kodi_version=kodi_release,
-                availability="available",
-                health="healthy",
-                connection_state="connected",
-            )
-        )
-        session.flush()
-        session.add(
-            ManagedInstanceRow(
-                target_id=str(TARGET_ID),
-                instance_type="disposable",
-                runtime_revision_id=str(RUNTIME_REVISION_ID),
-                runtime_state="running",
-                start_on_host_boot=False,
-                notes=None,
-            )
-        )
-        session.flush()
-        session.add(
-            RuntimeExecutionProfileRow(
-                runtime_revision_id=str(RUNTIME_REVISION_ID),
-                runtime_kind="kodi",
-                runtime_uid=1000,
-                runtime_gid=1000,
-                python_bytecode_policy="suppress",
-                expected_application_name="Kodi",
-                expected_kodi_version=(
-                    f"{KodiReleaseIdentity.parse(kodi_release).major}."
-                    f"{KodiReleaseIdentity.parse(kodi_release).minor}"
-                ),
-                expected_version_tag=KodiReleaseIdentity.parse(
-                    kodi_release
-                ).channel.value,
-                expected_prerelease_ordinal=KodiReleaseIdentity.parse(
-                    kodi_release
-                ).prerelease_ordinal,
-                jsonrpc_port=8080,
-                jsonrpc_path="/jsonrpc",
-                process_observation="docker_healthcheck",
-                readiness_probe="kodi_jsonrpc",
-                readiness_timeout_seconds=90,
-                poll_interval_seconds=1.0,
-                http_timeout_seconds=3.0,
-            )
-        )
-        session.add(
-            ManagedInstanceDevelopmentSourceRow(
-                managed_instance_id=str(TARGET_ID),
-                development_source_id=str(SOURCE_ID),
-                attached_at=NOW_TEXT,
-            )
-        )
-        session.flush()
-        session.add(
-            DevelopmentSourceDeploymentOperationRow(
-                id=str(BASELINE_OPERATION_ID),
-                original_managed_instance_id=str(TARGET_ID),
-                managed_instance_id=str(TARGET_ID),
-                development_source_id=str(SOURCE_ID),
-                source_logical_name="Slice 4 source",
-                addon_id="plugin.video.slice4",
-                runtime_revision_id=str(RUNTIME_REVISION_ID),
-                request_kind="copy_sync",
-                requested_at=NOW_TEXT,
-                state="succeeded",
-                phase="finalize",
-                result_classification="initial_deployment",
-                new_count=2,
-                changed_count=0,
-                unchanged_count=0,
-                destination_only_count=0,
-                transferred_bytes=10,
-                expected_container_id=CONTAINER_ID,
-                started_at=NOW_TEXT,
-                heartbeat_at=NOW_TEXT,
-                completed_at=NOW_TEXT,
-                failure_reason=None,
-                reconciliation_required=False,
-                lease_token_digest=None,
-                lease_expires_at=None,
-            )
-        )
-        session.flush()
-        session.add(
-            DevelopmentSourceDeploymentRow(
-                managed_instance_id=str(TARGET_ID),
-                development_source_id=str(SOURCE_ID),
-                addon_id="plugin.video.slice4",
-                mode="copy",
-                last_successful_operation_id=str(BASELINE_OPERATION_ID),
-                source_manifest_digest="sha256:" + "3" * 64,
-                verified_destination_digest="sha256:" + "4" * 64,
-                runtime_revision_id=str(RUNTIME_REVISION_ID),
-                trusted_container_id=CONTAINER_ID,
-                observed_source_name="Slice 4",
-                observed_source_version="1.0.0",
-                verified_at=NOW_TEXT,
-                confidence="verified_at_last_operation",
-            )
-        )
     workspaces = AgentWorkspaceService(
         sessions,
         data_root=tmp_path / "data",
@@ -669,16 +259,6 @@ def _environment(
                 created_at=NOW_TEXT,
             )
         )
-    manifest = capture_workspace_deployment_tree(
-        tmp_path / "data", creation.workspace_id
-    )
-    broker = FakeBroker(
-        sync_source_digest=manifest.digest,
-        sync_destination_digest=expected_destination_digest(
-            manifest, runtime_uid=1000, runtime_gid=1000
-        ),
-    )
-    smoke = SmokeCounter()
     development = McpWorkspaceDevelopmentService(
         sessions,
         workspaces,
@@ -704,8 +284,6 @@ def _environment(
         sessions,
         workspaces,
         development,
-        broker,
-        smoke,
         client.id,
         creation.workspace_id,
     )
@@ -895,41 +473,6 @@ def test_external_deploy_execute_replay_and_drift_invalidation(tmp_path: Path) -
     )
     assert execute_replay == executed
     assert targets.execution_count == 1
-    assert (env.broker.capture_count, env.broker.read_count) == (0, 0)
-    promotions = AgentWorkspacePromotionService(
-        env.sessions,
-        data_root=tmp_path / "data",
-        development_root=tmp_path / "sources",
-        verification_publisher=lambda _session, _operation: uuid4(),
-        clock=lambda: NOW,
-    )
-    promotion_requests = McpPromotionRequestService(
-        env.sessions, promotions, clock=lambda: NOW
-    )
-    promotion_request_id = uuid4()
-    promotion = promotion_requests.request(
-        client_id=env.client_id,
-        request_id=promotion_request_id,
-        workspace_id=env.workspace_id,
-        expected_generation=1,
-        target_id=EXTERNAL_TARGET_ID,
-    )
-    promotion_replay = promotion_requests.request(
-        client_id=env.client_id,
-        request_id=promotion_request_id,
-        workspace_id=env.workspace_id,
-        expected_generation=1,
-        target_id=EXTERNAL_TARGET_ID,
-    )
-    assert promotion_replay == promotion
-    assert promotion.review_state == "reviewable"
-    with env.sessions() as session:
-        plan = session.get(
-            AgentWorkspacePromotionPlanRow, str(promotion.promotion_plan_id)
-        )
-        assert plan is not None
-        assert plan.target_class == "external_development"
-        assert plan.target_bridge_id == str(EXTERNAL_BRIDGE_ID)
     with env.sessions.begin() as session:
         deployment_row = session.get(
             McpWorkspaceDeploymentOperationRow, str(first.deployment_id)
@@ -1084,76 +627,6 @@ def test_external_terminal_receipt_prunes_only_with_coherent_phase12_evidence(
         )
 
 
-def _deploy_workspace(env: Environment) -> None:
-    deployed = env.development.deploy(
-        client_id=env.client_id,
-        request_id=uuid4(),
-        workspace_id=env.workspace_id,
-        expected_generation=0,
-        target_id=TARGET_ID,
-    )
-    assert deployed.state == "succeeded"
-
-
-def _execute_workspace(
-    env: Environment, *, request_id: UUID | None = None
-) -> WorkspaceExecutionResult:
-    return env.development.execute(
-        client_id=env.client_id,
-        request_id=request_id or uuid4(),
-        workspace_id=env.workspace_id,
-        expected_generation=0,
-        target_id=TARGET_ID,
-    )
-
-
-def _ambiguous_recovery_environment(
-    tmp_path: Path, *, non_timeout: bool = False
-) -> tuple[Environment, UUID, UUID]:
-    env = _environment(tmp_path)
-    _deploy_workspace(env)
-    with env.sessions.begin() as session:
-        session.add(
-            McpClientTargetGrantRow(
-                client_id=str(env.client_id),
-                target_id=str(TARGET_ID),
-                grant_id=str(uuid4()),
-                created_at=NOW_TEXT,
-            )
-        )
-        session.add(
-            McpClientDevelopmentSourceGrantRow(
-                client_id=str(env.client_id),
-                development_source_id=str(SOURCE_ID),
-                created_at=NOW_TEXT,
-            )
-        )
-
-    def timeout(_addon_id: str) -> KodiAddonSmokeResult:
-        env.smoke.count += 1
-        if non_timeout:
-            raise KodiAddonSmokeAmbiguousError("Unsupported directory response")
-        raise KodiAddonSmokeTimeoutError(10)
-
-    env.smoke.invoke = timeout  # type: ignore[assignment]
-    execution_request = uuid4()
-    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_ambiguous"):
-        env.development.execute(
-            client_id=env.client_id,
-            request_id=execution_request,
-            workspace_id=env.workspace_id,
-            expected_generation=0,
-            target_id=TARGET_ID,
-        )
-    with env.sessions() as session:
-        execution = session.scalar(select(McpWorkspaceExecutionOperationRow))
-        assert execution is not None
-        assert execution.execution_kind == "smoke"
-        assert execution.original_container_id == CONTAINER_ID
-        assert execution.original_runtime_state_revision is not None
-        return env, execution_request, UUID(execution.id)
-
-
 def test_deployment_and_execution_rate_windows_use_bounded_fake_clock() -> None:
     now = [1000.0]
     deployment = BoundedIntervalRateLimiter(300, maximum_keys=2, clock=lambda: now[0])
@@ -1190,7 +663,7 @@ def test_default_external_cooldown_stays_300_seconds_and_replays_denial(
         )
 
     assert deploy(uuid4()).state == "succeeded"
-    now[0] += MANAGED_DEPLOYMENT_INTERVAL_SECONDS
+    now[0] += 299.0
     denied = uuid4()
     with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
         deploy(denied)
@@ -1200,3 +673,88 @@ def test_default_external_cooldown_stays_300_seconds_and_replays_denial(
         deploy(denied)
     assert deploy(uuid4()).state == "succeeded"
     assert bridge.replacement_count == 2
+
+
+def test_external_tool_validates_deploys_and_rechecks_credential(
+    tmp_path: Path,
+) -> None:
+    from kodi_lab.application.mcp_administration import McpAuthenticationService
+    from kodi_lab.mcp.authorization import (
+        McpAuthorizationError,
+        McpAuthorizationService,
+        TargetTechnicalAuthority,
+    )
+    from kodi_lab.mcp.registry import TargetClass, build_mcp_tool_registry
+    from kodi_lab.mcp.tools import (
+        McpTargetToolService,
+        WorkspaceDeployInput,
+        WorkspaceExecuteInput,
+        WorkspaceValidateInput,
+    )
+    from kodi_lab.storage.models import McpWorkspaceValidationRow
+
+    env = _environment(tmp_path)
+    bridge, adapters = _configure_external_environment(env)
+    with env.sessions.begin() as session:
+        session.execute(
+            delete(McpWorkspaceValidationRow).where(
+                McpWorkspaceValidationRow.workspace_id == str(env.workspace_id)
+            )
+        )
+    admin = McpAdministrationService(env.sessions, clock=lambda: NOW)
+    admin.grant_development_source(env.client_id, SOURCE_ID)
+    admin.assign_target_preset(EXTERNAL_TARGET_ID, FULL_LAB_CONTROL_PRESET_ID)
+    credential = admin.issue_credential(env.client_id)
+    principal = McpAuthenticationService(env.sessions, clock=lambda: NOW).authenticate(
+        credential.token
+    )
+    assert principal is not None
+
+    class Technical:
+        def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
+            assert target_id == EXTERNAL_TARGET_ID
+            return TargetTechnicalAuthority(
+                TargetClass.EXTERNAL_DEVELOPMENT,
+                frozenset({"workspace_deployment", "workspace_execution"}),
+                frozenset({"running", "ready", "reconciled"}),
+            )
+
+    auth = McpAuthorizationService(
+        env.sessions, build_mcp_tool_registry(), targets=Technical(), clock=lambda: NOW
+    )
+    tools = McpTargetToolService(
+        env.sessions, auth, workspace_development=env.development
+    )
+    validation = WorkspaceValidateInput(
+        workspace_id=env.workspace_id, expected_generation=0
+    )
+    evidence = tools.workspace_validate(principal, validation)
+    assert evidence.source_id == SOURCE_ID and evidence.observed_generation == 0
+    deploy = WorkspaceDeployInput(
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=EXTERNAL_TARGET_ID,
+        deployment_mode="direct",
+    )
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        tools.workspace_deploy(principal, deploy)
+    assert bridge.replacement_count == 0
+    admin.grant_target(env.client_id, EXTERNAL_TARGET_ID)
+    assert tools.workspace_deploy(principal, deploy).state == "succeeded"
+    assert bridge.replacement_count == 1
+    execute = WorkspaceExecuteInput(
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    assert tools.workspace_execute(principal, execute).state == "succeeded"
+    assert adapters.execution_count == 1
+    admin.revoke_credential(env.client_id, principal.credential_id)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        tools.workspace_validate(principal, validation)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        tools.workspace_execute(principal, execute)

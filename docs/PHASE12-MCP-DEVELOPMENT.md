@@ -10,7 +10,7 @@ contract is defined in [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative
 later source scan/capture, exact ambiguous-smoke recovery, batch imports,
 retained action observations, direct manifest launch and opt-in managed lifecycle extend that surface.
 See [manifest entry launch](MANIFEST-ENTRY-LAUNCH.md),
-[managed resource controls](MANAGED-KODI-RESOURCES.md),
+[managed resource controls](MANAGED-V2-FRESH-INSTALL.md),
 [workspace batch import](WORKSPACE-BATCH-IMPORT.md) and
 [action observations](REMOTE-ACTION-OBSERVATIONS.md) for the D-0438 additions.
 
@@ -25,7 +25,7 @@ target, shell, Git, Docker, raw filesystem, arbitrary testing, arbitrary
 add-on invocation, raw JSON-RPC or arbitrary command authority.
 
 For the ordinary edit, stage, validate, deploy, launch and observe sequence,
-start with the [managed agent quick start](MANAGED-AGENT-LOOP.md).
+start with the [managed agent quick start](MANAGED-V2-FRESH-INSTALL.md).
 
 ## Authority model
 
@@ -476,7 +476,7 @@ validation, deployment and execution UUID/state/generation/target. Web gains no
 MCP trigger, force control or generic reconciliation route.
 
 Managed direct deployments with uncertain outcomes have a Web administrator
-[stopped-container recovery procedure](MANAGED-DEPLOYMENT-RECOVERY.md). It verifies
+[stopped-container recovery procedure](MANAGED-V2-FRESH-INSTALL.md). It verifies
 the complete installed tree against retained evidence and records containment;
 it never treats containment as successful deployment or replays the old request.
 

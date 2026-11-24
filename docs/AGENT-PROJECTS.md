@@ -1,7 +1,7 @@
 # Agent-owned projects
 
 For unattended managed installation and updates, use the
-[validated source-deployment loop](MANAGED-ADDON-INSTALLATION.md). Repository
+[validated source-deployment loop](MANAGED-V2-FRESH-INSTALL.md). Repository
 `InstallAddon(id)` requires confirmation and cannot pin a reviewed package.
 See the [four-version source qualification](MANAGED-SOURCE-DEVELOPMENT-QUALIFICATION.md)
 for actual larger GitHub intake, separate Python modules and native updates.

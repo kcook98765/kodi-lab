@@ -84,7 +84,7 @@ export KODI_LAB_TEST_SNAPSHOT_SCRATCH_ROOT="$snapshot_scratch_root/scratch"
 snapshot_free_bytes="$(df -B1 --output=avail "$snapshot_scratch_root" | tail -n 1)"
 snapshot_min_free_bytes="$(
     uv run --locked python -c \
-        'from kodi_lab.snapshot.storage import MIN_FREE_BYTES; print(MIN_FREE_BYTES)'
+        'from scripts.validation_tiers import MIN_FREE_BYTES; print(MIN_FREE_BYTES)'
 )"
 if (( snapshot_free_bytes < snapshot_min_free_bytes )); then
     echo "Snapshot test scratch storage has ${snapshot_free_bytes} bytes free; ${snapshot_min_free_bytes} are required." >&2

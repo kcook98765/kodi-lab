@@ -29,8 +29,7 @@ from kodi_lab.application.screenshot_preferences import (
     ScreenshotPreferenceRead,
     ScreenshotPreferenceService,
 )
-from kodi_lab.domain import TargetType
-from kodi_lab.storage.models import HouseholdOnboardingRow, TargetRow
+from kodi_lab.storage.models import HouseholdOnboardingRow
 
 
 @dataclass(frozen=True)
@@ -90,16 +89,6 @@ class KodiViews:
         self._targets = targets
         self._bridges = bridges
         self._preferences = preferences
-
-    def managed_names(self) -> list[str]:
-        with self._sessions() as session:
-            return list(
-                session.scalars(
-                    select(TargetRow.name)
-                    .where(TargetRow.target_type == TargetType.MANAGED)
-                    .order_by(TargetRow.name, TargetRow.id)
-                )
-            )
 
     def list(self) -> list[KodiView]:
         return [self.present(target) for target in self._targets.list_targets()]
