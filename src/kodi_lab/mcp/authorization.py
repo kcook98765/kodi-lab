@@ -267,6 +267,10 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
         return self._managed_lab_role(session, principal, client)
 
+    def managed_lab_enabled(self, principal: McpPrincipal) -> bool:
+        with self._session_factory() as session:
+            return self.has_managed_lab_role(session, principal)
+
     def require_managed_lab_role(
         self, session: Session, principal: McpPrincipal
     ) -> None:

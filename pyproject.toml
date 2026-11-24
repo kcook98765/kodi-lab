@@ -49,6 +49,7 @@ kodi-lab-admin = "kodi_lab.admin_cli:main"
 kodi-lab-mcp-stdio = "kodi_lab.mcp.stdio_proxy:main"
 kodi-lab-web = "kodi_lab.web.run:main"
 kodi-lab-broker = "kodi_lab.broker.run:main"
+kodi-lab-managed-broker = "kodi_lab.managed.broker:main"
 kodi-lab-broker-healthcheck = "kodi_lab.broker_health:main"
 kodi-lab-runtime = "kodi_lab.runtime.distribution:main"
 kodi-lab-lab = "kodi_lab.runtime.lab:main"
@@ -64,6 +65,7 @@ packages = ["src/kodi_lab"]
 
 # One migration tree serves source checkouts and installed artifacts.
 [tool.hatch.build.targets.wheel.force-include]
+"bridge/managed_v2/service.py" = "kodi_lab/managed/resident_service.py"
 "migrations" = "kodi_lab/migrations"
 "THIRD_PARTY_NOTICES.md" = "kodi_lab/THIRD_PARTY_NOTICES.md"
 "bridge/service.kodi_lab_bridge/LICENSE" = "kodi_lab/kodi/bridge_source/LICENSE"

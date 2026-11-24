@@ -8330,3 +8330,15 @@ are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).
 - Reason: The current profile and owned resources are sufficient to recover
   ordinary interruptions. Container history and selected development sessions
   have no role in the replacement.
+
+## D-0506 Managed Web and MCP share the Omega broker
+
+- Status: Stage 3 checkpoint on the draft managed-v2 branch.
+- Decision: Use the existing Web session and MCP credential checks before
+  forwarding a principal over the exact-UID broker socket. Keep a single
+  expiring claim on the shared working profile. Workspace, package and saved
+  snapshot storage are scoped to the client ID. Routine managed pages use
+  direct broker replies and omit container and selected-session identities.
+- Scope: Omega. Shared external services use the existing independent target
+  authority. The older migration graph and advanced managed paths require a
+  separate cutover before promoting managed-v2.

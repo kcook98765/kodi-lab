@@ -1,17 +1,41 @@
 {% extends 'base.html' %}
 {% set nav_section = 'managed' %}
 {% block title %}Managed Kodi · Kodi Lab{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', path='/managed-slots.css') }}">{% endblock %}
-{% block main_class %}kodi-page{% endblock %}
 {% block content %}
 <h1>Managed Kodi</h1>
-<p>Use Kodi versions hosted inside Kodi Lab.</p>
-{% include 'components/managed-version-slots.html' %}
-<details class="kodi-diagnostics">
-  <summary>Advanced managed administration</summary>
-  <p><a href="/managed-instances">Managed registrations and recovery</a> · <a href="/runtimes">Runtime approval and installation</a> · <a href="/managed-resources">Resource and idle settings</a></p>
-  <p><a href="/development-session">Legacy Current Managed Kodi selection</a> · <a href="/mcp-clients#managed-inspection">Limited inspection setup</a></p>
-  <p>Inspection needs a working Kodi connection and support for the requested checks. Stored Bridge trust and screenshots have separate requirements.</p>
-</details>
+<section aria-labelledby="omega-heading" id="managed-omega" data-csrf="{{ csrf_token }}">
+  <h2 id="omega-heading">Omega 21.3</h2>
+  <p id="managed-status" role="status">Checking Kodi…</p>
+  <div>
+    <button type="button" data-action="managed_prepare">Prepare</button>
+    <button type="button" data-action="managed_start">Start</button>
+    <button type="button" data-action="managed_stop">Stop</button>
+    <button type="button" data-action="managed_reset">Reset</button>
+    <button type="button" data-action="managed_recover" hidden>Recover</button>
+  </div>
+  <p id="managed-feedback" role="status"></p>
+  <section aria-labelledby="managed-snapshots-heading">
+    <h3 id="managed-snapshots-heading">Snapshots</h3>
+    <label for="managed-snapshot">Administrator snapshots</label>
+    <select id="managed-snapshot"></select>
+    <button type="button" data-action="snapshot_load">Load</button>
+    <button type="button" data-action="snapshot_delete">Delete</button>
+    <label for="managed-snapshot-name">New snapshot name</label>
+    <input id="managed-snapshot-name" maxlength="64">
+    <button type="button" data-action="snapshot_save">Save</button>
+  </section>
+  <section aria-labelledby="managed-view-heading">
+    <h3 id="managed-view-heading">Kodi screen</h3>
+    <button type="button" id="managed-view">View</button>
+    <button type="button" data-action="managed_take_control">Take Control</button>
+    <button type="button" data-action="managed_release">Release Control</button>
+    <img id="managed-screen" alt="Managed Kodi screen" width="640" hidden>
+    <div id="managed-navigation" hidden>
+      {% for key in ['up', 'down', 'left', 'right', 'select', 'back', 'home', 'info'] %}
+      <button type="button" data-action="managed_navigate" data-key="{{ key }}">{{ key | title }}</button>
+      {% endfor %}
+    </div>
+  </section>
+</section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', path='/managed-slots.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/managed.js') }}" defer></script>{% endblock %}

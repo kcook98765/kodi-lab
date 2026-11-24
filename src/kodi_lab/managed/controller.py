@@ -9,108 +9,226 @@ import re
 import shutil
 import sqlite3
 import time
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
 from uuid import uuid4
+from xml.etree import ElementTree as ET
 
-from .packages import Packages, addon_id, manifest, sha, workspace_files
-from .protocol import READ, Refusal, validate
+from kodi_lab.kodi.remote import (
+    NAVIGATION_ACTIONS,
+    BrowserRemoteAction,
+    fixed_request_mapping,
+)
+
+from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
+from .protocol import (
+    ADMIN,
+    PRIVATE,
+    READ,
+    Document,
+    OperationReply,
+    Refusal,
+    actor_key,
+    validate,
+)
 from .runtime import ESTUARY, REPO, Runtime, atomic
 from .snapshots import Snapshots
 
 
 class Controller:
-    def __init__(self, root, *, interrupt=None):
+    def __init__(
+        self, root: Path, *, interrupt: Callable[[str], None] | None = None
+    ) -> None:
         self.runtime = Runtime(root, self.checkpoint)
         self.record = self.runtime.root / "operation.json"
-        self.current = None
+        self.current: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
-        self.packages = Packages(self.runtime.root, self.runtime.feed)
-        self.snapshots = Snapshots(self.runtime, self.checkpoint)
-        self.actions = {
+        self.actor = "admin"
+        self.lease_path = self.runtime.root / "active-owner"
+        self.agents = self.runtime.root / "agents"
+        self.agents.mkdir(mode=0o700, exist_ok=True)
+        self.actions: dict[str, Callable[..., object]] = {
             "managed_prepare": self.runtime.prepare,
             "managed_start": self.runtime.start,
             "managed_stop": self.runtime.stop,
             "managed_reset": self.runtime.reset,
             "managed_status": self.status,
             "managed_recover": self.recover,
-            "snapshot_list": self.snapshots.list,
-            "snapshot_save": self.snapshots.save,
-            "snapshot_load": self.snapshots.load,
-            "snapshot_delete": self.snapshots.delete,
-            "workspace_package": self.packages.workspace_package,
+            "snapshot_list": lambda **args: self.snapshots.list(**args),
+            "snapshot_save": lambda **args: self.snapshots.save(**args),
+            "snapshot_load": lambda **args: self.snapshots.load(**args),
+            "snapshot_delete": lambda **args: self.snapshots.delete(**args),
+            "workspace_open": lambda **args: self.packages.open_workspace(**args),
+            "workspace_tree": lambda **args: self.packages.tree(**args),
+            "workspace_read": lambda **args: self.packages.read(**args),
+            "workspace_edit": lambda **args: self.packages.edit(**args),
+            "workspace_package": lambda **args: self.packages.workspace_package(**args),
             "addon_install": self.install,
             "workspace_deploy": self.deploy,
             "package_import": self.import_zip,
             "addon_launch": self.launch,
             "addon_setting": self.setting,
             "addon_inventory": self.inventory,
+            "managed_gui": self.gui,
+            "managed_screen": self.runtime.screen,
+            "managed_logs": self.runtime.logs,
+            "managed_navigate": self.navigate,
             "managed_skin": self.skin,
         }
 
-    def last_operation(self):
-        return json.loads(self.record.read_text()) if self.record.exists() else None
+    def actor_directory(self, actor: str) -> Path:
+        if actor == "admin":
+            return self.runtime.root
+        root = self.agents / actor_key(actor)
+        root.mkdir(mode=0o700, exist_ok=True)
+        for name in ("snapshots", "approved", "workspaces"):
+            (root / name).mkdir(mode=0o700, exist_ok=True)
+        return root
 
-    def checkpoint(self, event, **data):
+    @property
+    def packages(self) -> Packages:
+        return Packages(
+            self.actor_directory(self.actor),
+            self.runtime.feed,
+            catalog_root=self.runtime.root,
+        )
+
+    @property
+    def snapshots(self) -> Snapshots:
+        return self.actor_snapshots(self.actor)
+
+    def actor_snapshots(self, actor: str) -> Snapshots:
+        return Snapshots(
+            self.runtime,
+            self.checkpoint,
+            directory=self.actor_directory(actor) / "snapshots",
+        )
+
+    def owner(self) -> str | None:
+        if not self.lease_path.exists():
+            return None
+        lease = json.loads(self.lease_path.read_text())
+        return actor_key(lease["owner"]) if lease["expires"] > time.time() else None
+
+    def claim(self, actor: str) -> Document:
+        atomic(
+            self.lease_path,
+            json.dumps(
+                {
+                    "owner": actor,
+                    "expires": time.time() + 900,
+                }
+            ).encode(),
+        )
+        return {"owner": actor, "idle_timeout_seconds": 900}
+
+    def authorize_profile(
+        self, name: str, actor: str, pending: Document | None
+    ) -> Document | None:
+        if name in ADMIN and actor != "admin":
+            raise Refusal("managed_admin_required")
+        if name == "managed_take_control":
+            return self.claim(actor)
+        if name in PRIVATE or name == "managed_status":
+            return None
+
+        owner = self.owner()
+        if owner and owner != actor and (actor != "admin" or name not in READ):
+            raise Refusal("managed_owned")
+        if name == "managed_release":
+            if owner == actor:
+                self.lease_path.unlink(missing_ok=True)
+            return {"owner": None}
+        if name == "managed_acquire":
+            if pending:
+                raise Refusal("managed_recovery_required")
+            return self.claim(actor)
+        if name not in READ:
+            if actor != "admin" and owner != actor:
+                raise Refusal("managed_acquire_required")
+            self.claim(actor)
+        elif actor != "admin" and owner != actor:
+            raise Refusal("managed_acquire_required")
+        return None
+
+    def last_operation(self) -> Document | None:
+        return (
+            cast(Document, json.loads(self.record.read_text()))
+            if self.record.exists()
+            else None
+        )
+
+    def checkpoint(self, event: str, **data: object) -> None:
         if self.current is not None:
             self.current.update(event=event, **data)
             atomic(self.record, json.dumps(self.current).encode())
             self.interrupt(event)
 
-    def perform(self, name, args, *, write):
+    def perform(self, name: str, args: dict[str, str], *, actor: str) -> OperationReply:
         started = time.monotonic()
-        if name not in READ and not write:
-            raise Refusal("managed_write_denied")
+        actor_key(actor)
         with self.runtime.exclusive():
             validate(name, args)
-            previous = self.last_operation()
-            pending = previous if previous and previous["state"] == "pending" else None
-            if name in READ or name == "managed_recover":
-                result = self.actions[name](**args)
-            elif pending and pending.get("recovery_error") and name == "managed_stop":
-                # A failed skin recovery can leave the fallback booted.
-                result = self.runtime.stop()
-            else:
-                if pending:
-                    if not (
-                        pending.get("recovery_error")
-                        and name in {"managed_reset", "snapshot_load"}
-                    ):
-                        raise Refusal("managed_recovery_required")
-                    self.runtime.remove_exited()
-                self.current = {
-                    "id": uuid4().hex,
-                    "name": name,
-                    "state": "pending",
-                    "subject": {
-                        key: value
-                        for key, value in args.items()
-                        if key in {"addon", "version", "digest", "name"}
-                    },
-                }
-                try:
-                    self.checkpoint("begin")
-                    result = self.actions[name](**args)
-                    if name == "workspace_package":
-                        result = {
-                            "digest": result.digest,
-                            "addon": result.id,
-                            "version": result.version,
-                        }
-                    if not (
-                        self.current.get("native_pending") or self.current.get("skin")
-                    ):
-                        self.checkpoint("reply", state="complete", result=result)
-                except Refusal as exc:
-                    if self.current["event"] == "begin":
-                        self.checkpoint("refused", state="complete", error=str(exc))
-                    raise
-                finally:
-                    self.current = None
+            self.actor = actor
+            try:
+                result = self.perform_locked(name, args)
+            finally:
+                self.actor = "admin"
         return {
             "result": result,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
 
-    def status(self):
+    def perform_locked(self, name: str, args: dict[str, str]) -> object:
+        previous = self.last_operation()
+        pending = previous if previous and previous["state"] == "pending" else None
+        lease_result = self.authorize_profile(name, self.actor, pending)
+        if lease_result is not None:
+            return lease_result
+        if name in READ or name in PRIVATE or name == "managed_recover":
+            result = self.actions[name](**args)
+            if isinstance(result, Package):
+                return {
+                    "digest": result.digest,
+                    "addon": result.id,
+                    "version": result.version,
+                }
+            return result
+        if pending and pending.get("recovery_error") and name == "managed_stop":
+            return self.runtime.stop()
+        if pending:
+            if not (
+                pending.get("recovery_error")
+                and name in {"managed_reset", "snapshot_load"}
+            ):
+                raise Refusal("managed_recovery_required")
+            self.runtime.remove_exited()
+        self.current = {
+            "id": uuid4().hex,
+            "name": name,
+            "actor": self.actor,
+            "state": "pending",
+            "subject": {
+                key: value
+                for key, value in args.items()
+                if key in {"addon", "version", "digest", "name"}
+            },
+        }
+        try:
+            self.checkpoint("begin")
+            result = self.actions[name](**args)
+            if not (self.current.get("native_pending") or self.current.get("skin")):
+                self.checkpoint("reply", state="complete", result=result)
+            return result
+        except Refusal as exc:
+            if self.current["event"] == "begin":
+                self.checkpoint("refused", state="complete", error=str(exc))
+            raise
+        finally:
+            self.current = None
+
+    def status(self) -> Document:
         obj = self.runtime.inspect()
         status = (self.runtime.ready() if obj else None) or {
             "state": (
@@ -124,7 +242,8 @@ class Controller:
             ),
         }
         previous = self.last_operation()
-        if previous:
+        status["owner"] = self.owner()
+        if previous and (self.actor == "admin" or previous.get("actor") == self.actor):
             status["operation"] = {
                 key: previous[key]
                 for key in (
@@ -141,7 +260,7 @@ class Controller:
             }
         return status
 
-    def recover(self):
+    def recover(self) -> Document:
         record = self.last_operation()
         if not record or record["state"] != "pending":
             return {"state": "no_recovery_required"}
@@ -164,6 +283,7 @@ class Controller:
                 {
                     "id": record["id"],
                     "name": record["name"],
+                    "actor": record.get("actor", "admin"),
                     "subject": record["subject"],
                     "event": "recovered",
                     "state": "complete",
@@ -173,7 +293,7 @@ class Controller:
         )
         return report
 
-    def reconcile(self, record):
+    def reconcile(self, record: Document) -> None:
         native = self.runtime
         if record.get("skin"):
             skin = record["skin"]
@@ -192,10 +312,12 @@ class Controller:
         ):
             native.stop()
         elif "archive" in record:
-            self.snapshots.discard_incomplete(record)
+            self.actor_snapshots(record.get("actor", "admin")).discard_incomplete(
+                record
+            )
         elif "slot" in record:
             active = native.read_pointer() if native.pointer.exists() else None
-            if active == record["slot"]:
+            if active is not None and active == record["slot"]:
                 native.require_volume(active)
                 if record.get("prior_slot"):
                     native.retire(record["prior_slot"])
@@ -204,7 +326,7 @@ class Controller:
         elif "deploy" in record:
             self.recover_deploy(record["deploy"])
 
-    def import_zip(self, encoded, digest):
+    def import_zip(self, encoded: str, digest: str) -> Document:
         if len(encoded) > 740_000:
             raise Refusal("inline_package_limit")
         try:
@@ -216,8 +338,8 @@ class Controller:
         pkg = self.packages.approve(data)
         return {"digest": pkg.digest, "addon": pkg.id, "version": pkg.version}
 
-    def inventory(self):
-        result = self.runtime.rpc(
+    def inventory(self) -> list[Document]:
+        result: Document = self.runtime.rpc(
             "Addons.GetAddons", properties=["enabled", "version", "name"]
         )
         return [
@@ -229,16 +351,16 @@ class Controller:
                     "plugin.",
                     "resource.",
                     "skin.",
-                    "service.kodi_lab_bridge",
+                    "service.",
                     REPO,
                 )
             )
         ]
 
-    def installed(self, addon):
+    def installed(self, addon: str) -> Document | None:
         return next((x for x in self.inventory() if x["addonid"] == addon), None)
 
-    def verify(self, pkg):
+    def verify(self, pkg: Package) -> Document:
         current = self.installed(pkg.id)
         if not current or not current["enabled"] or current["version"] != pkg.version:
             raise Refusal("native_install_state_mismatch")
@@ -256,6 +378,8 @@ class Controller:
             # Generated files are distinguished from the caller-approved package bytes.
             current["generated_paths"] = sorted(surplus)
         (database,) = (self.runtime.profile() / "userdata/Database").glob("Addons*.db")
+        if database.is_symlink() or not database.is_file():
+            raise Refusal("native_database_unavailable")
         with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1) as db:
             origin = db.execute(
                 "SELECT origin, enabled FROM installed WHERE addonID=?", (pkg.id,)
@@ -271,11 +395,13 @@ class Controller:
             "files_verified": len(pkg.members),
         }
 
-    def dependencies(self, package, catalog):
+    def dependencies(
+        self, package: Package, catalog: dict[str, Package]
+    ) -> list[Document]:
         records = {}
         seen = {package.id}
 
-        def scan(parent):
+        def scan(parent: Package) -> None:
             for child in parent.node.findall("requires/import"):
                 name = child.attrib["addon"]
                 if name in seen or name.startswith("xbmc."):
@@ -291,7 +417,9 @@ class Controller:
         scan(package)
         return list(records.values())
 
-    def install(self, addon, version, digest):
+    def install(
+        self, addon: str, version: str, digest: str, allow_services: str = "false"
+    ) -> Document:
         addon_id(addon)
         pkg = self.packages.get(digest)
         if pkg.id != addon or pkg.version != version:
@@ -305,6 +433,14 @@ class Controller:
         if not self.runtime.ready():
             raise Refusal("bridge_not_ready")
         old = self.installed(addon)
+        if allow_services not in {"true", "false"}:
+            raise Refusal("invalid_service_consent")
+        catalog = self.packages.catalog()
+        if allow_services == "false" and any(
+            item.node.find("extension[@point='xbmc.service']") is not None
+            for item in [pkg, *catalog.values()]
+        ):
+            raise Refusal("service_activation_consent_required")
         checksum, catalog = self.packages.publish(pkg)
         allowed = {dep.node.attrib["name"] for dep in catalog.values()}
         allowed.update(
@@ -312,7 +448,7 @@ class Controller:
             for p in catalog.values()
             for dep in p.node.findall("requires/import")
         )
-        intent = {
+        intent: dict[str, object] = {
             "addon": addon,
             "version": version,
             "category": pkg.category,
@@ -342,12 +478,12 @@ class Controller:
             "native": response,
         }
 
-    def install_on_estuary(self, intent):
+    def install_on_estuary(self, intent: dict[str, object]) -> Document:
         native = self.runtime
         prior = native.active_skin()
-        if prior == ESTUARY:
-            result = self.dispatch_native(intent)
-            return {"prior_skin": prior, "final_skin": native.active_skin(), **result}
+        if prior == ESTUARY and not intent["replace"]:
+            reply = self.dispatch_native(intent)
+            return {"prior_skin": prior, "final_skin": native.active_skin(), **reply}
 
         gui = native.rpc("GUI.GetProperties", properties=["currentwindow"])
         if gui["currentwindow"]["id"] not in (10000, 10040):
@@ -357,9 +493,23 @@ class Controller:
                 "final_skin": prior,
             }
 
+        if prior == ESTUARY:
+            # Kodi's in-process ZIP directory cache keys by path and whole-second
+            # mtime. The native installer reuses the path for an equal version.
+            # A clean restart discards that cache without changing the profile.
+            native.stop()
+            native.start_with_skin(ESTUARY)
+            reply = self.dispatch_native(intent)
+            return {
+                "prior_skin": prior,
+                "final_skin": native.active_skin(),
+                **reply,
+                "actions": ["restart_equal_version", *reply.get("actions", [])],
+            }
+
         actions = []
         saved = None
-        result = {}
+        result: Document = {}
         try:
             native.stop()
             _, tree = native.skin_settings()
@@ -398,26 +548,47 @@ class Controller:
         else:
             result["restore_error"] = "prior_skin_state_unconfirmed"
         try:
-            skin = native.active_skin()
+            skin: str | None = native.active_skin()
         except Exception:
             skin = None
         return {"prior_skin": prior, "final_skin": skin, "actions": actions, **result}
 
-    def dispatch_native(self, intent):
+    def dispatch_native(self, intent: dict[str, object]) -> Document:
         self.checkpoint("native_dispatch", native_pending=True)
         result = self.runtime.signed("managed_v2_install", intent)
         self.checkpoint("native_reply")
         return result
 
-    def launch(self, addon):
+    def gui(self) -> Document:
+        result: Document = self.runtime.rpc(
+            "GUI.GetProperties", properties=["currentwindow", "currentcontrol", "skin"]
+        )
+        return result
+
+    def navigate(self, action: str) -> Document:
+        try:
+            remote = BrowserRemoteAction(action)
+        except ValueError as exc:
+            raise Refusal("invalid_navigation_action") from exc
+        if remote not in NAVIGATION_ACTIONS:
+            raise Refusal("invalid_navigation_action")
+        method, params = fixed_request_mapping()[remote]
+        self.runtime.rpc(method, **(params if isinstance(params, dict) else {}))
+        return {"state": "dispatched"}
+
+    def launch(self, addon: str) -> Document:
         addon_id(addon)
         row = self.installed(addon)
-        if not row or not row["enabled"] or row["type"] != "xbmc.python.script":
+        if (
+            not row
+            or not row["enabled"]
+            or row["type"] not in {"xbmc.python.script", "xbmc.python.pluginsource"}
+        ):
             raise Refusal("program_not_enabled")
         self.runtime.rpc("Addons.ExecuteAddon", addonid=addon, wait=False)
         return {"state": "dispatched", "addon": addon, "version": row["version"]}
 
-    def setting(self, addon, key, value):
+    def setting(self, addon: str, key: str, value: str) -> Document:
         addon_id(addon)
         if not self.installed(addon):
             raise Refusal("addon_not_installed")
@@ -425,7 +596,7 @@ class Controller:
             "managed_v2_setting", {"addon": addon, "key": key, "value": value}
         )
 
-    def skin(self, addon):
+    def skin(self, addon: str) -> Document:
         addon_id(addon)
         row = self.installed(addon)
         if (
@@ -455,7 +626,7 @@ class Controller:
         self.checkpoint("skin_changed", skin=None)
         return {"skin": result, "actions": ["stop_edit_start:" + addon]}
 
-    def deploy(self, addon):
+    def deploy(self, addon: str) -> Document:
         addon_id(addon)
         self.runtime.require_stopped()
         src = self.packages.workspaces / addon
@@ -515,7 +686,7 @@ class Controller:
             "version": candidate.attrib["version"],
         }
 
-    def recover_deploy(self, deploy):
+    def recover_deploy(self, deploy: Document) -> None:
         self.runtime.require_stopped()
         if (
             deploy["slot"] != self.runtime.read_pointer()
@@ -535,7 +706,5 @@ class Controller:
             shutil.rmtree(stage)
 
 
-def ET_bytes(value):
-    from xml.etree import ElementTree as ET
-
+def ET_bytes(value: ET.Element) -> bytes:
     return ET.tostring(value)

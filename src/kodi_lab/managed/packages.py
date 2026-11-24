@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
+import shutil
 import stat
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from .runtime import BRIDGE, REPO, Refusal, atomic
 
-ADDON_ID = re.compile(r"(?:script|plugin|skin|resource)\.[a-z0-9_.-]{1,90}")
+ADDON_ID = re.compile(r"[a-z][a-z0-9_.-]{1,95}")
 HEX = re.compile(r"[0-9a-f]{64}")
 VERSION = re.compile(r"[0-9][a-zA-Z0-9.+~-]{0,39}")
 TYPES = {
@@ -22,6 +24,12 @@ TYPES = {
     "xbmc.python.module",
     "xbmc.gui.skin",
     "kodi.resource.images",
+    "kodi.resource.language",
+    "kodi.resource.uisounds",
+    "kodi.context.item",
+    "xbmc.python.library",
+    "xbmc.service",
+    "xbmc.addon.metadata",
 }
 MAX_ZIP = 32 * 1024**2
 MAX_TREE = 64 * 1024**2
@@ -31,17 +39,18 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def addon_id(value):
+def addon_id(value: object) -> str:
     if (
         not isinstance(value, str)
         or not ADDON_ID.fullmatch(value)
+        or value.startswith(("repository.", "xbmc.", "kodi."))
         or value in {BRIDGE, REPO, "skin.estuary"}
     ):
         raise Refusal("invalid_addon_id")
     return value
 
 
-def safe_name(name):
+def safe_name(name: str) -> PurePosixPath:
     path = PurePosixPath(name)
     if (
         not path.parts
@@ -55,7 +64,7 @@ def safe_name(name):
     return path
 
 
-def manifest(data):
+def manifest(data: bytes) -> tuple[ET.Element, str]:
     if (
         len(data) > 128 * 1024
         or b"<!DOCTYPE" in data.upper()
@@ -73,14 +82,24 @@ def manifest(data):
         or not 1 <= len(m.get("name", "")) <= 128
     ):
         raise Refusal("invalid_manifest")
-    extensions = [
-        node.get("point")
-        for node in m.findall("extension")
-        if node.get("point") != "xbmc.addon.metadata"
-    ]
-    if len(extensions) != 1 or extensions[0] not in TYPES:
+    extensions = m.findall("extension")
+    if not extensions or any(node.get("point") not in TYPES for node in extensions):
         raise Refusal("unsupported_extension")
-    return m, extensions[0]
+    for entry in m.findall("requires/import"):
+        if not ADDON_ID.fullmatch(entry.get("addon", "")):
+            raise Refusal("invalid_dependency_id")
+    # Kodi uses the first non-metadata extension as the add-on's listing type.
+    category = next(
+        (
+            node.attrib["point"]
+            for node in extensions
+            if node.attrib["point"] != "xbmc.addon.metadata"
+        ),
+        "",
+    )
+    if not category:
+        raise Refusal("missing_functional_extension")
+    return m, category
 
 
 @dataclass
@@ -91,21 +110,19 @@ class Package:
     members: dict[str, str]
 
     @property
-    def id(self):
+    def id(self) -> str:
         return self.node.attrib["id"]
 
     @property
-    def version(self):
+    def version(self) -> str:
         return self.node.attrib["version"]
 
     @property
-    def digest(self):
+    def digest(self) -> str:
         return sha(self.data)
 
 
-def read_zip(data):
-    import io
-
+def read_zip(data: bytes) -> Package:
     if len(data) > MAX_ZIP:
         raise Refusal("package_limit")
     with ZipFile(io.BytesIO(data)) as archive:
@@ -129,7 +146,7 @@ def read_zip(data):
                 raise Refusal("package_root_mismatch")
             if not item.is_dir():
                 members[str(name.relative_to(root))] = sha(archive.read(item))
-        if "addon.xml" not in members:
+        if root is None or "addon.xml" not in members:
             raise Refusal("invalid_manifest")
         node, category = manifest(archive.read(root + "/addon.xml"))
     if node.attrib["id"] != root:
@@ -137,10 +154,10 @@ def read_zip(data):
     return Package(data, node, category, members)
 
 
-def workspace_files(root):
+def workspace_files(root: Path) -> list[tuple[str, Path]]:
     if not root.is_dir() or root.is_symlink():
         raise Refusal("workspace_missing")
-    result = []
+    result: list[tuple[str, Path]] = []
     total = 0
     for path in sorted(root.rglob("*")):
         name = path.relative_to(root).as_posix()
@@ -156,21 +173,22 @@ def workspace_files(root):
 
 
 class Packages:
-    def __init__(self, root, feed):
+    def __init__(
+        self, root: Path, feed: Path, *, catalog_root: Path | None = None
+    ) -> None:
         self.approved = root / "approved"
         self.workspaces = root / "workspaces"
         self.feed = feed
-        self.catalog_file = root / "catalog.json"
+        self.catalog_root = catalog_root or root
+        self.catalog_file = self.catalog_root / "catalog.json"
 
-    def approve(self, data):
+    def approve(self, data: bytes) -> Package:
         """Operator intake for existing ZIPs and a captured approved repository ZIP."""
         pkg = read_zip(data)
         atomic(self.approved / (pkg.digest + ".zip"), data)
         return pkg
 
-    def workspace_package(self, addon):
-        import io
-
+    def workspace_package(self, addon: str) -> Package:
         addon_id(addon)
         tree = self.workspaces / addon
         files = workspace_files(tree)
@@ -185,7 +203,67 @@ class Packages:
                 archive.write(path, addon + "/" + name)
         return self.approve(output.getvalue())
 
-    def get(self, digest):
+    def open_workspace(self, digest: str) -> dict[str, str]:
+        package = self.get(digest)
+        target = self.workspaces / package.id
+        if target.exists() or target.is_symlink():
+            raise Refusal("workspace_exists")
+        if sum(path.is_dir() for path in self.workspaces.iterdir()) >= 16:
+            raise Refusal("workspace_limit")
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory(dir=self.workspaces) as temporary:
+            stage = Path(temporary) / "source"
+            stage.mkdir()
+            with ZipFile(io.BytesIO(package.data)) as archive:
+                for name in package.members:
+                    output = stage / name
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    with (
+                        archive.open(package.id + "/" + name) as source,
+                        output.open("xb") as dest,
+                    ):
+                        shutil.copyfileobj(source, dest)
+            stage.rename(target)
+        return {"addon": package.id, "version": package.version}
+
+    def tree(self, addon: str) -> list[str]:
+        return [name for name, _ in workspace_files(self.workspaces / addon_id(addon))]
+
+    def read(self, addon: str, path: str) -> dict[str, str]:
+        files = dict(workspace_files(self.workspaces / addon_id(addon)))
+        file = files.get(str(safe_name(path)))
+        if file is None or file.stat().st_size > 24_000:
+            raise Refusal("workspace_file_unavailable")
+        content = file.read_bytes()
+        try:
+            return {"content": content.decode("utf-8"), "digest": sha(content)}
+        except UnicodeError as exc:
+            raise Refusal("workspace_text_required") from exc
+
+    def edit(
+        self, addon: str, path: str, content: str, expected_digest: str
+    ) -> dict[str, str]:
+        root = self.workspaces / addon_id(addon)
+        files = dict(workspace_files(root))
+        name = str(safe_name(path))
+        new = content.encode()
+        file = files.get(name)
+        if file is None or file.stat().st_size > 24_000 or len(new) > 24_000:
+            raise Refusal("workspace_file_unavailable")
+        if sha(file.read_bytes()) != expected_digest:
+            raise Refusal("workspace_edit_conflict")
+        if (
+            sum(item.stat().st_size for item in files.values())
+            - file.stat().st_size
+            + len(new)
+            > MAX_TREE
+        ):
+            raise Refusal("workspace_limit")
+        atomic(file, new)
+        return {"digest": sha(new)}
+
+    def get(self, digest: str) -> Package:
         if not isinstance(digest, str) or not HEX.fullmatch(digest):
             raise Refusal("invalid_package_digest")
         file = self.approved / (digest + ".zip")
@@ -196,18 +274,22 @@ class Packages:
             raise Refusal("package_digest_mismatch")
         return package
 
-    def catalog(self):
+    def catalog(self) -> dict[str, Package]:
         raw = (
             json.loads(self.catalog_file.read_text())
             if self.catalog_file.exists()
             else []
         )
-        return {p.id: p for digest in raw for p in [self.get(digest)]}
+        reviewed = Packages(self.catalog_root, self.feed)
+        return {p.id: p for digest in raw for p in [reviewed.get(digest)]}
 
-    def publish(self, package):
+    def publish(self, package: Package) -> tuple[str, dict[str, Package]]:
         candidates = self.catalog()
         candidates[package.id] = package
         index = ET.Element("addons")
+        # An equal-version package can change without changing addon.xml.
+        # Bind the catalogue checksum to the selected archive bytes.
+        index.append(ET.Comment("package sha256 " + package.digest))
         for pkg in sorted(candidates.values(), key=lambda item: item.id):
             folder = self.feed / "zips" / pkg.id
             folder.mkdir(parents=True, exist_ok=True)

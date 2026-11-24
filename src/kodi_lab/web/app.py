@@ -11,7 +11,7 @@ import ipaddress
 import json
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import timedelta
@@ -332,7 +332,6 @@ from kodi_lab.application.managed_resources import (
     ResourcePolicyInput,
 )
 from kodi_lab.application.managed_versions import (
-    ManagedVersionError,
     ManagedVersionLifecycleService,
 )
 from kodi_lab.application.mcp_administration import (
@@ -621,6 +620,7 @@ from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.kodi.window_resolver import WindowResolver
+from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
 from kodi_lab.mcp.authorization import (
     InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
@@ -673,8 +673,7 @@ from kodi_lab.web.development_targets import development_target_view
 from kodi_lab.web.environment_identity import environment_identity
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.web.live_preview import preview_owner, stream_preview
-from kodi_lab.web.managed_slots import ManagedSlotsWeb, WebSlotRequest
-from kodi_lab.web.managed_slots import friendly as managed_slot_message
+from kodi_lab.web.managed import managed_router
 from kodi_lab.web.native_zip_installations import (
     NativeZipBodyLimitMiddleware,
     native_zip_router,
@@ -2233,7 +2232,9 @@ def create_app(
         base_url=settings.native_zip_base_url,
         inventory_factory=addon_inventory_adapter_factory,
     )
+    managed = ManagedBrokerClient(settings.runtime_root / "managed.sock")
     mcp_transport = build_mcp_http_transport(
+        managed=managed,
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
         registry=mcp_registry,
@@ -3696,97 +3697,9 @@ def create_app(
         screenshot_preferences,
     )
 
-    managed_web = ManagedSlotsWeb(context.managed_versions, novnc_instance_enabled)
-    app.state.managed_slots = managed_web
-
-    def managed_web_authority(request: Request) -> Callable[[Session], None]:
-        token = request.cookies.get(settings.web_session_cookie_name)
-        csrf = request.headers.get("X-Kodi-Lab-CSRF")
-
-        def require_admin(session: Session) -> None:
-            principal = context.auth.resolve_in_session(session, token)
-            if principal is None or (
-                request.method == "POST"
-                and not context.auth.csrf_matches(principal, csrf)
-            ):
-                raise PermissionError("Administrator session expired")
-
-        return require_admin
-
-    @app.get("/api/managed-kodi/slots")
-    def managed_slot_status(
-        request: Request, _admin: AuthenticatedWebSession = Depends(current_session)
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.status(managed_web_authority(request)),
-                headers={"Cache-Control": "no-store"},
-            )
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-
-    @app.get("/api/managed-kodi/requests/{request_id}")
-    def managed_slot_receipt(
-        request: Request,
-        request_id: UUID,
-        _admin: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.receipt(request_id, managed_web_authority(request)),
-                headers={"Cache-Control": "no-store"},
-            )
-        except ManagedVersionError:
-            raise HTTPException(404, "Saved request not found") from None
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-
-    @app.post("/api/managed-kodi/{version}/{action}")
-    def managed_slot_action(
-        request: Request,
-        version: SetupGeneration,
-        action: Literal["start", "stop", "reset"],
-        operation: WebSlotRequest,
-        _admin: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> Response:
-        try:
-            return JSONResponse(
-                managed_web.invoke(
-                    version, action, operation, managed_web_authority(request)
-                ),
-                headers={"Cache-Control": "no-store"},
-            )
-        except PermissionError:
-            raise HTTPException(401, "Administrator session expired") from None
-        except Exception as error:
-            code = getattr(error, "code", "managed_operation_blocked")
-            return JSONResponse(
-                {"message": managed_slot_message(code), "code": code},
-                status_code=409,
-                headers={"Cache-Control": "no-store"},
-            )
-
-    @app.get("/managed-kodi/{version}/development", response_class=HTMLResponse)
-    def managed_slot_development(
-        request: Request,
-        version: SetupGeneration,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        slot = next(
-            v
-            for v in managed_web.status(managed_web_authority(request))["slots"]
-            if v["version"] == version
-        )
-        return templates.TemplateResponse(
-            request,
-            "managed-slot-development.html",
-            {
-                "csrf_token": authenticated.csrf_token,
-                "slot": slot,
-                "current_kodi": current_kodi.identity(),
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+    app.include_router(
+        managed_router(managed, templates, current_session, mutation_session)
+    )
 
     @app.get("/kodi", response_class=HTMLResponse)
     def kodi_page(request: Request) -> Response:
@@ -3804,20 +3717,6 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "overview": overview_summary(session_factory, kodi_views),
                 "application_version": __version__,
-            },
-        )
-
-    @app.get("/managed-kodi", response_class=HTMLResponse)
-    def managed_kodi_page(
-        request: Request,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> Response:
-        return templates.TemplateResponse(
-            request,
-            "managed-kodi.html",
-            {
-                "csrf_token": authenticated.csrf_token,
-                "managed_slots": managed_web.status(managed_web_authority(request)),
             },
         )
 

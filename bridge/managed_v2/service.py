@@ -20,6 +20,7 @@ PRIVATE = Path("/run/kodi/managed-v2")
 PROFILE = Path("/home/kodi/.kodi")
 OPERATIONS = {
     "bridge_identity",
+    "capture_screenshot",
     "managed_v2_install",
     "managed_v2_setting",
 }

@@ -12,15 +12,21 @@ import secrets
 import shutil
 import subprocess
 import time
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path
+from typing import Any, cast
 from urllib.request import ProxyHandler, Request, build_opener
 from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
 from kodi_lab.domain.external_targets import ExternalProtocolKind
-from kodi_lab.kodi.bridge import ExternalBridgeClient, ValidatedExternalEndpoint
+from kodi_lab.kodi.bridge import ExternalBridgeClient
+from kodi_lab.kodi.external import ValidatedExternalEndpoint
 
+from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
 
 IMAGE = "sha256:7f779626cd56fb3bf86e14e39657fee5e8c5299a8f6f7abf59449a1163e7aa8e"
@@ -29,7 +35,6 @@ ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
 LABEL = "io.kodi-lab.managed-v2"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
-HERE = Path(__file__).resolve().parent
 OPENER = build_opener(ProxyHandler({}))
 
 
@@ -47,7 +52,7 @@ def atomic(path: Path, data: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def sync_dir(path):
+def sync_dir(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(fd)
@@ -62,7 +67,7 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
-def wait_until(check, seconds: float, reason: str):
+def wait_until[T](check: Callable[[], T], seconds: float, reason: str) -> T:
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         result = check()
@@ -86,25 +91,43 @@ def descriptor() -> bytes:
         ET.SubElement(directory, key, params).text = "http://feed:8090" + tail
     ET.SubElement(directory, "hashes").text = "sha256"
     ET.SubElement(addon, "extension", point="xbmc.addon.metadata")
-    return ET.tostring(addon, encoding="utf-8", xml_declaration=True)
+    return cast(bytes, ET.tostring(addon, encoding="utf-8", xml_declaration=True))
 
 
 class ManagedBridgeClient(ExternalBridgeClient):
     @staticmethod
-    def _envelope(*, operation, **fields):
+    def _envelope(
+        *,
+        operation: str,
+        target_id: UUID,
+        bridge_id: UUID,
+        request_id: UUID,
+        nonce: str,
+        requested_at: datetime,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         if operation not in {
             "bridge_identity",
             "managed_v2_install",
             "managed_v2_setting",
+            "capture_screenshot",
         }:
             raise Refusal("invalid_managed_bridge_operation")
-        envelope = ExternalBridgeClient._envelope(operation="bridge_identity", **fields)
+        envelope = ExternalBridgeClient._envelope(
+            operation="bridge_identity",
+            target_id=target_id,
+            bridge_id=bridge_id,
+            request_id=request_id,
+            nonce=nonce,
+            requested_at=requested_at,
+            payload=payload,
+        )
         envelope["operation"] = operation
         return envelope
 
 
 class Runtime:
-    def __init__(self, root: Path, checkpoint=None):
+    def __init__(self, root: Path, checkpoint: Checkpoint | None = None) -> None:
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
         mode = self.root.stat()
@@ -140,7 +163,7 @@ class Runtime:
         self.volume_prefix = prefix + "-"
 
     @contextmanager
-    def exclusive(self):
+    def exclusive(self) -> Iterator[None]:
         with (self.root / "controller.lock").open("a") as stream:
             try:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -148,7 +171,7 @@ class Runtime:
                 raise Refusal("managed_busy") from error
             yield
 
-    def capacity(self):
+    def capacity(self) -> None:
         if shutil.disk_usage(self.root).free < 8 * 1024**3 + 128 * 1024**2:
             raise Refusal("disk_headroom")
         if docker("image", "inspect", "--format", "{{.Id}}", IMAGE) != IMAGE:
@@ -172,12 +195,12 @@ class Runtime:
             "max-file=1",
         ]
 
-    def inspect(self, name=None):
+    def inspect(self, name: str | None = None) -> Document | None:
         name = name or self.name
         ids = docker("ps", "-aq", "--filter", "name=^/" + name + "$").splitlines()
         if not ids:
             return None
-        obj = json.loads(docker("inspect", "--type", "container", ids[0]))[0]
+        obj: Document = json.loads(docker("inspect", "--type", "container", ids[0]))[0]
         if (
             len(ids) != 1
             or obj["Name"] != "/" + name
@@ -208,7 +231,7 @@ class Runtime:
             or data["Labels"].get(LABEL) != str(self.target)
         ):
             raise Refusal("network_identity")
-        return data["Id"]
+        return cast(str, data["Id"])
 
     def read_pointer(self) -> str:
         value = self.pointer.read_text()
@@ -216,7 +239,7 @@ class Runtime:
             raise Refusal("profile_identity")
         return value
 
-    def profile(self, slot=None) -> Path:
+    def profile(self, slot: str | None = None) -> Path:
         value = slot or self.read_pointer()
         if not re.fullmatch(r"[0-9a-f]{32}", value):
             raise Refusal("profile_identity")
@@ -225,10 +248,10 @@ class Runtime:
             raise Refusal("profile_missing")
         return path
 
-    def volume(self, slot):
+    def volume(self, slot: str) -> str:
         return self.volume_prefix + slot[:12]
 
-    def stage(self, clean):
+    def stage(self, clean: bool) -> str:
         self.capacity()
         slot = uuid4().hex
         self.checkpoint("profile_staging", slot=slot)
@@ -251,7 +274,7 @@ class Runtime:
         )
         return slot
 
-    def require_volume(self, slot):
+    def require_volume(self, slot: str) -> Path:
         value = json.loads(docker("volume", "inspect", self.volume(slot)))[0]
         path = self.profile(slot)
         if value["Labels"].get(LABEL) != str(self.target) or value["Options"].get(
@@ -260,7 +283,7 @@ class Runtime:
             raise Refusal("volume_identity")
         return path
 
-    def retire(self, slot):
+    def retire(self, slot: str) -> None:
         if self.pointer.exists() and slot == self.read_pointer():
             raise Refusal("cannot_retire_active_profile")
         if not re.fullmatch(r"[0-9a-f]{32}", slot):
@@ -274,7 +297,7 @@ class Runtime:
         if path.exists() or path.is_symlink():
             shutil.rmtree(self.profile(slot))
 
-    def exchange(self, slot):
+    def exchange(self, slot: str) -> None:
         self.require_stopped()
         self.require_volume(slot)
         old = self.read_pointer() if self.pointer.exists() else None
@@ -284,7 +307,7 @@ class Runtime:
         if old is not None:
             self.retire(old)
 
-    def prepare(self):
+    def prepare(self) -> Document:
         if self.pointer.exists():
             self.profile()
             return {"state": "prepared", "profile": "omega"}
@@ -305,9 +328,18 @@ class Runtime:
             ET.SubElement(xml.getroot(), "addon").text = addon
         xml.write(build / "manifest.xml", encoding="utf-8")
         bridge = build / "bridge"
-        src = HERE.parents[1] / "bridge" / BRIDGE
-        shutil.copytree(src, bridge, ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copyfile(HERE / "bridge_addon.py", bridge / "service.py")
+        from kodi_lab.kodi.rc1_bridge import packaged_stable_bridge_sources
+
+        for name, data in packaged_stable_bridge_sources().items():
+            destination = bridge / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+        service = files("kodi_lab.managed").joinpath("resident_service.py")
+        if not service.is_file():
+            service = (
+                Path(__file__).resolve().parents[3] / "bridge/managed_v2/service.py"
+            )
+        (bridge / "service.py").write_bytes(service.read_bytes())
         # The required system add-on uses fresh per-run credentials.
         repo = build / "repository"
         repo.mkdir()
@@ -338,7 +370,7 @@ class Runtime:
         self.exchange(self.stage(clean=True))
         return {"state": "prepared", "profile": "omega"}
 
-    def address(self):
+    def address(self) -> str:
         obj = self.inspect()
         if not obj or not obj["State"]["Running"]:
             raise Refusal("kodi_stopped")
@@ -356,9 +388,9 @@ class Runtime:
         ]
         if volumes != [self.volume(self.read_pointer())]:
             raise Refusal("live_profile_identity")
-        return networks[self.network_name]["IPAddress"]
+        return cast(str, networks[self.network_name]["IPAddress"])
 
-    def rpc(self, method, **params):
+    def rpc(self, method: str, **params: object) -> Any:
         payload = json.dumps(
             {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
         ).encode()
@@ -375,13 +407,18 @@ class Runtime:
             raise Refusal("native_" + method.replace(".", "_") + "_refused")
         return data["result"]
 
-    def signed(self, operation, payload=None, credential=None):
+    def signed(
+        self,
+        operation: str,
+        payload: dict[str, object] | None = None,
+        credential: Document | None = None,
+    ) -> Document:
         value = credential or json.loads((self.credentials / "state.json").read_text())
         endpoint = ValidatedExternalEndpoint(
             ExternalProtocolKind.JSONRPC_HTTP, self.address(), 8080
         )
         client = ManagedBridgeClient(response_timeout=65)
-        return client._authenticated_json(
+        result = client._authenticated_json(
             endpoint,
             bridge_port=8765,
             target_id=self.target,
@@ -391,7 +428,42 @@ class Runtime:
             payload=payload,
         )
 
-    def ready(self):
+        if not isinstance(result, dict):
+            raise Refusal("native_bridge_response_invalid")
+        return result
+
+    def screen(self) -> Document:
+        value = json.loads((self.credentials / "state.json").read_text())
+        endpoint = ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, self.address(), 8080
+        )
+        image = ManagedBridgeClient().capture_screenshot(
+            endpoint,
+            bridge_port=8765,
+            target_id=self.target,
+            bridge_id=UUID(value["bridge_id"]),
+            secret=base64.urlsafe_b64decode(value["secret"] + "="),
+            request_id=uuid4(),
+            nonce=secrets.token_urlsafe(32),
+            requested_at=datetime.now(UTC),
+        )
+        if len(image.png) > 1_450_000:
+            raise Refusal("managed_screenshot_limit")
+        return {
+            "png": base64.b64encode(image.png).decode(),
+            "width": image.width,
+            "height": image.height,
+        }
+
+    def logs(self) -> Document:
+        path = self.profile() / "temp/kodi.log"
+        if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+            raise Refusal("managed_log_unavailable")
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 16_384))
+            return {"text": stream.read(16_384).decode(errors="replace")}
+
+    def ready(self) -> Document | None:
         try:
             version = self.rpc(
                 "Application.GetProperties", properties=["name", "version"]
@@ -408,11 +480,11 @@ class Runtime:
         except Exception:
             return None
 
-    def bridge_fingerprint(self):
+    def bridge_fingerprint(self) -> str:
         data = (self.material / "bridge/service.py").read_bytes()
         return hashlib.sha256(data).hexdigest()
 
-    def start(self):
+    def start(self) -> Document:
         self.capacity()
         if self.inspect():
             result = self.ready()
@@ -507,13 +579,15 @@ class Runtime:
             IMAGE,
         )
         self.checkpoint("runtime_created")
-        return wait_until(self.ready, 35, "bridge_readiness_unconfirmed")
+        result = wait_until(self.ready, 35, "bridge_readiness_unconfirmed")
+        assert result is not None
+        return result
 
-    def require_stopped(self):
+    def require_stopped(self) -> None:
         if self.inspect() is not None:
             raise Refusal("clean_stop_required")
 
-    def check_live_profile(self, obj):
+    def check_live_profile(self, obj: Document) -> None:
         slot = self.read_pointer()
         self.require_volume(slot)
         if [mount["Name"] for mount in obj["Mounts"] if mount["Type"] == "volume"] != [
@@ -521,7 +595,7 @@ class Runtime:
         ]:
             raise Refusal("live_profile_identity")
 
-    def remove_exited(self):
+    def remove_exited(self) -> None:
         # Explicit Reset/Load can discard an unclean exited profile after
         # recovery explains the failure. A running instance is never forced down.
         obj = self.inspect()
@@ -533,7 +607,7 @@ class Runtime:
         for filename in ("state.json", "rpc"):
             (self.credentials / filename).unlink(missing_ok=True)
 
-    def stop(self):
+    def stop(self) -> Document:
         obj = self.inspect()
         if obj is not None:
             self.check_live_profile(obj)
@@ -541,12 +615,16 @@ class Runtime:
                 self.checkpoint("runtime_quit_requested")
                 self.rpc("Application.Quit")
                 wait_until(
-                    lambda: not self.inspect()["State"]["Running"],
+                    lambda: self._has_exited(),
                     20,
                     "native_exit_unconfirmed",
                 )
             stopped = self.inspect()
-            if stopped["State"]["ExitCode"] or stopped["State"]["OOMKilled"]:
+            if (
+                stopped is None
+                or stopped["State"]["ExitCode"]
+                or stopped["State"]["OOMKilled"]
+            ):
                 raise Refusal("unclean_native_exit")
             docker("rm", obj["Id"])
             self.checkpoint("runtime_removed")
@@ -556,10 +634,16 @@ class Runtime:
             self.configure_rpc(None)
         return {"state": "stopped"}
 
-    def active_skin(self):
-        return self.rpc("GUI.GetProperties", properties=["skin"])["skin"]["id"]
+    def _has_exited(self) -> bool:
+        observed = self.inspect()
+        return observed is not None and observed["State"]["Running"] is False
 
-    def skin_settings(self):
+    def active_skin(self) -> str:
+        return cast(
+            str, self.rpc("GUI.GetProperties", properties=["skin"])["skin"]["id"]
+        )
+
+    def skin_settings(self) -> tuple[Path, ET.ElementTree[ET.Element]]:
         self.require_stopped()
         file = self.profile() / "userdata/guisettings.xml"
         if (
@@ -576,7 +660,7 @@ class Runtime:
             raise Refusal("skin_settings_invalid")
         return file, tree
 
-    def configure_rpc(self, password):
+    def configure_rpc(self, password: str | None) -> None:
         file, tree = self.skin_settings()
         root = tree.getroot()
         values = {
@@ -592,7 +676,9 @@ class Runtime:
                 ET.SubElement(root, "setting", id=key).text = value
         atomic(file, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
-    def write_skin(self, addon, saved=None):
+    def write_skin(
+        self, addon: str, saved: Sequence[str | bytes] | None = None
+    ) -> None:
         if not re.fullmatch(r"skin\.[a-z0-9_.-]+", addon):
             raise Refusal("invalid_skin")
         file, tree = self.skin_settings()
@@ -614,10 +700,10 @@ class Runtime:
         setting.text = addon
         atomic(file, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
-    def start_with_skin(self, addon):
+    def start_with_skin(self, addon: str) -> str:
         self.start()
 
-        def activated():
+        def activated() -> bool:
             gui = self.rpc("GUI.GetProperties", properties=["skin", "currentwindow"])
             if (
                 gui.get("skin", {}).get("id") != addon
@@ -637,12 +723,12 @@ class Runtime:
         wait_until(activated, 8, "skin_boot_readback_unconfirmed")
         return addon
 
-    def reset(self):
+    def reset(self) -> Document:
         self.require_stopped()
         self.exchange(self.stage(clean=True))
         return {"state": "stopped", "profile": "omega"}
 
-    def cleanup_trial(self):
+    def cleanup_trial(self) -> None:
         """Operator-only teardown for this isolated root, including failed trials."""
         with self.exclusive():
             for name in (self.name, self.feed_name):

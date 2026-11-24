@@ -1,21 +1,27 @@
+from __future__ import annotations
+
 import io
 import json
 import tarfile
 from pathlib import Path
+from uuid import uuid4
 from zipfile import ZipFile
 
 import pytest
 
-from experiments.managed_v2.controller import Controller
-from experiments.managed_v2.packages import read_zip
-from experiments.managed_v2.runtime import IMAGE, Refusal
-from experiments.managed_v2.snapshots import Snapshots, archive_digest
+from kodi_lab.managed.controller import Controller
+from kodi_lab.managed.packages import read_zip
+from kodi_lab.managed.runtime import IMAGE, Refusal
+from kodi_lab.managed.snapshots import Snapshots, archive_digest
 
 
-def package(member="script.v2fixture/default.py"):
+def package(
+    member: str = "script.v2fixture/default.py", *, extensions: str = ""
+) -> bytes:
     root = (
         "<addon id='script.v2fixture' name='V2 Fixture' version='1.0.0'>"
-        "<extension point='xbmc.python.script' library='default.py'/></addon>"
+        "<extension point='xbmc.python.script' library='default.py'/>"
+        f"{extensions}</addon>"
     )
     stream = io.BytesIO()
     with ZipFile(stream, "w") as archive:
@@ -24,7 +30,7 @@ def package(member="script.v2fixture/default.py"):
     return stream.getvalue()
 
 
-def test_exact_approval(tmp_path):
+def test_exact_approval(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     controller = Controller(root)
@@ -38,22 +44,22 @@ def test_exact_approval(tmp_path):
         controller.packages.get(approved.digest)
 
 
-def test_zip_rejects_traversal():
+def test_zip_rejects_traversal() -> None:
     with pytest.raises(Refusal, match="unsafe_package_path"):
         read_zip(package("script.v2fixture/../default.py"))
 
 
-def test_strict_writer_and_active_gate(tmp_path):
+def test_strict_writer_and_active_gate(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     controller = Controller(root)
-    with pytest.raises(Refusal, match="managed_write_denied"):
-        controller.perform("addon_install", {}, write=False)
+    with pytest.raises(Refusal, match="managed_acquire_required"):
+        controller.perform("managed_start", {}, actor=str(uuid4()))
     with controller.runtime.exclusive(), pytest.raises(Refusal, match="managed_busy"):
-        controller.perform("managed_reset", {}, write=True)
+        controller.perform("managed_reset", {}, actor="admin")
 
 
-def test_workspace_package_preserves_files(tmp_path):
+def test_workspace_package_preserves_files(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     controller = Controller(root)
@@ -71,39 +77,39 @@ def test_workspace_package_preserves_files(tmp_path):
 
 
 class Volumes:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path) -> None:
         self.root = root
         self.source = root / "current"
         self.source.mkdir()
         (root / "snapshots").mkdir()
-        self.retired = []
+        self.retired: list[str] = []
         self.current = "current"
 
-    def require_stopped(self):
+    def require_stopped(self) -> None:
         pass
 
-    def capacity(self):
+    def capacity(self) -> None:
         pass
 
-    def stage(self, *, clean):
+    def stage(self, clean: bool) -> str:
         assert not clean
         (self.root / "staging").mkdir()
         return "staging"
 
-    def profile(self, slot=None):
+    def profile(self, slot: str | None = None) -> Path:
         return self.root / (slot or self.current)
 
-    def exchange(self, slot):
+    def exchange(self, slot: str) -> None:
         self.current = slot
 
-    def read_pointer(self):
+    def read_pointer(self) -> str:
         return self.current
 
-    def retire(self, slot):
+    def retire(self, slot: str) -> None:
         self.retired.append(slot)
 
 
-def test_snapshot_excludes_authority_and_round_trips(tmp_path):
+def test_snapshot_excludes_authority_and_round_trips(tmp_path: Path) -> None:
     native = Volumes(tmp_path)
     userdata = native.source / "userdata"
     bridge = userdata / "addon_data/service.kodi_lab_bridge"
@@ -122,7 +128,7 @@ def test_snapshot_excludes_authority_and_round_trips(tmp_path):
     assert snapshots.list() == []
 
 
-def test_invalid_snapshot_never_replaces_active_profile(tmp_path):
+def test_invalid_snapshot_never_replaces_active_profile(tmp_path: Path) -> None:
     native = Volumes(tmp_path)
     snapshots = Snapshots(native)
     with tarfile.open(snapshots.path("Unsafe"), "w:gz") as tar:
@@ -138,7 +144,7 @@ def test_invalid_snapshot_never_replaces_active_profile(tmp_path):
     assert native.current == "current" and native.retired == ["staging"]
 
 
-def test_snapshot_digest_mismatch_keeps_active_profile(tmp_path):
+def test_snapshot_digest_mismatch_keeps_active_profile(tmp_path: Path) -> None:
     native = Volumes(tmp_path)
     (native.source / "userdata").mkdir()
     (native.source / "userdata/guisettings.xml").write_bytes(b"<settings/>")
@@ -152,7 +158,7 @@ def test_snapshot_digest_mismatch_keeps_active_profile(tmp_path):
     assert native.retired == []
 
 
-def test_controller_refuses_nonempty_initial_state(tmp_path):
+def test_controller_refuses_nonempty_initial_state(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     (root / "preexisting").write_text("leave in place")
@@ -161,10 +167,12 @@ def test_controller_refuses_nonempty_initial_state(tmp_path):
     assert (root / "preexisting").read_text() == "leave in place"
 
 
-def test_stopped_skin_rewrite_preserves_other_settings(tmp_path, monkeypatch):
+def test_stopped_skin_rewrite_preserves_other_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from xml.etree import ElementTree as ET
 
-    from experiments.managed_v2.runtime import Runtime
+    from kodi_lab.managed.runtime import Runtime
 
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
@@ -188,8 +196,11 @@ def test_stopped_skin_rewrite_preserves_other_settings(tmp_path, monkeypatch):
     ]
     native.write_skin("skin.estuary")
     active = ET.parse(file).getroot()
-    assert active.find("setting[@id='lookandfeel.skin']").text == "skin.estuary"
-    active.find("setting[@id='lookandfeel.skinzoom']").text = "0"
+    selection = active.find("setting[@id='lookandfeel.skin']")
+    zoom = active.find("setting[@id='lookandfeel.skinzoom']")
+    assert selection is not None and selection.text == "skin.estuary"
+    assert zoom is not None
+    zoom.text = "0"
     ET.ElementTree(active).write(file)
     native.write_skin("skin.fixture", saved=entries)
     assert {e.attrib["id"]: e.text for e in ET.parse(file).getroot()} == {
@@ -199,45 +210,46 @@ def test_stopped_skin_rewrite_preserves_other_settings(tmp_path, monkeypatch):
     }
 
 
-def test_broker_rechecks_scope_and_closed_arguments(tmp_path):
+def test_broker_rechecks_scope_and_closed_arguments(tmp_path: Path) -> None:
     import os
 
-    from experiments.managed_v2.broker import Broker
+    from kodi_lab.managed.broker import Broker
 
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
-    token_request = {"token": "reader", "name": "managed_reset", "args": {}}
-    with Broker(
-        tmp_path / "broker.sock", Controller(root), os.getuid(), ("owner", "reader")
-    ) as broker:
-        with pytest.raises(Refusal, match="managed_write_denied"):
-            broker.dispatch(token_request)
+    actor = str(uuid4())
+    prepare = {"actor": actor, "name": "managed_prepare", "args": {}}
+    with Broker(tmp_path / "broker.sock", Controller(root), os.getuid()) as broker:
+        with pytest.raises(Refusal, match="managed_acquire_required"):
+            broker.dispatch(prepare)
         with pytest.raises(Refusal, match="invalid_broker_request"):
-            broker.dispatch({**token_request, "write": True})
-        with pytest.raises(Refusal, match="broker_access_denied"):
-            broker.dispatch({**token_request, "token": "wrong"})
+            broker.dispatch({**prepare, "write": True})
+        with pytest.raises(Refusal, match="invalid_managed_actor"):
+            broker.dispatch({**prepare, "actor": "../outside"})
         with pytest.raises(Refusal, match="invalid_arguments"):
-            broker.dispatch({"token": "owner", "name": "docker", "args": {"cmd": "ps"}})
+            broker.dispatch({"actor": actor, "name": "docker", "args": {"cmd": "ps"}})
 
 
-def test_verified_result_survives_interrupted_reply(tmp_path):
+def test_verified_result_survives_interrupted_reply(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
 
-    def interrupt(event):
+    def interrupt(event: str) -> None:
         if event == "reply":
             raise InterruptedError
 
     controller = Controller(root, interrupt=interrupt)
     controller.actions["managed_start"] = lambda: {"state": "ready"}
     with pytest.raises(InterruptedError):
-        controller.perform("managed_start", {}, write=True)
+        controller.perform("managed_start", {}, actor="admin")
     recorded = Controller(root).last_operation()
-    assert recorded["state"] == "complete"
+    assert recorded is not None and recorded["state"] == "complete"
     assert recorded["result"] == {"state": "ready"}
 
 
-def test_failed_skin_recovery_stays_pending(tmp_path, monkeypatch):
+def test_failed_skin_recovery_stays_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     controller = Controller(root)
@@ -246,7 +258,7 @@ def test_failed_skin_recovery_stays_pending(tmp_path, monkeypatch):
     monkeypatch.setattr(native, "stop", lambda: None)
     monkeypatch.setattr(native, "write_skin", lambda *_a, **_kw: None)
 
-    def cannot_load(_addon):
+    def cannot_load(_addon: str) -> str:
         raise Refusal("skin_boot_readback_unconfirmed")
 
     monkeypatch.setattr(native, "start_with_skin", cannot_load)
@@ -267,21 +279,20 @@ def test_failed_skin_recovery_stays_pending(tmp_path, monkeypatch):
         )
     )
     with pytest.raises(Refusal, match="skin_boot_readback_unconfirmed"):
-        controller.perform("managed_recover", {}, write=True)
-    assert controller.last_operation()["state"] == "pending"
-    assert (
-        controller.last_operation()["recovery_error"]
-        == "skin_boot_readback_unconfirmed"
-    )
+        controller.perform("managed_recover", {}, actor="admin")
+    operation = controller.last_operation()
+    assert operation is not None and operation["state"] == "pending"
+    assert operation["recovery_error"] == "skin_boot_readback_unconfirmed"
 
     monkeypatch.setattr(native, "stop", lambda: {"state": "stopped"})
-    assert controller.perform("managed_stop", {}, write=True)["result"] == {
+    assert controller.perform("managed_stop", {}, actor="admin")["result"] == {
         "state": "stopped"
     }
-    assert controller.last_operation()["skin"]["addon"] == "skin.fixture"
+    stopped = controller.last_operation()
+    assert stopped is not None and stopped["skin"]["addon"] == "skin.fixture"
 
 
-def test_snapshot_strips_managed_rpc_password(tmp_path):
+def test_snapshot_strips_managed_rpc_password(tmp_path: Path) -> None:
     native = Volumes(tmp_path)
     userdata = native.source / "userdata"
     userdata.mkdir()
@@ -297,3 +308,63 @@ def test_snapshot_strips_managed_rpc_password(tmp_path):
     content = (native.profile() / "userdata/guisettings.xml").read_text()
     assert "webserverpassword" not in content and "skin.fixture" in content
     assert not (native.profile() / "userdata" / orphan).exists()
+
+
+def test_private_namespaces_and_take_control(tmp_path: Path) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    first, second = str(uuid4()), str(uuid4())
+    controller.perform("managed_acquire", {}, actor=first)
+    for actor in (second, "admin"):
+        with pytest.raises(Refusal, match="managed_owned"):
+            controller.perform("managed_stop", {}, actor=actor)
+    controller.perform("managed_take_control", {}, actor="admin")
+    with pytest.raises(Refusal, match="managed_owned"):
+        controller.perform("managed_stop", {}, actor=first)
+
+    import base64
+
+    data = package()
+    from kodi_lab.managed.packages import sha
+
+    digest = sha(data)
+    controller.perform(
+        "package_import",
+        {
+            "encoded": base64.b64encode(data).decode(),
+            "digest": digest,
+        },
+        actor=first,
+    )
+    with pytest.raises(Refusal, match="package_not_approved"):
+        controller.perform("workspace_open", {"digest": digest}, actor=second)
+    controller.perform("workspace_open", {"digest": digest}, actor=first)
+    with pytest.raises(Refusal, match="workspace_missing"):
+        controller.perform(
+            "workspace_tree", {"addon": "script.v2fixture"}, actor=second
+        )
+    assert controller.perform(
+        "workspace_tree", {"addon": "script.v2fixture"}, actor=first
+    )["result"] == ["addon.xml", "default.py"]
+
+
+def test_mixed_archive_admission_and_service_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    artifact = controller.packages.approve(
+        package(
+            extensions=(
+                "<extension point='xbmc.service' library='service.py'/>"
+                "<extension point='xbmc.python.module' library='resources/lib'/>"
+            )
+        )
+    )
+    assert artifact.category == "xbmc.python.script"
+    monkeypatch.setattr(controller.runtime, "ready", lambda: {"state": "ready"})
+    monkeypatch.setattr(controller, "installed", lambda _addon: None)
+    with pytest.raises(Refusal, match="service_activation_consent_required"):
+        controller.install(artifact.id, artifact.version, artifact.digest)

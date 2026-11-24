@@ -145,9 +145,15 @@ from kodi_lab.kodi.ui_state_native import (
     MANAGED_BRIDGE_RECOVERY_NEXT_ACTION,
     MANAGED_BRIDGE_RECOVERY_REASONS,
 )
+from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
+from kodi_lab.managed.protocol import ADMIN, FIELDS, READ, Refusal, validate
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
-from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
+from kodi_lab.mcp.registry import (
+    KODI_LAB_MCP_SCHEMA_VERSION,
+    McpToolRegistry,
+    TargetClass,
+)
 from kodi_lab.mcp.tools import (
     AddonListResult,
     DevelopmentSourceListResult,
@@ -185,6 +191,14 @@ from kodi_lab.screenshot_diagnostics import (
     screenshot_diagnostic_trace,
 )
 
+# The managed profile has one shared identity. Prefix private workspace and
+# add-on tools so their contracts stay distinct from external-target tools.
+MANAGED_TOOLS = {
+    name if name.startswith("managed_") else "managed_" + name: name
+    for name in FIELDS
+    if name not in ADMIN
+}
+
 MCP_PROTOCOL_VERSION = "2026-07-28"
 MCP_LEGACY_PROTOCOL_VERSION = "2025-11-25"
 MCP_SUPPORTED_PROTOCOL_VERSIONS = (
@@ -217,6 +231,7 @@ _principal_context: contextvars.ContextVar[McpPrincipal] = contextvars.ContextVa
 _MCP_AUDIT_SCHEMA_VERSION = 1
 _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
     {
+        *MANAGED_TOOLS,
         "managed_selection_preview",
         "managed_select",
         "log_read",
@@ -889,6 +904,7 @@ def build_mcp_http_transport(
     authorization: McpAuthorizationService,
     registry: McpToolRegistry,
     tools: McpTargetToolService,
+    managed: ManagedBrokerClient | None = None,
     failed_auth_limiter: BoundedTokenBucketLimiter | None = None,
     authenticated_limiter: BoundedTokenBucketLimiter | None = None,
     concurrency_limiter: BoundedConcurrencyLimiter | None = None,
@@ -1673,19 +1689,110 @@ def build_mcp_http_transport(
         ),
     }
 
+    managed_inventory = [
+        Tool(
+            name=public,
+            description=name.replace("_", " "),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    **{key: {"type": "string"} for key in FIELDS[name]},
+                    **(
+                        {
+                            "allow_services": {
+                                "type": "string",
+                                "enum": ["true", "false"],
+                            }
+                        }
+                        if name == "addon_install"
+                        else {}
+                    ),
+                },
+                "required": list(FIELDS[name]),
+                "additionalProperties": False,
+            },
+            annotations=read_annotations if name in READ else control_annotations,
+        )
+        for public, name in MANAGED_TOOLS.items()
+    ]
+
+    def external_tool(name: str) -> bool:
+        definition = registry.get(name)
+        return definition is not None and bool(
+            definition.allowed_target_classes - {TargetClass.INTERNAL_LAB}
+        )
+
+    async def managed_call(
+        broker: ManagedBrokerClient,
+        principal: McpPrincipal,
+        params: CallToolRequestParams,
+        name: str,
+    ) -> CallToolResult:
+        try:
+            if not authorization.managed_lab_enabled(principal):
+                return _tool_error_result("permission_denied")
+            _, args = validate(name, params.arguments or {})
+            output = await asyncio.to_thread(
+                broker.request, str(principal.client_id), name, args
+            )
+        except McpAuthorizationError:
+            return _tool_error_result("permission_denied")
+        except Refusal as exc:
+            return _tool_error_result(str(exc))
+        result = output["result"]
+        if name == "managed_screen" and isinstance(result, dict):
+            return CallToolResult(
+                content=[
+                    ImageContent(
+                        type="image", data=result["png"], mime_type="image/png"
+                    ),
+                ]
+            )
+        failed = isinstance(result, dict) and (
+            bool(result.get("error"))
+            or result.get("state") in {"failed", "unconfirmed"}
+        )
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(output))],
+            is_error=failed,
+        )
+
     async def list_tools(
         _context: ServerRequestContext[dict[str, Any]],
         _params: PaginatedRequestParams | None,
     ) -> ListToolsResult:
         principal = _principal_context.get()
         allowed = authorization.discoverable_tools(principal)
-        return ListToolsResult(tools=[inventory[name] for name in allowed])
+        if managed is None:
+            return ListToolsResult(tools=[inventory[name] for name in allowed])
+        visible = [inventory[name] for name in allowed if external_tool(name)]
+        if authorization.managed_lab_enabled(principal):
+            visible.extend(managed_inventory)
+        return ListToolsResult(tools=visible)
 
     async def call_tool(
         _context: ServerRequestContext[dict[str, Any]],
         params: CallToolRequestParams,
     ) -> CallToolResult:
         principal = _principal_context.get()
+        if managed is not None:
+            operation = MANAGED_TOOLS.get(params.name)
+            if operation is not None:
+                response = await managed_call(managed, principal, params, operation)
+                _audit_safely(
+                    principal,
+                    params.name,
+                    None,
+                    _timestamp(),
+                    "tool_error" if response.is_error else "success",
+                    result_code="managed_request_refused"
+                    if response.is_error
+                    else "ok",
+                    protocol_request_id=_context.request_id,
+                )
+                return response
+            if not external_tool(params.name):
+                return _tool_error_result("unknown_tool")
         started = _timestamp()
         target_id: UUID | None = None
         source_id: UUID | None = None

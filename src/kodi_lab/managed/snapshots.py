@@ -7,17 +7,19 @@ import os
 import re
 import sqlite3
 import tarfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from typing import Protocol
 from uuid import uuid4
 from xml.etree import ElementTree as ET
 
+from .protocol import Checkpoint, Document
 from .runtime import BRIDGE, IMAGE, Refusal, atomic, sync_dir
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
 
 
-def name_ok(value):
+def name_ok(value: object) -> str:
     if not isinstance(value, str) or not re.fullmatch(
         r"[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}", value
     ):
@@ -25,7 +27,7 @@ def name_ok(value):
     return value
 
 
-def excluded(name):
+def excluded(name: PurePosixPath) -> bool:
     parts = name.parts
     return (
         parts[:1] == ("temp",)
@@ -33,12 +35,12 @@ def excluded(name):
         or (
             len(parts) == 2
             and parts[0] == "userdata"
-            and re.fullmatch(r"\.stage-[0-9a-f]{32}", parts[1])
+            and re.fullmatch(r"\.stage-[0-9a-f]{32}", parts[1]) is not None
         )
     )
 
 
-def protected(name):
+def protected(name: PurePosixPath) -> bool:
     parts = name.parts
     return (
         len(parts) > 1
@@ -47,12 +49,12 @@ def protected(name):
     )
 
 
-def archive_digest(path):
+def archive_digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def validate_profile(path):
+def validate_profile(path: Path) -> None:
     for folder in path.glob("userdata/**/Database"):
         for file in folder.glob("*.db"):
             if not file.is_file() or file.is_symlink():
@@ -62,16 +64,34 @@ def validate_profile(path):
                     raise Refusal("snapshot_database_integrity")
 
 
+class ProfileVolumes(Protocol):
+    root: Path
+
+    def require_stopped(self) -> None: ...
+    def capacity(self) -> None: ...
+    def stage(self, clean: bool) -> str: ...
+    def profile(self, slot: str | None = None) -> Path: ...
+    def exchange(self, slot: str) -> None: ...
+    def read_pointer(self) -> str: ...
+    def retire(self, slot: str) -> None: ...
+
+
 class Snapshots:
-    def __init__(self, runtime, checkpoint=None):
+    def __init__(
+        self,
+        runtime: ProfileVolumes,
+        checkpoint: Checkpoint | None = None,
+        *,
+        directory: Path | None = None,
+    ) -> None:
         self.runtime = runtime
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
-        self.root = runtime.root / "snapshots"
+        self.root = directory if directory is not None else runtime.root / "snapshots"
 
-    def path(self, name):
+    def path(self, name: str) -> Path:
         return self.root / (name_ok(name) + ".tar.gz")
 
-    def list(self):
+    def list(self) -> list[Document]:
         return [
             {"name": path.name.removesuffix(".tar.gz"), "bytes": path.stat().st_size}
             for path in sorted(self.root.glob("*.tar.gz"))
@@ -80,7 +100,7 @@ class Snapshots:
             and path.with_suffix(".json").is_file()
         ]
 
-    def save(self, name):
+    def save(self, name: str) -> Document:
         self.runtime.require_stopped()
         self.runtime.capacity()
         path = self.path(name)
@@ -94,11 +114,11 @@ class Snapshots:
             with tarfile.open(staging, "x:gz", compresslevel=3) as tar:
                 for file in sorted(source.rglob("*")):
                     rel = file.relative_to(source)
-                    if excluded(rel):
+                    if excluded(PurePosixPath(rel.as_posix())):
                         continue
                     if (
                         file.is_symlink()
-                        or protected(rel)
+                        or protected(PurePosixPath(rel.as_posix()))
                         or not (file.is_dir() or file.is_file())
                     ):
                         raise Refusal("unsafe_snapshot_source")
@@ -155,7 +175,7 @@ class Snapshots:
             "sha256": digest,
         }
 
-    def load(self, name):
+    def load(self, name: str) -> Document:
         self.runtime.require_stopped()
         path = self.path(name)
         if path.is_symlink() or not path.is_file():
@@ -170,7 +190,7 @@ class Snapshots:
             raise Refusal("snapshot_identity_mismatch")
         slot = self.runtime.stage(clean=False)
         stage = self.runtime.profile(slot)
-        seen = set()
+        seen: set[PurePosixPath] = set()
         size = 0
         try:
             with tarfile.open(path, "r|gz") as tar:
@@ -208,7 +228,7 @@ class Snapshots:
             raise
         return {"name": name, "state": "restored", "entries": len(seen)}
 
-    def discard_incomplete(self, record):
+    def discard_incomplete(self, record: Document) -> None:
         path = self.path(record["snapshot"])
         stage = record["archive"]
         if not re.fullmatch(r"\.stage-[0-9a-f]{32}", stage):
@@ -224,7 +244,7 @@ class Snapshots:
             raise Refusal("snapshot_identity_mismatch")
         sync_dir(self.root)
 
-    def delete(self, name):
+    def delete(self, name: str) -> Document:
         path = self.path(name)
         if not path.is_file() or path.is_symlink():
             raise Refusal("snapshot_not_found")
