@@ -49,7 +49,9 @@ def test_zip_rejects_traversal() -> None:
         read_zip(package("script.v2fixture/../default.py"))
 
 
-def test_managed_logging_does_not_inherit_daemon_local_compression(tmp_path: Path) -> None:
+def test_managed_logging_does_not_inherit_daemon_local_compression(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)
     args = Runtime(root).args()
