@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from typing import cast
 
+from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_ID
-from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.config import Settings
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base

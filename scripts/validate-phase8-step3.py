@@ -13,12 +13,6 @@ from uuid import uuid4
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import text
-
-from kodi_lab.application import (
-    DevelopmentSourceAdministrationService,
-    DevelopmentSourceAttachmentService,
-)
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteOperationCoordinator,
 )
@@ -27,6 +21,12 @@ from kodi_lab.application.instance_deletions import (
     InstanceDeleteBroker,
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from sqlalchemy import text
+
+from kodi_lab.application import (
+    DevelopmentSourceAdministrationService,
+    DevelopmentSourceAttachmentService,
+)
 from kodi_lab.auth import WebAuthenticationService
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.config import Settings
