@@ -336,6 +336,7 @@ class Runtime:
             docker("volume", "rm", volume)
         if path.exists() or path.is_symlink():
             shutil.rmtree(self.profile(slot))
+        (self.root / "source-provenance" / (slot + ".json")).unlink(missing_ok=True)
 
     def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
         self.require_volume(slot)
