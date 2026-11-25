@@ -47,3 +47,39 @@ replace the working profile. Both actions discard the old working profile,
 so preserve unsaved data before proceeding. Snapshot Load validates the
 snapshot before removing the exited container. A pending operation may still
 require an administrator to use Recover first.
+
+## Approve dependencies for native installs
+
+Managed Kodi uses an isolated network and a private package feed. A host
+operator can approve a reusable set of exact dependency ZIPs from Kodi's
+official repository or another source the owner has reviewed. Select archives
+compatible with the Kodi versions that will use them and verify their identity
+before approval. Keep the reviewed archives together on the host so the same
+set can be approved again on another lab. The catalog contains one approved
+version per add-on ID and is shared across the managed versions.
+
+Mount the reviewed ZIP directory read-only in a one-shot broker command.
+Use the site's configured Compose command with its usual project and env file,
+and pass only the exact reviewed filenames:
+
+```console
+docker compose -f /path/to/compose.release.yaml --profile lab run --rm --no-deps --pull never \
+  --user 1000:1000 --volume /path/to/reviewed-zips:/reviewed:ro \
+  --entrypoint kodi-lab-managed-catalog broker \
+  /reviewed/script.module.example-1.0.0.zip /reviewed/script.module.other-2.0.0.zip
+```
+
+The command validates each archive using the existing intake rules, rejects
+repository add-ons and prints the approved IDs, versions and SHA-256 digests.
+A batch can contain up to 64 ZIPs totalling 128 MiB. Reapproving the same bytes
+is harmless. Changing an existing version requires `--replace-versions`.
+Different bytes for the same approved version are refused. Retain named
+snapshots before testing incompatible version changes.
+
+Once the catalog is provisioned, a trusted agent admits the add-on under
+development and submits one native install request. The broker exposes the
+approved archives through the private feed. Kodi selects the dependencies the
+add-on needs, and the broker verifies newly installed dependencies against the
+approved archives and repository origin. If an approved archive is missing,
+provide the add-on ID and version to the operator. Workspace deployment of
+ordinary source edits needs no dependency approval or native reinstall.
