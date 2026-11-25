@@ -12,6 +12,7 @@ import pytest
 
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
+from kodi_lab.managed.protocol import Document
 from kodi_lab.managed.runtime import Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
 
@@ -148,7 +149,7 @@ class Volumes:
         self.retired: list[str] = []
         self.current = "current"
 
-    def require_stopped(self) -> None:
+    def require_stopped(self, *, allow_exited: bool = False) -> None:
         pass
 
     def capacity(self) -> str:
@@ -162,7 +163,7 @@ class Volumes:
     def profile(self, slot: str | None = None) -> Path:
         return self.root / (slot or self.current)
 
-    def exchange(self, slot: str) -> None:
+    def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
         self.current = slot
 
     def read_pointer(self) -> str:
@@ -371,6 +372,83 @@ def test_failed_skin_recovery_stays_pending(
     }
     stopped = controller.last_operation()
     assert stopped is not None and stopped["skin"]["addon"] == "skin.fixture"
+
+
+@pytest.mark.parametrize("action", ["managed_reset", "snapshot_load"])
+def test_agent_can_explicitly_replace_exited_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    native = controller.runtime
+    old, new = "a" * 32, "b" * 32
+    native.pointer.write_text(old)
+    current = native.root / "volumes" / old
+    (current / "userdata").mkdir(parents=True)
+    (current / "userdata/guisettings.xml").write_text("<settings/>")
+    monkeypatch.setattr(Runtime, "image", property(lambda _: Volumes.image))
+    monkeypatch.setattr(native, "capacity", lambda: Volumes.image)
+    monkeypatch.setattr(native, "require_volume", native.profile)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    args = {"name": "Known working"} if action == "snapshot_load" else {}
+    if args:
+        controller.perform("snapshot_save", args, actor=actor)
+
+    container: Document = {
+        "Id": "retained-exit",
+        "State": {"Status": "exited", "Running": False, "ExitCode": 1},
+        "Mounts": [{"Type": "volume", "Name": native.volume(old)}],
+    }
+    removed: list[str] = []
+
+    def docker(*argv: str) -> str:
+        assert argv == ("rm", container["Id"])
+        removed.append(argv[1])
+        return ""
+
+    def stage(clean: bool) -> str:
+        assert clean == (action == "managed_reset")
+        (native.root / "volumes" / new).mkdir()
+        return new
+
+    monkeypatch.setattr(native, "inspect", lambda: None if removed else container)
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
+    monkeypatch.setattr(native, "stage", stage)
+    retired: list[str] = []
+    monkeypatch.setattr(native, "retire", retired.append)
+
+    with pytest.raises(Refusal, match="unclean_native_exit"):
+        controller.perform("managed_stop", {}, actor=actor)
+    refused = controller.last_operation()
+    assert refused is not None and refused["event"] == "refused"
+    with pytest.raises(Refusal, match="snapshot_not_found"):
+        controller.perform("snapshot_load", {"name": "Missing"}, actor=actor)
+    assert not removed and native.read_pointer() == old
+
+    container["State"].update(Status="running", Running=True)
+    with pytest.raises(Refusal, match="clean_stop_required"):
+        controller.perform(action, args, actor=actor)
+    assert not removed and native.read_pointer() == old
+    container["State"].update(Status="exited", Running=False)
+
+    container["Mounts"][0]["Name"] = "different-profile"
+    with pytest.raises(Refusal, match="live_profile_identity"):
+        controller.perform(action, args, actor=actor)
+    assert not removed and native.read_pointer() == old
+    container["Mounts"][0]["Name"] = native.volume(old)
+
+    reply = controller.perform(action, args, actor=actor)
+    result = reply["result"]
+    assert isinstance(result, dict)
+    assert result["state"] == ("restored" if args else "stopped")
+    assert removed == ["retained-exit"]
+    assert native.read_pointer() == new and retired == [old]
+    if args:
+        assert (native.profile() / "userdata/guisettings.xml").read_text() == (
+            "<settings/>"
+        )
 
 
 def test_snapshot_strips_managed_rpc_password(tmp_path: Path) -> None:

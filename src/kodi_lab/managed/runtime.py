@@ -337,9 +337,11 @@ class Runtime:
         if path.exists() or path.is_symlink():
             shutil.rmtree(self.profile(slot))
 
-    def exchange(self, slot: str) -> None:
-        self.require_stopped()
+    def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
         self.require_volume(slot)
+        if replace_exited:
+            self.remove_exited()
+        self.require_stopped()
         old = self.read_pointer() if self.pointer.exists() else None
         self.checkpoint("profile_before_commit", prior_slot=old)
         atomic(self.pointer, slot.encode())
@@ -639,9 +641,14 @@ class Runtime:
         assert result is not None
         return result
 
-    def require_stopped(self) -> None:
-        if self.inspect() is not None:
+    def require_stopped(self, *, allow_exited: bool = False) -> None:
+        obj = self.inspect()
+        if obj is None:
+            return
+        state = obj["State"]
+        if not allow_exited or state["Status"] != "exited" or state["Running"]:
             raise Refusal("clean_stop_required")
+        self.check_live_profile(obj)
 
     def check_live_profile(self, obj: Document) -> None:
         slot = self.read_pointer()
@@ -652,12 +659,11 @@ class Runtime:
             raise Refusal("live_profile_identity")
 
     def remove_exited(self) -> None:
-        # Explicit Reset/Load can discard an unclean exited profile after
-        # recovery explains the failure. A running instance is never forced down.
+        # Called only after an explicit replacement has been staged.
         obj = self.inspect()
         if obj:
             self.check_live_profile(obj)
-            if obj["State"]["Running"]:
+            if obj["State"]["Status"] != "exited" or obj["State"]["Running"]:
                 raise Refusal("clean_stop_required")
             docker("rm", obj["Id"])
         for filename in ("state.json", "rpc"):
@@ -780,8 +786,8 @@ class Runtime:
         return addon
 
     def reset(self) -> Document:
-        self.require_stopped()
-        self.exchange(self.stage(clean=True))
+        self.require_stopped(allow_exited=True)
+        self.exchange(self.stage(clean=True), replace_exited=True)
         return {"state": "stopped", "profile": self.generation}
 
     def cleanup_trial(self) -> None:
