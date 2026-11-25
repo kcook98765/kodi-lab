@@ -98,6 +98,8 @@ def _check(path: Path, monkeypatch: pytest.MonkeyPatch) -> int:
     # Only the local probe's UID guard is simulated. Broker SO_PEERCRED is real.
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     monkeypatch.setattr(health, "SOCKET_PATH", path)
+    # Probe cases need a healthy sibling to exercise the real denial contract.
+    monkeypatch.setattr(health, "_managed_listener", lambda _path: None)
     monkeypatch.setattr(sys, "argv", ["kodi-lab-broker-healthcheck"])
     return health.main()
 
@@ -314,6 +316,47 @@ def test_repeated_checks_close_all_descriptors(
             assert _check(socket_config.socket_path, monkeypatch) == 0
     # Join the server before sampling; its last accepted connection also owns an fd.
     assert set(Path("/proc/self/fd").iterdir()) == before
+
+
+@pytest.mark.parametrize("reply", [b"", b"unexpected"])
+def test_managed_listener_requires_expected_uid_and_empty_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reply: bytes
+) -> None:
+    # A disposable listener exercises real peer credentials and response bytes.
+    # Translate the runner UID to the container UID at the socket boundary.
+    path = tmp_path / "managed.sock"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        listener.bind(str(path))
+        listener.listen(1)
+
+        def serve() -> None:
+            connection, _ = listener.accept()
+            with connection:
+                if reply:
+                    connection.sendall(reply)
+
+        real_getsockopt = socket.socket.getsockopt
+
+        def getsockopt(
+            sock: socket.socket, level: int, option: int, size: int
+        ) -> bytes:
+            credentials = real_getsockopt(sock, level, option, size)
+            pid, uid, gid = struct.unpack("3i", credentials)
+            assert uid == os.getuid()
+            return struct.pack("3i", pid, 1000, gid)
+
+        monkeypatch.setattr(socket.socket, "getsockopt", getsockopt)
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            if reply:
+                with pytest.raises(ValueError, match="did not reject"):
+                    health._managed_listener(path)
+            else:
+                health._managed_listener(path)
+        finally:
+            thread.join(timeout=3)
+        assert not thread.is_alive()
 
 
 def test_fresh_import_avoids_broker_and_application_dependencies() -> None:
