@@ -368,6 +368,10 @@ def test_verified_result_survives_interrupted_reply(tmp_path: Path) -> None:
         ("capture_error_invalid", "screenshot_invalid"),
         ("invalid_png", "screenshot_format_invalid"),
         ("capture_error_bad_signature", "operation_outcome_unconfirmed"),
+        ("media_type", "operation_outcome_unconfirmed"),
+        ("oversize", "operation_outcome_unconfirmed"),
+        ("drop_screenshot_once", "operation_outcome_unconfirmed"),
+        ("wrong_request_id", "operation_outcome_unconfirmed"),
     ],
 )
 def test_managed_screenshot_failure_preserves_receipt_and_navigation(

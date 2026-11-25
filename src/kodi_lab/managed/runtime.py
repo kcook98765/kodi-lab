@@ -24,9 +24,8 @@ from xml.etree import ElementTree as ET
 
 from kodi_lab.domain.external_targets import ExternalProtocolKind
 from kodi_lab.kodi.bridge import (
-    SCREENSHOT_ERROR_CODES,
+    AuthenticatedBridgeScreenshotError,
     ExternalBridgeClient,
-    ExternalBridgeError,
 )
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 
@@ -496,10 +495,7 @@ class Runtime:
                 nonce=secrets.token_urlsafe(32),
                 requested_at=datetime.now(UTC),
             )
-        except ExternalBridgeError as error:
-            # Preserve transport and authentication uncertainty at the broker.
-            if error.code not in SCREENSHOT_ERROR_CODES:
-                raise
+        except AuthenticatedBridgeScreenshotError as error:
             raise Refusal(error.code) from error
         if len(image.png) > 1_450_000:
             raise Refusal("managed_screenshot_limit")
