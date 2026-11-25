@@ -10,7 +10,7 @@ from tests.web.conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 from tests.web.test_runtime_installations import Flow, seed_installation
 
 
-def test_rc1_guidance_distinguishes_installation_from_instances(
+def test_preview_guidance_distinguishes_installation_from_profile_start(
     client: TestClient, broker: FakeBroker
 ) -> None:
     Flow().attach(broker)
@@ -24,7 +24,8 @@ def test_rc1_guidance_distinguishes_installation_from_instances(
         assert (
             "5\u201315 minutes" in text and "two cold-installation measurements" in text
         )
-        assert "Additional managed instances use the installed runtime image" in text
+        assert "Prepare its working profile, then start Kodi." in text
+        assert "It does not start your managed Kodi or grant an agent access." in text
         assert "You can leave and return later" in text
 
 
@@ -44,19 +45,7 @@ def test_status_exposes_existing_durable_timestamps(
     assert item["failure_message"]
 
 
-def test_reviewed_bridge_admission_requires_session_and_csrf(
-    client: TestClient,
-) -> None:
-    url = f"/api/instances/{INSTANCE_ID}/reviewed-bridge"
-    assert client.post(url, json={}).status_code == 401
-    login(client)
-    assert client.post(url, json={}, headers=ORIGIN).status_code == 403
-    offered = client.get(url)
-    assert offered.status_code == 200  # explicit reviewed upgrade now supports Omega
-    assert offered.json()["addon_version"] == "1.1.35"
-
-
-def test_reviewed_bridge_requires_an_existing_running_target(
+def test_retired_manual_managed_bridge_route_cannot_dispatch(
     client: TestClient, broker: FakeBroker
 ) -> None:
     token = login(client)
@@ -65,5 +54,5 @@ def test_reviewed_bridge_requires_an_existing_running_target(
         json={},
         headers={**ORIGIN, "X-Kodi-Lab-CSRF": token},
     )
-    assert response.status_code == 409
+    assert response.status_code == 404
     assert not any("bridge" in name for name, _ in broker.calls)

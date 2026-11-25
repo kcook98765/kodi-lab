@@ -35,7 +35,7 @@ function fixture({preview=false,failed=false,httpFailure=false,completed=false}=
       if(options.method==="POST") {
         if(failed) throw new Error("response lost");
         if(httpFailure) return {ok:false,json:async()=>({detail:"installation_busy"})};
-        current={...current,status:completed?"ready":"pending",phase:completed?"Ready":"Preparing",action:completed?"create":"none",operation_id:"original-fixture"};
+        current={...current,status:completed?"ready":"pending",phase:completed?"Ready":"Preparing",action:completed?"open":"none",managed_instance_url:completed?"/managed-kodi?generation=piers":null,operation_id:"original-fixture"};
         return {ok:true,json:async()=>current};
       }
       return {ok:true,json:async()=>({installations:[current]})};
@@ -80,12 +80,15 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   await f.nodes["[data-install-confirm]"].listeners.click();
   assert.equal(f.requests.filter(item=>item.options.method==="POST").length,0);
   f.ack.checked=true;await f.nodes["[data-install-confirm]"].listeners.click();
-  assert.equal(f.action().dataset.installAction,"create");assert.equal(f.ack.checked,false);
+  assert.equal(f.action(),undefined);assert.equal(f.ack.checked,false);
+  assert.equal(f.actions.children[0].href,"/managed-kodi?generation=piers");
+  f.setState({status:"failed",action:"retry"});f.events.visibilitychange();await flush();
+  assert.equal(f.action().dataset.installAction,"retry");
   await f.click(f.action());f.nodes["[data-install-approved]"].checked=true;
   await f.nodes["[data-install-confirm]"].listeners.click();
-  assert.equal(f.requests.filter(item=>item.options.method==="POST").length,1,"Install consent cannot create");
+  assert.equal(f.requests.filter(item=>item.options.method==="POST").length,1,"Install consent cannot retry");
   f.ack.checked=true;await f.nodes["[data-install-confirm]"].listeners.click();
-  assert.equal(JSON.parse(f.requests.filter(item=>item.options.method==="POST").at(-1).options.body).action,"create");
+  assert.equal(JSON.parse(f.requests.filter(item=>item.options.method==="POST").at(-1).options.body).action,"retry");
   for(const reset of ["cancel","version","pagehide","pageshow"]) {
     f=fixture({preview:true});await flush();await f.click(f.action());
     f.ack.checked=f.nodes["[data-install-approved]"].checked=true;

@@ -8,19 +8,21 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
 import httpx2
+import pytest
 import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import TextContent
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -28,10 +30,14 @@ from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.managed.broker import BrokerClient
+from kodi_lab.managed.controller import Controller
+from kodi_lab.managed.protocol import OperationReply
 from kodi_lab.mcp.stdio_proxy import (
     ENDPOINT_ENVIRONMENT_VARIABLE,
     TOKEN_ENVIRONMENT_VARIABLE,
 )
+from tests.experiments.test_managed_v2 import package
 
 from .conftest import (
     EXTERNAL_TARGET_ID,
@@ -193,102 +199,75 @@ def test_external_target_http_stdio_status_inventory_and_replay_parity(
     assert external_kodi.mutations == 1
 
 
-def test_development_inspection_is_identical_over_modern_http_and_stdio(
-    client: TestClient,
+def test_managed_workspace_inspection_is_identical_over_http_and_stdio(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    app = cast(FastAPI, client.app)
-    context = app.state.kodi_lab
-    source_root = context.settings.development_root / "plugin.video.stdio.inspect"
-    source_root.mkdir()
-    (source_root / "addon.xml").write_text(
-        '<addon id="plugin.video.stdio.inspect" name="Stdio" version="1.0.0">'
-        '<extension point="xbmc.python.pluginsource" library="main.py" />'
-        "</addon>\n",
-        encoding="utf-8",
-    )
-    (source_root / "main.py").write_text("one\ntwo\n", encoding="utf-8")
-    source = context.development_source_administration.register_source(
-        logical_name="Stdio inspection source",
-        relative_locator="plugin.video.stdio.inspect",
-    )
-    queued = context.agent_workspaces.queue_creation(source.id)
-    lease = context.agent_workspaces.acquire(queued.operation_id)
-    assert lease is not None
-    context.agent_workspaces.run(lease)
+    root = tmp_path / "lab"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
     administration = _administration(client)
-    mcp_client = administration.create_client(
-        display_name="Stdio workspace inspection",
+    row = administration.create_client(
+        display_name="Managed stdio workspace inspection",
         preset_id=FULL_LAB_CONTROL_PRESET_ID,
+        trusted_managed_lab=True,
     )
-    administration.grant_development_source(mcp_client.id, source.id)
-    administration.bind_workspace(mcp_client.id, queued.workspace_id)
-    issued = administration.issue_credential(mcp_client.id)
+    owner, token = str(row.id), administration.issue_credential(row.id).token
+    artifact = controller.packages.approve(package())
+    controller.upload_package(artifact.data, artifact.digest, actor=owner)
+    controller.perform("workspace_open", {"digest": artifact.digest}, actor=owner)
 
+    def dispatch(
+        _broker: BrokerClient, actor: str, operation: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        assert actor == owner
+        return controller.perform(operation, dict(args), actor=actor)
+
+    monkeypatch.setattr(BrokerClient, "request", dispatch)
     with _live_loopback_server(client.app) as (endpoint, _capture):
 
         async def exercise() -> None:
             parameters = StdioServerParameters(
                 command=str(STDIO_EXECUTABLE),
                 env={
-                    TOKEN_ENVIRONMENT_VARIABLE: issued.token,
+                    TOKEN_ENVIRONMENT_VARIABLE: token,
                     ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
                 },
                 cwd=Path.cwd(),
             )
             async with (
-                _direct_client(endpoint, issued.token) as direct,
+                _direct_client(endpoint, token) as direct,
                 Client(parameters, mode="auto", cache=None) as stdio,
             ):
-                assert [item.name for item in (await stdio.list_tools()).tools] == [
-                    "addon_list",
-                    "development_source_list",
-                    "inspect_ui_state",
-                    "log_read",
-                    "log_scan",
-                    "promotion_request",
-                    "remote_action",
-                    "screenshot_capture",
-                    "screenshot_retrieve",
-                    "system_info",
-                    "target_list",
-                    "target_status",
-                    "workspace_create",
-                    "workspace_deploy",
-                    "workspace_deploy_preflight",
-                    "workspace_edit",
-                    "workspace_execute",
-                    "workspace_execution_recover",
-                    "workspace_launch",
-                    "workspace_read",
-                    "workspace_status",
+                listed = (await stdio.list_tools()).tools
+                assert listed == (await direct.list_tools()).tools
+                names = {item.name for item in listed}
+                assert {"managed_workspace_tree", "managed_workspace_read"} <= names
+                assert {
                     "workspace_tree",
-                    "workspace_validate",
-                ]
-                calls: tuple[tuple[str, dict[str, str]], ...] = (
-                    ("development_source_list", {}),
+                    "workspace_read",
+                    "managed_select",
+                }.isdisjoint(names)
+                for name, arguments, expected in (
                     (
-                        "workspace_status",
-                        {"workspace_id": str(queued.workspace_id)},
+                        "managed_workspace_tree",
+                        {"addon": artifact.id},
+                        ["addon.xml", "default.py"],
                     ),
-                    ("workspace_tree", {"workspace_id": str(queued.workspace_id)}),
                     (
-                        "workspace_read",
-                        {
-                            "workspace_id": str(queued.workspace_id),
-                            "relative_path": "main.py",
-                        },
+                        "managed_workspace_read",
+                        {"addon": artifact.id, "path": "default.py"},
+                        "print('inert fixture')",
                     ),
-                )
-                for name, arguments in calls:
-                    http_result, stdio_result = await asyncio.gather(
-                        direct.call_tool(name, arguments),
-                        stdio.call_tool(name, arguments),
-                    )
-                    assert not http_result.is_error and not stdio_result.is_error
-                    assert (
-                        http_result.structured_content
-                        == stdio_result.structured_content
-                    )
+                ):
+                    for transport in (direct, stdio):
+                        result = await transport.call_tool(name, arguments)
+                        assert not result.is_error
+                        content = result.content[0]
+                        assert isinstance(content, TextContent)
+                        value = json.loads(content.text)["result"]
+                        assert (
+                            value["content"] if isinstance(value, dict) else value
+                        ) == expected
 
         asyncio.run(exercise())
 

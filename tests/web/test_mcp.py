@@ -687,16 +687,3 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
             )
             assert response.status_code == 421, host
             assert response.text == "Invalid Host header"
-
-
-def test_workspace_edit_rate_class_is_two_per_second_with_burst_four(
-    client: TestClient,
-) -> None:
-    context = cast(FastAPI, client.app).state.kodi_lab
-    limiter = context.mcp_transport.development_edit_limiter
-    now = [100.0]
-    cast(Any, limiter)._clock = lambda: now[0]
-    assert [limiter.allow("client") for _index in range(4)] == [True] * 4
-    assert limiter.allow("client") is False
-    now[0] += 0.5
-    assert limiter.allow("client") is True
