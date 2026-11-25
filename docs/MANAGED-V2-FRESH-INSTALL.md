@@ -83,3 +83,5 @@ add-on needs, and the broker verifies newly installed dependencies against the
 approved archives and repository origin. If an approved archive is missing,
 provide the add-on ID and version to the operator. Workspace deployment of
 ordinary source edits needs no dependency approval or native reinstall.
+
+For the separate release-testing path, see [approved public repository testing](MANAGED-PUBLIC-REPOSITORY.md).

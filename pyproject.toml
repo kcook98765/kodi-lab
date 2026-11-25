@@ -51,6 +51,7 @@ kodi-lab-web = "kodi_lab.web.run:main"
 kodi-lab-broker = "kodi_lab.broker.run:main"
 kodi-lab-broker-healthcheck = "kodi_lab.broker_health:main"
 kodi-lab-managed-catalog = "kodi_lab.managed.catalog:main"
+kodi-lab-public-repository = "kodi_lab.managed.public_repository:main"
 kodi-lab-runtime = "kodi_lab.runtime.distribution:main"
 kodi-lab-repository = "kodi_lab.repository.server:main"
 

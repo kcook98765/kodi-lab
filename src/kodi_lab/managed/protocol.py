@@ -19,6 +19,7 @@ class OperationReply(TypedDict):
 
 READ = {
     "managed_status",
+    "managed_public_repository_status",
     "snapshot_list",
     "addon_inventory",
     "managed_logs",
@@ -40,6 +41,10 @@ PRIVATE = {
 ADMIN = {"managed_take_control", "managed_recover"}
 FIELDS = {
     "managed_prepare": (),
+    "managed_public_repository_status": (),
+    "managed_public_repository_select": ("repository",),
+    "managed_public_catalog": (),
+    "managed_public_install": ("addon", "version", "digest"),
     "managed_start": (),
     "managed_stop": (),
     "managed_reset": (),
@@ -80,7 +85,11 @@ VERSION_SCOPED = (
         "managed_take_control",
     }
 )
-OPTIONAL = {"addon_install": "allow_services", "workspace_open": "replace"}
+OPTIONAL = {
+    "addon_install": "allow_services",
+    "managed_public_install": "allow_services",
+    "workspace_open": "replace",
+}
 
 
 class Refusal(Exception):

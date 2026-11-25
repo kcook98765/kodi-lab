@@ -15,6 +15,8 @@ import xbmcaddon
 
 REPO = "repository.kodi-lab-v2"
 REPO_LABEL = "Kodi Lab Managed Feed"
+PUBLIC_REPO = "repository.ai.kodi"
+PUBLIC_LABEL = "kcook-lab-repo"
 ESTUARY = "skin.estuary"
 MAX_DEPENDENCY_ITEMS = 96
 MAX_DEPENDENCY_LABELS = 128
@@ -25,6 +27,7 @@ OPERATIONS = {
     "capture_screenshot",
     "managed_v2_install",
     "managed_v2_setting",
+    "managed_v2_public_catalog",
 }
 LOCK = threading.Lock()
 
@@ -173,7 +176,7 @@ class Native:
         except (OSError, Refusal):
             return False
 
-    def catalog_ready(self, checksum):
+    def catalog_ready(self, checksum, repository=REPO):
         dbs = list((PROFILE / "userdata/Database").glob("Addons*.db"))
         if len(dbs) != 1:
             return False
@@ -182,7 +185,7 @@ class Native:
                 dbs[0].as_uri() + "?mode=ro&timeout=0.1", uri=True, timeout=0.1
             ) as db:
                 result = db.execute(
-                    "SELECT checksum FROM repo WHERE addonID=?", (REPO,)
+                    "SELECT checksum FROM repo WHERE addonID=?", (repository,)
                 ).fetchone()
                 return result is not None and result[0] == checksum
         except sqlite3.OperationalError:
@@ -209,11 +212,15 @@ class Native:
         return {"actions": self.actions, "error": error}
 
     def repository_install(self, intent):
+        public = intent.get("repository") == PUBLIC_REPO
+        repository = PUBLIC_REPO if public else REPO
         self.act("refresh", "UpdateAddonRepos")
         self.wait(
-            lambda: self.catalog_ready(intent["catalog"]), "catalog_not_confirmed", 12
+            lambda: self.catalog_ready(intent["catalog"], repository),
+            "catalog_not_confirmed",
+            12,
         )
-        folder = "addons://" + REPO + "/" + intent["category"]
+        folder = "addons://" + repository + "/" + intent["category"]
         self.act("repository", f"ActivateWindow(10040,{folder},return)")
         self.wait(
             lambda: (
@@ -235,7 +242,10 @@ class Native:
             == {
                 "ListItem.Label": intent["name"],
                 "ListItem.Property(Addon.ID)": intent["addon"],
-                "ListItem.FileNameAndPath": "addons://" + REPO + "/" + intent["addon"],
+                "ListItem.FileNameAndPath": "addons://"
+                + repository
+                + "/"
+                + intent["addon"],
             },
             "repository_item_mismatch",
         )
@@ -243,7 +253,7 @@ class Native:
         self.wait(lambda: self.window() == 10146, "addon_info_unconfirmed")
         log = PROFILE / "temp/kodi.log"
         offset = log.stat().st_size if log.exists() else 0
-        if intent["replace"]:
+        if intent["replace"] or public:
             fields = self.labels("ListItem.Property(Addon.ID)", "Control.GetLabel(14)")
             need(
                 fields["ListItem.Property(Addon.ID)"] == intent["addon"]
@@ -257,7 +267,11 @@ class Native:
                 == "Select version",
                 "unexpected_versions_dialog",
             )
-            self.focused((6,), "Version " + intent["version"], REPO_LABEL)
+            self.focused(
+                (6,),
+                "Version " + intent["version"],
+                PUBLIC_LABEL if public else REPO_LABEL,
+            )
             need(
                 self.window() == 12000
                 and self.labels("Control.GetLabel(1)")["Control.GetLabel(1)"]
@@ -335,7 +349,7 @@ class Native:
     @staticmethod
     def validate(intent):
         need(
-            set(intent)
+            set(intent) - {"repository"}
             == {
                 "addon",
                 "version",
@@ -351,8 +365,16 @@ class Native:
         need(
             bool(re.fullmatch(r"[a-z][a-z0-9_.-]{1,95}", intent["addon"]))
             and bool(re.fullmatch(r"[0-9][a-zA-Z0-9.+~-]{0,39}", intent["version"]))
-            and intent["category"]
-            in ("xbmc.python.script", "xbmc.python.pluginsource", "xbmc.gui.skin"),
+            and intent.get("repository") in (None, PUBLIC_REPO)
+            and (
+                intent["category"]
+                in ("xbmc.python.script", "xbmc.python.pluginsource", "xbmc.gui.skin")
+                or (
+                    intent["category"] == "xbmc.addon.repository"
+                    and intent["addon"] == PUBLIC_REPO
+                    and "repository" not in intent
+                )
+            ),
             "invalid_install_candidate",
         )
         need(
@@ -395,6 +417,24 @@ class ManagedHandler(bridge.Handler):
                 native = Native()
                 if request["operation"] == "managed_v2_install":
                     result = native.install(request["payload"])
+                elif request["operation"] == "managed_v2_public_catalog":
+                    value = request["payload"]
+                    need(
+                        set(value) == {"checksum"}
+                        and bool(re.fullmatch("[0-9a-f]{64}", value["checksum"]))
+                        and native.rpc(
+                            "Settings.GetSettingValue", setting="general.addonupdates"
+                        )["value"]
+                        == 2,
+                        "invalid_public_catalog_request",
+                    )
+                    native.act("refresh", "UpdateAddonRepos")
+                    native.wait(
+                        lambda: native.catalog_ready(value["checksum"], PUBLIC_REPO),
+                        "public_catalog_not_confirmed",
+                        16,
+                    )
+                    result = {"state": "verified"}
                 elif request["operation"] == "managed_v2_setting":
                     value = request["payload"]
                     need(

@@ -66,7 +66,7 @@ def safe_name(name: str) -> PurePosixPath:
     return path
 
 
-def manifest(data: bytes) -> tuple[ET.Element, str]:
+def manifest(data: bytes, *, repository: bool = False) -> tuple[ET.Element, str]:
     if (
         len(data) > 128 * 1024
         or b"<!DOCTYPE" in data.upper()
@@ -77,7 +77,12 @@ def manifest(data: bytes) -> tuple[ET.Element, str]:
         m = ET.fromstring(data)
     except ET.ParseError as error:
         raise Refusal("invalid_manifest") from error
-    addon_id(m.get("id"))
+    if repository:
+        identity = m.get("id", "")
+        if not identity.startswith("repository.") or not ADDON_ID.fullmatch(identity):
+            raise Refusal("invalid_addon_id")
+    else:
+        addon_id(m.get("id"))
     if (
         m.tag != "addon"
         or not VERSION.fullmatch(m.get("version", ""))
@@ -85,7 +90,8 @@ def manifest(data: bytes) -> tuple[ET.Element, str]:
     ):
         raise Refusal("invalid_manifest")
     extensions = m.findall("extension")
-    if not extensions or any(node.get("point") not in TYPES for node in extensions):
+    allowed = {"xbmc.addon.repository", "xbmc.addon.metadata"} if repository else TYPES
+    if not extensions or any(node.get("point") not in allowed for node in extensions):
         raise Refusal("unsupported_extension")
     for entry in m.findall("requires/import"):
         if not ADDON_ID.fullmatch(entry.get("addon", "")):
@@ -124,16 +130,16 @@ class Package:
         return sha(self.data)
 
 
-def read_zip(data: bytes) -> Package:
+def read_zip(data: bytes, *, repository: bool = False) -> Package:
     if len(data) > MAX_ZIP:
         raise Refusal("package_limit")
     try:
-        return _read_zip(data)
+        return _read_zip(data, repository=repository)
     except (BadZipFile, EOFError, NotImplementedError, RuntimeError, zlib.error) as exc:
         raise Refusal("invalid_package_zip") from exc
 
 
-def _read_zip(data: bytes) -> Package:
+def _read_zip(data: bytes, *, repository: bool) -> Package:
     with ZipFile(io.BytesIO(data)) as archive:
         items = archive.infolist()
         if len(items) > 3000 or sum(x.file_size for x in items) > MAX_TREE:
@@ -163,7 +169,9 @@ def _read_zip(data: bytes) -> Package:
             for ancestor in PurePosixPath(path).parents
         ):
             raise Refusal("unsafe_zip_entry")
-        node, category = manifest(archive.read(root + "/addon.xml"))
+        node, category = manifest(
+            archive.read(root + "/addon.xml"), repository=repository
+        )
     if node.attrib["id"] != root:
         raise Refusal("package_root_mismatch")
     return Package(data, node, category, members)

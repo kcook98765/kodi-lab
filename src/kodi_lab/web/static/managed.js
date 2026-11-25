@@ -63,12 +63,13 @@ async function refresh() {
     statusLine.textContent = data.code === "managed_busy" ? "Kodi is busy." : "Kodi state unavailable.";
     return;
   }
-  const {state, owner, operation} = data.profile;
+  const {state, owner, operation, public_repository_test} = data.profile;
   ready = state === "ready";
   if (!ready && client !== null) disconnect();
   if (ready && watching && client === null && !control) connect();
   recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
   statusLine.textContent = `${state.replaceAll("_", " ")} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
+  if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
   const selected = saved.value;
   const options = data.snapshots.map(({name}) => new Option(name, name));
   saved.replaceChildren(...options);
