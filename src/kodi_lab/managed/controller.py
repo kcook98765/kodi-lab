@@ -578,25 +578,51 @@ class Controller:
             "catalog": checksum,
         }
         response = self.install_on_estuary(intent)
-        if response.get("error") or response.get("restore_error"):
+        interrupted_by_ok = (
+            old is None
+            and response.get("prior_skin") == response.get("final_skin") == ESTUARY
+            and response.get("error") == "unexpected_window_during_install:12002"
+            and not response.get("restore_error")
+        )
+        if (
+            response.get("error") or response.get("restore_error")
+        ) and not interrupted_by_ok:
             if response.get("error") in {
                 "missing_dependency",
                 "unexpected_window_before_install",
             } and not response.get("restore_error"):
                 self.checkpoint("native_refused", native_pending=False)
             return {"state": "failed", "native": response}
-        record = self.verify(pkg)
-        deps = self.dependencies(pkg, catalog)
+        try:
+            record = self.verify(pkg)
+            deps = self.dependencies(pkg, catalog)
+        except Refusal as error:
+            if interrupted_by_ok:
+                return {
+                    "state": "failed",
+                    "verification_error": str(error),
+                    "native": response,
+                }
+            raise
         if response.get("prior_skin") != response.get("final_skin"):
             raise Refusal("skin_restore_unconfirmed")
         self.record_source(pkg.id, pkg.members)
         self.checkpoint("native_verified", native_pending=False)
-        return {
+        result: Document = {
             "state": "verified",
             "package": record,
             "dependencies": deps,
             "native": response,
         }
+        if interrupted_by_ok:
+            # The native installer no longer handles input. Only verified
+            # installs release the pending fence for explicit operator input.
+            result["interaction"] = {
+                "state": "dialog_observed",
+                "window_id": 12002,
+                "next_action": "inspect_native_gui",
+            }
+        return result
 
     def install_on_estuary(self, intent: dict[str, object]) -> Document:
         native = self.runtime

@@ -84,6 +84,19 @@ approved archives and repository origin. If an approved archive is missing,
 provide the add-on ID and version to the operator. Workspace deployment of
 ordinary source edits needs no dependency approval or native reinstall.
 
+### Native install dialogs after package application
+
+For a first install in Estuary, Kodi may open an add-on's own OK dialog
+before the installer returns to its normal completion view. The broker can
+complete the managed install receipt after checking the selected package and
+all required dependencies against the approved bytes, enabled states and
+private repository origin. A verified reply may include
+`interaction.state=dialog_observed` and the native window ID. Inspect the
+current Kodi screen and handle only the known first-run prompt. This reports
+package state. Configuration and functional readiness are separate checks.
+If exact verification fails, the install remains pending for normal
+administrator recovery. Avoid replaying the installation to clear a dialog.
+
 ### Direct deployment with generated skin includes
 
 The broker records the member paths and digests of the last verified native
