@@ -16,7 +16,7 @@ The default login is `http://127.0.0.1:18100/login`. Local agents use `http://12
 
 ## Prepare Kodi and develop
 
-1. In **Kodi Runtimes**, acquire a reviewed Kodi version. The [runtime matrix and limits](docs/MANAGED-V2-FRESH-INSTALL.md#reviewed-runtimes) cover Matrix 19.4, Nexus 20.5, Omega 21.3 and preview Piers 22.0 RC2. Retained Windows native qualification covers Omega 21.3.
+1. In **Kodi Runtimes**, acquire a reviewed Kodi version. The [runtime matrix and limits](docs/MANAGED-V2-FRESH-INSTALL.md#reviewed-runtimes) cover legacy Matrix 19.5 on Linux amd64, Nexus 20.5, Omega 21.3 and preview Piers 22.0 RC2. Retained Windows native qualification covers Omega 21.3.
 2. In **Managed Kodi**, choose the version, select **Prepare**, then **Start**. The broker prepares the independent working profile and authenticated Narrow Bridge. Use **View Screen** for view-only noVNC and **Take Control** for human input.
 3. In **Agents**, create a credential with **Trusted Managed Lab** for a coding agent. An agent acquires the shared owner, then chooses a prepared generation. Each version retains one working profile. Only one managed Kodi can run at a time.
 4. Use the [Toolkit and OpenCode setup](https://github.com/kcook98765/kodi-agent-toolkit) to validate and admit a ZIP with one bounded file transfer. Provision the [reviewed dependency catalog](docs/MANAGED-V2-FRESH-INSTALL.md#approve-dependencies-for-native-installs), then request native installation with the exact approved digest. Kodi resolves dependencies. Execute the add-on and verify fresh logs or observed behavior.

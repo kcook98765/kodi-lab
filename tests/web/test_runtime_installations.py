@@ -92,7 +92,7 @@ def test_remote_only_page_has_four_unavailable_choices(
     response = client.get("/runtimes")
     primary = response.text.split('class="runtime-matrix-details"')[0]
     for title, version in (
-        ("Kodi 19 — Matrix", "19.4"),
+        ("Kodi 19 — Matrix", "19.5"),
         ("Kodi 20 — Nexus", "20.5"),
         ("Kodi 21 — Omega", "21.3"),
     ):
@@ -100,6 +100,22 @@ def test_remote_only_page_has_four_unavailable_choices(
     assert primary.count("Installation unavailable") == 4
     assert "data-install-action" not in primary
     assert "Piers" in primary
+    assert primary.count("<summary>Runtime Details</summary>") == 4
+    assert "Official Team Kodi binaries" in primary
+    assert "https://ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/" in primary
+    assert "f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9" in primary
+    assert "embedded FFmpeg has known security vulnerabilities" in primary
+    assert (
+        "Ubuntu Noble APT archive" in primary
+        and "Ubuntu Resolute APT archive" in primary
+    )
+    assert "Ubuntu distribution packages" in primary
+    assert "https://archive.ubuntu.com/ubuntu/dists/resolute/" in primary
+    assert "Team Kodi Flatpak" in primary and "Flathub Beta" in primary
+    assert (
+        "sha256:83b803ab50c19471377943f35bed0d96247a425834580a420d5842912ce7cbdd"
+        in primary
+    )
     assert "several GB of Docker storage" in primary
     assert 'data-instance-action="start"' not in primary
 
@@ -118,11 +134,17 @@ def test_install_api_auth_origin_csrf_body_and_polling(
     assert "Piers" in initial
     listed = client.get("/api/runtime-installations").json()["installations"]
     assert [(item["generation"], item["version"]) for item in listed] == [
-        ("matrix", "19.4"),
+        ("matrix", "19.5"),
         ("nexus", "20.5"),
         ("omega", "21.3"),
         ("piers", "22.0 RC2"),
     ]
+    assert listed[0]["source"]["acquisition_checksum"] == (
+        "sha256:a403312c25b980d280111fc6e3a485417969ee542d948897d1845d1d9297b72f"
+    )
+    assert listed[1]["source"]["package_version"] == "2:20.5+dfsg-1ubuntu1"
+    assert listed[2]["source"]["package_version"] == "2:21.3+dfsg-1ubuntu1"
+    assert listed[3]["source"]["support"] == "Preview"
     assert client.post(url, headers=ORIGIN).status_code == 403
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
     assert (

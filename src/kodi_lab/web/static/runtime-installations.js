@@ -80,13 +80,15 @@
     }
     if (acknowledgement && scope) {
       acknowledgement.dataset.scope = JSON.stringify(scope);
-      for (const [name, value] of [["release", `${scope.release} · ${scope.support_tier}`], ["recipe", `${scope.recipe_id} · revision ${scope.recipe_revision}`], ["digest", scope.recipe_digest]]) {
+      for (const [name, value] of [["recipe", `${scope.recipe_id} · revision ${scope.recipe_revision}`], ["digest", scope.recipe_digest]]) {
         const field = card.querySelector(`[data-preview-${name}]`);
         if (field) field.textContent = value;
       }
     }
     card.dataset.state = item.status;
     card.dataset.operationId = item.operation_id || "";
+    const image = card.querySelector("[data-runtime-image]");
+    if (image) image.textContent = item.image_id || "Unknown";
     const operation = card.querySelector("[data-install-operation]");
     if (operation) operation.textContent = item.operation_id || "No operation recorded";
     const progress = card.querySelector("[data-install-progress]");

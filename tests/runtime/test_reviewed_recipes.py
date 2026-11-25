@@ -18,15 +18,26 @@ from kodi_lab.runtime.assembly import (
     build_context,
 )
 from kodi_lab.runtime.recipes import (
+    ReviewedRecipe,
     RuntimeRecipe,
+    SignedDistroAptProvider,
     load_recorded_reviewed_recipe,
     load_reviewed_recipe,
     supported_generations,
 )
 
 
+def _matrix_recovery_recipe() -> ReviewedRecipe:
+    return load_recorded_reviewed_recipe(
+        "matrix",
+        "ubuntu-jammy-matrix-19.4",
+        4,
+        "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+    )
+
+
 def test_matrix_recipe_is_exact_reviewed_binary_package_input() -> None:
-    reviewed = load_reviewed_recipe("matrix")
+    reviewed = _matrix_recovery_recipe()
     recipe = reviewed.recipe
     assert supported_generations() == ("matrix", "nexus", "omega")
     assert (recipe.generation, recipe.kodi_version, recipe.platform) == (
@@ -34,7 +45,7 @@ def test_matrix_recipe_is_exact_reviewed_binary_package_input() -> None:
         "19.4",
         "linux/amd64",
     )
-    assert recipe.provider.type == "signed_distro_apt"
+    assert isinstance(recipe.provider, SignedDistroAptProvider)
     assert recipe.provider.suite == "jammy"
     assert recipe.base_image_reference.endswith(recipe.base_image_digest)
     assert reviewed.digest == "sha256:" + hashlib.sha256(reviewed.raw).hexdigest()
@@ -63,14 +74,14 @@ def test_matrix_recipe_is_exact_reviewed_binary_package_input() -> None:
     ],
 )
 def test_recipe_rejects_unreviewed_runtime_inputs(field: str, value: object) -> None:
-    data = json.loads(load_reviewed_recipe("matrix").raw)
+    data = json.loads(_matrix_recovery_recipe().raw)
     data[field] = value
     with pytest.raises(ValidationError):
         RuntimeRecipe.model_validate(data)
 
 
 def test_assembly_uses_only_reviewed_sources_and_exact_package_checks() -> None:
-    reviewed = load_reviewed_recipe("matrix")
+    reviewed = _matrix_recovery_recipe()
     dockerfile = _dockerfile(reviewed)
     sources = _apt_sources(reviewed)
     assert "jammy main universe" in sources
@@ -172,7 +183,11 @@ def test_historical_recipe_resolution_requires_exact_reviewed_identity() -> None
 
 @pytest.mark.parametrize("generation", ("matrix", "nexus", "omega"))
 def test_historical_runtime_asset_identity_is_preserved(generation: str) -> None:
-    current = load_reviewed_recipe(generation)
+    current = (
+        _matrix_recovery_recipe()
+        if generation == "matrix"
+        else load_reviewed_recipe(generation)
+    )
     assert (
         current.recipe.recipe_revision
         == {"matrix": 4, "nexus": 4, "omega": 6}[generation]
@@ -240,7 +255,7 @@ def test_assembly_rejects_wrong_base_digest_before_build() -> None:
 
 
 def test_assembly_redacts_package_acquisition_failure() -> None:
-    reviewed = load_reviewed_recipe("matrix")
+    reviewed = _matrix_recovery_recipe()
     operation_id = uuid4()
     network_name = f"kodi-lab-recipe-acquisition-{operation_id.hex}"
     removed: list[bool] = []
@@ -294,7 +309,7 @@ def test_assembly_redacts_package_acquisition_failure() -> None:
 
 
 def test_assembly_rejects_substituted_acquisition_network_before_build() -> None:
-    reviewed = load_reviewed_recipe("matrix")
+    reviewed = _matrix_recovery_recipe()
     removed: list[bool] = []
 
     def forbidden_build(**_kwargs: object) -> None:

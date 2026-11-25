@@ -153,7 +153,7 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   up -d --wait --no-build web broker
 ```
 Open **Managed Kodi → Advanced managed administration → Runtime approval and
-installation**. Stable Matrix 19.4, Nexus 20.5 and Omega 21.3 are available.
+installation**. Legacy Matrix 19.5 on Linux amd64, Nexus 20.5 and Omega 21.3 are available.
 Kodi **22 Piers RC2** is **Preview / Prerelease**, Development-only, Linux amd64;
 it requires acknowledgement of the exact recipe and revision. Retained RC1
 profiles keep their existing pins; a new recipe does not replace an occupied slot.

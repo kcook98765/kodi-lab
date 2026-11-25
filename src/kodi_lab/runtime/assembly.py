@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import re
@@ -22,7 +23,11 @@ from kodi_lab.runtime.ostree_assembly import (
     OstreeAssemblyEvidence,
     assemble_ostree_image,
 )
-from kodi_lab.runtime.recipes import ReviewedRecipe, SignedDistroAptProvider
+from kodi_lab.runtime.recipes import (
+    MatrixCandidateRecipe,
+    ReviewedRecipe,
+    SignedDistroAptProvider,
+)
 from kodi_lab.runtime.temporary_networks import (
     TemporaryNetwork,
     TemporaryNetworkError,
@@ -91,6 +96,8 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
     recipe = reviewed.recipe
     if not isinstance(recipe.provider, SignedDistroAptProvider):
         raise RecipeAssemblyError("APT provider required")
+    if isinstance(recipe, MatrixCandidateRecipe):
+        raise RecipeAssemblyError("Matrix candidate requires sealed offline packages")
     packages = [
         f"{item.name}={item.version}" for item in recipe.critical_packages
     ] + list(recipe.support_packages)
@@ -138,6 +145,16 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         ),
         "rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb",
     ]
+    return render_apt_image(
+        reviewed, commands, "COPY apt-sources.list /etc/apt/sources.list"
+    )
+
+
+def render_apt_image(
+    reviewed: ReviewedRecipe, commands: list[str], copy_inputs: str
+) -> str:
+    """Render the fixed display and process setup around the package install."""
+    recipe = reviewed.recipe
     joined = " \\\n    && ".join(commands)
     display_guard_copy = (
         "COPY --chown=kodi:kodi xvfb_guard.py /usr/local/bin/kodi-lab-xvfb-guard\n"
@@ -163,7 +180,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         f"LABEL io.kodi-lab.recipe-id={recipe.recipe_id} "
         f"io.kodi-lab.recipe-revision={recipe.recipe_revision} "
         f"io.kodi-lab.recipe-digest={reviewed.digest}\n"
-        "COPY apt-sources.list /etc/apt/sources.list\n"
+        f"{copy_inputs}\n"
         f"RUN {joined}\n"
         "RUN if getent passwd 1000 >/dev/null; then \\\n"
         '        test "$(getent passwd 1000)" = '
@@ -207,6 +224,10 @@ def build_context(reviewed: ReviewedRecipe) -> bytes:
         "apt-sources.list": _apt_sources(reviewed).encode(),
         **reviewed.assets,
     }
+    return pack_build_entries(entries)
+
+
+def pack_build_entries(entries: Mapping[str, bytes]) -> bytes:
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
         for name, payload in sorted(entries.items()):
@@ -245,13 +266,13 @@ def _inspect_image(
     return inspected
 
 
-def _inventory(client: Any, image_id: str, path: str) -> bytes:
+def _inventory(client: Any, image_id: str, path: str, *, binary: bool = False) -> bytes:
     # This exact read-only command runs only in the trusted installation worker.
     # It is never registered as a broker RPC or made caller configurable.
     output = client.containers.run(
         image_id,
-        path,
-        entrypoint="/bin/cat",
+        ["-w0", path] if binary else path,
+        entrypoint="/usr/bin/base64" if binary else "/bin/cat",
         network_mode="none",
         remove=True,
         stdout=True,
@@ -265,7 +286,8 @@ def _inventory(client: Any, image_id: str, path: str) -> bytes:
     )
     if not isinstance(output, bytes) or not 1 <= len(output) <= _MAX_INVENTORY_BYTES:
         raise RecipeAssemblyError("assembled package inventory is invalid")
-    return output
+    # Docker logs are line-oriented. Encode binary data before it enters them.
+    return base64.b64decode(output.strip(), validate=True) if binary else output
 
 
 def _package_inventory(
@@ -361,8 +383,23 @@ def assemble_reviewed_image(
             operation_id=operation_id,
             purpose="acquisition",
         )
+        if isinstance(reviewed.recipe, MatrixCandidateRecipe):
+            from kodi_lab.runtime.matrix_candidate import acquire_context
+
+            keyring = _inventory(
+                client, base["Id"], reviewed.recipe.provider.keyring_path, binary=True
+            )
+            context, matrix_metadata = acquire_context(
+                client, network, operation_id, keyring
+            )
+            remove_exact_temporary_network(client, network)
+            network = None
+            network_mode = "none"
+        else:
+            network_mode = network.name
+            context = build_context(reviewed)
         stream = client.api.build(
-            fileobj=io.BytesIO(build_context(reviewed)),
+            fileobj=io.BytesIO(context),
             custom_context=True,
             tag=tag,
             rm=True,
@@ -371,7 +408,7 @@ def assemble_reviewed_image(
             nocache=True,
             decode=True,
             platform=reviewed.recipe.platform,
-            network_mode=network.name,
+            network_mode=network_mode,
         )
         for event in stream:
             if not isinstance(event, dict):
@@ -395,10 +432,16 @@ def assemble_reviewed_image(
             _inventory(client, image_id, "/usr/share/kodi-lab/installed-packages.tsv"),
             reviewed,
         )
-        metadata = _metadata_digests(
-            _inventory(client, image_id, "/usr/share/kodi-lab/apt-metadata.sha256"),
-            reviewed,
-        )
+        if isinstance(reviewed.recipe, MatrixCandidateRecipe):
+            closure = _inventory(client, image_id, "/usr/share/kodi-lab/closure.sha256")
+            if closure != f"{reviewed.recipe.closure_sha256}\n".encode():
+                raise RecipeAssemblyError("assembled Matrix package closure differs")
+            metadata = matrix_metadata
+        else:
+            metadata = _metadata_digests(
+                _inventory(client, image_id, "/usr/share/kodi-lab/apt-metadata.sha256"),
+                reviewed,
+            )
         index_download, package_download = _apt_download_report("".join(log_parts))
         return AssemblyResult(
             image_id=image_id,

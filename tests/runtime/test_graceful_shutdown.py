@@ -144,7 +144,16 @@ def test_total_stop_budget_fits_existing_broker_timeout() -> None:
 def test_new_recipe_preserves_historical_bytes_and_pins(
     generation: str, revision: int
 ) -> None:
-    current = load_reviewed_recipe(generation)
+    current = (
+        load_recorded_reviewed_recipe(
+            "matrix",
+            "ubuntu-jammy-matrix-19.4",
+            4,
+            "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+        )
+        if generation == "matrix"
+        else load_reviewed_recipe(generation)
+    )
     assert current.recipe.recipe_revision == revision
     previous_revision = revision - 1
     filename = {

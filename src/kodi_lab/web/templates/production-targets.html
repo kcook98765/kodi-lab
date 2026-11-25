@@ -66,7 +66,8 @@
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Identity generation {{ policy.identity_generation }} · policy revision {{ policy.policy_revision }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}</p>
-          <p>Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · observation {{ target.pending_observation_id or 'none' }}</p>
+          <p>Binary provenance: Unknown. Kodi reports its version and identity.</p>
+          <p>Native-reported Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · observation {{ target.pending_observation_id or 'none' }}</p>
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
           <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
           <p>Routine remote navigation uses <a href="/kodi/{{ target.target_id }}">Allow remote navigation on this Kodi</a> and ordinary exact-target inspection access. Historical navigation scopes remain recorded but grant no current navigation access.</p>

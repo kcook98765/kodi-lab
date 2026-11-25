@@ -51,6 +51,7 @@ from kodi_lab.runtime.recipes import (
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
     FlathubOstreeProvider,
+    MatrixCandidateRecipe,
     ReviewedRecipe,
     SignedDistroAptProvider,
     load_display_candidate_recipe,
@@ -389,6 +390,8 @@ def _commit_ready(
             support_tier=(
                 RuntimeSupportTier.PREVIEW
                 if isinstance(recipe.provider, FlathubOstreeProvider)
+                else RuntimeSupportTier.LEGACY
+                if isinstance(recipe, MatrixCandidateRecipe)
                 else RuntimeSupportTier.CURRENT
             ),
         )

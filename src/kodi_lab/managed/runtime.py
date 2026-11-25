@@ -28,6 +28,7 @@ from kodi_lab.kodi.bridge import (
     ExternalBridgeClient,
 )
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST, MATRIX_RECOVERY_DIGESTS
 
 from . import RELEASES
 from .protocol import Checkpoint, Document
@@ -526,6 +527,27 @@ class Runtime:
             stream.seek(max(0, path.stat().st_size - 16_384))
             return {"text": stream.read(16_384).decode(errors="replace")}
 
+    def expected_release(self) -> tuple[int, int]:
+        if self.generation != "matrix":
+            return RELEASES[self.generation]
+        image = self.image
+        identity = docker(
+            "image",
+            "inspect",
+            "--format",
+            '{{.Id}} {{index .Config.Labels "io.kodi-lab.recipe-digest"}}',
+            image,
+        )
+        observed, _, digest = identity.partition(" ")
+        if observed != image:
+            raise Refusal("reviewed_image_required")
+        if digest == MATRIX_CANDIDATE_DIGEST:
+            return RELEASES["matrix"]
+        # A retained or restored profile keeps its precise historical image.
+        if digest in MATRIX_RECOVERY_DIGESTS:
+            return (19, 4)
+        raise Refusal("reviewed_image_required")
+
     def ready(self) -> Document | None:
         try:
             version = self.rpc(
@@ -537,9 +559,11 @@ class Runtime:
                 from kodi_lab.runtime.ostree_validation import native_identity
 
                 native_identity(version, "22.0-rc.2")
+            expected = self.expected_release()
             if (
                 version.get("name") != "Kodi"
-                or (actual["major"], actual["minor"]) != RELEASES[self.generation]
+                or (actual["major"], actual["minor"]) != expected
+                or (self.generation == "matrix" and actual.get("tag") != "stable")
                 or bridge["addon_id"] != BRIDGE
                 or "managed_v2_install" not in bridge["capabilities"]
                 or bridge["build_fingerprint"] != self.bridge_fingerprint()

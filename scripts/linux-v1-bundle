@@ -44,8 +44,8 @@ BRIDGE_FILES = (
 )
 RECIPES = {
     "matrix": (
-        "matrix-19.4-graceful-r4.json",
-        "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+        "matrix-19.5-candidate.json",
+        "sha256:4c1c59022d790b390dce7f9c7a6e9f778874c8d31b8fc24a6cbb1deac46f502b",
     ),
     "nexus": (
         "nexus-20.5-graceful-r4.json",
@@ -674,7 +674,7 @@ def _recipes(bundle: pathlib.Path) -> list[dict[str, str | int]]:
             raise ValueError("release recipe generation differs")
         result.append(item)
     if [(item["release"], item["suite"]) for item in result] != [
-        ("19.4", "jammy"),
+        ("19.5", "jammy"),
         ("20.5", "noble"),
         ("21.3", "resolute"),
     ]:

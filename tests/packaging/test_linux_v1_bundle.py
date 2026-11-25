@@ -251,7 +251,7 @@ def test_supported_recipe_staging_matches_application_defaults(tmp_path: Path) -
     )
     assert result.returncode == 0, result.stderr
     assert {p.name for p in (staged / "runtime-recipes").iterdir()} == {
-        "matrix-19.4-graceful-r4.json",
+        "matrix-19.5-candidate.json",
         "nexus-20.5-graceful-r4.json",
         "omega-21.3-graceful-r6.json",
     }
@@ -259,7 +259,7 @@ def test_supported_recipe_staging_matches_application_defaults(tmp_path: Path) -
     assert {r["generation"]: r["recipe_digest"] for r in records} == {
         g: load_reviewed_recipe(g).digest for g in supported_generations()
     }
-    assert [r["recipe_revision"] for r in records] == [4, 4, 6]
+    assert [r["recipe_revision"] for r in records] == [5, 4, 6]
     stage_script = (root / "scripts/stage-linux-v1-bundle").read_text()
     assert (
         '"$output/linux-v1-bundle" stage-recipes "$output" "$repository"'
@@ -270,7 +270,7 @@ def test_supported_recipe_staging_matches_application_defaults(tmp_path: Path) -
 def test_correct_bundle_recipes_are_verified_exactly(bundle: Path) -> None:
     records = verify(bundle)["runtimes"]
     assert [(r["generation"], r["recipe_revision"]) for r in records] == [
-        ("matrix", 4),
+        ("matrix", 5),
         ("nexus", 4),
         ("omega", 6),
     ]

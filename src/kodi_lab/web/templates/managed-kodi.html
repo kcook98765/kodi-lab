@@ -10,6 +10,10 @@
 </nav>
 <section aria-labelledby="managed-heading" id="managed-{{ generation }}" data-managed-kodi="{{ generation }}" data-csrf="{{ csrf_token }}">
   <h2 id="managed-heading">{{ versions[generation] }}</h2>
+  {% if generation == 'matrix' %}
+  {% include "matrix-legacy-notice.html" %}
+  {% endif %}
+  <p><a href="/runtimes">Runtime installations and binary sources</a></p>
   <p id="managed-status" role="status">Checking Kodi…</p>
   <div>
     <button type="button" data-action="managed_prepare">Prepare</button>

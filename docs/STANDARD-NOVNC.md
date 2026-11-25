@@ -25,7 +25,7 @@ reviewed recipes:
 
 | Kodi | Recipe | Revision |
 | --- | --- | --- |
-| Matrix 19.4 | ubuntu-jammy-matrix-19.4 | 4 |
+| Matrix 19.5 (legacy Linux amd64) | ubuntu-jammy-matrix-19.5-candidate | 5 |
 | Nexus 20.5 | ubuntu-noble-nexus-20.5 | 4 |
 | Omega 21.3 | ubuntu-resolute-omega-21.3 | 6 |
 

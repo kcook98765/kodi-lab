@@ -9,6 +9,7 @@ import re
 import shutil
 import sqlite3
 import stat
+import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
@@ -522,6 +523,13 @@ class Controller:
         }
         previous = self.last_operation()
         status["generation"] = self.runtime.generation
+        if self.runtime.generation == "matrix" and self.runtime.pointer.exists():
+            try:
+                major, minor = self.runtime.expected_release()
+            except (Refusal, subprocess.CalledProcessError):
+                pass
+            else:
+                status["profile_version"] = f"{major}.{minor}"
         status["available_generations"] = list(RELEASES)
         status["owner"] = self.owner()
         status["view_control"] = self.input_attempt is not None

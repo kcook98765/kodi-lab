@@ -45,6 +45,7 @@ VIEWER_ASSET_RECIPES = frozenset(
     {("ubuntu-resolute-omega-21.3", revision) for revision in (3, 4, 5, 6)}
     | {("ubuntu-noble-nexus-20.5", revision) for revision in (3, 4)}
     | {("ubuntu-jammy-matrix-19.4", revision) for revision in (3, 4)}
+    | {("ubuntu-jammy-matrix-19.5-candidate", 5)}
 )
 EXPERIMENTAL_OMEGA_DISPLAY = DisplayCapability(
     recipe_id="ubuntu-resolute-omega-21.3",
@@ -136,6 +137,13 @@ _GRACEFUL_DISPLAYS = (
 )
 _DISPLAY_RECIPES = (
     *_GRACEFUL_DISPLAYS,
+    replace(
+        MATRIX_DISPLAY_CANDIDATE,
+        recipe_id="ubuntu-jammy-matrix-19.5-candidate",
+        recipe_revision=5,
+        recipe_digest="sha256:4c1c59022d790b390dce7f9c7a6e9f778874c8d31b8fc24a6cbb1deac46f502b",
+        expected_kodi_version="19.5",
+    ),
     EXPERIMENTAL_OMEGA_DISPLAY,
     OMEGA_DISPLAY_CANDIDATE,
     NEXUS_DISPLAY_CANDIDATE,

@@ -254,6 +254,22 @@ def test_snapshot_digest_mismatch_keeps_active_profile(tmp_path: Path) -> None:
     assert native.retired == []
 
 
+def test_snapshot_requires_its_original_runtime_image(tmp_path: Path) -> None:
+    native = Volumes(tmp_path)
+    (native.source / "userdata").mkdir()
+    (native.source / "userdata/guisettings.xml").write_bytes(b"<settings/>")
+    snapshots = Snapshots(native)
+    snapshots.save("Matrix recovery")
+    path = snapshots.path("Matrix recovery")
+    metadata_path = path.with_suffix(".json")
+    original = metadata_path.read_bytes()
+    native.image = "sha256:" + "b" * 64
+    with pytest.raises(Refusal, match="snapshot_identity_mismatch"):
+        snapshots.load("Matrix recovery")
+    assert native.current == "current" and native.retired == []
+    assert metadata_path.read_bytes() == original
+
+
 def test_controller_refuses_nonempty_initial_state(tmp_path: Path) -> None:
     root = tmp_path / "trial"
     root.mkdir(mode=0o700)

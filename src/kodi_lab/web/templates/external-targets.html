@@ -55,7 +55,8 @@
           <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/external-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}</p>
-          <p>Observed Kodi identity: {{ target.kodi_name or 'not observed' }} · Kodi {{ target.kodi_version or 'not observed' }} · JSON-RPC {{ target.protocol_version or 'not observed' }}</p>
+          <p>Binary provenance: Unknown. Kodi reports its version and identity.</p>
+          <p>Native-reported Kodi identity: {{ target.kodi_name or 'not observed' }} · Kodi {{ target.kodi_version or 'not observed' }} · JSON-RPC {{ target.protocol_version or 'not observed' }}</p>
           <p>Configured: {{ target.configured_capabilities | join(', ') }} · verified: {{ target.verified_capabilities | join(', ') if target.verified_capabilities else 'none' }}</p>
           </details>
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and bridge.pairing_state.value == 'paired' %}

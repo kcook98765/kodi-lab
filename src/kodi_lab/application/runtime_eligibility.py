@@ -31,6 +31,7 @@ from kodi_lab.runtime.recipes import (
     REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
     FlathubOstreeProvider,
+    MatrixCandidateRecipe,
     ReviewedRecipe,
     SignedDistroAptProvider,
     load_recorded_reviewed_recipe,
@@ -136,6 +137,10 @@ def _reviewed_attestation_matches(
     ):
         return False
     metadata = attestation.get("signed_metadata_digests")
+    if isinstance(recipe, MatrixCandidateRecipe):
+        from kodi_lab.runtime.matrix_candidate import matches_acquisition
+
+        return matches_acquisition(packages, metadata)
     return (
         isinstance(metadata, list)
         and len(metadata) == len(recipe.provider.pockets)
