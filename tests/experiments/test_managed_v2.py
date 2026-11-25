@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
 from hashlib import sha256
 from pathlib import Path
+from threading import Thread
 from uuid import uuid4
 from zipfile import ZipFile
 
 import pytest
 
+from kodi_lab.kodi.bridge import ExternalBridgeClient, b64url
+from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.managed.broker import Broker, BrokerClient
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
 from kodi_lab.managed.protocol import Document
 from kodi_lab.managed.runtime import LABEL, Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
+from tests.kodi.fake_external_bridge import FakeExternalBridge
 
 
 def package(
@@ -353,6 +359,63 @@ def test_verified_result_survives_interrupted_reply(tmp_path: Path) -> None:
     recorded = Controller(root).last_operation()
     assert recorded is not None and recorded["state"] == "complete"
     assert recorded["result"] == {"state": "ready"}
+
+
+@pytest.mark.parametrize(
+    ("behavior", "code"),
+    [
+        ("capture_error", "screenshot_capture_failed"),
+        ("capture_error_invalid", "screenshot_invalid"),
+        ("invalid_png", "screenshot_format_invalid"),
+        ("capture_error_bad_signature", "operation_outcome_unconfirmed"),
+    ],
+)
+def test_managed_screenshot_failure_preserves_receipt_and_navigation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, behavior: str, code: str
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    native = controller.runtime
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    socket = tmp_path / "broker.sock"
+    monkeypatch.setattr(native, "address", lambda: "127.0.0.1")
+    monkeypatch.setattr(native, "rpc", lambda method: method)
+    controller.perform("managed_navigate", {"action": "down"}, actor=actor)
+    previous = controller.last_operation()
+    assert previous is not None and previous["state"] == "complete"
+
+    with FakeExternalBridge(target_id=native.target, token=b"t" * 32) as fake:
+        fake.secret = b"s" * 32
+        fake.tamper = behavior
+        (native.credentials / "state.json").write_text(
+            json.dumps(
+                {"bridge_id": str(fake.bridge_id), "secret": b64url(fake.secret)}
+            )
+        )
+        url = ExternalBridgeClient._url
+
+        def test_url(endpoint: ValidatedExternalEndpoint, port: int) -> str:
+            assert port == 8765
+            return url(endpoint, fake.port)
+
+        monkeypatch.setattr(ExternalBridgeClient, "_url", staticmethod(test_url))
+        with Broker(socket, controller, os.getuid()) as broker:
+            thread = Thread(target=broker.serve_forever)
+            thread.start()
+            try:
+                client = BrokerClient(socket)
+                with pytest.raises(Refusal, match=f"^{code}$"):
+                    client.request(actor, "managed_screen", {})
+                assert controller.last_operation() == previous
+                assert client.request(actor, "managed_navigate", {"action": "up"})[
+                    "result"
+                ] == {"state": "dispatched"}
+            finally:
+                broker.shutdown()
+                thread.join(timeout=2)
+        assert fake.capture_count == 1
 
 
 def test_failed_skin_recovery_stays_pending(
