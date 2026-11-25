@@ -65,15 +65,21 @@ async function refresh() {
   }
   const {state, owner, operation, public_repository_test} = data.profile;
   ready = state === "ready";
-  if (!ready && client !== null) disconnect();
+  if (!ready && client !== null) {
+    disconnect();
+    viewStatus.textContent = "Kodi screen unavailable.";
+  }
   if (ready && watching && client === null && !control) connect();
   recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
-  statusLine.textContent = `${state.replaceAll("_", " ")} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
+  const phase = {starting: "Starting", stopping: "Stopping"}[state] ?? state.replaceAll("_", " ");
+  statusLine.textContent = `${phase} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
   if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
-  const selected = saved.value;
-  const options = data.snapshots.map(({name}) => new Option(name, name));
-  saved.replaceChildren(...options);
-  if (options.some(option => option.value === selected)) saved.value = selected;
+  if (Array.isArray(data.snapshots)) {
+    const selected = saved.value;
+    const options = data.snapshots.map(({name}) => new Option(name, name));
+    saved.replaceChildren(...options);
+    if (options.some(option => option.value === selected)) saved.value = selected;
+  }
 }
 
 async function apply(button) {

@@ -80,3 +80,24 @@ def test_managed_view_rejects_cross_origin_before_contacting_broker(
     ):
         pass
     assert denial.value.code == 4403
+
+
+@pytest.mark.parametrize("phase", ["starting", "stopping"])
+def test_managed_status_renders_lifecycle_without_waiting_for_snapshots(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    def request(
+        self: BrokerClient, actor: str, name: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        assert (actor, name, args) == (
+            "admin",
+            "managed_status",
+            {"generation": "nexus"},
+        )
+        return {"result": {"state": phase, "owner": "agent"}, "elapsed_seconds": 0.1}
+
+    monkeypatch.setattr(BrokerClient, "request", request)
+    login(client)
+    response = client.get("/api/managed-kodi/nexus")
+    assert response.status_code == 200
+    assert response.json() == {"profile": {"state": phase, "owner": "agent"}}
