@@ -262,13 +262,10 @@ class Controller:
             raise Refusal("managed_recovery_required")
         if pending and pending.get("recovery_error") and name == "managed_stop":
             return self.runtime.stop()
-        if pending:
-            if not (
-                pending.get("recovery_error")
-                and name in {"managed_reset", "snapshot_load"}
-            ):
-                raise Refusal("managed_recovery_required")
-            self.runtime.remove_exited()
+        if pending and not (
+            pending.get("recovery_error") and name in {"managed_reset", "snapshot_load"}
+        ):
+            raise Refusal("managed_recovery_required")
         self.current = {
             "id": uuid4().hex,
             "name": name,

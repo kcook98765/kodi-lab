@@ -40,3 +40,10 @@ switching or restoration. To preserve the whole managed lab, stop Kodi and
 quiesce the broker before copying its separate volume. Preserve the matching
 reviewed runtime image separately. Keep these artifacts and their credentials
 private.
+
+An unclean exit remains visible as `exited_unconfirmed`. For an identified
+exited container, explicitly choose Reset or load a compatible snapshot to
+replace the working profile. Both actions discard the old working profile,
+so preserve unsaved data before proceeding. Snapshot Load validates the
+snapshot before removing the exited container. A pending operation may still
+require an administrator to use Recover first.
