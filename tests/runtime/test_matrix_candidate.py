@@ -1,11 +1,12 @@
 """Matrix 19.5 retains sealed acquisition and exact Matrix recovery identity."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from kodi_lab.managed.runtime import Refusal, Runtime
-from kodi_lab.runtime.assembly import RecipeAssemblyError
+from kodi_lab.runtime.assembly import RecipeAssemblyError, _inventory
 from kodi_lab.runtime.assembly import build_context as ordinary_context
 from kodi_lab.runtime.display_capabilities import reviewed_display_capability
 from kodi_lab.runtime.matrix_candidate import (
@@ -49,6 +50,25 @@ def test_standard_selection_reuses_exact_assets_and_preserves_19_4() -> None:
     )
     with pytest.raises(RecipeAssemblyError, match="sealed offline"):
         ordinary_context(candidate)
+
+
+def test_ubuntu_binary_keyring_uses_lossless_log_encoding() -> None:
+    def read(_image: str, argv: list[str], **flags: object) -> bytes:
+        assert argv == ["-w0", "/usr/share/keyrings/ubuntu-archive-keyring.gpg"]
+        assert flags["entrypoint"] == "/usr/bin/base64"
+        assert flags["network_mode"] == "none"
+        return b"AAoN/w==\n"
+
+    client = SimpleNamespace(containers=SimpleNamespace(run=read))
+    assert (
+        _inventory(
+            client,
+            "sha256:" + "a" * 64,
+            "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+            binary=True,
+        )
+        == b"\x00\n\r\xff"
+    )
 
 
 def test_build_context_refuses_substituted_package(tmp_path: Path) -> None:

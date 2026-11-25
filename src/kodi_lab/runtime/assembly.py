@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import re
@@ -265,13 +266,13 @@ def _inspect_image(
     return inspected
 
 
-def _inventory(client: Any, image_id: str, path: str) -> bytes:
+def _inventory(client: Any, image_id: str, path: str, *, binary: bool = False) -> bytes:
     # This exact read-only command runs only in the trusted installation worker.
     # It is never registered as a broker RPC or made caller configurable.
     output = client.containers.run(
         image_id,
-        path,
-        entrypoint="/bin/cat",
+        ["-w0", path] if binary else path,
+        entrypoint="/usr/bin/base64" if binary else "/bin/cat",
         network_mode="none",
         remove=True,
         stdout=True,
@@ -285,7 +286,8 @@ def _inventory(client: Any, image_id: str, path: str) -> bytes:
     )
     if not isinstance(output, bytes) or not 1 <= len(output) <= _MAX_INVENTORY_BYTES:
         raise RecipeAssemblyError("assembled package inventory is invalid")
-    return output
+    # Docker logs are line-oriented. Encode binary data before it enters them.
+    return base64.b64decode(output.strip(), validate=True) if binary else output
 
 
 def _package_inventory(
@@ -385,7 +387,7 @@ def assemble_reviewed_image(
             from kodi_lab.runtime.matrix_candidate import acquire_context
 
             keyring = _inventory(
-                client, base["Id"], reviewed.recipe.provider.keyring_path
+                client, base["Id"], reviewed.recipe.provider.keyring_path, binary=True
             )
             context, matrix_metadata = acquire_context(
                 client, network, operation_id, keyring
