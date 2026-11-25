@@ -188,8 +188,8 @@ def test_explicit_parent_wins_over_tmpfs_and_owned_directories_are_cleaned(
     assert calls[1].startswith("run --locked ruff format")
     assert calls[2].startswith("run --locked ruff check")
     assert calls[3].startswith("run --locked mypy")
-    assert "test_foundation_registry_contains_exact_operation_set" in calls[4]
-    assert "test_migration_metadata_contains_core_storage_tables" in calls[4]
+    assert "test_capabilities_reports_exact_reviewed_runtime_operations" in calls[4]
+    assert "test_fresh_contract_and_safe_reinitialization" in calls[4]
     assert "tests/runtime/test_ostree_installation_schema.py" in calls[4]
 
 

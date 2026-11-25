@@ -64,20 +64,22 @@ def test_read_only_registry_discovery_and_peer_policy() -> None:
         assert operation is not None and operation.requires_authorized_peer
 
 
+REVIEWED_RUNTIME_OPERATIONS = [
+    "active_reviewed_runtime_installation",
+    "broker_info",
+    "capabilities",
+    "launch_reviewed_runtime_installation",
+    "observe_reviewed_runtime_installation",
+    "ping",
+    "reviewed_runtime_image_present",
+]
+
+
 def test_capabilities_reports_exact_reviewed_runtime_operations() -> None:
     registry = build_reviewed_runtime_registry()
-    expected = [
-        "active_reviewed_runtime_installation",
-        "broker_info",
-        "capabilities",
-        "launch_reviewed_runtime_installation",
-        "observe_reviewed_runtime_installation",
-        "ping",
-        "reviewed_runtime_image_present",
-    ]
-    assert list(registry.names) == expected
+    assert list(registry.names) == REVIEWED_RUNTIME_OPERATIONS
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
-        operations=expected, protocol_version=1
+        operations=REVIEWED_RUNTIME_OPERATIONS, protocol_version=1
     )
 
 
