@@ -719,6 +719,60 @@ def test_start_blocks_other_running_managed_version_before_staging(
     assert not list(runtime.credentials.iterdir())
 
 
+@pytest.mark.parametrize(
+    ("operation", "transition"),
+    [("managed_start", "starting"), ("managed_stop", "stopping")],
+)
+def test_admin_can_observe_active_lifecycle_without_taking_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, transition: str
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    actor = str(uuid4())
+    nexus = {"generation": "nexus"}
+    observed = []
+
+    def observe(event: str) -> None:
+        if event != "begin":
+            return
+        observed.append(
+            controller.perform("managed_status", nexus, actor="admin")["result"]
+        )
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_status", {}, actor="admin")
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_status", nexus, actor=actor)
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_release", {}, actor=actor)
+
+    controller = Controller(
+        root, daemon_root=root, handoff_root=tmp_path, interrupt=observe
+    )
+    native = controller.runtimes["nexus"]
+    native.pointer.touch()
+    monkeypatch.setattr(native, "inspect", lambda: None)
+    monkeypatch.setitem(controller.actions, operation, lambda: {"state": "done"})
+    controller.perform("managed_acquire", {}, actor=actor)
+    assert controller.perform(operation, nexus, actor=actor)["result"] == {
+        "state": "done"
+    }
+    assert observed == [
+        {
+            "state": transition,
+            "owner": actor,
+            "generation": "nexus",
+            "view_control": False,
+            "view_target": str(native.target),
+        }
+    ]
+    result = controller.perform("managed_status", nexus, actor="admin")["result"]
+    assert isinstance(result, dict)
+    assert result["state"] == "stopped"
+    assert result["operation"]["state"] == "complete"
+    with controller.omega.exclusive(), pytest.raises(Refusal, match="managed_busy"):
+        controller.perform("managed_status", nexus, actor="admin")
+
+
 def test_unprepared_start_finishes_with_a_refusal_before_dispatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

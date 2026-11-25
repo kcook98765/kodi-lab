@@ -85,6 +85,7 @@ class Controller:
         self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
+        self.lifecycle_status: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
         self.actor = "admin"
         self.lease_path = self.runtime.root / "active-owner"
@@ -254,20 +255,32 @@ class Controller:
     def perform(self, name: str, args: dict[str, str], *, actor: str) -> OperationReply:
         started = time.monotonic()
         actor_key(actor)
-        with self.omega.exclusive():
-            _, args = validate(name, args)
-            arguments = dict(args)
-            generation = arguments.pop("generation", "omega")
-            runtime = self.runtimes.get(generation)
-            if runtime is None:
-                raise Refusal("managed_generation_unavailable")
-            self.runtime = runtime
-            self.actor = actor
-            try:
-                result = self.perform_locked(name, arguments)
-            finally:
-                self.actor = "admin"
-                self.runtime = self.omega
+        _, args = validate(name, args)
+        arguments = dict(args)
+        generation = arguments.pop("generation", "omega")
+        runtime = self.runtimes.get(generation)
+        if runtime is None:
+            raise Refusal("managed_generation_unavailable")
+        try:
+            with self.omega.exclusive():
+                self.runtime = runtime
+                self.actor = actor
+                try:
+                    result = self.perform_locked(name, arguments)
+                finally:
+                    self.actor = "admin"
+                    self.runtime = self.omega
+        except Refusal as error:
+            transition = self.lifecycle_status
+            if (
+                str(error) != "managed_busy"
+                or name != "managed_status"
+                or actor != "admin"
+                or transition is None
+                or transition["generation"] != generation
+            ):
+                raise
+            result = dict(transition)
         return {
             "result": result,
             "elapsed_seconds": round(time.monotonic() - started, 3),
@@ -326,6 +339,17 @@ class Controller:
             },
         }
         try:
+            phase = {"managed_start": "starting", "managed_stop": "stopping"}.get(name)
+            if phase is not None:
+                # Publish a single read-only snapshot while this lifecycle action
+                # holds the lock. Never use it to authorize a view or mutation.
+                self.lifecycle_status = {
+                    "state": phase,
+                    "generation": self.runtime.generation,
+                    "owner": self.owner(),
+                    "view_control": self.input_attempt is not None,
+                    "view_target": str(self.runtime.target),
+                }
             self.checkpoint("begin")
             result = self.actions[name](**args)
             if not (self.current.get("native_pending") or self.current.get("skin")):
@@ -336,6 +360,7 @@ class Controller:
                 self.checkpoint("refused", state="complete", error=str(exc))
             raise
         finally:
+            self.lifecycle_status = None
             self.current = None
 
     def public_approval(self) -> Approval:
