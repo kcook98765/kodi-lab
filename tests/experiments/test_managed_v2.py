@@ -416,6 +416,8 @@ def test_agent_can_explicitly_replace_exited_profile(
     monkeypatch.setattr(Runtime, "image", property(lambda _: Volumes.image))
     monkeypatch.setattr(native, "capacity", lambda: Volumes.image)
     monkeypatch.setattr(native, "require_volume", native.profile)
+    # The starting profile has no container in the disposable runtime.
+    monkeypatch.setattr(native, "inspect", lambda: None)
     actor = str(uuid4())
     controller.perform("managed_acquire", {}, actor=actor)
     args = {"name": "Known working"} if action == "snapshot_load" else {}
