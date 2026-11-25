@@ -652,6 +652,37 @@ def test_start_blocks_other_running_managed_version_before_staging(
     assert not list(runtime.credentials.iterdir())
 
 
+def test_unprepared_start_finishes_with_a_refusal_before_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root, daemon_root=root, handoff_root=tmp_path)
+    native = controller.runtime
+    monkeypatch.setattr(native, "capacity", lambda: "approved")
+    monkeypatch.setattr(native, "inspect", lambda: None)
+
+    def stopped_docker(*args: str) -> str:
+        assert args[:3] == ("ps", "-q", "--filter")
+        return ""
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", stopped_docker)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+
+    with pytest.raises(Refusal, match="managed_profile_not_prepared"):
+        controller.perform("managed_start", {}, actor=actor)
+
+    receipt = controller.last_operation()
+    assert receipt is not None
+    assert receipt["name"] == "managed_start"
+    assert receipt["state"] == "complete"
+    assert receipt["event"] == "refused"
+    assert receipt["error"] == "managed_profile_not_prepared"
+    assert not native.pointer.exists()
+    assert not list(native.credentials.iterdir())
+
+
 def test_interrupted_operation_can_only_recover_its_original_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
