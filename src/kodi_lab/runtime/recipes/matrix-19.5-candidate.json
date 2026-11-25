@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "recipe_id": "ubuntu-jammy-matrix-19.5-candidate",
+  "recipe_revision": 5,
+  "generation": "matrix",
+  "display_generation": "Matrix 19",
+  "kodi_version": "19.5",
+  "platform": "linux/amd64",
+  "definition_id": "51950000-0000-4000-8000-000000000021",
+  "definition_slug": "kodi-matrix-19.5-candidate",
+  "base_image_reference": "ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "base_image_digest": "sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "provider": {
+    "type": "signed_distro_apt",
+    "distribution": "Ubuntu",
+    "suite": "jammy",
+    "repository_url": "http://archive.ubuntu.com/ubuntu",
+    "security_repository_url": "http://security.ubuntu.com/ubuntu",
+    "components": [
+      "main",
+      "universe"
+    ],
+    "pockets": [
+      "jammy",
+      "jammy-updates",
+      "jammy-security"
+    ],
+    "keyring_path": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+    "keyring_sha256": "sha256:1a4dd63e5c76728960a2edddae22e2e0fc53df8e8b87806deb971030ac704eb0",
+    "verification_policy": "apt-signed-metadata-and-critical-sha256-v1"
+  },
+  "critical_packages": [
+    {
+      "name": "kodi",
+      "version": "6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy",
+      "architecture": "all",
+      "archive_name": "kodi_19.5+git20221224.1006-f8fdeb6b1b-0~jammy_all.deb",
+      "sha256": "sha256:7aaaa271143cffdd4509dba7f41df0669add970e6ecadc582441a43df83e722d"
+    },
+    {
+      "name": "kodi-bin",
+      "version": "6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy",
+      "architecture": "amd64",
+      "archive_name": "kodi-bin_19.5+git20221224.1006-f8fdeb6b1b-0~jammy_amd64.deb",
+      "sha256": "sha256:b48f7483f95fd4e336f00a5d765b1b9e86e6ae045bfd2e4bf1a4845afb370bf2"
+    },
+    {
+      "name": "tigervnc-scraping-server",
+      "version": "1.12.0+dfsg-4ubuntu0.22.04.1",
+      "architecture": "amd64",
+      "archive_name": "tigervnc-scraping-server_1.12.0+dfsg-4ubuntu0.22.04.1_amd64.deb",
+      "sha256": "sha256:eb8928727ce07aae043211e9f35390e2aafabf89b16168d43d3c608322e5a852"
+    }
+  ],
+  "support_packages": [
+    "ca-certificates",
+    "dbus-x11",
+    "fonts-noto-core",
+    "fonts-roboto-unhinted",
+    "libgl1-mesa-dri",
+    "procps",
+    "python3-minimal",
+    "tzdata",
+    "x11-utils",
+    "xauth",
+    "xvfb",
+    "python3"
+  ],
+  "asset_hashes": {
+    "entrypoint.sh": "sha256:efd66f0f617656cdf32c613a5700a12fd21ef50477d7b4e95c8c1cc9ff5552dd",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8",
+    "xvfb_guard.py": "sha256:7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98",
+    "novnc_view_helper.py": "sha256:c986d0f23698153c261a12068025977ee4e8a2685ad2cc92fec6b1d559eed4b3",
+    "supervisor.py": "sha256:409c5ea8cc29b5c8a117a05a9e54bc5a9f840427101daa95f3e5f23980206302"
+  },
+  "execution_profile": {
+    "runtime_kind": "kodi",
+    "runtime_uid": 1000,
+    "runtime_gid": 1000,
+    "python_bytecode_policy": "suppress",
+    "expected_application_name": "Kodi",
+    "expected_kodi_version": "19.5",
+    "expected_version_tag": "stable",
+    "expected_prerelease_ordinal": null,
+    "jsonrpc_port": 8080,
+    "jsonrpc_path": "/jsonrpc",
+    "process_observation": "docker_healthcheck",
+    "readiness_probe": "kodi_jsonrpc",
+    "readiness_timeout_seconds": 90,
+    "poll_interval_seconds": 1.0,
+    "http_timeout_seconds": 3.0
+  },
+  "validation_contract": "kodi-runtime-v1",
+  "source_references": [
+    "https://ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/",
+    "https://snapshot.ubuntu.com/ubuntu/20261124T120000Z/",
+    "https://github.com/xbmc/xbmc/tree/f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9"
+  ],
+  "license_references": [
+    "https://kodi.wiki/view/License",
+    "https://ffmpeg.org/legal.html",
+    "https://tigervnc.org/"
+  ],
+  "closure_sha256": "a403312c25b980d280111fc6e3a485417969ee542d948897d1845d1d9297b72f",
+  "ppa_keyring_sha256": "26f5136e64eed45e8c05b017211df2df6c41ab8ec732435818f4f8535cd62ae9",
+  "kodi_source_revision": "f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9"
+}

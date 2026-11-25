@@ -25,6 +25,7 @@ from xml.etree import ElementTree as ET
 from kodi_lab.domain.external_targets import ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST
 
 from . import RELEASES
 from .protocol import Checkpoint, Document
@@ -507,6 +508,21 @@ class Runtime:
             stream.seek(max(0, path.stat().st_size - 16_384))
             return {"text": stream.read(16_384).decode(errors="replace")}
 
+    def expected_release(self) -> tuple[int, int]:
+        expected = RELEASES[self.generation]
+        if self.generation == "matrix":
+            image = self.image
+            identity = docker(
+                "image",
+                "inspect",
+                "--format",
+                '{{.Id}} {{index .Config.Labels "io.kodi-lab.recipe-digest"}}',
+                image,
+            )
+            if identity == f"{image} {MATRIX_CANDIDATE_DIGEST}":
+                return (19, 5)
+        return expected
+
     def ready(self) -> Document | None:
         try:
             version = self.rpc(
@@ -518,9 +534,15 @@ class Runtime:
                 from kodi_lab.runtime.ostree_validation import native_identity
 
                 native_identity(version, "22.0-rc.2")
+            expected = self.expected_release()
             if (
                 version.get("name") != "Kodi"
-                or (actual["major"], actual["minor"]) != RELEASES[self.generation]
+                or (actual["major"], actual["minor"]) != expected
+                or (
+                    self.generation == "matrix"
+                    and expected == (19, 5)
+                    and actual.get("tag") != "stable"
+                )
                 or bridge["addon_id"] != BRIDGE
                 or "managed_v2_install" not in bridge["capabilities"]
                 or bridge["build_fingerprint"] != self.bridge_fingerprint()

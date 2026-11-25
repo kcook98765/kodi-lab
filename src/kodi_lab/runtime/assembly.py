@@ -22,7 +22,11 @@ from kodi_lab.runtime.ostree_assembly import (
     OstreeAssemblyEvidence,
     assemble_ostree_image,
 )
-from kodi_lab.runtime.recipes import ReviewedRecipe, SignedDistroAptProvider
+from kodi_lab.runtime.recipes import (
+    MATRIX_CANDIDATE_ID,
+    ReviewedRecipe,
+    SignedDistroAptProvider,
+)
 from kodi_lab.runtime.temporary_networks import (
     TemporaryNetwork,
     TemporaryNetworkError,
@@ -91,6 +95,8 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
     recipe = reviewed.recipe
     if not isinstance(recipe.provider, SignedDistroAptProvider):
         raise RecipeAssemblyError("APT provider required")
+    if recipe.recipe_id == MATRIX_CANDIDATE_ID:
+        raise RecipeAssemblyError("Matrix candidate requires sealed offline packages")
     packages = [
         f"{item.name}={item.version}" for item in recipe.critical_packages
     ] + list(recipe.support_packages)
@@ -138,6 +144,16 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         ),
         "rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb",
     ]
+    return render_apt_image(
+        reviewed, commands, "COPY apt-sources.list /etc/apt/sources.list"
+    )
+
+
+def render_apt_image(
+    reviewed: ReviewedRecipe, commands: list[str], copy_inputs: str
+) -> str:
+    """Render the fixed display and process setup around the package install."""
+    recipe = reviewed.recipe
     joined = " \\\n    && ".join(commands)
     display_guard_copy = (
         "COPY --chown=kodi:kodi xvfb_guard.py /usr/local/bin/kodi-lab-xvfb-guard\n"
@@ -163,7 +179,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         f"LABEL io.kodi-lab.recipe-id={recipe.recipe_id} "
         f"io.kodi-lab.recipe-revision={recipe.recipe_revision} "
         f"io.kodi-lab.recipe-digest={reviewed.digest}\n"
-        "COPY apt-sources.list /etc/apt/sources.list\n"
+        f"{copy_inputs}\n"
         f"RUN {joined}\n"
         "RUN if getent passwd 1000 >/dev/null; then \\\n"
         '        test "$(getent passwd 1000)" = '
@@ -207,6 +223,10 @@ def build_context(reviewed: ReviewedRecipe) -> bytes:
         "apt-sources.list": _apt_sources(reviewed).encode(),
         **reviewed.assets,
     }
+    return pack_build_entries(entries)
+
+
+def pack_build_entries(entries: Mapping[str, bytes]) -> bytes:
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
         for name, payload in sorted(entries.items()):

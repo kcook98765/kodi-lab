@@ -29,7 +29,7 @@ from kodi_lab.runtime.manifest import RuntimeProfileManifest
 
 _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
 _PACKAGE_VERSION = re.compile(r"[0-9][A-Za-z0-9.+:~_-]{0,95}\Z")
-_FILE = re.compile(r"[a-z0-9][a-z0-9.+_-]{0,127}\Z")
+_FILE = re.compile(r"[a-z0-9][a-z0-9.+_~-]{0,127}\Z")
 # Each generation retains prior reviewed revisions. The last filename is the
 # current install selection; existing exact pins resolve their recorded file.
 _RECIPES = {
@@ -88,9 +88,16 @@ _RECIPES = {
         ),
     ),
 }
+MATRIX_CANDIDATE_ID: Final = "ubuntu-jammy-matrix-19.5-candidate"
+MATRIX_CANDIDATE_DIGEST: Final = (
+    "sha256:4c1c59022d790b390dce7f9c7a6e9f778874c8d31b8fc24a6cbb1deac46f502b"
+)
+_MATRIX_CANDIDATE_FILE: Final = "matrix-19.5-candidate.json"
+
 # New sealed revisions reuse unchanged historical assets, never rewrite them.
 _GRACEFUL_ASSET_PARENTS = {
     ("ubuntu-jammy-matrix-19.4", 4): "matrix-19.4-display-r3",
+    (MATRIX_CANDIDATE_ID, 5): "matrix-19.4-display-r3",
     ("ubuntu-noble-nexus-20.5", 4): "nexus-20.5-display-r3",
     ("ubuntu-resolute-omega-21.3", 6): "omega-21.3-display-r5",
 }
@@ -397,11 +404,10 @@ class RuntimeRecipe(_ClosedModel):
         ):
             raise ValueError("recipe base or execution profile differs")
         names = [item.name for item in self.critical_packages]
-        if len(names) != len(set(names)) or not {
-            "kodi",
-            "kodi-bin",
-            "kodi-data",
-        } <= set(names):
+        expected_kodi = {"kodi", "kodi-bin"}
+        if self.recipe_id != MATRIX_CANDIDATE_ID:
+            expected_kodi.add("kodi-data")
+        if len(names) != len(set(names)) or not expected_kodi <= set(names):
             raise ValueError("recipe critical package set is invalid")
         if len(self.support_packages) != len(set(self.support_packages)) or not all(
             _NAME.fullmatch(name) for name in self.support_packages
@@ -414,7 +420,10 @@ class RuntimeRecipe(_ClosedModel):
             expected_assets.add(_DISPLAY_GUARD_ASSET)
         from kodi_lab.runtime.display_capabilities import VIEWER_ASSET_RECIPES
 
-        if (self.recipe_id, self.recipe_revision) in VIEWER_ASSET_RECIPES:
+        if (
+            self.recipe_id,
+            self.recipe_revision,
+        ) in VIEWER_ASSET_RECIPES or self.recipe_id == MATRIX_CANDIDATE_ID:
             expected_assets.add("novnc_view_helper.py")
         if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
@@ -447,6 +456,16 @@ class AptRuntimeRecipe(RuntimeRecipe):
 
     schema_version: Literal[1]
     provider: SignedDistroAptProvider
+
+
+class MatrixCandidateRecipe(AptRuntimeRecipe):
+    recipe_id: Literal["ubuntu-jammy-matrix-19.5-candidate"]
+    recipe_revision: Literal[5]
+    generation: Literal["matrix"]
+    kodi_version: Literal["19.5"]
+    kodi_source_revision: Literal["f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9"]
+    closure_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ppa_keyring_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,6 +592,16 @@ def load_installation_recipe(generation: str) -> ReviewedRecipe:
     )
 
 
+def load_matrix_candidate() -> ReviewedAptRecipe:
+    """Explicit disposable qualification recipe, outside the install selector."""
+    reviewed = _load_recipe_file(
+        "matrix", _MATRIX_CANDIDATE_FILE, MATRIX_CANDIDATE_DIGEST
+    )
+    if not isinstance(reviewed, ReviewedAptRecipe):
+        raise ValueError("Matrix candidate is not a reviewed APT recipe")
+    return reviewed
+
+
 def _reviewed_for_generation(generation: str) -> tuple[ReviewedAptRecipe, ...]:
     try:
         entries = _RECIPES[generation]
@@ -599,7 +628,11 @@ def _load_recipe_file(
     digest = "sha256:" + hashlib.sha256(raw).hexdigest()
     if digest != expected_digest:
         raise ValueError("reviewed recipe resource differs from pinned digest")
-    recipe = RuntimeRecipe.model_validate_json(raw)
+    recipe = (
+        MatrixCandidateRecipe.model_validate_json(raw)
+        if filename == _MATRIX_CANDIDATE_FILE
+        else RuntimeRecipe.model_validate_json(raw)
+    )
     if recipe.generation != generation:
         raise ValueError("recipe generation differs from reviewed selection")
     asset_root = package.joinpath(
@@ -636,7 +669,11 @@ def _load_recipe_file(
             raise ValueError("reviewed assembly asset differs")
     if generation != "piers":
         return ReviewedAptRecipe(
-            recipe=AptRuntimeRecipe.model_validate_json(raw),
+            recipe=(
+                recipe
+                if isinstance(recipe, MatrixCandidateRecipe)
+                else AptRuntimeRecipe.model_validate_json(raw)
+            ),
             digest=digest,
             reference=f"kodi-lab-wheel:runtime/recipes/{filename}",
             assets=assets,
