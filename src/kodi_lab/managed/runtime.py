@@ -550,7 +550,10 @@ class Runtime:
             "name=^/kodi-lab-managed-v2(-matrix|-nexus|-piers)?$",
         ):
             raise Refusal("another_managed_runtime_running")
-        slot = self.read_pointer()
+        try:
+            slot = self.read_pointer()
+        except FileNotFoundError:
+            raise Refusal("managed_profile_not_prepared") from None
         self.require_stopped()
         self.require_volume(slot)
         rpc_password = secrets.token_urlsafe(32)
