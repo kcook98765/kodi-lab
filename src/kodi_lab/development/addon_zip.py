@@ -36,6 +36,7 @@ from kodi_lab.domain import (
     AddonZipDependency,
     AddonZipExtensionClassification,
 )
+from kodi_lab.package_hygiene import has_vcs_admin_component
 
 MAX_COMPRESSED_BYTES = 256 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
@@ -64,7 +65,6 @@ _ENCRYPTED_FLAGS = 0x0041
 _ALLOWED_FLAGS = _UTF8_FLAG | 0x0006
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 _FILE_READ_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
-_VCS_COMPONENTS = frozenset({".git", ".hg", ".svn"})
 
 
 class AddonZipValidationError(ValueError):
@@ -474,7 +474,7 @@ def _validate_member_path(value: str, *, directory: bool) -> str:
         raise AddonZipValidationError(
             "addon_zip_component_bound", "ZIP member component exceeds 255 bytes."
         )
-    if any(part.casefold() in _VCS_COMPONENTS for part in parts):
+    if has_vcs_admin_component(parts):
         raise AddonZipValidationError(
             "addon_zip_vcs_path", "ZIP packages must not contain VCS metadata."
         )

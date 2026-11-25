@@ -15,6 +15,8 @@ from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
+from kodi_lab.package_hygiene import has_vcs_admin_component
+
 from .runtime import BRIDGE, REPO, Refusal, atomic
 
 ADDON_ID = re.compile(r"[a-z][a-z0-9_.-]{1,95}")
@@ -33,7 +35,6 @@ TYPES = {
     "xbmc.service",
     "xbmc.addon.metadata",
 }
-_VCS_COMPONENTS = frozenset({".git", ".hg", ".svn"})
 MAX_ZIP = 32 * 1024**2
 MAX_TREE = 64 * 1024**2
 
@@ -144,7 +145,7 @@ def _read_zip(data: bytes) -> Package:
         root = None
         for item in items:
             name = safe_name(item.filename.rstrip("/"))
-            if any(part.casefold() in _VCS_COMPONENTS for part in name.parts):
+            if has_vcs_admin_component(name.parts):
                 raise Refusal("unsafe_package_path")
             kind = stat.S_IFMT(item.external_attr >> 16)
             if name in seen or kind not in (
