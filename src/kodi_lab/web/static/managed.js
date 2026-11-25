@@ -100,7 +100,10 @@ async function apply(button) {
       body: JSON.stringify({operation, arguments: args}),
     });
     const body = await response.json();
-    feedback.textContent = response.ok ? "Done." : (body.code || "Kodi action failed.").replaceAll("_", " ");
+    const errorText = body.code === "managed_profile_not_prepared"
+      ? "Select Prepare for this generation before starting Kodi."
+      : (body.code || "Kodi action failed.").replaceAll("_", " ");
+    feedback.textContent = response.ok ? "Done." : errorText;
 
     await refresh();
   } catch {
