@@ -1615,7 +1615,9 @@ def _tool_error_result(
     # available to models without violating the tool's declared outputSchema.
     message = result_code
     if result_code == "managed_profile_not_prepared":
-        message += "\nnext_action: Call managed_prepare for the same generation before Start."
+        message += (
+            "\nnext_action: Call managed_prepare for the same generation before Start."
+        )
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
     if (
