@@ -59,12 +59,26 @@ def test_read_only_registry_discovery_and_peer_policy() -> None:
         status="healthy", protocol_version=1
     )
     assert isinstance(registry.dispatch(request("broker_info")), BrokerInfoResult)
-    assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
-        operations=list(registry.names), protocol_version=1
-    )
     for name in registry.names:
         operation = registry.definition(name)
         assert operation is not None and operation.requires_authorized_peer
+
+
+def test_capabilities_reports_exact_reviewed_runtime_operations() -> None:
+    registry = build_reviewed_runtime_registry()
+    expected = [
+        "active_reviewed_runtime_installation",
+        "broker_info",
+        "capabilities",
+        "launch_reviewed_runtime_installation",
+        "observe_reviewed_runtime_installation",
+        "ping",
+        "reviewed_runtime_image_present",
+    ]
+    assert list(registry.names) == expected
+    assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
+        operations=expected, protocol_version=1
+    )
 
 
 @pytest.mark.parametrize("name", ["serve_forever", "execute", "docker", "command"])
