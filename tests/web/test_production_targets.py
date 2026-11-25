@@ -249,7 +249,7 @@ def test_production_mutation_controls_are_csrf_protected_and_epoch_monotonic(
 
 
 def test_screenshot_capability_amendment_is_explicit_web_only_and_closed(
-    client: TestClient,
+    client: TestClient, tmp_path: Path
 ) -> None:
     csrf = login(client)
     created = client.post(
@@ -356,7 +356,11 @@ def test_screenshot_capability_amendment_is_explicit_web_only_and_closed(
         ).status_code
         == 404
     )
-    managed_target = client.get("/api/instances").json()[0]["managed_instance_id"]
+    from kodi_lab.managed.runtime import Runtime
+
+    managed_root = tmp_path / "managed"
+    managed_root.mkdir(mode=0o700)
+    managed_target = Runtime(managed_root).target
     assert (
         client.post(
             f"/api/production-targets/{managed_target}/capability-amendments",
