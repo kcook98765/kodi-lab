@@ -63,16 +63,23 @@ async function refresh() {
     statusLine.textContent = data.code === "managed_busy" ? "Kodi is busy." : "Kodi state unavailable.";
     return;
   }
-  const {state, owner, operation} = data.profile;
+  const {state, owner, operation, public_repository_test} = data.profile;
   ready = state === "ready";
-  if (!ready && client !== null) disconnect();
+  if (!ready && client !== null) {
+    disconnect();
+    viewStatus.textContent = "Kodi screen unavailable.";
+  }
   if (ready && watching && client === null && !control) connect();
   recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
-  statusLine.textContent = `${state.replaceAll("_", " ")} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
-  const selected = saved.value;
-  const options = data.snapshots.map(({name}) => new Option(name, name));
-  saved.replaceChildren(...options);
-  if (options.some(option => option.value === selected)) saved.value = selected;
+  const phase = {starting: "Starting", stopping: "Stopping"}[state] ?? state.replaceAll("_", " ");
+  statusLine.textContent = `${phase} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
+  if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
+  if (Array.isArray(data.snapshots)) {
+    const selected = saved.value;
+    const options = data.snapshots.map(({name}) => new Option(name, name));
+    saved.replaceChildren(...options);
+    if (options.some(option => option.value === selected)) saved.value = selected;
+  }
 }
 
 async function apply(button) {
@@ -100,7 +107,10 @@ async function apply(button) {
       body: JSON.stringify({operation, arguments: args}),
     });
     const body = await response.json();
-    feedback.textContent = response.ok ? "Done." : (body.code || "Kodi action failed.").replaceAll("_", " ");
+    const errorText = body.code === "managed_profile_not_prepared"
+      ? "Select Prepare for this generation before starting Kodi."
+      : (body.code || "Kodi action failed.").replaceAll("_", " ");
+    feedback.textContent = response.ok ? "Done." : errorText;
 
     await refresh();
   } catch {

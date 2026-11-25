@@ -34,6 +34,7 @@ from .protocol import (
     actor_key,
     validate,
 )
+from .public_repository import REPOSITORY, Approval, approval
 from .runtime import ESTUARY, REPO, Runtime, atomic
 from .snapshots import Snapshots
 from .source_provenance import (
@@ -84,15 +85,20 @@ class Controller:
         self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
+        self.lifecycle_status: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
         self.actor = "admin"
         self.lease_path = self.runtime.root / "active-owner"
         self.agents = self.runtime.root / "agents"
         self.agents.mkdir(mode=0o700, exist_ok=True)
         self.actions: dict[str, Callable[..., object]] = {
-            "managed_prepare": lambda: self.runtime.prepare(),
-            "managed_start": lambda: self.runtime.start(),
-            "managed_stop": lambda: self.runtime.stop(),
+            "managed_prepare": self.prepare_runtime,
+            "managed_start": self.start_runtime,
+            "managed_stop": self.stop_runtime,
+            "managed_public_repository_status": self.public_status,
+            "managed_public_repository_select": self.select_public,
+            "managed_public_catalog": self.public_catalog,
+            "managed_public_install": self.public_install,
             "managed_reset": lambda: self.runtime.reset(),
             "managed_status": self.status,
             "managed_recover": self.recover,
@@ -203,9 +209,21 @@ class Controller:
             return None
 
         owner = self.owner()
-        if owner and owner != actor and (actor != "admin" or name not in READ):
+        public_stop = (
+            actor == "admin"
+            and name == "managed_stop"
+            and self.runtime.public.session.exists()
+        )
+        if (
+            owner
+            and owner != actor
+            and (actor != "admin" or name not in READ)
+            and not public_stop
+        ):
             raise Refusal("managed_owned")
         if name == "managed_release":
+            if self.omega.public.session.exists():
+                raise Refusal("stop_public_test_first")
             if owner == actor:
                 self.lease_path.unlink(missing_ok=True)
             return {"owner": None}
@@ -237,20 +255,32 @@ class Controller:
     def perform(self, name: str, args: dict[str, str], *, actor: str) -> OperationReply:
         started = time.monotonic()
         actor_key(actor)
-        with self.omega.exclusive():
-            _, args = validate(name, args)
-            arguments = dict(args)
-            generation = arguments.pop("generation", "omega")
-            runtime = self.runtimes.get(generation)
-            if runtime is None:
-                raise Refusal("managed_generation_unavailable")
-            self.runtime = runtime
-            self.actor = actor
-            try:
-                result = self.perform_locked(name, arguments)
-            finally:
-                self.actor = "admin"
-                self.runtime = self.omega
+        _, args = validate(name, args)
+        arguments = dict(args)
+        generation = arguments.pop("generation", "omega")
+        runtime = self.runtimes.get(generation)
+        if runtime is None:
+            raise Refusal("managed_generation_unavailable")
+        try:
+            with self.omega.exclusive():
+                self.runtime = runtime
+                self.actor = actor
+                try:
+                    result = self.perform_locked(name, arguments)
+                finally:
+                    self.actor = "admin"
+                    self.runtime = self.omega
+        except Refusal as error:
+            transition = self.lifecycle_status
+            if (
+                str(error) != "managed_busy"
+                or name != "managed_status"
+                or actor != "admin"
+                or transition is None
+                or transition["generation"] != generation
+            ):
+                raise
+            result = dict(transition)
         return {
             "result": result,
             "elapsed_seconds": round(time.monotonic() - started, 3),
@@ -262,6 +292,23 @@ class Controller:
         lease_result = self.authorize_profile(name, self.actor, pending)
         if lease_result is not None:
             return lease_result
+        if self.omega.public.session.exists():
+            if self.runtime is not self.omega and name in {
+                "managed_prepare",
+                "managed_start",
+                "managed_reset",
+                "snapshot_load",
+            }:
+                raise Refusal("stop_public_test_first")
+            if self.runtime is self.omega and name in {
+                "snapshot_save",
+                "snapshot_load",
+                "managed_reset",
+                "managed_release",
+            }:
+                raise Refusal("stop_public_test_first")
+            if self.runtime is self.omega and pending and name == "managed_stop":
+                return self.stop_runtime()
         if name in READ or name in PRIVATE or name == "managed_recover":
             result = self.actions[name](**args)
             if isinstance(result, Package):
@@ -292,6 +339,17 @@ class Controller:
             },
         }
         try:
+            phase = {"managed_start": "starting", "managed_stop": "stopping"}.get(name)
+            if phase is not None:
+                # Publish a single read-only snapshot while this lifecycle action
+                # holds the lock. Never use it to authorize a view or mutation.
+                self.lifecycle_status = {
+                    "state": phase,
+                    "generation": self.runtime.generation,
+                    "owner": self.owner(),
+                    "view_control": self.input_attempt is not None,
+                    "view_target": str(self.runtime.target),
+                }
             self.checkpoint("begin")
             result = self.actions[name](**args)
             if not (self.current.get("native_pending") or self.current.get("skin")):
@@ -302,7 +360,152 @@ class Controller:
                 self.checkpoint("refused", state="complete", error=str(exc))
             raise
         finally:
+            self.lifecycle_status = None
             self.current = None
+
+    def public_approval(self) -> Approval:
+        if self.runtime.generation != "omega":
+            raise Refusal("public_test_requires_omega")
+        selected = approval(self.runtime.root)
+        if selected is None:
+            raise Refusal("public_repository_not_approved")
+        return selected
+
+    def public_status(self) -> Document:
+        selected = (
+            approval(self.runtime.root) if self.runtime.generation == "omega" else None
+        )
+        return {
+            "approval": selected.info() if selected else None,
+            "active": self.runtime.public.session.exists(),
+        }
+
+    def select_public(self, repository: str) -> Document:
+        selected = self.public_approval()
+        if repository != selected.repository.id:
+            raise Refusal("public_repository_not_approved")
+        self.runtime.require_stopped()
+        # A repository test is opt-in on an unprepared, disposable profile.
+        # Never replace or attach public egress to a retained working slot.
+        if self.runtime.pointer.exists() or self.runtime.public.session.exists():
+            raise Refusal("public_test_requires_unprepared_profile")
+        if any(item.pointer.exists() for item in self.runtimes.values()):
+            raise Refusal("public_test_requires_disposable_site")
+        self.checkpoint("public_selection_pending")
+        atomic(self.runtime.public.session, str(time.time() + 900).encode())
+        return self.public_status()
+
+    def prepare_runtime(self) -> Document:
+        if self.runtime.public.session.exists():
+            self.runtime.public.require_unexpired()
+        return self.runtime.prepare()
+
+    def start_runtime(self) -> Document:
+        try:
+            if self.runtime.public.session.exists():
+                self.public_approval()
+            return self.runtime.start()
+        except Exception:
+            if self.runtime.public.session.exists():
+                self.runtime.public.remove()
+            raise
+
+    def stop_runtime(self) -> Document:
+        try:
+            return self.runtime.stop()
+        finally:
+            if self.runtime.public.session.exists():
+                self.runtime.public.remove()
+
+    def active_public(self) -> Approval:
+        selected = self.public_approval()
+        if not self.runtime.public.session.exists():
+            raise Refusal("public_test_not_selected")
+        self.runtime.public.require_unexpired()
+        if not self.runtime.ready():
+            raise Refusal("bridge_not_ready")
+        return selected
+
+    def public_catalog(self) -> Document:
+        selected = self.active_public()
+        try:
+            self.verify(selected.repository, origin=REPOSITORY, exact=True)
+            self.checkpoint("public_catalog_dispatch", native_pending=True)
+            result = self.runtime.signed(
+                "managed_v2_public_catalog", {"checksum": selected.checksum}
+            )
+            if result.get("state") != "verified":
+                raise Refusal(str(result.get("error", "public_catalog_not_confirmed")))
+        except Exception:
+            self.stop_runtime()
+            raise
+        self.checkpoint("public_catalog_verified", native_pending=False)
+        return {"state": "verified", **selected.info()}
+
+    def public_install(
+        self, addon: str, version: str, digest: str, allow_services: str = "false"
+    ) -> Document:
+        selected = self.active_public()
+        bootstrap = addon == REPOSITORY
+        package = selected.repository if bootstrap else selected.target
+        if (addon, version, digest) != (package.id, package.version, package.digest):
+            raise Refusal("public_package_not_approved")
+        if allow_services not in {"true", "false"} or (
+            allow_services != "true"
+            and package.node.find("extension[@point='xbmc.service']") is not None
+        ):
+            raise Refusal("service_activation_consent_required")
+        if bootstrap:
+            checksum, _ = self.packages.publish(package)
+        else:
+            if self.installed(addon) is None:
+                raise Refusal("public_test_requires_installed_base")
+            checksum = selected.checksum
+        intent: dict[str, object] = {
+            "addon": package.id,
+            "version": package.version,
+            "name": package.node.attrib["name"],
+            "category": package.category,
+            "replace": False,
+            "files": package.members,
+            "catalog": checksum,
+            "dependencies": [],
+        }
+        try:
+            if not bootstrap:
+                self.verify(selected.repository, origin=REPOSITORY, exact=True)
+                # The first workflow uses prerequisites already installed from
+                # the existing private catalog.
+                self.dependencies(package, self.packages.catalog())
+                intent["repository"] = REPOSITORY
+            previous_addons = self.addon_versions()
+            response = self.install_on_estuary(intent)
+            if response.get("error") or response.get("restore_error"):
+                raise Refusal(str(response.get("error") or response["restore_error"]))
+            # Kodi records a repository add-on as its own origin even when
+            # the ZIP was installed from another native repository.
+            verified = self.verify(package, origin=REPOSITORY, exact=True)
+            self.verify_public_archive(package)
+            previous_addons[package.id] = package.version
+            if self.addon_versions() != previous_addons:
+                raise Refusal("public_unexpected_addon_change")
+            dependencies = (
+                [] if bootstrap else self.dependencies(package, self.packages.catalog())
+            )
+            if response.get("prior_skin") != response.get("final_skin"):
+                raise Refusal("skin_restore_unconfirmed")
+            if not bootstrap:
+                self.record_source(package.id, package.members)
+        except Exception:
+            self.stop_runtime()
+            raise
+        self.checkpoint("native_verified", native_pending=False)
+        return {
+            "state": "verified",
+            "package": verified,
+            "native": response,
+            "dependencies": dependencies,
+        }
 
     def status(self) -> Document:
         obj = self.runtime.inspect()
@@ -323,6 +526,8 @@ class Controller:
         status["owner"] = self.owner()
         status["view_control"] = self.input_attempt is not None
         status["view_target"] = str(self.runtime.target)
+        if self.runtime.public.session.exists():
+            status["public_repository_test"] = True
         if previous and (self.actor == "admin" or previous.get("actor") == self.actor):
             status["operation"] = {
                 key: previous[key]
@@ -379,6 +584,18 @@ class Controller:
 
     def reconcile(self, record: Document) -> None:
         native = self.runtime
+        if native.public.session.exists():
+            self.stop_runtime()
+            if record.get("skin"):
+                # Keep the recovered settings on the stopped disposable profile.
+                # Restarting during recovery would restore network access.
+                skin = record["skin"]
+                if native.read_pointer() != skin["slot"]:
+                    raise Refusal("skin_recovery_profile_mismatch")
+                native.write_skin(skin["addon"], saved=skin["settings"])
+                return
+            if record["name"] != "managed_prepare" and "deploy" not in record:
+                return
         if record.get("skin"):
             skin = record["skin"]
             if native.read_pointer() != skin["slot"]:
@@ -394,7 +611,7 @@ class Controller:
             or record.get("native_pending")
             or record["event"] in {"runtime_quit_requested", "runtime_removed"}
         ):
-            native.stop()
+            self.stop_runtime()
         elif "archive" in record:
             self.actor_snapshots(record.get("actor", "admin")).discard_incomplete(
                 record
@@ -451,6 +668,7 @@ class Controller:
                     "skin.",
                     "service.",
                     REPO,
+                    REPOSITORY,
                 )
             )
         ]
@@ -458,7 +676,13 @@ class Controller:
     def installed(self, addon: str) -> Document | None:
         return next((x for x in self.inventory() if x["addonid"] == addon), None)
 
-    def verify(self, pkg: Package) -> Document:
+    def addon_versions(self) -> dict[str, str]:
+        result: Document = self.runtime.rpc("Addons.GetAddons", properties=["version"])
+        return {row["addonid"]: row["version"] for row in result["addons"]}
+
+    def verify(
+        self, pkg: Package, *, origin: str = REPO, exact: bool = False
+    ) -> Document:
         current = self.installed(pkg.id)
         if not current or not current["enabled"] or current["version"] != pkg.version:
             raise Refusal("native_install_state_mismatch")
@@ -472,20 +696,35 @@ class Controller:
         if any(files.get(name) != content for name, content in pkg.members.items()):
             raise Refusal("installed_digest_mismatch")
         surplus = set(files) - pkg.members.keys()
+        if exact and surplus:
+            raise Refusal("installed_digest_mismatch")
         if surplus:
             # Generated files are distinguished from the caller-approved package bytes.
             current["generated_paths"] = sorted(surplus)
-        self.verify_origin(pkg.id)
+        self.verify_origin(pkg.id, expected=origin)
         return {
             "addon": pkg.id,
             "version": pkg.version,
             "digest": pkg.digest,
-            "origin": REPO,
+            "origin": origin,
             "enabled": True,
             "files_verified": len(pkg.members),
         }
 
-    def verify_origin(self, addon: str) -> None:
+    def verify_public_archive(self, package: Package) -> None:
+        profile = self.runtime.profile()
+        addons = profile / "addons"
+        cache = addons / "packages"
+        archive = cache / f"{package.id}-{package.version}.zip"
+        if (
+            any(path.is_symlink() for path in (addons, cache, archive))
+            or not archive.is_file()
+            or archive.stat().st_size != len(package.data)
+            or sha(archive.read_bytes()) != package.digest
+        ):
+            raise Refusal("native_public_archive_mismatch")
+
+    def verify_origin(self, addon: str, *, expected: str = REPO) -> None:
         userdata = self.runtime.profile() / "userdata"
         folder = userdata / "Database"
         if userdata.is_symlink() or folder.is_symlink():
@@ -502,7 +741,7 @@ class Controller:
             origin = db.execute(
                 "SELECT origin, enabled FROM installed WHERE addonID=?", (addon,)
             ).fetchone()
-        if origin != (REPO, 1):
+        if origin != (expected, 1):
             raise Refusal("native_origin_mismatch")
 
     def dependencies(

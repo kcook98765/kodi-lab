@@ -1,4 +1,4 @@
-"""Role opt-in preserves predecessor authority and enforces durable revocation."""
+"""The initial schema defaults managed role authority off and fences changes."""
 
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -14,11 +14,11 @@ from tests.migration_support import migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
 
-def test_predecessor_authority_preserved_and_unused_role_round_trip(
+def test_initial_role_is_opt_in_and_durably_revocable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0008_managed_bridge_preparation"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     engine = create_database_engine(url)
     client_id = str(uuid4())
@@ -32,24 +32,12 @@ def test_predecessor_authority_preserved_and_unused_role_round_trip(
             ),
             {"id": client_id},
         )
-        before = [
-            dict(r)
-            for r in connection.execute(text("SELECT * FROM mcp_clients")).mappings()
-        ]
-        policies = list(
-            connection.execute(text("SELECT * FROM mcp_preset_permissions"))
-        )
-    command.upgrade(config, "0009_trusted_managed_lab")
-    with engine.begin() as connection:
-        rows = [
-            dict(r)
-            for r in connection.execute(text("SELECT * FROM mcp_clients")).mappings()
-        ]
-        assert all(row.pop("managed_lab_role_version") is None for row in rows)
-        assert rows == before
         assert (
-            list(connection.execute(text("SELECT * FROM mcp_preset_permissions")))
-            == policies
+            connection.scalar(
+                text("SELECT managed_lab_role_version FROM mcp_clients WHERE id=:id"),
+                {"id": client_id},
+            )
+            is None
         )
         with pytest.raises(IntegrityError, match="authority_revision_invalid"):
             connection.execute(
@@ -66,20 +54,21 @@ def test_predecessor_authority_preserved_and_unused_role_round_trip(
             )
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, "0008_managed_bridge_preparation")
-    with engine.connect() as connection:
-        assert [
-            dict(r)
-            for r in connection.execute(text("SELECT * FROM mcp_clients")).mappings()
-        ] == before
-    command.upgrade(config, "head")
     admin = McpAdministrationService(create_session_factory(engine))
     granted = admin.set_managed_lab_role(UUID(client_id), True)
     assert granted.authority_revision == 2
     assert admin.set_managed_lab_role(UUID(client_id), True).authority_revision == 2
-    with pytest.raises(RuntimeError, match="authority history"):
-        command.downgrade(config, "0008_managed_bridge_preparation")
     assert admin.set_managed_lab_role(UUID(client_id), False).authority_revision == 3
-    with pytest.raises(RuntimeError, match="authority history"):
-        command.downgrade(config, "0008_managed_bridge_preparation")
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT managed_lab_role_version, authority_revision "
+                "FROM mcp_clients WHERE id=:id"
+            ),
+            {"id": client_id},
+        ).one() == (None, 3)
+    with pytest.raises(
+        RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+    ):
+        command.downgrade(config, "base")
     engine.dispose()

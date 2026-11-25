@@ -23,13 +23,13 @@ from tests.application.test_production_navigation import (
 from tests.migration_support import migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
-OLD, NEW = "0006_external_screenshots", "0007_production_navigation"
+REVISION = "0001_foundation"
 
 
-def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_off(
+def test_reinitialization_preserves_rows_and_receipts_with_navigation_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=OLD)
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     target_id = str(uuid4())
@@ -110,7 +110,7 @@ def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_o
                 )
             )
         }
-    command.upgrade(config, NEW)
+    command.upgrade(config, "head")
     with engine.connect() as connection:
         for table in tables:
             names = ",".join('"' + name + '"' for name in columns[table])
@@ -130,9 +130,7 @@ def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_o
                 text("SELECT name,sql FROM sqlite_master WHERE type='trigger'")
             ).all()
         )
-        changed = {name for name in triggers if triggers[name] != after_triggers[name]}
-        assert changed == {"trg_external_production_policy_material_revision"}
-        assert set(triggers) == set(after_triggers)
+        assert triggers == after_triggers
         assert indexes == {
             name: "".join(sql.replace('"', "").split())
             for name, sql in connection.execute(
@@ -155,20 +153,6 @@ def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_o
         assert audit is not None and audit.navigate_scope_id == str(
             authority.navigate_scope_id
         )
-    command.downgrade(config, OLD)
-    with engine.connect() as connection:
-        assert before == {
-            table: connection.execute(text(f'SELECT * FROM "{table}"')).all()
-            for table in tables
-        }
-        assert triggers == dict(
-            (name, sql)
-            for name, sql in connection.execute(
-                text("SELECT name,sql FROM sqlite_master WHERE type='trigger'")
-            ).all()
-        )
-        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.upgrade(config, NEW)
     current = replace(
         _authority(), navigate_scope_id=None, native_http_acknowledgement_id=None
     )
@@ -180,10 +164,15 @@ def test_upgrade_preserves_rows_triggers_history_and_defaults_existing_targets_o
         action=BrowserRemoteAction.HOME,
         authorize_new=lambda: current,
     )
-    with pytest.raises(RuntimeError, match="receipt history prevents downgrade"):
-        command.downgrade(config, OLD)
+    with pytest.raises(
+        RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+    ):
+        command.downgrade(config, "base")
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == NEW
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == REVISION
+        )
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
     engine.dispose()
 

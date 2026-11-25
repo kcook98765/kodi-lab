@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tarfile
 from hashlib import sha256
 from pathlib import Path
+from threading import Thread
 from uuid import uuid4
 from zipfile import ZipFile
 
 import pytest
 
+from kodi_lab.kodi.bridge import ExternalBridgeClient, b64url
+from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.managed.broker import Broker, BrokerClient
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
 from kodi_lab.managed.protocol import Document
-from kodi_lab.managed.runtime import Refusal, Runtime
+from kodi_lab.managed.runtime import LABEL, Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
+from tests.kodi.fake_external_bridge import FakeExternalBridge
 
 
 def package(
@@ -109,6 +115,32 @@ def test_managed_logging_does_not_inherit_daemon_local_compression(
     assert args[args.index("--log-driver") + 1] == "json-file"
     assert "max-file=1" in args
     assert "max-size=2m" in args
+
+
+@pytest.mark.parametrize("internal", [True, False])
+def test_managed_network_requires_private_target_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, internal: bool
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    runtime = Runtime(root)
+    commands: list[tuple[str, ...]] = []
+
+    def docker(*args: str) -> str:
+        commands.append(args)
+        if args[1] == "ls":
+            assert args[-1] == f"name=^{runtime.network_name}$"
+            return "network-id"
+        assert args == ("network", "inspect", "network-id")
+        labels = {LABEL: str(uuid4()) if internal else str(runtime.target)}
+        return json.dumps(
+            [{"Id": "network-id", "Internal": internal, "Labels": labels}]
+        )
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
+    with pytest.raises(Refusal, match="network_identity"):
+        runtime.network()
+    assert [command[1] for command in commands] == ["ls", "inspect"]
 
 
 def test_strict_writer_and_active_gate(tmp_path: Path) -> None:
@@ -329,6 +361,67 @@ def test_verified_result_survives_interrupted_reply(tmp_path: Path) -> None:
     assert recorded["result"] == {"state": "ready"}
 
 
+@pytest.mark.parametrize(
+    ("behavior", "code"),
+    [
+        ("capture_error", "screenshot_capture_failed"),
+        ("capture_error_invalid", "screenshot_invalid"),
+        ("invalid_png", "screenshot_format_invalid"),
+        ("capture_error_bad_signature", "operation_outcome_unconfirmed"),
+        ("media_type", "operation_outcome_unconfirmed"),
+        ("oversize", "operation_outcome_unconfirmed"),
+        ("drop_screenshot_once", "operation_outcome_unconfirmed"),
+        ("wrong_request_id", "operation_outcome_unconfirmed"),
+    ],
+)
+def test_managed_screenshot_failure_preserves_receipt_and_navigation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, behavior: str, code: str
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    native = controller.runtime
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    socket = tmp_path / "broker.sock"
+    monkeypatch.setattr(native, "address", lambda: "127.0.0.1")
+    monkeypatch.setattr(native, "rpc", lambda method: method)
+    controller.perform("managed_navigate", {"action": "down"}, actor=actor)
+    previous = controller.last_operation()
+    assert previous is not None and previous["state"] == "complete"
+
+    with FakeExternalBridge(target_id=native.target, token=b"t" * 32) as fake:
+        fake.secret = b"s" * 32
+        fake.tamper = behavior
+        (native.credentials / "state.json").write_text(
+            json.dumps(
+                {"bridge_id": str(fake.bridge_id), "secret": b64url(fake.secret)}
+            )
+        )
+        url = ExternalBridgeClient._url
+
+        def test_url(endpoint: ValidatedExternalEndpoint, port: int) -> str:
+            assert port == 8765
+            return url(endpoint, fake.port)
+
+        monkeypatch.setattr(ExternalBridgeClient, "_url", staticmethod(test_url))
+        with Broker(socket, controller, os.getuid()) as broker:
+            thread = Thread(target=broker.serve_forever)
+            thread.start()
+            try:
+                client = BrokerClient(socket)
+                with pytest.raises(Refusal, match=f"^{code}$"):
+                    client.request(actor, "managed_screen", {})
+                assert controller.last_operation() == previous
+                assert client.request(actor, "managed_navigate", {"action": "up"})[
+                    "result"
+                ] == {"state": "dispatched"}
+            finally:
+                broker.shutdown()
+                thread.join(timeout=2)
+        assert fake.capture_count == 1
+
+
 def test_failed_skin_recovery_stays_pending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -390,6 +483,8 @@ def test_agent_can_explicitly_replace_exited_profile(
     monkeypatch.setattr(Runtime, "image", property(lambda _: Volumes.image))
     monkeypatch.setattr(native, "capacity", lambda: Volumes.image)
     monkeypatch.setattr(native, "require_volume", native.profile)
+    # The starting profile has no container in the disposable runtime.
+    monkeypatch.setattr(native, "inspect", lambda: None)
     actor = str(uuid4())
     controller.perform("managed_acquire", {}, actor=actor)
     args = {"name": "Known working"} if action == "snapshot_load" else {}
@@ -622,6 +717,91 @@ def test_start_blocks_other_running_managed_version_before_staging(
     with pytest.raises(Refusal, match="another_managed_runtime_running"):
         runtime.start()
     assert not list(runtime.credentials.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("operation", "transition"),
+    [("managed_start", "starting"), ("managed_stop", "stopping")],
+)
+def test_admin_can_observe_active_lifecycle_without_taking_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, transition: str
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    actor = str(uuid4())
+    nexus = {"generation": "nexus"}
+    observed = []
+
+    def observe(event: str) -> None:
+        if event != "begin":
+            return
+        observed.append(
+            controller.perform("managed_status", nexus, actor="admin")["result"]
+        )
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_status", {}, actor="admin")
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_status", nexus, actor=actor)
+        with pytest.raises(Refusal, match="managed_busy"):
+            controller.perform("managed_release", {}, actor=actor)
+
+    controller = Controller(
+        root, daemon_root=root, handoff_root=tmp_path, interrupt=observe
+    )
+    native = controller.runtimes["nexus"]
+    native.pointer.touch()
+    monkeypatch.setattr(native, "inspect", lambda: None)
+    monkeypatch.setitem(controller.actions, operation, lambda: {"state": "done"})
+    controller.perform("managed_acquire", {}, actor=actor)
+    assert controller.perform(operation, nexus, actor=actor)["result"] == {
+        "state": "done"
+    }
+    assert observed == [
+        {
+            "state": transition,
+            "owner": actor,
+            "generation": "nexus",
+            "view_control": False,
+            "view_target": str(native.target),
+        }
+    ]
+    result = controller.perform("managed_status", nexus, actor="admin")["result"]
+    assert isinstance(result, dict)
+    assert result["state"] == "stopped"
+    assert result["operation"]["state"] == "complete"
+    with controller.omega.exclusive(), pytest.raises(Refusal, match="managed_busy"):
+        controller.perform("managed_status", nexus, actor="admin")
+
+
+def test_unprepared_start_finishes_with_a_refusal_before_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    controller = Controller(root, daemon_root=root, handoff_root=tmp_path)
+    native = controller.runtime
+    monkeypatch.setattr(native, "capacity", lambda: "approved")
+    monkeypatch.setattr(native, "inspect", lambda: None)
+
+    def stopped_docker(*args: str) -> str:
+        assert args[:3] == ("ps", "-q", "--filter")
+        return ""
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", stopped_docker)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+
+    with pytest.raises(Refusal, match="managed_profile_not_prepared"):
+        controller.perform("managed_start", {}, actor=actor)
+
+    receipt = controller.last_operation()
+    assert receipt is not None
+    assert receipt["name"] == "managed_start"
+    assert receipt["state"] == "complete"
+    assert receipt["event"] == "refused"
+    assert receipt["error"] == "managed_profile_not_prepared"
+    assert not native.pointer.exists()
+    assert not list(native.credentials.iterdir())
 
 
 def test_interrupted_operation_can_only_recover_its_original_generation(

@@ -22,7 +22,6 @@ def prerequisites(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.setattr(install, "host_kind", lambda: "ubuntu")
     monkeypatch.setattr(install, "engine", lambda *_: "engine-one")
-    monkeypatch.setattr(install, "check_networks", lambda *_: None)
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/" + name)
 
 

@@ -160,9 +160,9 @@ run_check "mypy" uv run --locked mypy src tests migrations
 run_check "contract guards" uv run --locked pytest -q --basetemp "$pytest_tmpdir" \
     --junitxml "$evidence_root/contracts.xml" \
     --harness-report "$evidence_root/contracts.json" \
-    tests/broker/test_authorization_dispatch.py::test_foundation_registry_contains_exact_operation_set \
-    tests/broker/test_docker_inventory_operation.py::test_capabilities_reports_exact_semantic_operations \
-    tests/test_foundation.py::test_migration_metadata_contains_core_storage_tables \
+    tests/broker/test_authorization_dispatch.py::test_capabilities_reports_exact_reviewed_runtime_operations \
+    tests/broker/test_authorization_dispatch.py::test_read_only_registry_discovery_and_peer_policy \
+    tests/storage/test_initial_schema.py::test_fresh_contract_and_safe_reinitialization \
     tests/runtime/test_ostree_installation_schema.py
 run_check "pytest" run_pytest
 run_check \

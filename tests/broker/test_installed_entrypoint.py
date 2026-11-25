@@ -25,13 +25,28 @@ def test_entrypoint_serves_production_until_stopped(
     )
 
     class FakeServer:
+        def open(self) -> None:
+            observed.append("opened")
+
         def serve_forever(self, stopped: object) -> None:
             observed.append(stopped)
+
+    terminated = Event()
+    managed = SimpleNamespace(
+        start=lambda: observed.append("managed started"),
+        join=lambda timeout=None: terminated.wait(timeout),
+        terminate=terminated.set,
+        is_alive=lambda: not terminated.is_set(),
+        exitcode=None,
+    )
+    monkeypatch.setattr(run, "_managed_process", lambda: managed)
 
     monkeypatch.setattr(
         "kodi_lab.broker.run.BrokerServer", SimpleNamespace(production=FakeServer)
     )
     assert run.main() == 0
+    assert observed[2:4] == ["opened", "managed started"]
+    assert terminated.is_set()
     assert signal.SIGTERM in observed
     assert signal.SIGINT in observed
     assert any(isinstance(item, Event) for item in observed)

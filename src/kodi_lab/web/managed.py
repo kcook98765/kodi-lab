@@ -87,6 +87,13 @@ def managed_router(
         require_version(version)
         try:
             result = broker.request("admin", "managed_status", scope(version))["result"]
+            if isinstance(result, dict) and result.get("state") in {
+                "starting",
+                "stopping",
+            }:
+                return JSONResponse(
+                    {"profile": result}, headers={"Cache-Control": "no-store"}
+                )
             saved = broker.request("admin", "snapshot_list", {})["result"]
         except Refusal as exc:
             return refused(exc)
