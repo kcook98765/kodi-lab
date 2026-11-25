@@ -128,6 +128,10 @@ class ExternalBridgeError(RuntimeError):
         super().__init__(code)
 
 
+class AuthenticatedBridgeScreenshotError(ExternalBridgeError):
+    """Verified bridge failure or invalid authenticated image payload."""
+
+
 @dataclass(frozen=True, slots=True)
 class BridgeIdentity:
     bridge_id: UUID
@@ -1039,7 +1043,7 @@ class ExternalBridgeClient:
                         http_status=response.status_code,
                         content_type=content_type,
                     )
-                    raise ExternalBridgeError(code)
+                    raise AuthenticatedBridgeScreenshotError(code)
                 if response.status_code != 200:
                     raise ExternalBridgeError("bridge_unreachable")
                 if content_type != PNG_MIME_TYPE:
@@ -1126,7 +1130,7 @@ class ExternalBridgeClient:
                 response_byte_length=0,
                 payload_present=False,
             )
-            raise ExternalBridgeError("screenshot_payload_missing")
+            raise AuthenticatedBridgeScreenshotError("screenshot_payload_missing")
         emit_screenshot_stage(
             "bridge_operation_returned",
             "passed",
@@ -1151,7 +1155,7 @@ class ExternalBridgeClient:
         except ScreenshotArtifactError as error:
             code = self._screenshot_validation_code(error)
             emit_screenshot_stage("image_validation", "failed", code)
-            raise ExternalBridgeError(code) from error
+            raise AuthenticatedBridgeScreenshotError(code) from error
         try:
             width = int(headers["x-kodi-lab-width"])
             height = int(headers["x-kodi-lab-height"])

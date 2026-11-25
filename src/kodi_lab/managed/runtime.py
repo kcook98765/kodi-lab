@@ -23,7 +23,10 @@ from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
 from kodi_lab.domain.external_targets import ExternalProtocolKind
-from kodi_lab.kodi.bridge import ExternalBridgeClient
+from kodi_lab.kodi.bridge import (
+    AuthenticatedBridgeScreenshotError,
+    ExternalBridgeClient,
+)
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 
 from . import RELEASES
@@ -481,16 +484,19 @@ class Runtime:
         endpoint = ValidatedExternalEndpoint(
             ExternalProtocolKind.JSONRPC_HTTP, self.address(), 8080
         )
-        image = ManagedBridgeClient().capture_screenshot(
-            endpoint,
-            bridge_port=8765,
-            target_id=self.target,
-            bridge_id=UUID(value["bridge_id"]),
-            secret=base64.urlsafe_b64decode(value["secret"] + "="),
-            request_id=uuid4(),
-            nonce=secrets.token_urlsafe(32),
-            requested_at=datetime.now(UTC),
-        )
+        try:
+            image = ManagedBridgeClient().capture_screenshot(
+                endpoint,
+                bridge_port=8765,
+                target_id=self.target,
+                bridge_id=UUID(value["bridge_id"]),
+                secret=base64.urlsafe_b64decode(value["secret"] + "="),
+                request_id=uuid4(),
+                nonce=secrets.token_urlsafe(32),
+                requested_at=datetime.now(UTC),
+            )
+        except AuthenticatedBridgeScreenshotError as error:
+            raise Refusal(error.code) from error
         if len(image.png) > 1_450_000:
             raise Refusal("managed_screenshot_limit")
         return {
