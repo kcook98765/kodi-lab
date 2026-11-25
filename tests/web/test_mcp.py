@@ -491,7 +491,6 @@ def test_legacy_http_malformed_input_and_downgrade_matrix(
         "log_read",
         "log_scan",
         "screenshot_capture",
-        "screenshot_retrieve",
         "system_info",
         "target_list",
         "target_status",

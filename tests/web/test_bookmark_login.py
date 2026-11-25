@@ -12,9 +12,7 @@ from .conftest import ORIGIN, PASSWORD, login
 BROWSER = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 
 
-@pytest.mark.parametrize(
-    "path", ["/managed-kodi", "/mcp-clients", "/development-session"]
-)
+@pytest.mark.parametrize("path", ["/managed-kodi", "/mcp-clients", "/development"])
 def test_signed_out_bookmark_redirects_to_fixed_login(
     client: TestClient, path: str
 ) -> None:
@@ -32,7 +30,8 @@ def test_signed_out_bookmark_redirects_to_fixed_login(
 
 @pytest.mark.parametrize("accept", ["application/json", "*/*", "text/html"])
 @pytest.mark.parametrize(
-    "path", ["/api/instances", "/api/mcp/clients", "/api/managed-kodi/slots"]
+    "path",
+    ["/api/runtime-installations", "/api/mcp/clients", "/api/managed-kodi/omega"],
 )
 def test_api_auth_errors_never_redirect(
     client: TestClient, accept: str, path: str
@@ -71,7 +70,7 @@ def test_json_page_client_retains_401_and_mcp_retains_auth_error(
 def test_valid_session_logout_and_revisit(client: TestClient) -> None:
     csrf = login(client)
     assert client.get("/managed-kodi", headers=BROWSER).status_code == 200
-    assert client.get("/api/instances").status_code == 200
+    assert client.get("/api/runtime-installations").status_code == 200
     signed_out = client.post(
         "/logout", data={"csrf_token": csrf}, headers=ORIGIN, follow_redirects=False
     )
@@ -107,4 +106,4 @@ def test_expired_session_bookmark_and_api(
     response = client.get("/managed-kodi", headers=BROWSER, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
-    assert client.get("/api/instances", headers=BROWSER).status_code == 401
+    assert client.get("/api/runtime-installations", headers=BROWSER).status_code == 401

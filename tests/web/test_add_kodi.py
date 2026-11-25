@@ -59,8 +59,8 @@ def test_legacy_entry_template_needs_no_dashboard_data() -> None:
     ).get_template("index.html")
     html = template.render(url_for=lambda *_args, **_kwargs: "/static")
     assert 'href="/kodi"' in html
-    assert 'href="/managed-instances"' in html
-    assert 'id="instances"' in html and 'id="managed-details"' in html
+    assert 'href="/managed-kodi"' in html
+    assert 'href="/runtimes"' in html
     assert "data-instance-id" not in html
 
 

@@ -4,7 +4,6 @@ import hashlib
 import inspect
 import json
 from typing import Any, cast
-from uuid import UUID
 
 import httpx
 import pytest
@@ -24,7 +23,6 @@ from kodi_lab.storage.models import WebSessionRow
 from .conftest import PASSWORD, FakeBroker
 
 BASE_URL = "https://127.0.0.1"
-SAFE_MISSING_INSTANCE = UUID("00000000-0000-4000-8000-000000000001")
 
 
 def _harness(client: TestClient) -> ProductionProfileWebClient:
@@ -62,7 +60,7 @@ def test_canonical_login_cookie_authenticated_pages_and_logout(
     assert csrf not in serialized
 
     harness.logout()
-    assert client.get("/api/instances").status_code == 401
+    assert client.get("/api/runtime-installations").status_code == 401
     with database() as session:
         assert session.scalar(select(WebSessionRow)) is None
     assert harness.evidence["logged_out_session_rejected"] is True
@@ -91,23 +89,29 @@ def test_csrf_origin_and_safe_route_validation_are_ordered_before_mutation(
     harness = _harness(client)
     harness.login(PASSWORD)
     harness.get_authenticated("/")
-    path = f"/api/instances/{SAFE_MISSING_INSTANCE}/provision"
+    path = "/api/managed-kodi/unavailable/actions"
+    payload = {"operation": "managed_start", "arguments": {}}
 
-    assert harness.post_authenticated(path, json={}, csrf_token=None).status_code == 403
     assert (
-        harness.post_authenticated(path, json={}, csrf_token="A" * 43).status_code
+        harness.post_authenticated(path, json=payload, csrf_token=None).status_code
         == 403
     )
-    assert harness.post_authenticated(path, json={}, origin=None).status_code == 403
+    assert (
+        harness.post_authenticated(path, json=payload, csrf_token="A" * 43).status_code
+        == 403
+    )
+    assert (
+        harness.post_authenticated(path, json=payload, origin=None).status_code == 403
+    )
     assert (
         harness.post_authenticated(
-            path, json={}, origin="http://attacker.invalid"
+            path, json=payload, origin="http://attacker.invalid"
         ).status_code
         == 403
     )
-    valid = harness.post_authenticated(path, json={})
+    valid = harness.post_authenticated(path, json=payload)
     assert valid.status_code == 404
-    assert valid.json()["error"]["code"] == "managed_instance_not_found"
+    assert valid.json() == {"detail": "Managed runtime is unavailable"}
     assert broker.calls == []
     with database() as session:
         assert len(list(session.scalars(select(WebSessionRow)))) == 1
