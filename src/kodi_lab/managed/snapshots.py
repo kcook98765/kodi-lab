@@ -14,6 +14,13 @@ from xml.etree import ElementTree as ET
 
 from .protocol import Checkpoint, Document
 from .runtime import BRIDGE, Refusal, atomic, sync_dir
+from .source_provenance import (
+    MAX_SOURCE_METADATA,
+    ProfileSources,
+    read_sources,
+    validate_sources,
+    write_sources,
+)
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
@@ -112,6 +119,7 @@ class Snapshots:
         staging = self.root / (".stage-" + uuid4().hex)
         self.checkpoint("snapshot_staging", snapshot=name, archive=staging.name)
         source = self.runtime.profile()
+        sources = read_sources(self.runtime.root, self.runtime.read_pointer())
         total = count = 0
         try:
             with tarfile.open(staging, "x:gz", compresslevel=3) as tar:
@@ -167,7 +175,14 @@ class Snapshots:
             sync_dir(path.parent)
             atomic(
                 path.with_suffix(".json"),
-                json.dumps({"image": self.runtime.image, "sha256": digest}).encode(),
+                json.dumps(
+                    {
+                        "image": self.runtime.image,
+                        "sha256": digest,
+                        **({"sources": sources} if sources else {}),
+                    },
+                    separators=(",", ":"),
+                ).encode(),
             )
         finally:
             staging.unlink(missing_ok=True)
@@ -183,14 +198,7 @@ class Snapshots:
         path = self.path(name)
         if path.is_symlink() or not path.is_file():
             raise Refusal("snapshot_not_found")
-        meta = path.with_suffix(".json")
-        if not meta.is_file() or meta.is_symlink() or meta.stat().st_size > 1024:
-            raise Refusal("snapshot_metadata_invalid")
-        if json.loads(meta.read_text()) != {
-            "image": self.runtime.image,
-            "sha256": archive_digest(path),
-        }:
-            raise Refusal("snapshot_identity_mismatch")
+        sources = self.read_metadata(path)
         slot = self.runtime.stage(clean=False)
         stage = self.runtime.profile(slot)
         seen: set[PurePosixPath] = set()
@@ -224,6 +232,7 @@ class Snapshots:
             ):
                 raise Refusal("snapshot_profile_settings_invalid")
             validate_profile(stage)
+            write_sources(self.runtime.root, slot, sources)
             self.runtime.exchange(slot, replace_exited=True)
         except Exception:
             if self.runtime.read_pointer() != slot:
@@ -240,12 +249,30 @@ class Snapshots:
         meta = path.with_suffix(".json")
         if not meta.exists():
             path.unlink(missing_ok=True)
-        elif json.loads(meta.read_text()) != {
-            "image": self.runtime.image,
-            "sha256": archive_digest(path),
-        }:
-            raise Refusal("snapshot_identity_mismatch")
+        else:
+            self.read_metadata(path)
         sync_dir(self.root)
+
+    def read_metadata(self, path: Path) -> ProfileSources:
+        meta = path.with_suffix(".json")
+        if (
+            not meta.is_file()
+            or meta.is_symlink()
+            or meta.stat().st_size > MAX_SOURCE_METADATA + 1024
+        ):
+            raise Refusal("snapshot_metadata_invalid")
+        try:
+            value = json.loads(meta.read_bytes())
+        except (ValueError, UnicodeError) as error:
+            raise Refusal("snapshot_metadata_invalid") from error
+        if (
+            not isinstance(value, dict)
+            or set(value) - {"image", "sha256", "sources"}
+            or value.get("image") != self.runtime.image
+            or value.get("sha256") != archive_digest(path)
+        ):
+            raise Refusal("snapshot_identity_mismatch")
+        return validate_sources(value.get("sources", {}))
 
     def delete(self, name: str) -> Document:
         path = self.path(name)

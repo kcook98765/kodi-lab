@@ -8,10 +8,11 @@ import json
 import re
 import shutil
 import sqlite3
+import stat
 import time
 from collections.abc import Callable
-from pathlib import Path
-from typing import cast
+from pathlib import Path, PurePosixPath
+from typing import TypedDict, cast
 from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
@@ -35,6 +36,18 @@ from .protocol import (
 )
 from .runtime import ESTUARY, REPO, Runtime, atomic
 from .snapshots import Snapshots
+from .source_provenance import (
+    SourceFiles,
+    read_sources,
+    validate_sources,
+    write_sources,
+)
+
+
+class GeneratedInclude(TypedDict):
+    digest: str
+    mode: int
+    bytes: int
 
 
 class Controller:
@@ -462,15 +475,7 @@ class Controller:
         if surplus:
             # Generated files are distinguished from the caller-approved package bytes.
             current["generated_paths"] = sorted(surplus)
-        (database,) = (self.runtime.profile() / "userdata/Database").glob("Addons*.db")
-        if database.is_symlink() or not database.is_file():
-            raise Refusal("native_database_unavailable")
-        with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1) as db:
-            origin = db.execute(
-                "SELECT origin, enabled FROM installed WHERE addonID=?", (pkg.id,)
-            ).fetchone()
-        if origin != (REPO, 1):
-            raise Refusal("native_origin_mismatch")
+        self.verify_origin(pkg.id)
         return {
             "addon": pkg.id,
             "version": pkg.version,
@@ -479,6 +484,26 @@ class Controller:
             "enabled": True,
             "files_verified": len(pkg.members),
         }
+
+    def verify_origin(self, addon: str) -> None:
+        userdata = self.runtime.profile() / "userdata"
+        folder = userdata / "Database"
+        if userdata.is_symlink() or folder.is_symlink():
+            raise Refusal("native_database_unavailable")
+        databases = list(
+            (self.runtime.profile() / "userdata/Database").glob("Addons*.db")
+        )
+        if len(databases) != 1:
+            raise Refusal("native_database_unavailable")
+        (database,) = databases
+        if database.is_symlink() or not database.is_file():
+            raise Refusal("native_database_unavailable")
+        with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=1) as db:
+            origin = db.execute(
+                "SELECT origin, enabled FROM installed WHERE addonID=?", (addon,)
+            ).fetchone()
+        if origin != (REPO, 1):
+            raise Refusal("native_origin_mismatch")
 
     def dependencies(
         self, package: Package, catalog: dict[str, Package]
@@ -564,6 +589,7 @@ class Controller:
         deps = self.dependencies(pkg, catalog)
         if response.get("prior_skin") != response.get("final_skin"):
             raise Refusal("skin_restore_unconfirmed")
+        self.record_source(pkg.id, pkg.members)
         self.checkpoint("native_verified", native_pending=False)
         return {
             "state": "verified",
@@ -720,64 +746,169 @@ class Controller:
         self.checkpoint("skin_changed", skin=None)
         return {"skin": result, "actions": ["stop_edit_start:" + addon]}
 
-    def deploy(self, addon: str) -> Document:
+    def record_source(self, addon: str, files: SourceFiles) -> None:
+        slot = self.runtime.read_pointer()
+        root = self.runtime.root
+        sources = read_sources(root, slot)
+        sources[addon] = files
+        write_sources(root, slot, sources)
+
+    def deploy(
+        self, addon: str, baseline: str | None = None, review: str | None = None
+    ) -> Document:
         addon_id(addon)
         self.runtime.require_stopped()
+        slot = self.runtime.read_pointer()
         src = self.packages.workspaces / addon
-        files = workspace_files(src)
-        dst = self.runtime.profile() / "addons" / addon
-        if not dst.is_dir() or dst.is_symlink():
+        files = dict(workspace_files(src))
+        addons = self.runtime.profile() / "addons"
+        dst = addons / addon
+        if addons.is_symlink() or not dst.is_dir() or dst.is_symlink():
             raise Refusal("destination_not_installed")
-        workspace_files(dst)
-        candidate, _ = manifest((src / "addon.xml").read_bytes())
+        installed = dict(workspace_files(dst))
+        candidate, category = manifest((src / "addon.xml").read_bytes())
         current, _ = manifest((dst / "addon.xml").read_bytes())
-        if (candidate.attrib["id"], candidate.attrib["version"]) != (
-            addon,
-            current.attrib["version"],
-        ):
+        if current.attrib["id"] != addon:
+            raise Refusal("workspace_identity")
+        version = candidate.attrib["version"]
+        if (candidate.attrib["id"], version) != (addon, current.attrib["version"]):
             raise Refusal("workspace_identity")
         for tag in ("requires", "extension"):
             if [ET_bytes(x) for x in candidate.findall(tag)] != [
                 ET_bytes(x) for x in current.findall(tag)
             ]:
                 raise Refusal("native_install_required_for_manifest_change")
+
+        previous = read_sources(self.runtime.root, slot).get(addon)
+        if previous is None:
+            if baseline is None:
+                raise Refusal("source_provenance_required")
+            package = self.packages.get(baseline)
+            if (package.id, package.version) != (addon, version):
+                raise Refusal("source_provenance_identity")
+            self.verify_origin(addon)
+            previous = package.members
+        elif baseline is not None:
+            package = self.packages.get(baseline)
+            if (package.id, package.version, package.members) != (
+                addon,
+                version,
+                previous,
+            ):
+                raise Refusal("source_provenance_identity")
+
+        installed_hashes = {
+            name: sha(path.read_bytes()) for name, path in installed.items()
+        }
+        if any(
+            installed_hashes.get(name) != digest for name, digest in previous.items()
+        ):
+            raise Refusal("installed_source_changed")
+        new_source = {name: sha(path.read_bytes()) for name, path in files.items()}
+        additions = sorted(installed.keys() - previous.keys())
+        preserved: dict[str, GeneratedInclude] = {}
+        file_dirs = {
+            p.as_posix() for name in files for p in PurePosixPath(name).parents
+        }
+        for name in additions:
+            if (
+                name in files
+                or name in file_dirs
+                or any(p.as_posix() in files for p in PurePosixPath(name).parents)
+            ):
+                raise Refusal("generated_source_conflict")
+            path = installed[name]
+            info = path.stat()
+            mode = stat.S_IMODE(info.st_mode)
+            if (
+                category != "xbmc.gui.skin"
+                or path.suffix != ".xml"
+                or info.st_nlink != 1
+                or mode not in (0o600, 0o644)
+                or info.st_size > 1024**2
+            ):
+                raise Refusal("unexpected_runtime_addition")
+            try:
+                if ET.parse(path).getroot().tag != "includes":
+                    raise Refusal("unexpected_runtime_addition")
+            except ET.ParseError as error:
+                raise Refusal("unexpected_runtime_addition") from error
+            preserved[name] = {
+                "digest": installed_hashes[name],
+                "mode": mode,
+                "bytes": info.st_size,
+            }
+        if len(preserved) > 32:
+            raise Refusal("generated_review_limit")
+        if preserved or review is not None:
+            token = sha(
+                json.dumps(
+                    [
+                        str(self.runtime.target),
+                        slot,
+                        self.actor,
+                        addon,
+                        previous,
+                        new_source,
+                        preserved,
+                    ],
+                    sort_keys=True,
+                ).encode()
+            )
+            if review is None:
+                return {
+                    "state": "review_required",
+                    "review": token,
+                    "generated": preserved,
+                }
+            if not preserved or review != token:
+                raise Refusal("generated_review_changed")
+
         stage = dst.with_name(".stage-" + uuid4().hex)
         backup = dst.with_name(".prior-" + uuid4().hex)
         self.checkpoint(
             "deploy_staging",
             deploy={
                 "addon": addon,
-                "slot": self.runtime.read_pointer(),
+                "slot": slot,
                 "stage": stage.name,
                 "backup": backup.name,
+                "source": new_source,
+                "generated": {name: installed_hashes[name] for name in preserved},
             },
         )
         stage.mkdir()
         try:
-            hashes = {}
-            for name, path in files:
+            for name, path in files.items():
                 dest = stage / name
                 dest.parent.mkdir(exist_ok=True, parents=True)
-                data = path.read_bytes()
-                hashes[name] = sha(data)
-                dest.write_bytes(data)
-            assert hashes == {
+                dest.write_bytes(path.read_bytes())
+            for name in preserved:
+                dest = stage / name
+                dest.parent.mkdir(exist_ok=True, parents=True)
+                shutil.copyfile(installed[name], dest)
+                dest.chmod(preserved[name]["mode"])
+            if new_source | {name: installed_hashes[name] for name in preserved} != {
                 name: sha(path.read_bytes()) for name, path in workspace_files(stage)
-            }
+            }:
+                raise Refusal("deployed_tree_mismatch")
             dst.rename(backup)
             try:
                 stage.rename(dst)
             except Exception:
                 backup.rename(dst)
                 raise
+            self.record_source(addon, new_source)
         finally:
             if stage.exists():
                 shutil.rmtree(stage)
         shutil.rmtree(backup)
         return {
             "state": "applied",
-            "files_verified": len(files),
-            "version": candidate.attrib["version"],
+            "files_verified": len(files) + len(preserved),
+            "source_files": len(files),
+            "generated_preserved": sorted(preserved),
+            "version": version,
         }
 
     def recover_deploy(self, deploy: Document) -> None:
@@ -795,6 +926,16 @@ class Controller:
             if not dst.exists():
                 backup.rename(dst)
             else:
+                if "source" in deploy:
+                    addon = addon_id(deploy["addon"])
+                    source = validate_sources({addon: deploy["source"]})[addon]
+                    expected = source | deploy["generated"]
+                    if expected != {
+                        name: sha(path.read_bytes())
+                        for name, path in workspace_files(dst)
+                    }:
+                        raise Refusal("deployed_tree_mismatch")
+                    self.record_source(addon, source)
                 shutil.rmtree(backup)
         if stage.exists():
             shutil.rmtree(stage)

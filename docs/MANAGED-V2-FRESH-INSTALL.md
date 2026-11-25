@@ -83,3 +83,31 @@ add-on needs, and the broker verifies newly installed dependencies against the
 approved archives and repository origin. If an approved archive is missing,
 provide the add-on ID and version to the operator. Workspace deployment of
 ordinary source edits needs no dependency approval or native reinstall.
+
+### Direct deployment with generated skin includes
+
+The broker records the member paths and digests of the last verified native
+install or successful direct deployment for the working profile. Direct
+deployment checks those installed source bytes first. A source path omitted
+from the next workspace is removed. Snapshot save and load carry this
+provenance alongside the profile. Older snapshots still load. If an older
+profile has no record, supply the exact digest of an admitted baseline ZIP
+as `baseline` on `managed_workspace_deploy`. The broker checks its ID,
+version, installed bytes and private repository origin before using it.
+
+With Kodi stopped, run the usual `managed_workspace_deploy`. For an eligible
+runtime-generated skin include, the reply reports `state=review_required`
+and lists each exact path, digest, length and mode. Review those identities
+against the output you expect from the add-on's generator. For instance,
+compare Skin Shortcuts' generated include to its output on the selected
+stopped profile. The operator can inspect the file on that profile through
+the local broker container. Once the output is reviewed, pass the returned
+`review` digest on the same deploy call with the same workspace and optional
+baseline. The broker rechecks the bytes and copies the approved include
+directly from the stopped profile. The source workspace stays independent.
+
+This lane accepts regular, non-executable skin XML rooted at `includes`.
+XML can control skin behavior, so the broker always asks for exact review
+of such additions. Unexpected executables, unsafe entries, content drift
+and collisions with reviewed source paths refuse before the profile is
+changed. A later workspace or file change requires a fresh review.
