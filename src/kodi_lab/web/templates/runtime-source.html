@@ -8,7 +8,7 @@
     <dt>Upstream Git revision</dt><dd>{% if source.source_url %}<a href="{{ source.source_url }}"><code>{{ source.source_revision }}</code></a>{% else %}Unknown{% endif %}</dd>
     {% if source.binary_sha256 and source.binary_sha256 != source.acquisition_checksum %}<dt>Kodi binary package SHA-256</dt><dd><code>{{ source.binary_sha256 }}</code></dd>{% endif %}
     <dt>Acquisition checksum ({{ source.checksum_label }})</dt><dd><code>{{ source.acquisition_checksum }}</code></dd>
-    <dt>Runtime image identity</dt><dd><code data-runtime-image>{{ runtime_image or 'Unknown' }}</code></dd>
+    <dt>Recorded runtime image identity</dt><dd><code data-runtime-image>{{ runtime_image or 'Unknown' }}</code></dd>
     {% if preview %}<dt>Recipe</dt><dd data-preview-recipe>{{ preview.recipe_id }} · revision {{ preview.recipe_revision }}</dd>
     <dt>Recipe digest</dt><dd><code data-preview-digest>{{ preview.recipe_digest }}</code></dd>{% endif %}
   </dl>

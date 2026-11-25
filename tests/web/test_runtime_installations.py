@@ -110,6 +110,7 @@ def test_remote_only_page_has_four_unavailable_choices(
         and "Ubuntu Resolute APT archive" in primary
     )
     assert "Ubuntu distribution packages" in primary
+    assert "https://archive.ubuntu.com/ubuntu/dists/resolute/" in primary
     assert "Team Kodi Flatpak" in primary and "Flathub Beta" in primary
     assert (
         "sha256:83b803ab50c19471377943f35bed0d96247a425834580a420d5842912ce7cbdd"

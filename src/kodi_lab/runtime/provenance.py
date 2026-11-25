@@ -59,12 +59,13 @@ def runtime_source(reviewed: ReviewedRecipe) -> RuntimeSource:
             acquisition_checksum=f"sha256:{recipe.closure_sha256}",
             checksum_label="Package closure SHA-256",
         )
+    archive = provider.repository_url.replace("http://", "https://", 1).rstrip("/")
     return RuntimeSource(
         provider=f"{provider.distribution} distribution packages",
         distribution=(
             f"{provider.distribution} {provider.suite.capitalize()} APT archive"
         ),
-        url=recipe.source_references[0],
+        url=f"{archive}/dists/{provider.suite}/",
         support="Legacy" if recipe.generation == "matrix" else "Reviewed",
         package_version=binary.version,
         binary_sha256=binary.sha256,

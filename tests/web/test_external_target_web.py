@@ -186,6 +186,8 @@ def test_external_target_web_flow_and_safe_projection(client: TestClient) -> Non
     assert created_response.status_code == 201
     created = created_response.json()
     target_id = created["target_id"]
+    page = client.get("/external-targets").text
+    assert "Binary provenance: Unknown" in page
     assert created["administrative_state"] == "disabled"
     assert created["verification_state"] == "unverified"
     assert "password" not in created

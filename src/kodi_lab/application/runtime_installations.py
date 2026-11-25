@@ -504,6 +504,7 @@ class RuntimeInstallationService:
             else f"Kodi {major} — {generation.capitalize()}",
             version=stable_version,
             source=None if recorded_recipe_unavailable else runtime_source(reviewed),
+            image_id=row.image_id if row is not None else None,
             managed_instance_name=(
                 f"Kodi 22 Piers {stable_version.split()[-1]}"
                 if generation == "piers"
@@ -588,7 +589,6 @@ class RuntimeInstallationService:
             status_url=f"/api/runtime-installations/{operation_id}",
             action="none",
             technical_details=details,
-            image_id=row.image_id,
             created_at=row.created_at,
             phase_started_at=row.updated_at,
             completed_at=row.completed_at,
