@@ -25,7 +25,7 @@ from kodi_lab.mcp.registry import build_mcp_tool_registry
 from tests.kodi.test_bridge_otp_bootstrap import _server
 from tests.kodi.test_narrow_bridge_addon import _load
 
-from .conftest import INSTANCE_ID, ORIGIN, login
+from .conftest import ORIGIN, login
 
 PROTOCOL = "2026-07-28"
 META = {
@@ -388,8 +388,7 @@ def test_mcp_cannot_list_or_use_registered_external_target(
         display_name="External non-exposure",
         preset_id=FULL_LAB_CONTROL_PRESET_ID,
     )
-    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
-    administration.grant_target(principal.id, INSTANCE_ID)
+    administration.set_managed_lab_role(principal.id, True)
     token = administration.issue_credential(principal.id).token
 
     listed = _mcp_call(client, token, "target_list", {})
