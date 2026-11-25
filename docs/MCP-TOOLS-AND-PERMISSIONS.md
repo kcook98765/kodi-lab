@@ -1,5 +1,12 @@
 # MCP tools and permissions
 
+For generation-scoped managed calls, `generation=matrix` selects the single
+managed Matrix slot. New Matrix profiles use the reviewed Kodi 19.5 Team Kodi
+Jammy runtime on Linux amd64. `managed_status` gives the authenticated native
+version when running and the pinned Matrix profile version when available.
+Snapshot Load requires the original runtime image. Windows/WSL 2 acceptance
+for Matrix 19.5 is pending.
+
 Connect through the configured MCP endpoint with a current bearer token. Call
 `tools/list` with that token to discover the operations the agent may use.
 Managed operations use a shared managed environment. External target operations

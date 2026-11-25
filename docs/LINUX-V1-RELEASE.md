@@ -12,7 +12,7 @@ download checks integrity but does not establish publisher identity.
 | --- | --- | --- |
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `compose.lan-http.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
-| Reviewed runtime inputs | `runtime-recipes/matrix-19.4-graceful-r4.json`, `nexus-20.5-graceful-r4.json`, `omega-21.3-graceful-r6.json` | File hashes and installed wheel recipe digests; provider, suite, version |
+| Reviewed runtime inputs | `runtime-recipes/matrix-19.5-candidate.json`, `nexus-20.5-graceful-r4.json`, `omega-21.3-graceful-r6.json` | File hashes and installed wheel recipe digests; provider, suite, version |
 | Remote bridge | `bridge/service.kodi_lab_bridge-1.1.35.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
 | Kodi feed inputs | `repository/STABLE.json`, `repository/DEVELOPMENT.json`, installed repository generator/server | Reviewed repository/Bridge identities; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
@@ -26,7 +26,7 @@ claim is not made. The local candidate's clean committed `HEAD` contains exactly
 the recorded `HEAD^{tree}`. Staging verifies that copied recipe bytes match the
 installed wheel's reviewed recipe digests.
 
-Current reviewed stable viewer/runtime recipes are Matrix 19.4 revision 4,
+Current reviewed stable viewer/runtime recipes are legacy Matrix 19.5 revision 5,
 Nexus 20.5 revision 4 and Omega 21.3 revision 6. Recipe selection does not establish
 native qualification for these exact images. Historical standard-viewer acceptance
 covers Matrix r3, Nexus r3 and Omega r5. More recent accepted Claw native evidence

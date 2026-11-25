@@ -30,6 +30,12 @@ from kodi_lab.runtime.manifest import RuntimeProfileManifest
 _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
 _PACKAGE_VERSION = re.compile(r"[0-9][A-Za-z0-9.+:~_-]{0,95}\Z")
 _FILE = re.compile(r"[a-z0-9][a-z0-9.+_~-]{0,127}\Z")
+MATRIX_CANDIDATE_ID: Final = "ubuntu-jammy-matrix-19.5-candidate"
+MATRIX_CANDIDATE_DIGEST: Final = (
+    "sha256:4c1c59022d790b390dce7f9c7a6e9f778874c8d31b8fc24a6cbb1deac46f502b"
+)
+_MATRIX_CANDIDATE_FILE: Final = "matrix-19.5-candidate.json"
+
 # Each generation retains prior reviewed revisions. The last filename is the
 # current install selection; existing exact pins resolve their recorded file.
 _RECIPES = {
@@ -50,6 +56,7 @@ _RECIPES = {
             "matrix-19.4-graceful-r4.json",
             "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
         ),
+        (_MATRIX_CANDIDATE_FILE, MATRIX_CANDIDATE_DIGEST),
     ),
     "nexus": (
         (
@@ -88,11 +95,11 @@ _RECIPES = {
         ),
     ),
 }
-MATRIX_CANDIDATE_ID: Final = "ubuntu-jammy-matrix-19.5-candidate"
-MATRIX_CANDIDATE_DIGEST: Final = (
-    "sha256:4c1c59022d790b390dce7f9c7a6e9f778874c8d31b8fc24a6cbb1deac46f502b"
+MATRIX_RECOVERY_DIGESTS = frozenset(
+    digest
+    for filename, digest in _RECIPES["matrix"]
+    if filename != _MATRIX_CANDIDATE_FILE
 )
-_MATRIX_CANDIDATE_FILE: Final = "matrix-19.5-candidate.json"
 
 # New sealed revisions reuse unchanged historical assets, never rewrite them.
 _GRACEFUL_ASSET_PARENTS = {
@@ -420,10 +427,7 @@ class RuntimeRecipe(_ClosedModel):
             expected_assets.add(_DISPLAY_GUARD_ASSET)
         from kodi_lab.runtime.display_capabilities import VIEWER_ASSET_RECIPES
 
-        if (
-            self.recipe_id,
-            self.recipe_revision,
-        ) in VIEWER_ASSET_RECIPES or self.recipe_id == MATRIX_CANDIDATE_ID:
+        if (self.recipe_id, self.recipe_revision) in VIEWER_ASSET_RECIPES:
             expected_assets.add("novnc_view_helper.py")
         if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
@@ -593,7 +597,7 @@ def load_installation_recipe(generation: str) -> ReviewedRecipe:
 
 
 def load_matrix_candidate() -> ReviewedAptRecipe:
-    """Explicit disposable qualification recipe, outside the install selector."""
+    """Resolve the sealed Team Kodi Jammy recipe by exact identity."""
     reviewed = _load_recipe_file(
         "matrix", _MATRIX_CANDIDATE_FILE, MATRIX_CANDIDATE_DIGEST
     )
@@ -691,6 +695,8 @@ def _load_recipe_file(
 def parse_runtime_recipe(value: bytes) -> RuntimeRecipe | InactiveOstreeRecipe:
     """Parse recipe formats without adding inactive definitions to the registry."""
 
+    if "sha256:" + hashlib.sha256(value).hexdigest() == MATRIX_CANDIDATE_DIGEST:
+        return MatrixCandidateRecipe.model_validate_json(value)
     return TypeAdapter(
         Annotated[
             RuntimeRecipe | InactiveOstreeRecipe, Field(discriminator="schema_version")

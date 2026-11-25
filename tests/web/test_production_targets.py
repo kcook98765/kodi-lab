@@ -123,6 +123,8 @@ def test_production_web_flow_is_separate_two_step_and_web_only(
         "<details open><summary>Connection identity, trust and scopes</summary>" in page
     )
     assert f"observation {observation_id}" in page
+    assert "Binary provenance: Unknown" in page
+    assert "Native-reported Kodi" in page
     if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
         root = Path(evidence)
         root.mkdir(parents=True, exist_ok=True)

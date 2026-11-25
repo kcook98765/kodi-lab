@@ -1,12 +1,13 @@
-"""The disposable release accepts only its signed provenance and configured image."""
+"""Matrix 19.5 retains sealed acquisition and exact Matrix recovery identity."""
 
 from pathlib import Path
 
 import pytest
 
-from kodi_lab.managed.runtime import Runtime
+from kodi_lab.managed.runtime import Refusal, Runtime
 from kodi_lab.runtime.assembly import RecipeAssemblyError
 from kodi_lab.runtime.assembly import build_context as ordinary_context
+from kodi_lab.runtime.display_capabilities import reviewed_display_capability
 from kodi_lab.runtime.matrix_candidate import (
     MatrixAcquisitionError,
     _load,
@@ -15,15 +16,24 @@ from kodi_lab.runtime.matrix_candidate import (
 )
 from kodi_lab.runtime.recipes import (
     MATRIX_CANDIDATE_DIGEST,
+    load_installation_recipe,
     load_recorded_reviewed_recipe,
-    load_reviewed_recipe,
+    recipe_target_id,
 )
 
 
-def test_disposable_recipe_reuses_exact_assets_and_has_no_install_selection() -> None:
+def test_standard_selection_reuses_exact_assets_and_preserves_19_4() -> None:
     candidate, recipe, closure, _ = _load()
-    stable = load_reviewed_recipe("matrix")
+    stable = load_recorded_reviewed_recipe(
+        "matrix",
+        "ubuntu-jammy-matrix-19.4",
+        4,
+        "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac",
+    )
     assert stable.recipe.kodi_version == "19.4"
+    assert candidate == load_installation_recipe("matrix")
+    assert recipe_target_id(candidate) != recipe_target_id(stable)
+    assert reviewed_display_capability(candidate) is not None
     assert candidate.assets == stable.assets
     assert recipe.base_image_reference == stable.recipe.base_image_reference
     assert candidate.digest == MATRIX_CANDIDATE_DIGEST
@@ -31,10 +41,12 @@ def test_disposable_recipe_reuses_exact_assets_and_has_no_install_selection() ->
         "kodi",
         "kodi-bin",
     }
-    with pytest.raises(ValueError):
+    assert (
         load_recorded_reviewed_recipe(
             "matrix", recipe.recipe_id, recipe.recipe_revision, candidate.digest
         )
+        == candidate
+    )
     with pytest.raises(RecipeAssemblyError, match="sealed offline"):
         ordinary_context(candidate)
 
@@ -76,10 +88,17 @@ def test_candidate_release_requires_exact_admitted_image(
 
     def inspect(*args: str) -> str:
         assert args[:2] == ("image", "inspect") and args[-1] == expected
-        return f"{observed} {MATRIX_CANDIDATE_DIGEST}"
+        return f"{observed} {digest}"
 
     monkeypatch.setattr("kodi_lab.managed.runtime.docker", inspect)
     observed = "sha256:" + "b" * 64
-    assert runtime.expected_release() == (19, 4)
+    digest = MATRIX_CANDIDATE_DIGEST
+    with pytest.raises(Refusal, match="reviewed_image_required"):
+        runtime.expected_release()
     observed = expected
     assert runtime.expected_release() == (19, 5)
+    digest = "sha256:0e16005b14c643dc999309bb7ef116fc8c76bd525d0487338b810c15cf7b75ac"
+    assert runtime.expected_release() == (19, 4)
+    digest = "sha256:" + "c" * 64
+    with pytest.raises(Refusal, match="reviewed_image_required"):
+        runtime.expected_release()

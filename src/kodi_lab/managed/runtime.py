@@ -28,7 +28,7 @@ from kodi_lab.kodi.bridge import (
     ExternalBridgeClient,
 )
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
-from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST
+from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST, MATRIX_RECOVERY_DIGESTS
 
 from . import RELEASES
 from .protocol import Checkpoint, Document
@@ -528,19 +528,25 @@ class Runtime:
             return {"text": stream.read(16_384).decode(errors="replace")}
 
     def expected_release(self) -> tuple[int, int]:
-        expected = RELEASES[self.generation]
-        if self.generation == "matrix":
-            image = self.image
-            identity = docker(
-                "image",
-                "inspect",
-                "--format",
-                '{{.Id}} {{index .Config.Labels "io.kodi-lab.recipe-digest"}}',
-                image,
-            )
-            if identity == f"{image} {MATRIX_CANDIDATE_DIGEST}":
-                return (19, 5)
-        return expected
+        if self.generation != "matrix":
+            return RELEASES[self.generation]
+        image = self.image
+        identity = docker(
+            "image",
+            "inspect",
+            "--format",
+            '{{.Id}} {{index .Config.Labels "io.kodi-lab.recipe-digest"}}',
+            image,
+        )
+        observed, _, digest = identity.partition(" ")
+        if observed != image:
+            raise Refusal("reviewed_image_required")
+        if digest == MATRIX_CANDIDATE_DIGEST:
+            return RELEASES["matrix"]
+        # A retained or restored profile keeps its precise historical image.
+        if digest in MATRIX_RECOVERY_DIGESTS:
+            return (19, 4)
+        raise Refusal("reviewed_image_required")
 
     def ready(self) -> Document | None:
         try:
@@ -557,11 +563,7 @@ class Runtime:
             if (
                 version.get("name") != "Kodi"
                 or (actual["major"], actual["minor"]) != expected
-                or (
-                    self.generation == "matrix"
-                    and expected == (19, 5)
-                    and actual.get("tag") != "stable"
-                )
+                or (self.generation == "matrix" and actual.get("tag") != "stable")
                 or bridge["addon_id"] != BRIDGE
                 or "managed_v2_install" not in bridge["capabilities"]
                 or bridge["build_fingerprint"] != self.bridge_fingerprint()

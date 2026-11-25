@@ -1,22 +1,27 @@
-"""Offline assembly inputs for the reviewed disposable Matrix 19.5 recipe."""
+"""Offline assembly inputs for the reviewed Team Kodi Matrix 19.5 recipe."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import io
 import json
 import lzma
+import socket
 import subprocess
+import sys
+import tarfile
 import tempfile
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from uuid import UUID
 
 from kodi_lab.runtime.assembly import pack_build_entries, render_apt_image
 from kodi_lab.runtime.recipes import (
@@ -24,6 +29,7 @@ from kodi_lab.runtime.recipes import (
     ReviewedAptRecipe,
     load_matrix_candidate,
 )
+from kodi_lab.runtime.temporary_networks import TemporaryNetwork
 
 _PPA_SIGNER = "04AE50726660A0D55355E966C8B28F649961BE33"
 _UBUNTU_SIGNER = "F6ECB3762474EDA9D21B7022871920D1991BC93C"
@@ -189,16 +195,17 @@ def _match_packages(index: Index, payload: bytes, packages: list[Package]) -> No
         raise MatrixAcquisitionError("reviewed package missing from signed index")
 
 
-def acquire(archive_directory: Path, ubuntu_keyring: Path) -> None:
+def acquire(archive_directory: Path, ubuntu_keyring: bytes) -> None:
     """Verify both archives' signed metadata and fetch only the sealed package set."""
     _, recipe, closure, ppa_key = _load()
-    ubuntu_key = ubuntu_keyring.read_bytes()
-    if "sha256:" + _digest(ubuntu_key) != recipe.provider.keyring_sha256:
+    if "sha256:" + _digest(ubuntu_keyring) != recipe.provider.keyring_sha256:
         raise MatrixAcquisitionError("Ubuntu keyring differs from reviewed base")
     releases: dict[str, dict[str, Blob]] = {}
     for name, release in closure["releases"].items():
         key, signer = (
-            (ppa_key, _PPA_SIGNER) if name == "ppa" else (ubuntu_key, _UBUNTU_SIGNER)
+            (ppa_key, _PPA_SIGNER)
+            if name == "ppa"
+            else (ubuntu_keyring, _UBUNTU_SIGNER)
         )
         text = _signatures(_download(release["url"], release), key, signer)
         releases[name] = _index_pins(text)
@@ -228,18 +235,40 @@ def acquire(archive_directory: Path, ubuntu_keyring: Path) -> None:
         list(pool.map(obtain, closure["packages"]))
 
 
+def _metadata(closure: Closure) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (name, "sha256:" + release["sha256"])
+        for name, release in closure["releases"].items()
+    )
+
+
+def matches_acquisition(packages: object, metadata: object) -> bool:
+    _, _, closure, _ = _load()
+    return packages == closure["installed_inventory"] and metadata == [
+        list(row) for row in _metadata(closure)
+    ]
+
+
 def _inventory_bytes(rows: list[list[str]]) -> bytes:
     return "".join("\t".join(row) + "\n" for row in rows).encode()
 
 
 def build_context(archive_directory: Path) -> bytes:
     """Use the reviewed r4 assets and the reverified closure in a networkless build."""
+
+    def read(name: str, size: int) -> bytes:
+        with (archive_directory / name).open("rb") as stream:
+            return stream.read(size + 1)
+
+    return _context(read)
+
+
+def _context(read: Callable[[str, int], bytes]) -> bytes:
     reviewed, recipe, closure, _ = _load()
     entries = dict(reviewed.assets)
     for package in closure["packages"]:
         name = PurePosixPath(package["path"]).name
-        with (archive_directory / name).open("rb") as stream:
-            payload = stream.read(package["size"] + 1)
+        payload = read(name, package["size"])
         _check_blob(payload, package, name)
         entries[f"matrix-input/packages/{name}"] = payload
 
@@ -279,6 +308,81 @@ def build_context(archive_directory: Path) -> bytes:
     return pack_build_entries(entries)
 
 
+def acquire_context(
+    client: Any, network: TemporaryNetwork, operation_id: UUID, ubuntu_keyring: bytes
+) -> tuple[bytes, tuple[tuple[str, str], ...]]:
+    """Fetch in a socketless helper and reverify every archive in the offline worker."""
+    _, _, closure, _ = _load()
+    own = client.api.inspect_container(socket.gethostname())
+    if own["Config"]["Entrypoint"] != ["kodi-lab-runtime"]:
+        raise MatrixAcquisitionError("installed worker identity required")
+    helper = client.containers.create(
+        own["Image"],
+        name=f"kodi-lab-matrix-acquisition-{operation_id.hex}",
+        entrypoint=["/usr/bin/sleep"],
+        command=["300"],
+        user="65534:65534",
+        network=network.name,
+        read_only=True,
+        tmpfs={"/tmp": "rw,noexec,nosuid,nodev,size=192m"},
+        cap_drop=["ALL"],
+        security_opt=["no-new-privileges:true"],
+        mem_limit="512m",
+        pids_limit=32,
+        labels={
+            "io.kodi-lab.resource": "matrix-acquisition",
+            "io.kodi-lab.operation-id": str(operation_id),
+        },
+    )
+    # Tar headers and padding require less than 1 MiB for this exact flat closure.
+    maximum = sum(package["size"] for package in closure["packages"]) + 1024**2
+    payload = io.BytesIO()
+    try:
+        helper.start()
+        execution = client.api.exec_create(
+            helper.id,
+            [
+                "/usr/local/bin/python",
+                "-m",
+                "kodi_lab.runtime.matrix_candidate",
+                "emit",
+                base64.b64encode(ubuntu_keyring).decode("ascii"),
+            ],
+            stderr=False,
+        )["Id"]
+        for chunk in client.api.exec_start(execution, stream=True):
+            if payload.tell() + len(chunk) > maximum:
+                raise MatrixAcquisitionError("acquisition helper output exceeds bound")
+            payload.write(chunk)
+        if client.api.exec_inspect(execution)["ExitCode"] != 0:
+            raise MatrixAcquisitionError("acquisition helper could not verify packages")
+    finally:
+        helper.remove(force=True)
+    payload.seek(0)
+    with tarfile.open(fileobj=payload, mode="r:") as archive:
+        members = archive.getmembers()
+        expected = {
+            PurePosixPath(package["path"]).name: package["size"]
+            for package in closure["packages"]
+        }
+        if (
+            len(members) != len(expected)
+            or {member.name: member.size for member in members if member.isreg()}
+            != expected
+        ):
+            raise MatrixAcquisitionError("acquisition helper archive inventory differs")
+
+        def read(name: str, size: int) -> bytes:
+            stream = archive.extractfile(name)
+            if stream is None:
+                raise MatrixAcquisitionError(
+                    "acquisition helper archive member missing"
+                )
+            return stream.read(size + 1)
+
+        return _context(read), _metadata(closure)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
@@ -288,9 +392,18 @@ def main() -> None:
     context = actions.add_parser("context")
     context.add_argument("archive_directory", type=Path)
     context.add_argument("output", type=Path)
+    emit = actions.add_parser("emit")
+    emit.add_argument("ubuntu_keyring")
     args = parser.parse_args()
     if args.action == "acquire":
-        acquire(args.archive_directory, args.ubuntu_keyring)
+        acquire(args.archive_directory, args.ubuntu_keyring.read_bytes())
+    elif args.action == "emit":
+        with tempfile.TemporaryDirectory(prefix="matrix.", dir="/tmp") as temporary:
+            archives = Path(temporary) / "packages"
+            acquire(archives, base64.b64decode(args.ubuntu_keyring, validate=True))
+            with tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as stream:
+                for path in sorted(archives.iterdir()):
+                    stream.add(path, arcname=path.name, recursive=False)
     else:
         payload = build_context(args.archive_directory)
         with args.output.open("xb") as output:

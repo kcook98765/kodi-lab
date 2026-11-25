@@ -22,6 +22,7 @@ from kodi_lab.broker.errors import BrokerAuthorizationError, RemoteBrokerError
 from kodi_lab.broker.operations import ReviewedInstallationLaunchResult
 from kodi_lab.config import Settings
 from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.runtime.provenance import RuntimeSource, runtime_source
 from kodi_lab.runtime.recipes import (
     NOVNC_PHASE1_DIGEST,
     ReviewedRecipe,
@@ -38,11 +39,6 @@ from kodi_lab.storage.repositories import (
 
 Generation = Literal["matrix", "nexus", "omega", "piers"]
 GENERATIONS: tuple[Generation, ...] = ("matrix", "nexus", "omega")
-STABLE_RELEASES: dict[Generation, tuple[str, str]] = {
-    "matrix": ("19", "19.4"),
-    "nexus": ("20", "20.5"),
-    "omega": ("21", "21.3"),
-}
 PHASES = {
     "pending": "Preparing",
     "acquiring": "Acquiring runtime",
@@ -187,6 +183,8 @@ class RuntimeInstallationView:
     note: str | None = None
     newly_accepted: bool = False
     technical_details: dict[str, str] | None = None
+    source: RuntimeSource | None = None
+    image_id: str | None = None
     unavailable_code: str | None = None
     preview_acknowledgement: dict[str, object] | None = None
     created_at: str | None = None
@@ -497,7 +495,7 @@ class RuntimeInstallationService:
         major, stable_version = (
             ("22", "22.0 RC2" if recipe.kodi_version == "22.0-rc.2" else "22.0 RC1")
             if generation == "piers"
-            else STABLE_RELEASES[generation]
+            else (recipe.kodi_version.split(".")[0], recipe.kodi_version)
         )
         base = RuntimeInstallationView(
             generation=generation,
@@ -505,6 +503,7 @@ class RuntimeInstallationService:
             if generation == "piers"
             else f"Kodi {major} — {generation.capitalize()}",
             version=stable_version,
+            source=None if recorded_recipe_unavailable else runtime_source(reviewed),
             managed_instance_name=(
                 f"Kodi 22 Piers {stable_version.split()[-1]}"
                 if generation == "piers"
@@ -589,6 +588,7 @@ class RuntimeInstallationService:
             status_url=f"/api/runtime-installations/{operation_id}",
             action="none",
             technical_details=details,
+            image_id=row.image_id,
             created_at=row.created_at,
             phase_started_at=row.updated_at,
             completed_at=row.completed_at,

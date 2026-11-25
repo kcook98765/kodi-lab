@@ -23,7 +23,7 @@ from kodi_lab.runtime.ostree_assembly import (
     assemble_ostree_image,
 )
 from kodi_lab.runtime.recipes import (
-    MATRIX_CANDIDATE_ID,
+    MatrixCandidateRecipe,
     ReviewedRecipe,
     SignedDistroAptProvider,
 )
@@ -95,7 +95,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
     recipe = reviewed.recipe
     if not isinstance(recipe.provider, SignedDistroAptProvider):
         raise RecipeAssemblyError("APT provider required")
-    if recipe.recipe_id == MATRIX_CANDIDATE_ID:
+    if isinstance(recipe, MatrixCandidateRecipe):
         raise RecipeAssemblyError("Matrix candidate requires sealed offline packages")
     packages = [
         f"{item.name}={item.version}" for item in recipe.critical_packages
@@ -381,8 +381,23 @@ def assemble_reviewed_image(
             operation_id=operation_id,
             purpose="acquisition",
         )
+        if isinstance(reviewed.recipe, MatrixCandidateRecipe):
+            from kodi_lab.runtime.matrix_candidate import acquire_context
+
+            keyring = _inventory(
+                client, base["Id"], reviewed.recipe.provider.keyring_path
+            )
+            context, matrix_metadata = acquire_context(
+                client, network, operation_id, keyring
+            )
+            remove_exact_temporary_network(client, network)
+            network = None
+            network_mode = "none"
+        else:
+            network_mode = network.name
+            context = build_context(reviewed)
         stream = client.api.build(
-            fileobj=io.BytesIO(build_context(reviewed)),
+            fileobj=io.BytesIO(context),
             custom_context=True,
             tag=tag,
             rm=True,
@@ -391,7 +406,7 @@ def assemble_reviewed_image(
             nocache=True,
             decode=True,
             platform=reviewed.recipe.platform,
-            network_mode=network.name,
+            network_mode=network_mode,
         )
         for event in stream:
             if not isinstance(event, dict):
@@ -415,10 +430,16 @@ def assemble_reviewed_image(
             _inventory(client, image_id, "/usr/share/kodi-lab/installed-packages.tsv"),
             reviewed,
         )
-        metadata = _metadata_digests(
-            _inventory(client, image_id, "/usr/share/kodi-lab/apt-metadata.sha256"),
-            reviewed,
-        )
+        if isinstance(reviewed.recipe, MatrixCandidateRecipe):
+            closure = _inventory(client, image_id, "/usr/share/kodi-lab/closure.sha256")
+            if closure != f"{reviewed.recipe.closure_sha256}\n".encode():
+                raise RecipeAssemblyError("assembled Matrix package closure differs")
+            metadata = matrix_metadata
+        else:
+            metadata = _metadata_digests(
+                _inventory(client, image_id, "/usr/share/kodi-lab/apt-metadata.sha256"),
+                reviewed,
+            )
         index_download, package_download = _apt_download_report("".join(log_parts))
         return AssemblyResult(
             image_id=image_id,

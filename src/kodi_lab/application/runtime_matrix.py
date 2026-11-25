@@ -150,7 +150,11 @@ class RuntimeMatrixService:
                     id=recipe.definition_id,
                     slug=recipe.definition_slug,
                     kodi_version=recipe.kodi_version,
-                    support_tier=RuntimeSupportTier.CURRENT,
+                    support_tier=(
+                        RuntimeSupportTier.LEGACY
+                        if generation == "matrix"
+                        else RuntimeSupportTier.CURRENT
+                    ),
                 )
                 entry = self._entry(session, definition, policy)
                 entries.append(

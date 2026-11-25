@@ -251,7 +251,7 @@ def test_supported_recipe_staging_matches_application_defaults(tmp_path: Path) -
     )
     assert result.returncode == 0, result.stderr
     assert {p.name for p in (staged / "runtime-recipes").iterdir()} == {
-        "matrix-19.4-graceful-r4.json",
+        "matrix-19.5-candidate.json",
         "nexus-20.5-graceful-r4.json",
         "omega-21.3-graceful-r6.json",
     }

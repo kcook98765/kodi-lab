@@ -30,12 +30,19 @@ Administer external registrations and grants independently under **External Kodi
 
 | Managed runtime | Qualification and limits |
 | --- | --- |
-| Matrix 19.4 | Legacy development runtime. Uses Ubuntu Jammy shared media libraries. The installed FFmpeg build predates published fixes, and the current acquisition path has no verified security-maintained ESM package feed. |
-| Nexus 20.5 | Reviewed Linux development runtime with native screenshots. |
-| Omega 21.3 | Reviewed Linux development runtime with native screenshots. Earlier Windows/WSL 2 managed native acceptance used Omega. |
-| Piers 22.0 RC2 | Development preview. Native screenshots are unavailable on the reviewed X11/GLES runtime. Live noVNC and ordinary managed navigation work. |
+| Matrix 19.5 | Legacy Linux amd64 development runtime. Official Team Kodi Jammy binaries with embedded FFmpeg that has known vulnerabilities and receives no Ubuntu FFmpeg updates. Use reviewed add-ons and trusted media. |
+| Nexus 20.5 | Ubuntu Noble distribution packages. Reviewed Linux development runtime with native screenshots. |
+| Omega 21.3 | Ubuntu Resolute distribution packages. Reviewed Linux development runtime with native screenshots. Earlier Windows/WSL 2 managed native acceptance used Omega. |
+| Piers 22.0 RC2 | Team Kodi Flatpak from Flathub Beta. Development preview. Native screenshots are unavailable on the reviewed X11/GLES runtime. Live noVNC and ordinary managed navigation work. |
 
-Matrix native screenshots are supported. Use reviewed add-ons and controlled
+Matrix native screenshots are supported. Matrix 19.5 Windows/WSL 2 qualification
+is pending. [Matrix acquisition and qualification](MATRIX-19.5-CANDIDATE.md)
+
+The **Kodi Runtimes** cards link to the actual binary distribution. Expand
+**Runtime Details** for the package version or commit, available upstream Git
+revision, acquisition checksum and recorded image ID. Before installation the
+card shows the reviewed acquisition inputs. External Kodi reports its own native
+version and identity. Its binary provenance is shown as unknown. Use reviewed add-ons and controlled
 media across all four runtimes. Managed isolation is designed for development.
 It is unsuitable for running arbitrary malicious add-ons or untrusted media.
 Compatibility with one Kodi generation does not establish compatibility with
@@ -65,6 +72,35 @@ old verified bundle and application image IDs before staging the successor.
 4. Check exact installed image identities, Web login, broker health,
    repository health and authenticated MCP. Confirm managed profiles,
    snapshots and authorization survived. Keep the verified recovery inputs.
+
+### Replace a retained Matrix 19.4 slot
+
+A normal application update or 19.5 acquisition leaves the prepared 19.4 profile
+bound to its original image. The Matrix tab shows the version of that retained
+working profile. **Reset uses the pinned image** and is for profile replacement
+within the same runtime.
+
+Schedule the Matrix cutover with the administrator. Stop Matrix and confirm
+its Kodi container has exited, ownership is released and no managed
+operation is pending. With the broker quiesced, stop any private feed helper
+whose label and name match the retired Matrix target. Record the 19.4 reviewed image pin, profile pointer and
+identity. Verify a private archive of the stopped Matrix directory, its Docker
+image, and the administrator or agent snapshots bound to that image. Shared
+snapshot directories live at the managed root and under agent directories.
+
+Acquire and validate 19.5 and read back the exact reviewed image handoff.
+With the broker quiesced after a graceful Stop, move the existing
+`matrix/` directory out of the active managed root on the same filesystem
+to a private recovery location. Keep the volume and image referenced by
+the old directory. Start the broker and use ordinary **Prepare** to create
+a fresh Matrix profile, then **Start** to verify the selected image. The old
+snapshots retain their existing IDs, checksum and original image binding.
+
+For rollback, stop and quiesce the new slot, preserve its directory, restore
+the original Matrix directory at its original path and restore the exact 19.4
+reviewed image pin. Restart the broker and verify the original profile/image
+identity and snapshot compatibility before further development. Keep both
+versions' recovery assets privately. Start only the restored active slot.
 
 ## State and recovery
 

@@ -24,7 +24,7 @@ def test_fresh_matrix_has_three_supported_unacquired_generations(
         "omega",
     ]
     assert [entry.canonical_release for entry in matrix.runtimes] == [
-        "19.4",
+        "19.5",
         "20.5",
         "21.3",
     ]

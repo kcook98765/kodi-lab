@@ -12,7 +12,9 @@ Ubuntu 24.04 WSL2 and Docker Desktop. Omega 21.3 passed native install, update,
 same-version replacement, direct deployment, snapshot and restart persistence,
 plus live noVNC and human input ownership. Docker Desktop's Engine socket
 is mounted in the restricted broker only. Matrix, Nexus and Piers were catalog
-checks on Windows. Piers remains a development preview.
+checks on Windows. Piers remains a development preview. The managed Matrix 19.5 Team Kodi build
+has Linux amd64 acceptance. Its Windows/WSL 2 workflow requires separate
+qualification. [Matrix qualification plan](MATRIX-19.5-CANDIDATE.md#windows-and-wsl-2)
 
 The fresh bootstrap uses empty application and managed volumes. Current
 managed-v2 update acceptance on Windows is separate from fresh bootstrap.

@@ -1,72 +1,47 @@
-# Disposable Matrix 19.5 qualification
+# Managed Matrix 19.5
 
-The explicit Linux amd64 candidate recipe is `ubuntu-jammy-matrix-19.5-candidate`
-revision 5. Its audited acquisition manifest seals the Team Kodi Jammy packages
-and the Ubuntu dependency closure. The ordinary Matrix selection remains 19.4.
-The candidate uses the same base and exact Matrix r4 display and supervisor assets.
-A dedicated broker may accept the candidate only after an operator admits the
-exact image ID against the sealed candidate recipe. The working profile and
-named snapshots continue to bind to that image ID.
+Kodi Lab selects the official Team Kodi Ubuntu Jammy build for its one managed
+Matrix slot on Linux amd64. Kodi Lab assembles a container from published
+binaries. The Stage 21 recipe still uses its original ID
+`ubuntu-jammy-matrix-19.5-candidate` revision 5. Keeping that identity preserves
+the reviewed recipe digest, display assets and package closure.
 
-## Acquire and assemble
+## Legacy-runtime security
 
-Use a fresh disposable Docker Engine and the `linux/amd64` manifest of
-`ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986`.
-Extract the Ubuntu archive keyring from the reviewed image. The acquisition
-command will verify the keyring bytes before using it. The host tools are Python,
-GnuPG's `gpgv` and Docker. All package installation runs in the image build.
+**Use Matrix for legacy development with reviewed add-ons and trusted media.**
+The Team Kodi binary embeds FFmpeg 4.3.2-Matrix-19.2. The reviewed source lacks
+the fixes for CVE-2024-7055, CVE-2025-0518 and CVE-2023-49502. Ubuntu FFmpeg
+updates cannot refresh the embedded copy. The historical PPA has no established
+maintenance commitment. The owner accepted these limitations for the managed
+Matrix lane. [Owner decision and Stage 27 assessment](https://github.com/kcook98765/kodi-lab/issues/415)
 
-```sh
-uv run --locked python -m kodi_lab.runtime.matrix_candidate acquire \
-  "$trial/debs" "$trial/base-keyring.gpg"
-uv run --locked python -m kodi_lab.runtime.matrix_candidate context \
-  "$trial/debs" "$trial/matrix-context.tar"
-docker build --platform linux/amd64 --network none --pull=false --no-cache \
-  --tag kodi-lab-matrix-19.5-disposable:qualification - < "$trial/matrix-context.tar"
-```
+## Acquisition and acceptance
 
-The acquisition checks the exact signed PPA InRelease and compressed binary
-index. It accepts only `kodi` (all) and `kodi-bin` (amd64) from that archive,
-both `6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy`. The other packages come
-from the signed 2026-11-24T12:00:00Z Ubuntu Jammy snapshot. Fetching each DEB
-checks its signed index entry, size and SHA-256. The installer receives only
-those local DEBs and checks both the base and complete installed inventories.
-A fresh acquisition and assembly must produce the same closure, package bytes,
-Kodi identity and runtime assets. Docker image IDs may differ between builds.
+Use **Kodi Runtimes → Matrix → Install** to acquire and validate the runtime.
+The recipe pins the Ubuntu 22.04 linux/amd64 base manifest, both Team Kodi DEBs
+at `6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy`, and the complete closure from
+the signed Ubuntu Jammy snapshot dated 2026-11-24T12:00:00Z. The acquisition
+helper verifies the pinned signing keys, signed metadata and package hashes.
+The offline worker rechecks the package bytes. The network-disabled build
+compares the complete base and installed package inventories. The ordinary
+installer validates and records the resulting Docker image ID before handoff.
+Repeat builds can yield different image IDs.
 
-Use controlled local add-ons and media. The exact PPA binary embeds FFmpeg
-4.3.2-Matrix-19.2. Jammy package updates cannot refresh that embedded copy.
-An owner decision on media exposure, patch coverage and source retention is
-required before the candidate can replace the production slot. Preserve the
-19.4 image, working profile and snapshots together for rollback.
+Stage 21 verified the sealed package closure and the representative managed
+Linux workflow. Read Kodi's native version and upstream revision
+`f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9` for the selected image. Verify
+ordinary Prepare, Start, authenticated Bridge and MCP, Web/noVNC and screenshot,
+Python add-on execution, dependency installation and update, stopped deploy,
+snapshot save/load and graceful Stop. Retain focused checks tied to the selected
+image and use prior exact evidence for repeated coverage.
+[Stage 21 results](https://github.com/kcook98765/kodi-lab/issues/415#issuecomment-7154971721)
 
-## Acceptance expectations
+## Windows and WSL 2
 
-Use a fresh profile, authenticated Narrow Bridge 1.1.35 and the ordinary
-managed lifecycle. Record stable native Kodi 19.5 at upstream
-`f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9`, the embedded interpreter ABI
-`libpython3.10.so.1.0`, and the actual Python, OpenSSL and renderer versions.
-Verify Prepare, Start, Web and authenticated MCP status, live viewer and control,
-native screenshot, private catalog dependency resolution, higher-version native
-update, direct deployment, Python execution, snapshot save and restoration,
-and Stop and ownership release. A 19.4 snapshot must remain bound to its original
-image. Exercise TV Guide Fullscreen with exact approved ZIPs and local fixtures.
-Record a crash once with its native exit evidence and the last successful step.
-
-The Kodi Agent Toolkit already qualifies Kodistubs 19.0.3 against the exact
-19.5 source in its CPython 3.12 static lane. Future cutover should refresh the
-native-runtime evidence references and version expectations while retaining the
-stub lock and historical 19.4 records.
-
-## Windows and WSL 2 qualification plan
-
-On a dedicated Windows host with an AMD64 WSL 2 Linux distribution, use a fresh
-Docker Engine and verify the same base manifest, closure, image labels and native
-Linux Kodi/Python identities. Confirm installer capacity and ordinary startup,
-verify local Web/MCP authorization and Chromium noVNC ownership, and exercise
-the same private-feed install, update, direct deployment, snapshot round trip and
-graceful Stop. Use a disposable WSL filesystem and preserve the existing Windows
-and Linux profiles. Repeat the bounded local TV Guide startup and reopen check.
-
-This plan covers the same Linux binary under WSL 2. The Windows Kodi executable
-requires its own signed artifact and native ABI qualification.
+Matrix 19.5 is qualified for Linux amd64. Windows/WSL 2 needs separate native
+acceptance before Lab claims support for this runtime. Use a disposable
+Windows 11 / Ubuntu WSL 2 Docker Desktop environment. Verify installer
+capacity, package acquisition, exact Kodi/Python identity, authenticated Web
+and MCP, noVNC, dependency install/update, stopped deploy, snapshot round trip
+and graceful Stop. Record the Windows, WSL, Engine and Compose versions.
+Windows-native Kodi uses a separate binary and has its own provenance.

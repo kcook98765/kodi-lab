@@ -93,7 +93,7 @@ def test_three_choices_admission_duplicate_busy_and_durable_phase(
     service = RuntimeInstallationService(factory, broker)
     initial = service.list()
     assert [(item.display_name, item.version, item.action) for item in initial] == [
-        ("Kodi 19 — Matrix", "19.4", "install"),
+        ("Kodi 19 — Matrix", "19.5", "install"),
         ("Kodi 20 — Nexus", "20.5", "install"),
         ("Kodi 21 — Omega", "21.3", "install"),
     ]

@@ -1018,6 +1018,11 @@ def build_mcp_http_transport(
                             "generation": {
                                 "type": "string",
                                 "enum": list(RELEASES),
+                                "description": (
+                                    "Managed Kodi generation. Matrix uses Kodi 19.5 "
+                                    "for new profiles. Retained profiles keep "
+                                    "their pinned runtime image."
+                                ),
                                 "default": "omega",
                             }
                         }
