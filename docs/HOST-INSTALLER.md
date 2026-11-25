@@ -9,7 +9,8 @@ enable Windows sign-in startup.
 Ubuntu 24.04 amd64 and Windows 11 through Ubuntu 24.04 WSL2 with Docker
 Desktop are qualified within their tested scopes. Use the [Windows guide](WINDOWS-WSL2-INSTALL.md)
 for its installer and Docker integration. Use empty volumes for a fresh site.
-Migration from previous pre-alpha installations is unsupported.
+Existing managed-v2 sites use the [in-place update](MANAGED-V2-FRESH-INSTALL.md#update-a-managed-v2-site).
+Migration from the retired pre-alpha architecture is unsupported.
 
 ## Prerequisites
 
@@ -37,7 +38,8 @@ whose fixed socket the broker mounts.
 
 Reserve at least **8 GiB free** in the destination filesystem before starting,
 plus additional space in Docker's storage for application/runtime images and
-profiles. This check is a starting floor, not a total capacity estimate. There
+profiles. Managed Start and Prepare require at least **8.125 GiB available**
+on the managed-state filesystem. This check is a starting floor, not a total capacity estimate. There
 is no qualified universal RAM minimum; begin with one Kodi instance. See
 [capacity planning](LINUX-SOURCE-INSTALL.md#prerequisites-and-capacity).
 Internet access is required for locked Python dependencies, container images
@@ -131,6 +133,9 @@ HttpOnly and SameSite=Strict; HTTP does not encrypt network traffic.
 
 For agents, issue a private credential with Trusted Managed Lab and use
 [the managed workflow and MCP reference](MCP-TOOLS-AND-PERMISSIONS.md).
+Set up the [Kodi Agent Toolkit](https://github.com/kcook98765/kodi-agent-toolkit)
+and [approve the dependency catalog](MANAGED-V2-FRESH-INSTALL.md#approve-dependencies-for-native-installs)
+before a managed native add-on install.
 The local endpoint remains available in LAN Web mode. External credentials and
 target grants are administered separately.
 

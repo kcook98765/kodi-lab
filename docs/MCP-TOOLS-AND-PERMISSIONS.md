@@ -51,6 +51,16 @@ workspace tree without changing installed Kodi files. Keep unpublished edits
 you want to retain. For ordinary text changes retain the digest-guarded
 `managed_workspace_edit` and direct deploy workflow.
 
+### Approved disposable public repository testing
+
+The four `managed_public_*` tools are available to trusted managed clients.
+They use the existing managed owner and require a separate operator-approved
+disposable Linux site with an unprepared Omega profile. An agent selects an
+existing exact approval and uses native install and catalog operations. The
+host operator owns approval and revocation. Ordinary package admission
+refuses repository add-ons. See the [supported workflow and shared-hosting
+limits](MANAGED-PUBLIC-REPOSITORY.md).
+
 ## External Kodi
 
 | Task | MCP tools |

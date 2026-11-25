@@ -32,6 +32,7 @@ from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from . import RELEASES
 from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
+from .public_network import PublicNetwork
 
 BRIDGE = "service.kodi_lab_bridge"
 ESTUARY = "skin.estuary"
@@ -113,6 +114,7 @@ class ManagedBridgeClient(ExternalBridgeClient):
             "bridge_identity",
             "managed_v2_install",
             "managed_v2_setting",
+            "managed_v2_public_catalog",
             "capture_screenshot",
         }:
             raise Refusal("invalid_managed_bridge_operation")
@@ -153,7 +155,7 @@ class Runtime:
         self.reviewed_image = reviewed_image
         self.material = self.root / "baseline"
         self.credentials = self.root / "live"
-        self.feed = self.root / "feed"
+        self.private_feed = self.root / "feed"
         identity = self.root / "identity"
         with self.exclusive():
             if not identity.exists():
@@ -182,6 +184,14 @@ class Runtime:
         self.feed_name = prefix + "-feed"
         self.network_name = prefix + "-net"
         self.volume_prefix = prefix + "-"
+        self.public = PublicNetwork(self)
+        self.public_slot = self.root / "public-slot"
+
+    @property
+    def feed(self) -> Path:
+        return (
+            self.public.feed_dir if self.public.session.exists() else self.private_feed
+        )
 
     @contextmanager
     def exclusive(self) -> Iterator[None]:
@@ -348,6 +358,8 @@ class Runtime:
         self.require_stopped()
         old = self.read_pointer() if self.pointer.exists() else None
         self.checkpoint("profile_before_commit", prior_slot=old)
+        if self.public.session.exists():
+            atomic(self.public_slot, slot.encode())
         atomic(self.pointer, slot.encode())
         self.checkpoint("profile_committed")
         if old is not None:
@@ -422,12 +434,12 @@ class Runtime:
         if not obj or not obj["State"]["Running"]:
             raise Refusal("kodi_stopped")
         networks = obj["NetworkSettings"]["Networks"]
+        public = self.public.session.exists()
+        network = self.public.name if public else self.network_name
         if (
-            set(networks) != {self.network_name}
+            set(networks) != {network}
             or obj["HostConfig"]["PortBindings"]
-            or not re.fullmatch(
-                r"\d+\.\d+\.\d+\.\d+", networks[self.network_name]["IPAddress"]
-            )
+            or not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", networks[network]["IPAddress"])
         ):
             raise Refusal("runtime_network_identity")
         volumes = [
@@ -435,7 +447,8 @@ class Runtime:
         ]
         if volumes != [self.volume(self.read_pointer())]:
             raise Refusal("live_profile_identity")
-        return cast(str, networks[self.network_name]["IPAddress"])
+        actual = cast(str, networks[network]["IPAddress"])
+        return self.public.address(actual) if public else actual
 
     def rpc(self, method: str, **params: object) -> Any:
         payload = json.dumps(
@@ -542,6 +555,8 @@ class Runtime:
 
     def start(self) -> Document:
         self.capacity()
+        if self.public.session.exists():
+            self.public.require_unexpired()
         if self.inspect():
             result = self.ready()
             if result:
@@ -562,8 +577,20 @@ class Runtime:
             raise Refusal("managed_profile_not_prepared") from None
         self.require_stopped()
         self.require_volume(slot)
+        public = self.public.session.exists()
+        if (
+            self.public_slot.exists()
+            and self.public_slot.read_text() == slot
+            and not public
+        ):
+            raise Refusal("public_profile_reset_required")
+        if public and (
+            not self.public_slot.exists() or self.public_slot.read_text() != slot
+        ):
+            raise Refusal("public_profile_required")
+        network, proxy = self.public.prepare() if public else ("", None)
         rpc_password = secrets.token_urlsafe(32)
-        self.configure_rpc(rpc_password)
+        self.configure_rpc(rpc_password, proxy=proxy)
         atomic(self.credentials / "rpc", rpc_password.encode())
         key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
         seed = {
@@ -576,15 +603,17 @@ class Runtime:
             "rollback": None,
         }
         atomic(self.credentials / "state.json", json.dumps(seed).encode())
-        network = self.network()
-        helper = self.inspect(self.feed_name)
+        if not public:
+            network = self.network()
+        feed_name = self.public.feed if public else self.feed_name
+        helper = self.inspect(feed_name)
         if not helper:
             docker(
                 "run",
                 "-d",
                 *self.args(),
                 "--name",
-                self.feed_name,
+                feed_name,
                 "--network",
                 network,
                 "--network-alias",
@@ -617,6 +646,18 @@ class Runtime:
             self.name,
             "--network",
             network,
+            *(
+                [
+                    "--dns",
+                    "127.0.0.1",
+                    "--env",
+                    "NO_PROXY=feed,127.0.0.1,localhost",
+                    "--env",
+                    "no_proxy=feed,127.0.0.1,localhost",
+                ]
+                if public
+                else []
+            ),
             "--memory",
             "2g",
             "--memory-swap",
@@ -732,7 +773,7 @@ class Runtime:
             raise Refusal("skin_settings_invalid")
         return file, tree
 
-    def configure_rpc(self, password: str | None) -> None:
+    def configure_rpc(self, password: str | None, *, proxy: str | None = None) -> None:
         file, tree = self.skin_settings()
         root = tree.getroot()
         values = {
@@ -741,6 +782,15 @@ class Runtime:
             "services.webserverusername": "managed",
             "services.webserverpassword": password,
         }
+        if self.public.session.exists():
+            values.update(
+                {
+                    "network.usehttpproxy": "true" if proxy else None,
+                    "network.httpproxytype": "0" if proxy else None,
+                    "network.httpproxyserver": proxy,
+                    "network.httpproxyport": "3128" if proxy else None,
+                }
+            )
         for key, value in values.items():
             for old in root.findall(f"setting[@id='{key}']"):
                 root.remove(old)
