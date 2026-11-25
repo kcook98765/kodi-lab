@@ -1,4 +1,4 @@
-"""Source provenance survives upgrades and cannot be rewritten or discarded."""
+"""The initial schema protects admitted source provenance."""
 
 from pathlib import Path
 from uuid import uuid4
@@ -19,23 +19,18 @@ from tests.migration_support import migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
 
-def test_intake_migration_roundtrip_and_used_provenance_protection(
+def test_used_intake_provenance_is_immutable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0011_agent_project_versions"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     engine = create_database_engine(url)
-    command.upgrade(config, "0012_agent_project_intake")
+    command.upgrade(config, "head")
     assert "intake_provenance_json" in {
         column["name"] for column in inspect(engine).get_columns("agent_projects")
     }
-    command.downgrade(config, "0011_agent_project_versions")
-    assert "intake_provenance_json" not in {
-        column["name"] for column in inspect(engine).get_columns("agent_projects")
-    }
-    command.upgrade(config, "head")
     env = _environment(
         tmp_path / "fixture", database_path=Path(url.removeprefix("sqlite:///"))
     )
@@ -58,6 +53,8 @@ def test_intake_migration_roundtrip_and_used_provenance_protection(
         with pytest.raises(IntegrityError, match="identity_immutable"):
             db.flush()
         db.rollback()
-    with pytest.raises(RuntimeError, match="preserve intake evidence"):
-        command.downgrade(config, "0011_agent_project_versions")
+    with pytest.raises(
+        RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+    ):
+        command.downgrade(config, "base")
     engine.dispose()

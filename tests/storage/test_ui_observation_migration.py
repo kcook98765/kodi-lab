@@ -7,8 +7,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
-REVISION = "0001_initial_release"
-PREDECESSOR = "0001_initial_release"
+REVISION = "0001_foundation"
 
 
 def _revision(database: Path) -> str:
@@ -63,13 +62,13 @@ def _review(connection: sqlite3.Connection, capabilities: str, suffix: int) -> N
     )
 
 
-def test_upgrade_preserves_triggers_and_reviewed_rows_and_rejects_unknown_caps(
+def test_reinitialization_retains_reviewed_rows_and_capability_guards(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
-    assert _revision(database) == PREDECESSOR
+    command.upgrade(config, "head")
+    assert _revision(database) == REVISION
     with sqlite3.connect(database) as connection:
         _review(connection, '["screenshot","workspace_deployment"]', 1)
     original = _triggers(database)

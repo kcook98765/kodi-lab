@@ -27,8 +27,7 @@ from tests.migration_support import (  # noqa: F401
     migration_templates,
 )
 
-REVISION = "0001_initial_release"
-PREDECESSOR = "0001_initial_release"
+REVISION = "0001_foundation"
 NOW = "2026-09-21T12:00:00.000000Z"
 
 
@@ -81,11 +80,12 @@ def _assert_preserved(
     assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
 
 
-def _seed_0069(engine: Engine, *, retired: bool) -> tuple[UUID, UUID, UUID]:
-    """Persist predecessor-native policy, consent and active/retired Bridge state.
+def _seed_screenshot_authority(
+    engine: Engine, *, retired: bool
+) -> tuple[UUID, UUID, UUID]:
+    """Persist current policy, consent and active/retired Bridge state.
 
     All foreign keys, production binding and revision guards remain enabled.
-    No current pairing/retirement API is valid on this historical schema.
     """
     paired, disabled, without_screenshots = uuid4(), uuid4(), uuid4()
     observation, build, bridge = str(uuid4()), str(uuid4()), str(uuid4())
@@ -103,7 +103,7 @@ def _seed_0069(engine: Engine, *, retired: bool) -> tuple[UUID, UUID, UUID]:
     with engine.begin() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == PREDECESSOR
+            == REVISION
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         for target, kind, capabilities, enabled, verified in (
@@ -361,20 +361,28 @@ def _register_household(
 
 
 @pytest.mark.parametrize("retired", [False, True])
-def test_populated_upgrade_preserves_policy_and_all_prior_rows(
+def test_reinitialization_preserves_opted_in_screenshot_authority_and_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, retired: bool
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
-    paired, disabled, without_screenshots = _seed_0069(engine, retired=retired)
+    paired, disabled, without_screenshots = _seed_screenshot_authority(
+        engine, retired=retired
+    )
+    preferences = ScreenshotPreferenceService(create_session_factory(engine))
+    for target in (paired, disabled):
+        assert not preferences.read(target).enabled
+        preferences.update(
+            target, enabled=True, expected_revision=1, administrator_reference="test"
+        )
     with engine.begin() as connection:
         connection.execute(
             text(
                 "INSERT INTO external_bridge_request_receipts "
                 "(target_id,request_id,nonce,operation,state,"
-                "created_at,expires_at) "
+                "created_at,expires_at,capture_preference_revision) "
                 "VALUES (:target,:request,:nonce,'capture_screenshot','pending',"
-                "'2026-09-21T12:00:00.000000Z','2099-01-01T00:00:00.000000Z')"
+                "'2026-09-21T12:00:00.000000Z','2099-01-01T00:00:00.000000Z',2)"
             ),
             {"target": str(paired), "request": str(uuid4()), "nonce": "n" * 43},
         )
@@ -412,8 +420,6 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             == REVISION
         )
         _assert_preserved(connection, before, old_columns)
-        # Both historical constants identify the frozen baseline. Its legacy
-        # initialization trigger must not be replaced by the later OFF default.
         assert _triggers(connection) == original_triggers
         assert (
             connection.scalar(
@@ -422,23 +428,23 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
                     "FROM external_bridge_request_receipts"
                 )
             )
-            == 1
+            == 2
         )
     preference = ScreenshotPreferenceService(sessions)
     assert preference.read(paired).enabled
     assert preference.read(disabled).enabled  # Administrative disable still applies.
     assert not preference.read(without_screenshots).enabled
-    assert preference.read(paired).revision == 1
+    assert preference.read(paired).revision == 2
     # A no-op preserves revision; toggling is enforceable on the migrated DB.
     preference.update(
-        paired, enabled=True, expected_revision=1, administrator_reference="test"
-    )
-    assert preference.read(paired).revision == 1
-    preference.update(
-        paired, enabled=False, expected_revision=1, administrator_reference="test"
-    )
-    preference.update(
         paired, enabled=True, expected_revision=2, administrator_reference="test"
+    )
+    assert preference.read(paired).revision == 2
+    preference.update(
+        paired, enabled=False, expected_revision=2, administrator_reference="test"
+    )
+    preference.update(
+        paired, enabled=True, expected_revision=3, administrator_reference="test"
     )
     with pytest.raises(IntegrityError), engine.begin() as connection:
         connection.execute(
@@ -463,7 +469,7 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
                 ),
                 {"target": str(paired)},
             )
-            == 3
+            == 4
         )
     engine.dispose()
     # Subsequent migrations must preserve this populated predecessor history too.
@@ -480,33 +486,7 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             {k: v for k, v in before.items() if k != "external_screenshot_preferences"},
             old_columns,
         )
-        current_triggers = _triggers(connection)
-        changed = {
-            "trg_external_screenshot_preference_initialize",  # 0006
-            "trg_external_production_policy_material_revision",  # 0007
-            "trg_mcp_client_authority_revision",  # 0009
-            "retained_mutation_insert",  # 0011
-        }
-        assert {
-            name: current_triggers[name]
-            for name in original_triggers
-            if name not in changed
-        } == {
-            name: sql for name, sql in original_triggers.items() if name not in changed
-        }
-        assert (
-            "remote_navigation_enabled"
-            in current_triggers["trg_external_production_policy_material_revision"]
-        )
-        assert (
-            "managed_lab_role_version"
-            in current_triggers["trg_mcp_client_authority_revision"]
-        )
-        assert "agent_projects" in current_triggers["retained_mutation_insert"]
-        assert (
-            current_triggers["trg_external_screenshot_preference_initialize"]
-            != original_triggers["trg_external_screenshot_preference_initialize"]
-        )
+        assert _triggers(connection) == original_triggers
         assert {
             "external_secret_retirements",
             "household_onboarding_operations",
@@ -521,49 +501,4 @@ def test_populated_upgrade_preserves_policy_and_all_prior_rows(
             )
             == 4
         )
-    engine.dispose()
-
-
-def test_empty_upgrade_and_historical_registration_defaults(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    command.upgrade(config, REVISION)
-    engine = create_database_engine(url)
-    engine.dispose()
-    command.upgrade(config, REVISION)
-    engine = create_database_engine(url)
-    sessions = create_session_factory(engine)
-    # Current registration needs the later production-navigation policy column.
-    # Insert historical columns to exercise this baseline's actual SQL default.
-    target_id = uuid4()
-    with engine.begin() as connection:
-        _insert(
-            connection,
-            "targets",
-            id=str(target_id),
-            name="Historical registration",
-            target_type="external_production",
-            kodi_version=None,
-            availability="unavailable",
-            health="warning",
-            connection_state="disconnected",
-        )
-        _insert(
-            connection,
-            "external_kodi_targets",
-            target_id=str(target_id),
-            protocol_kind="jsonrpc_http",
-            host="192.168.50.40",
-            port=8080,
-            authentication_mode="none",
-            configured_capabilities_json='["target_inspect","screenshot"]',
-            verified_capabilities_json="[]",
-            administrative_state="disabled",
-            verification_state="unverified",
-            verified_addresses_json="[]",
-            production_policy_revision=1,
-            created_at=NOW,
-        )
-    assert ScreenshotPreferenceService(sessions).read(target_id).enabled
     engine.dispose()

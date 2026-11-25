@@ -19,61 +19,17 @@ from tests.storage.test_ui_observation_migration import (
     _triggers,
 )
 
-PREDECESSOR = "0016_reviewed_bridge_updates"
-REVISION = "0017_system_snapshot_capability"
-
-
-@pytest.mark.parametrize("admit_snapshot", [False, True])
-def test_direct_predecessor_preservation_and_safe_downgrade(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, admit_snapshot: bool
-) -> None:
-    config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
-    with sqlite3.connect(database) as connection:
-        _review(connection, '["log_scan","screenshot"]', 1)
-        rows = connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-            _review(connection, '["screenshot","system_snapshot"]', 9)
-    original = _triggers(database)
-    command.upgrade(config, REVISION)
-    assert _triggers(database) == original
-
-    with sqlite3.connect(database) as connection:
-        assert (
-            connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-            == rows
-        )
-        if admit_snapshot:
-            _review(connection, '["screenshot","system_snapshot"]', 2)
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-            _review(connection, '["filesystem","screenshot"]', 3)
-    command.upgrade(config, REVISION)
-    assert _revision(database) == REVISION
-    if admit_snapshot:
-        with pytest.raises(RuntimeError, match="refusing lossy downgrade"):
-            command.downgrade(config, PREDECESSOR)
-        assert _revision(database) == REVISION
-    else:
-        command.downgrade(config, PREDECESSOR)
-        assert _revision(database) == PREDECESSOR
-        with sqlite3.connect(database) as connection:
-            assert (
-                connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-                == rows
-            )
-            with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-                _review(connection, '["screenshot","system_snapshot"]', 4)
-    assert _triggers(database) == original
+REVISION = "0001_foundation"
 
 
 @pytest.mark.parametrize(
     "capability_column", ["observed_capabilities_json", "verified_capabilities_json"]
 )
-def test_populated_production_authority_and_history_survive_both_directions(
+def test_populated_production_authority_and_history_survive_reinitialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capability_column: str
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
+    command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     try:
@@ -121,30 +77,31 @@ def test_populated_production_authority_and_history_survive_both_directions(
                 }
 
         before, triggers = rows(), _triggers(database)
-        for revision in (REVISION, PREDECESSOR, REVISION):
-            if revision == PREDECESSOR:
-                command.downgrade(config, revision)
-            else:
-                command.upgrade(config, revision)
-            assert _revision(database) == revision
-            assert rows() == before and _triggers(database) == triggers
-            with sqlite3.connect(database) as connection:
-                with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-                    connection.execute("DELETE FROM production_bridge_adoptions")
-                with pytest.raises(sqlite3.IntegrityError, match="revision"):
-                    connection.execute(
-                        "UPDATE external_bridge_pairings "
-                        "SET production_bridge_trust_revision=0"
-                    )
+        command.upgrade(config, "head")
+        assert _revision(database) == REVISION
+        assert rows() == before and _triggers(database) == triggers
         with sqlite3.connect(database) as connection:
-            # Both pairing capability columns independently block lossy downgrade.
+            _review(connection, '["screenshot","system_snapshot"]', 2)
+            with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+                _review(connection, '["filesystem","screenshot"]', 3)
+            with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+                connection.execute("DELETE FROM production_bridge_adoptions")
+            with pytest.raises(sqlite3.IntegrityError, match="revision"):
+                connection.execute(
+                    "UPDATE external_bridge_pairings "
+                    "SET production_bridge_trust_revision=0"
+                )
+        with sqlite3.connect(database) as connection:
+            # Both pairing capability columns retain valid snapshot evidence.
             connection.execute(
                 "UPDATE external_bridge_pairings SET "
                 + capability_column
                 + '=\'["screenshot","system_snapshot","workspace_deployment"]\''
             )
-        with pytest.raises(RuntimeError, match="refusing lossy downgrade"):
-            command.downgrade(config, PREDECESSOR)
+        with pytest.raises(
+            RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+        ):
+            command.downgrade(config, "base")
         assert _revision(database) == REVISION
         assert _triggers(database) == triggers
     finally:

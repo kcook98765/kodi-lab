@@ -1,4 +1,4 @@
-"""Project identity migration preserves predecessor rows and protects replay."""
+"""The initial schema preserves project identity and protects replay."""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,11 +21,11 @@ from tests.migration_support import migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
 
-def test_additive_project_intake_and_used_history_refuses_downgrade(
+def test_project_identity_survives_reinitialization_and_cannot_be_rewritten(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0009_trusted_managed_lab"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
@@ -56,14 +56,12 @@ def test_additive_project_intake_and_used_history_refuses_downgrade(
             for name in inspect(connection).get_table_names()
             if name != "alembic_version"
         }
-    command.upgrade(config, "0010_agent_projects")
+    command.upgrade(config, "head")
     with engine.connect() as connection:
         for name, rows in before.items():
             assert list(connection.execute(text(f'SELECT * FROM "{name}"'))) == rows
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    command.downgrade(config, "0009_trusted_managed_lab")
-    command.upgrade(config, "head")
     with sessions.begin() as session:
         session.add(
             AgentProjectRow(
@@ -84,6 +82,8 @@ def test_additive_project_intake_and_used_history_refuses_downgrade(
         with pytest.raises(IntegrityError, match="identity_immutable"):
             session.flush()
         session.rollback()
-    with pytest.raises(RuntimeError, match="project history"):
-        command.downgrade(config, "0009_trusted_managed_lab")
+    with pytest.raises(
+        RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+    ):
+        command.downgrade(config, "base")
     engine.dispose()

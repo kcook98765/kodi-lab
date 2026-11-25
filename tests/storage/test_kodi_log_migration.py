@@ -1,4 +1,4 @@
-"""Direct predecessor proof, retained triggers, and real pairing on migrated SQL."""
+"""Retained capability guards and real log pairing on the initial schema."""
 
 import json
 import sqlite3
@@ -24,48 +24,7 @@ from tests.storage.test_ui_observation_migration import (
     _triggers,
 )
 
-PREDECESSOR = "0014_human_reset_bridge"
-REVISION = "0015_log_scan_capability"
-
-
-@pytest.mark.parametrize("admit_scan", [False, True])
-def test_scan_capability_direct_predecessor_and_downgrade(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    admit_scan: bool,
-) -> None:
-    config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
-    with sqlite3.connect(database) as connection:
-        _review(connection, '["log_read","screenshot"]', 1)
-        rows = connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-    original = _triggers(database)
-    command.upgrade(config, REVISION)
-    assert _triggers(database) == original
-    with sqlite3.connect(database) as connection:
-        assert (
-            connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-            == rows
-        )
-        if admit_scan:
-            _review(connection, '["log_read","log_scan","screenshot"]', 2)
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-            _review(connection, '["filesystem","screenshot"]', 3)
-    if admit_scan:
-        with pytest.raises(RuntimeError, match="refusing lossy downgrade"):
-            command.downgrade(config, PREDECESSOR)
-        assert _revision(database) == REVISION
-    else:
-        command.downgrade(config, PREDECESSOR)
-        assert _revision(database) == PREDECESSOR
-        with sqlite3.connect(database) as connection:
-            assert (
-                connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
-                == rows
-            )
-            with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-                _review(connection, '["log_scan","screenshot"]', 2)
-    assert _triggers(database) == original
+REVISION = "0001_foundation"
 
 
 def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
@@ -73,7 +32,7 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
+    command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target = uuid4()
@@ -85,7 +44,7 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
         service.attempt_pairing(target)
         paired = service.confirm_pairing(target)
     with sqlite3.connect(database) as connection:
-        _review(connection, '["screenshot","ui_observation"]', 1)
+        _review(connection, '["log_read","log_scan","screenshot"]', 1)
         previous = connection.execute("SELECT * FROM reviewed_bridge_builds").fetchall()
         existing_pairings = connection.execute(
             "SELECT * FROM external_bridge_pairings"
@@ -118,12 +77,8 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
     runtime: Any,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
-    original = _triggers(database)
-    # The current resident advertises the additive system_snapshot capability.
     command.upgrade(config, "head")
     current_triggers = _triggers(database)
-    assert original.items() <= current_triggers.items()
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target = uuid4()
@@ -156,11 +111,12 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
         )
         assert "log_read" in capabilities
         assert "log_scan" in capabilities
+    command.upgrade(config, "head")
     with sqlite3.connect(database) as connection:
         assert (
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()
             == before
         )
-    assert _revision(database) == "0018_source_addition_reviews"
+    assert _revision(database) == "0001_foundation"
     assert _triggers(database) == current_triggers
     engine.dispose()
