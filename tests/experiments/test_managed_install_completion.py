@@ -6,6 +6,7 @@ import pytest
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import Package
 from kodi_lab.managed.protocol import Document, Refusal
+from kodi_lab.managed.source_provenance import read_sources
 from tests.experiments.test_managed_v2 import package
 
 
@@ -29,6 +30,8 @@ def test_cold_ok_dialog_reports_only_verified_install(
     root = tmp_path / "lab"
     root.mkdir(mode=0o700)
     controller = Controller(root)
+    slot = uuid4().hex
+    controller.runtime.pointer.write_text(slot)
     actor = str(uuid4())
     controller.perform("managed_acquire", {}, actor=actor)
     artifact = controller.packages.approve(package())
@@ -83,9 +86,11 @@ def test_cold_ok_dialog_reports_only_verified_install(
         assert result["package"]["digest"] == artifact.digest
         assert result["dependencies"] == [{"addon": "script.module.ready"}]
         assert operation["state"] == "complete"
+        assert read_sources(root, slot) == {artifact.id: artifact.members}
     else:
         assert result["state"] == "failed"
         assert operation["state"] == "pending"
+        assert read_sources(root, slot) == {}
         assert "interaction" not in result
         if verify_failure:
             assert result["verification_error"] == "native_origin_mismatch"

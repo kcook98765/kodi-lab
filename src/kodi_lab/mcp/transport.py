@@ -1024,16 +1024,17 @@ def build_mcp_http_transport(
                         if name in VERSION_SCOPED
                         else {}
                     ),
-                    **(
-                        {
-                            OPTIONAL[name]: {
-                                "type": "string",
-                                "enum": ["true", "false"],
-                            }
+                    **{
+                        field: {
+                            "type": "string",
+                            **(
+                                {"pattern": "^[0-9a-f]{64}$"}
+                                if field in {"baseline", "review"}
+                                else {"enum": ["true", "false"]}
+                            ),
                         }
-                        if name in OPTIONAL
-                        else {}
-                    ),
+                        for field in OPTIONAL.get(name, ())
+                    },
                 },
                 "required": list(FIELDS[name]),
                 "additionalProperties": False,
