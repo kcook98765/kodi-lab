@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from importlib.resources import files
 from typing import TYPE_CHECKING
@@ -28,12 +29,41 @@ class PublicNetwork:
     def resource(self) -> Document | None:
         return self.runtime.inspect(self.relay)
 
+    def require_unexpired(self) -> float:
+        deadline = float(self.session.read_text())
+        if not math.isfinite(deadline) or deadline <= time.time():
+            raise Refusal("public_test_expired")
+        return deadline
+
+    def network(self) -> Document | None:
+        from .runtime import LABEL, docker
+
+        matches = docker(
+            "network", "ls", "-q", "--filter", f"name=^{self.name}$"
+        ).splitlines()
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise Refusal("public_network_identity")
+        network: Document = json.loads(docker("network", "inspect", matches[0]))[0]
+        if (
+            network["Name"] != self.name
+            or network["Driver"] != "bridge"
+            or not network["Internal"]
+            or network["EnableIPv6"]
+            or network["Options"].get(ISOLATED) != "isolated"
+            or network["Labels"].get(LABEL) != str(self.runtime.target)
+        ):
+            raise Refusal("public_network_identity")
+        return network
+
     def prepare(self) -> tuple[str, str]:
         from .runtime import LABEL, atomic, docker
 
+        expiration = self.require_unexpired()
         runtime = self.runtime
-        found = docker("network", "ls", "-q", "--filter", f"name=^{self.name}$")
-        if not found:
+        network = self.network()
+        if network is None:
             docker(
                 "network",
                 "create",
@@ -44,14 +74,8 @@ class PublicNetwork:
                 f"{LABEL}={runtime.target}",
                 self.name,
             )
-        network = json.loads(docker("network", "inspect", self.name))[0]
-        if (
-            network["Driver"] != "bridge"
-            or not network["Internal"]
-            or network["EnableIPv6"]
-            or network["Options"].get(ISOLATED) != "isolated"
-            or network["Labels"].get(LABEL) != str(runtime.target)
-        ):
+            network = self.network()
+        if network is None:
             raise Refusal("public_network_identity")
         current = self.resource()
         if not current:
@@ -93,7 +117,8 @@ class PublicNetwork:
             # The relay waits briefly for the configuration, written once both
             # endpoints have been assigned by the Engine.
             (self.policy / "relay.json").unlink(missing_ok=True)
-            docker("start", self.relay)
+            (self.policy / "kodi-ip").unlink(missing_ok=True)
+            docker("start", current["Id"])
             current = self.resource()
             if current is None:
                 raise Refusal("public_relay_identity")
@@ -103,9 +128,7 @@ class PublicNetwork:
                 or current["HostConfig"]["PortBindings"]
             ):
                 raise Refusal("public_relay_identity")
-            expiration = float(self.session.read_text())
-            if expiration <= time.time():
-                raise Refusal("public_test_expired")
+            self.require_unexpired()
             data = {
                 "control": addresses["bridge"]["IPAddress"],
                 "gateway": addresses["bridge"]["Gateway"],
@@ -141,11 +164,22 @@ class PublicNetwork:
             docker("rm", "-f", current["Id"])
         runtime = self.runtime
         kodi = runtime.inspect()
-        if kodi is not None and kodi["State"]["Running"]:
-            # Only the disposable profile is eligible. The normal Stop path
-            # has already been requested or startup failed.
+        if kodi is not None:
+            if (
+                not runtime.public_slot.exists()
+                or runtime.public_slot.read_text() != runtime.read_pointer()
+            ):
+                raise Refusal("public_profile_required")
             runtime.check_live_profile(kodi)
-            docker("stop", "--time", "2", kodi["Id"])
+            if kodi["State"]["Running"]:
+                # Preserve the exited container for explicit recovery.
+                docker("stop", "--time", "2", kodi["Id"])
         if (feed := runtime.inspect(self.feed)) is not None:
             docker("rm", "-f", feed["Id"])
+        if (network := self.network()) is not None:
+            docker("network", "rm", network["Id"])
+        for name in ("state.json", "rpc"):
+            (runtime.credentials / name).unlink(missing_ok=True)
+        for name in ("relay.json", "kodi-ip"):
+            (self.policy / name).unlink(missing_ok=True)
         self.session.unlink(missing_ok=True)

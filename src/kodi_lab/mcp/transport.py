@@ -1024,16 +1024,17 @@ def build_mcp_http_transport(
                         if name in VERSION_SCOPED
                         else {}
                     ),
-                    **(
-                        {
-                            OPTIONAL[name]: {
-                                "type": "string",
-                                "enum": ["true", "false"],
-                            }
+                    **{
+                        field: {
+                            "type": "string",
+                            **(
+                                {"pattern": "^[0-9a-f]{64}$"}
+                                if field in {"baseline", "review"}
+                                else {"enum": ["true", "false"]}
+                            ),
                         }
-                        if name in OPTIONAL
-                        else {}
-                    ),
+                        for field in OPTIONAL.get(name, ())
+                    },
                 },
                 "required": list(FIELDS[name]),
                 "additionalProperties": False,
@@ -1613,6 +1614,10 @@ def _tool_error_result(
     # A tool error has no success-shaped structured result. Its text remains
     # available to models without violating the tool's declared outputSchema.
     message = result_code
+    if result_code == "managed_profile_not_prepared":
+        message += (
+            "\nnext_action: Call managed_prepare for the same generation before Start."
+        )
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
     if (

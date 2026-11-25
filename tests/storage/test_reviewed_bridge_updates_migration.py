@@ -1,4 +1,4 @@
-"""0015 -> 0016 retains original authority/evidence and refuses lossy rollback."""
+"""Initial schema defaults reviewed updates off and preserves policy history."""
 
 import sqlite3
 from pathlib import Path
@@ -16,15 +16,14 @@ from tests.application.test_production_bridges import (
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 from tests.storage.test_ui_observation_migration import _config, _revision, _triggers
 
-PREDECESSOR = "0015_log_scan_capability"
-REVISION = "0016_reviewed_bridge_updates"
+REVISION = "0001_foundation"
 
 
-def test_predecessor_preserves_original_rows_and_defaults_off(
+def test_reinitialization_preserves_original_rows_and_defaults_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
+    command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
     target, _ = _production_target(factory, tmp_path)
@@ -73,18 +72,9 @@ def test_predecessor_preserves_original_rows_and_defaults_off(
                     "INSERT OR REPLACE INTO production_bridge_update_policies "
                     "SELECT * FROM production_bridge_update_policies"
                 )
-        with pytest.raises(RuntimeError, match="refusing lossy downgrade"):
-            command.downgrade(config, PREDECESSOR)
+        with pytest.raises(
+            RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+        ):
+            command.downgrade(config, "base")
         assert _revision(database) == REVISION and rows() == before
     engine.dispose()
-
-
-def test_unused_migration_can_downgrade_without_rewriting_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, PREDECESSOR)
-    before = _triggers(database)
-    command.upgrade(config, REVISION)
-    command.downgrade(config, PREDECESSOR)
-    assert _revision(database) == PREDECESSOR and _triggers(database) == before

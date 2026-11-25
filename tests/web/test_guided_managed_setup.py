@@ -23,17 +23,13 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     page = client.get("/runtimes").text
     assert '<h2 id="managed-setup-heading">Install Kodi files</h2>' in page
     assert "Guided managed Kodi setup" not in page
-    assert "Names for this installation are fixed by the reviewed recipe" in page
     assert 'href="/managed-kodi">Managed Kodi</a>' in page
-    assert "everyday Start, Stop and View Screen controls" in page
-    assert 'href="/development">Development Tools</a>' in page
-    assert 'href="/development-session">Current Managed Kodi</a>' in page
-    assert "stopped managed profile available" in page
-    assert "It does not start Kodi or authorize an agent" in page
+    assert "Prepare its working profile, then start Kodi." in page
+    assert "It does not start your managed Kodi or grant an agent access." in page
     assert 'href="/mcp-clients">Agents</a>' in page
     assert "grant Trusted Managed Lab" in page
     assert "without Web workspace selection" in page
-    assert "Each step requires a separate action" in page
+    assert "verified local runtime files" in page
     assert "data-install-review" in page and "data-install-approved" in page
     assert "No operation recorded" in page
     listed = client.get("/api/runtime-installations").json()["installations"]
@@ -53,8 +49,8 @@ def test_guided_setup_uses_recipe_names_without_mutation(
     assert "data-preview-acknowledgement" in preview
     assert not flow.launches
     add_kodi = client.get("/add-kodi").text
-    assert 'href="/create-kodi"' in add_kodi
-    assert "Create Managed Kodi" in add_kodi
+    assert 'href="/managed-kodi"' in add_kodi
+    assert "prepare or start the shared working profile" in add_kodi
 
 
 def test_failed_setup_exposes_original_operation_and_explicit_review(

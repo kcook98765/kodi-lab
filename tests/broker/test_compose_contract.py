@@ -85,22 +85,8 @@ def test_lab_compose_confines_docker_mount_to_broker() -> None:
     assert broker["healthcheck"]["start_period"] == "15s"
 
 
-def test_lab_overlay_connects_web_to_managed_network_without_docker_socket() -> None:
-    config = _compose(
-        "-f", "compose.yaml", "-f", "compose.lab.yaml", "--profile", "lab"
-    )
-    assert config["networks"]["managed"]["external"] is True
-    assert config["networks"]["managed"]["name"] == "kodi-lab-managed-v1"
-    web = config["services"]["web"]
-    assert set(web["networks"]) == {"default", "managed"}
-    assert not any(item["target"] == "/var/run/docker.sock" for item in web["volumes"])
-    broker = config["services"]["broker"]
-    assert set(broker["networks"]) == {"default"}
-
-
-def test_release_broker_keeps_the_same_watchdog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def release_layout(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     for name, value in {
         "KODI_LAB_REMOTE_IMAGE": "sha256:" + "a" * 64,
         "KODI_LAB_BROKER_IMAGE": "sha256:" + "b" * 64,
@@ -110,8 +96,23 @@ def test_release_broker_keeps_the_same_watchdog(
         "KODI_LAB_REPOSITORY_BUNDLE_SHA256": "c" * 64,
     }.items():
         monkeypatch.setenv(name, value)
-    config = _compose("-f", "compose.release.yaml", "--profile", "lab")
-    broker = config["services"]["broker"]
+    return _compose("-f", "compose.release.yaml", "--profile", "lab")
+
+
+def test_release_uses_no_shared_managed_network_or_web_docker_socket(
+    release_layout: dict[str, Any],
+) -> None:
+    assert set(release_layout["networks"]) == {"default"}
+    web = release_layout["services"]["web"]
+    assert set(web["networks"]) == {"default"}
+    assert not any(item["target"] == "/var/run/docker.sock" for item in web["volumes"])
+    broker = release_layout["services"]["broker"]
+    assert broker["network_mode"] == "host"
+    assert any(item["target"] == "/var/run/docker.sock" for item in broker["volumes"])
+
+
+def test_release_broker_keeps_the_same_watchdog(release_layout: dict[str, Any]) -> None:
+    broker = release_layout["services"]["broker"]
     assert broker["healthcheck"] == {
         "test": ["CMD", "kodi-lab-broker-healthcheck"],
         "interval": "10s",

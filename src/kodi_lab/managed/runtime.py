@@ -23,7 +23,10 @@ from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
 from kodi_lab.domain.external_targets import ExternalProtocolKind
-from kodi_lab.kodi.bridge import ExternalBridgeClient
+from kodi_lab.kodi.bridge import (
+    AuthenticatedBridgeScreenshotError,
+    ExternalBridgeClient,
+)
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 
 from . import RELEASES
@@ -346,6 +349,7 @@ class Runtime:
             docker("volume", "rm", volume)
         if path.exists() or path.is_symlink():
             shutil.rmtree(self.profile(slot))
+        (self.root / "source-provenance" / (slot + ".json")).unlink(missing_ok=True)
 
     def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
         self.require_volume(slot)
@@ -354,6 +358,8 @@ class Runtime:
         self.require_stopped()
         old = self.read_pointer() if self.pointer.exists() else None
         self.checkpoint("profile_before_commit", prior_slot=old)
+        if self.public.session.exists():
+            atomic(self.public_slot, slot.encode())
         atomic(self.pointer, slot.encode())
         self.checkpoint("profile_committed")
         if old is not None:
@@ -491,16 +497,19 @@ class Runtime:
         endpoint = ValidatedExternalEndpoint(
             ExternalProtocolKind.JSONRPC_HTTP, self.address(), 8080
         )
-        image = ManagedBridgeClient().capture_screenshot(
-            endpoint,
-            bridge_port=8765,
-            target_id=self.target,
-            bridge_id=UUID(value["bridge_id"]),
-            secret=base64.urlsafe_b64decode(value["secret"] + "="),
-            request_id=uuid4(),
-            nonce=secrets.token_urlsafe(32),
-            requested_at=datetime.now(UTC),
-        )
+        try:
+            image = ManagedBridgeClient().capture_screenshot(
+                endpoint,
+                bridge_port=8765,
+                target_id=self.target,
+                bridge_id=UUID(value["bridge_id"]),
+                secret=base64.urlsafe_b64decode(value["secret"] + "="),
+                request_id=uuid4(),
+                nonce=secrets.token_urlsafe(32),
+                requested_at=datetime.now(UTC),
+            )
+        except AuthenticatedBridgeScreenshotError as error:
+            raise Refusal(error.code) from error
         if len(image.png) > 1_450_000:
             raise Refusal("managed_screenshot_limit")
         return {
@@ -546,6 +555,8 @@ class Runtime:
 
     def start(self) -> Document:
         self.capacity()
+        if self.public.session.exists():
+            self.public.require_unexpired()
         if self.inspect():
             result = self.ready()
             if result:
@@ -560,7 +571,10 @@ class Runtime:
             "name=^/kodi-lab-managed-v2(-matrix|-nexus|-piers)?$",
         ):
             raise Refusal("another_managed_runtime_running")
-        slot = self.read_pointer()
+        try:
+            slot = self.read_pointer()
+        except FileNotFoundError:
+            raise Refusal("managed_profile_not_prepared") from None
         self.require_stopped()
         self.require_volume(slot)
         public = self.public.session.exists()

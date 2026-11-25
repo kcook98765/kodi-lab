@@ -1,7 +1,7 @@
 # Test the published repository on disposable managed Omega
 
-This release-testing workflow is opt-in. Use a disposable lab with an
-unprepared Omega profile. The normal managed installer, dependency catalog
+This release-testing workflow is opt-in. Use a separate disposable Linux Lab site with no prepared managed profiles.
+Use a Docker Engine that supports IPv4 isolated gateway mode. The normal managed installer, dependency catalog
 and direct source workflow continue through the internal private feed.
 
 The initial boundary is the passive `repository.ai.kodi` descriptor for
@@ -36,13 +36,12 @@ The command checks passive extensions, all descriptor endpoint roles, the
 target manifest in the catalog and the three byte identities. Use the same
 command without the mount and with `inspect` or `revoke` instead of `approve`.
 Stop an active test through Web Managed Kodi before changing or revoking its
-approval. The retained approval is reusable for another clean disposable
+approval. Selection requires no existing working profile in any managed generation. The retained approval is reusable for another clean disposable
 site with the same reviewed inputs.
 
 ## Agent workflow
 
-Use an existing trusted managed client and the normal managed lease. Only
-Omega is supported for this candidate.
+Use an existing trusted managed client and the normal managed lease. This workflow supports Omega 21.3.
 
 1. Acquire ownership. Read `managed_public_repository_status` and select
    `repository.ai.kodi` with `managed_public_repository_select`. Selection
@@ -59,8 +58,9 @@ Omega is supported for this candidate.
    repository. Read back enabled state, version, origin and installed bytes.
    Required non-system dependencies must already be installed and verified
    against the operator-approved private catalog in this first workflow.
-5. Inspect the result and run the local fixtures. Stop and release. Stop
-   removes public egress and the disposable feed container. The public
+5. Inspect the result and run the local fixtures. Stop playback before asking
+   Kodi to quit. Stop and release. Stop removes public egress and the disposable
+   feed container even when native quit is unconfirmed. The public
    profile is retained for inspection and requires explicit Reset before
    ordinary Start. Named snapshots are protected from public test save/load.
 
@@ -88,8 +88,9 @@ Kodi can process changed public content and start an installed service before
 the post-install identity check. Use the private feed when exact archive bytes
 must be controlled before installation.
 
-The candidate uses the Docker isolated IPv4 gateway mode and its standard
-bridge for this temporary helper. This deployment arrangement is qualified
-only where validated on Linux. Normal Stop, explicit recovery and expiry
-remove access without giving the runtime a broader network attached for
-fallback.
+The temporary helper has no restart policy. Normal Stop or operator recovery
+tears down the helper. If Kodi disappears or approval time expires, the helper
+closes access itself. A failed native quit remains visible. Use operator
+Recover for a pending receipt, preserve the stopped disposable profile for
+inspection if needed, then reset or retire the disposable site. Retained
+production working profiles use the ordinary private-network workflow.

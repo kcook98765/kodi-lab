@@ -13,10 +13,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_eligibility import RuntimeEligibility
 from kodi_lab.application.runtime_installations import RuntimeInstallationService
 from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE, admin_view_return_path
 
-from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login, seed_external_target
+from .conftest import ORIGIN, FakeBroker, login, seed_external_target
 from .test_kodi_views import household as household
 from .test_runtime_installations import Flow, seed_installation
 
@@ -53,7 +54,7 @@ def test_unified_navigation_ignores_legacy_cookie(
     assert 'id="external-summary-heading"' in page
     assert 'id="agents-summary-heading"' in page
     assert "data-managed-slots" not in page
-    assert 'id="managed-kodi-heading"' in client.get("/managed-kodi").text
+    assert 'id="managed-heading"' in client.get("/managed-kodi").text
     assert "Create custom preset" in client.get("/mcp-clients").text
     assert 'href="/agent-workspaces"' in client.get("/development").text
     assert 'data-mode-controls disabled aria-describedby="mode-help">' in (
@@ -63,7 +64,12 @@ def test_unified_navigation_ignores_legacy_cookie(
 
 @pytest.mark.parametrize(
     "path",
-    ["/runtimes", "/development", "/external-targets", f"/instances/{INSTANCE_ID}"],
+    [
+        "/runtimes",
+        "/development",
+        "/external-targets",
+        "/managed-kodi?generation=nexus",
+    ],
 )
 def test_unified_navigation_preserves_authenticated_deep_links(
     client: TestClient, path: str
@@ -172,11 +178,9 @@ def test_export_isolated_browser_fixtures(
     flow = Flow()
     flow.attach(broker)
     monkeypatch.setattr(
-        RuntimeInstallationService, "_eligible_ready", lambda _s, _r: True
-    )
-    monkeypatch.setattr(
-        "kodi_lab.application.runtime_installations.recipe_target_id",
-        lambda _r: INSTANCE_ID,
+        RuntimeInstallationService,
+        "_runtime_eligibility",
+        lambda _s, _r: RuntimeEligibility(True),
     )
     seed_installation(database, "omega", ready=True)
     seed_external_target(database)
@@ -206,12 +210,9 @@ def test_export_isolated_browser_fixtures(
                 "/",
                 "/kodi",
                 "/managed-kodi",
-                "/managed-instances",
                 "/external-kodi",
                 "/production-targets",
                 "/external-targets",
-                "/create-kodi",
-                "/development-session",
                 "/add-kodi",
                 "/add-kodi?mode=development",
                 "/mcp-clients",
@@ -239,9 +240,8 @@ def test_export_isolated_browser_fixtures(
         apis = {
             path: client.get(path).json()
             for path in [
-                "/api/managed-kodi/slots",
-                "/api/development-session",
-                "/api/instances",
+                "/api/runtime-installations",
+                "/api/mcp/clients",
             ]
         }
         (root / "fixture-apis.json").write_text(json.dumps(apis))

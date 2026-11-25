@@ -79,7 +79,11 @@ def test_trust_resource_tamper_is_rejected(monkeypatch: pytest.MonkeyPatch) -> N
         trusted_key_bytes()
 
 
-def test_real_detached_agent_cleanup_preserves_other_namespace(tmp_path: Path) -> None:
+def test_real_detached_agent_cleanup_preserves_other_namespace(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    # GPG uses fixed Unix socket basenames, including S.gpg-agent.browser.
+    tmp_path = tmp_path_factory.mktemp("gpg")
     owned = tmp_path / f"ostree-{uuid4().hex}"
     protected = tmp_path / f"ostree-{uuid4().hex}"
     try:

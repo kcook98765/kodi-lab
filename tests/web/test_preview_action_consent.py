@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -13,16 +12,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import preview_acknowledgement
 from kodi_lab.broker.operations import ReviewedInstallationLaunchResult
-from kodi_lab.host_bootstrap import generate_master_key
 from kodi_lab.runtime.preview import PreviewAcknowledgement, recorded_acknowledgement
-from tests.runtime.test_piers_display import ready_display
 from tests.web.conftest import ORIGIN, FakeBroker, login
 from tests.web.test_runtime_installations import Flow
 
-PATHS = (
-    "/api/runtime-installations/piers",
-    "/api/runtime-installations/piers/instances",
-)
+PATH = "/api/runtime-installations/piers"
 
 
 def approval(action: str) -> dict[str, object]:
@@ -57,7 +51,7 @@ def preview_flow(broker: FakeBroker) -> Flow:
 
 
 @pytest.mark.parametrize("mode", ["standard", "development"])
-@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("action", ["install", "retry", "reacquire"])
 @pytest.mark.parametrize(
     "case",
     [
@@ -81,14 +75,14 @@ def preview_flow(broker: FakeBroker) -> Flow:
     ],
 )
 def test_invalid_or_reused_action_consent_is_denied(
-    client: TestClient, broker: FakeBroker, mode: str, path: str, case: str
+    client: TestClient, broker: FakeBroker, mode: str, action: str, case: str
 ) -> None:
     from kodi_lab.runtime.recipes import PREVIEW_INSTALLATION_DIGEST
 
     flow = preview_flow(broker)
     token = login(client)
     client.cookies.set("kodi_lab_admin_view", mode)
-    action = "create" if path.endswith("/instances") else "install"
+    path = f"{PATH}?action={action}"
     body: dict[str, Any] = deepcopy(approval(action))
     expected = 422
     if case == "missing":
@@ -130,7 +124,7 @@ def test_invalid_or_reused_action_consent_is_denied(
             expected = 409
         # Mixed RC1 recipe/RC2 release remains malformed (422), never dispatched.
     elif case == "wrong_action":
-        body["action"] = "install" if action == "create" else "create"
+        body["action"] = "retry" if action == "install" else "install"
         expected = 409
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
     result = (
@@ -145,12 +139,13 @@ def test_invalid_or_reused_action_consent_is_denied(
 
 
 @pytest.mark.parametrize("mode", ["standard", "development"])
-@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("action", ["install", "retry", "reacquire"])
 def test_view_cookie_never_supplies_authentication_or_csrf(
-    client: TestClient, broker: FakeBroker, mode: str, path: str
+    client: TestClient, broker: FakeBroker, mode: str, action: str
 ) -> None:
     flow = preview_flow(broker)
-    body = approval("create" if path.endswith("/instances") else "install")
+    path = f"{PATH}?action={action}"
+    body = approval(action)
     client.cookies.set("kodi_lab_admin_view", mode)
     assert client.post(path, json=body, headers=ORIGIN).status_code == 401
     token = login(client)
@@ -179,15 +174,18 @@ def test_exact_install_consent_does_not_authorize_a_later_action(
     client.cookies.set("kodi_lab_admin_view", mode)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
     body = approval("install")
-    result = client.post(PATHS[0], json=body, headers=headers)
+    result = client.post(PATH, json=body, headers=headers)
     assert result.status_code == 202
     operation = UUID(result.json()["operation_id"])
     assert recorded_acknowledgement(
         database, operation
     ) == PreviewAcknowledgement.model_validate(preview_acknowledgement())
-    assert client.post(PATHS[1], json=body, headers=headers).status_code == 409
-    assert client.post(PATHS[0], json={}, headers=headers).status_code == 422
-    assert client.post(PATHS[0], json=body, headers=headers).status_code == 409
+    assert (
+        client.post(f"{PATH}?action=retry", json=body, headers=headers).status_code
+        == 409
+    )
+    assert client.post(PATH, json={}, headers=headers).status_code == 422
+    assert client.post(PATH, json=body, headers=headers).status_code == 409
     for url in ("/runtimes", "/api/runtime-installations", result.json()["status_url"]):
         observed = client.get(url)
         assert observed.status_code == 200
@@ -196,34 +194,17 @@ def test_exact_install_consent_does_not_authorize_a_later_action(
 
 
 @pytest.mark.parametrize("mode", ["standard", "development"])
-def test_create_needs_its_own_consent_and_real_sealed_eligibility(
-    client: TestClient,
-    database: sessionmaker[Session],
-    broker: FakeBroker,
-    mode: str,
-    data_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_retired_create_route_cannot_launch_preview(
+    client: TestClient, broker: FakeBroker, mode: str
 ) -> None:
-    data_root.mkdir(mode=0o700, exist_ok=True)
-    data_root.chmod(0o700)
-    generate_master_key(data_root)
-    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
-    preview_flow(broker)
+    flow = preview_flow(broker)
     token = login(client)
     client.cookies.set("kodi_lab_admin_view", mode)
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": token}
     assert (
-        client.post(PATHS[1], json=approval("create"), headers=headers).status_code
-        == 409
+        client.post(
+            f"{PATH}/instances", json=approval("create"), headers=headers
+        ).status_code
+        == 404
     )
-    ready_display(
-        database
-    )  # Existing signed/validated test evidence; no image acquisition.
-    assert (
-        client.post(PATHS[1], json=approval("install"), headers=headers).status_code
-        == 409
-    )
-    result = client.post(PATHS[1], json=approval("create"), headers=headers)
-    assert result.status_code == 200
-    assert result.json()["action"] == "open"
-    assert client.post(PATHS[1], json={}, headers=headers).status_code == 422
+    assert not flow.launches

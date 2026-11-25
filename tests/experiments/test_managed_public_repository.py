@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -12,6 +13,7 @@ from kodi_lab.managed.packages import read_zip, sha
 from kodi_lab.managed.protocol import Refusal
 from kodi_lab.managed.public_relay import HOST, approved_connect, approved_tls_hello
 from kodi_lab.managed.public_repository import BASE, LANES, passive_repository, stored
+from kodi_lab.managed.runtime import Runtime
 
 
 def repository(*, prefix: str = BASE, extra: str = "") -> bytes:
@@ -37,6 +39,8 @@ def repository(*, prefix: str = BASE, extra: str = "") -> bytes:
     data = BytesIO()
     with ZipFile(data, "w") as archive:
         archive.writestr("repository.ai.kodi/addon.xml", manifest)
+        for name in ("LICENSE.txt", "resources/icon.png", "resources/ICON-LICENSE.txt"):
+            archive.writestr(f"repository.ai.kodi/{name}", b"fixture")
     return data.getvalue()
 
 
@@ -90,6 +94,7 @@ def test_failed_public_start_and_stop_revoke_egress(tmp_path: Path) -> None:
     runtime = controller.omega
     runtime.public.session.touch()
     with (
+        patch.object(controller, "public_approval"),
         patch.object(runtime.public, "remove") as remove,
         patch.object(runtime, "start", side_effect=Refusal("startup_failed")),
         patch.object(runtime, "stop", side_effect=Refusal("stop_failed")),
@@ -129,3 +134,52 @@ def test_connect_and_tls_name_pinned() -> None:
     assert not approved_tls_hello(client_hello("example.invalid"))
     assert not approved_tls_hello(client_hello(HOST)[:-1])
     assert not approved_tls_hello(client_hello(HOST, extension=b"\xfe\x0d\0\0"))
+
+
+def test_expired_public_selection_cannot_prepare_network(tmp_path: Path) -> None:
+    controller = Controller(tmp_path)
+    public = controller.omega.public
+    public.session.write_text("1")
+    with (
+        patch.object(public, "network") as network,
+        pytest.raises(Refusal, match="public_test_expired"),
+    ):
+        public.prepare()
+    network.assert_not_called()
+
+
+def test_public_selection_refuses_site_with_other_working_profile(
+    tmp_path: Path,
+) -> None:
+    controller = Controller(tmp_path)
+    nexus = tmp_path / "nexus"
+    nexus.mkdir(mode=0o700)
+    controller.runtimes["nexus"] = Runtime(nexus, generation="nexus")
+    controller.runtimes["nexus"].pointer.touch()
+    approved = SimpleNamespace(repository=passive_repository(repository()))
+    with (
+        patch.object(controller, "public_approval", return_value=approved),
+        patch.object(controller.omega, "require_stopped"),
+        pytest.raises(Refusal, match="public_test_requires_disposable_site"),
+    ):
+        controller.select_public("repository.ai.kodi")
+    assert not controller.omega.public.session.exists()
+
+
+def test_interrupted_catalog_reconciles_without_replay(tmp_path: Path) -> None:
+    controller = Controller(tmp_path)
+    public = controller.omega.public
+    public.session.touch()
+    record = {
+        "name": "managed_public_catalog",
+        "event": "public_catalog_dispatch",
+        "native_pending": True,
+    }
+    with (
+        patch.object(controller, "stop_runtime") as stop,
+        patch.object(controller.omega, "signed") as signed,
+    ):
+        stop.side_effect = public.session.unlink
+        controller.reconcile(record)
+        stop.assert_called_once_with()
+        signed.assert_not_called()

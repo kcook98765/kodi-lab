@@ -120,12 +120,7 @@ def test_complete_install_orders_verification_before_initialization(
 
     assert index("verify") < index("load") < index("configure")
     assert index("configure") < index("repository-init") < index("initialize")
-    assert (
-        index("initialize")
-        < index("set-password")
-        < index("network-ensure")
-        < index("up")
-    )
+    assert index("initialize") < index("set-password") < index("up")
     assert "--wait" in commands[index("up")]
     for command in commands:
         if command[:2] == ["docker", "compose"]:
@@ -251,7 +246,6 @@ def test_daemon_change_during_build_blocks_initialization(
         "configure",
         "repository-init",
         "initialize",
-        "network-ensure",
         "up",
     ],
 )
@@ -296,31 +290,12 @@ def test_bad_configuration_is_rejected_before_any_directory_is_created(
     assert all(command[0] != "bash" for command in host.commands)
 
 
-@pytest.mark.parametrize("route", ["10.250.0.0/24", "10.0.0.0/8", "10.250.0.12/32"])
-def test_host_route_collision_blocks_installation_before_build(
-    host: Host, monkeypatch: pytest.MonkeyPatch, route: str
-) -> None:
-    original = host.run
-
-    def run(command: list[str], cwd: Path, *, capture: bool = False) -> str:
-        if command[0] == "ip":
-            return json.dumps([{"dst": route}])
-        return original(command, cwd, capture=capture)
-
-    monkeypatch.setattr(install, "run", run)
-    with pytest.raises(ValueError, match="overlaps"):
-        install.install(host.args())
-    assert not host.root.exists()
-
-
-def test_existing_managed_network_blocks_fresh_install(
-    host: Host, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        install, "run", lambda *_args, **_kwargs: install.MANAGED_NETWORK
+def test_default_install_does_not_claim_a_shared_managed_network(host: Host) -> None:
+    install.install(host.args())
+    assert not any(
+        command[:2] == ["docker", "network"] or "network-ensure" in command
+        for command in host.commands
     )
-    with pytest.raises(ValueError, match="already exists"):
-        install.check_networks(host.root.parent)
 
 
 @pytest.mark.parametrize("reason", ["disk", "dirty", "busy"])

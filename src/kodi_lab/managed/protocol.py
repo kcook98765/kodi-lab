@@ -86,9 +86,10 @@ VERSION_SCOPED = (
     }
 )
 OPTIONAL = {
-    "addon_install": "allow_services",
-    "managed_public_install": "allow_services",
-    "workspace_open": "replace",
+    "addon_install": ("allow_services",),
+    "managed_public_install": ("allow_services",),
+    "workspace_open": ("replace",),
+    "workspace_deploy": ("baseline", "review"),
 }
 
 
@@ -118,7 +119,7 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
             and set(args).issubset(
                 set(FIELDS[name])
                 | ({"generation"} if name in VERSION_SCOPED else set())
-                | ({OPTIONAL[name]} if name in OPTIONAL else set())
+                | set(OPTIONAL.get(name, ()))
             )
         )
         or any(

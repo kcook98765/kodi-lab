@@ -154,18 +154,36 @@ async def run() -> None:
         finally:
             writer.close()
 
+    def kodi_address() -> str:
+        address = ipaddress.IPv4Address((POLICY / "kodi-ip").read_text())
+        if address not in ipaddress.IPv4Network(record["subnet"]):
+            raise ValueError("Kodi address outside the isolated network")
+        return str(address)
+
+    async def runtime_lifetime() -> None:
+        # Allow native startup and existing managed skin restarts to settle.
+        # If Kodi disappears, terminate the helper and all accepted tunnels.
+        loop = asyncio.get_running_loop()
+        last_seen = loop.time()
+        while loop.time() - last_seen < 40:
+            try:
+                async with asyncio.timeout(1):
+                    _, probe = await asyncio.open_connection(
+                        kodi_address(), CONTROL_PORTS[0]
+                    )
+                    probe.close()
+                last_seen = loop.time()
+            except (OSError, ValueError, TimeoutError):
+                pass
+            await asyncio.sleep(2)
+
     async def control(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter, port: int
     ) -> None:
         try:
             if writer.get_extra_info("peername")[0] != record["gateway"]:
                 return
-            address = str(ipaddress.IPv4Address((POLICY / "kodi-ip").read_text()))
-            if ipaddress.IPv4Address(address) not in ipaddress.IPv4Network(
-                record["subnet"]
-            ):
-                return
-            await transfer(reader, writer, address, port, 75)
+            await transfer(reader, writer, kodi_address(), port, 75)
         except (OSError, ValueError, TimeoutError):
             pass
         finally:
@@ -181,7 +199,10 @@ async def run() -> None:
             )
         )
     try:
-        await asyncio.sleep(max(0, deadline - time.time()))
+        async with asyncio.timeout(max(0, deadline - time.time())):
+            await runtime_lifetime()
+    except TimeoutError:
+        pass
     finally:
         for listener in listeners:
             listener.close()

@@ -37,7 +37,7 @@ def passive_repository(data: bytes) -> Package:
         or len(extensions) != 2
         or extensions[1].get("point") != "xbmc.addon.metadata"
         or set(package.members)
-        - {
+        != {
             "addon.xml",
             "LICENSE.txt",
             "resources/icon.png",

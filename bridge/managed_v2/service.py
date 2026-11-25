@@ -1,4 +1,4 @@
-"""Managed-only Narrow Bridge entry point, installed only in the Omega baseline."""
+"""Managed-only Narrow Bridge entry point."""
 
 import hashlib
 import json
@@ -7,7 +7,9 @@ import re
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, TypeVar
 
 import narrow_bridge as bridge
 import xbmc
@@ -30,13 +32,14 @@ OPERATIONS = {
     "managed_v2_public_catalog",
 }
 LOCK = threading.Lock()
+T = TypeVar("T")
 
 
 class Refusal(Exception):
     pass
 
 
-def need(condition, label):
+def need(condition: object, label: str) -> None:
     if not condition:
         raise Refusal(label)
 
@@ -45,7 +48,7 @@ class Native:
     def __init__(self):
         self.actions = []
 
-    def rpc(self, method, **params):
+    def rpc(self, method: str, **params: object) -> Any:
         result = json.loads(
             xbmc.executeJSONRPC(
                 json.dumps(
@@ -70,7 +73,7 @@ class Native:
     def labels(self, *names):
         return self.rpc("XBMC.GetInfoLabels", labels=list(names))
 
-    def act(self, name, command):
+    def act(self, name: str, command: str) -> None:
         self.actions.append(name)
         xbmc.executebuiltin(command, False)
 
@@ -78,7 +81,7 @@ class Native:
         self.actions.append(action)
         return self.rpc("Input." + action)
 
-    def wait(self, check, label, seconds=8):
+    def wait(self, check: Callable[[], T], label: str, seconds: int = 8) -> T:
         stop = time.monotonic() + seconds
         while time.monotonic() < stop:
             if value := check():
@@ -176,7 +179,7 @@ class Native:
         except (OSError, Refusal):
             return False
 
-    def catalog_ready(self, checksum, repository=REPO):
+    def catalog_ready(self, checksum: str, repository: str = REPO) -> bool:
         dbs = list((PROFILE / "userdata/Database").glob("Addons*.db"))
         if len(dbs) != 1:
             return False
@@ -421,6 +424,7 @@ class ManagedHandler(bridge.Handler):
                     value = request["payload"]
                     need(
                         set(value) == {"checksum"}
+                        and isinstance(value["checksum"], str)
                         and bool(re.fullmatch("[0-9a-f]{64}", value["checksum"]))
                         and native.rpc(
                             "Settings.GetSettingValue", setting="general.addonupdates"

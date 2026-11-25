@@ -187,6 +187,7 @@ def test_rc2_healthcheck_rejects_old_native_identity(
             health["main"]()
 
 
+@pytest.mark.parametrize("old_app", [False, True])
 def test_context_binds_the_acquired_release_instead_of_the_old_default(
     monkeypatch: pytest.MonkeyPatch, old_app: bool
 ) -> None:

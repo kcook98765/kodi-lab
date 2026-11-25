@@ -16,11 +16,13 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import ExternalObservationState
+from kodi_lab.managed.broker import BrokerClient
+from kodi_lab.managed.protocol import OperationReply
 from kodi_lab.mcp.stdio_proxy import load_configuration
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import ExternalKodiTargetRow
 from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE
-from tests.web.conftest import INSTANCE_ID, ORIGIN, login
+from tests.web.conftest import ORIGIN, login
 from tests.web.test_kodi_views import household as household
 
 
@@ -35,10 +37,10 @@ def test_landing_empty_keeps_next_actions_and_advanced_controls(
     assert 'href="/mcp-clients">Open Agents' in page
     assert "Fixture and reset" not in page
     assert '<section id="managed-details"' not in page
-    managed = client.get("/managed-instances").text
-    assert 'id="instances"' in managed
-    assert f'href="/instances/{INSTANCE_ID}/snapshots"' in managed
-    assert "Fixture and reset" in managed
+    managed = client.get("/managed-kodi").text
+    assert 'data-managed-kodi="omega"' in managed
+    assert 'id="managed-snapshots-heading"' in managed
+    assert 'data-action="managed_prepare"' in managed
 
 
 @pytest.mark.parametrize("unreachable", [False, True])
@@ -60,12 +62,8 @@ def test_home_household_is_recorded_and_network_free(
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("Landing attempted live Kodi I/O or changed authority")
 
+    monkeypatch.setattr(BrokerClient, "request", forbidden)
     for service, names in [
-        (context.status, ["list_statuses", "get_observation"]),
-        (context.reset_status, ["list_statuses"]),
-        (context.reconciliation, ["status"]),
-        (context.reconstruction, ["latest_for_instance"]),
-        (context.managed_resources, ["status"]),
         (context.production_targets, ["probe", "set_enabled", "confirm"]),
         (
             context.external_bridges,
@@ -117,26 +115,38 @@ def test_home_household_is_recorded_and_network_free(
     ]
 
 
-def test_managed_failure_visible_in_advanced(
+def test_managed_status_surfaces_exact_pending_recovery_without_mutation(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    login(client)
-    service = cast(FastAPI, client.app).state.kodi_lab.status
-    status = service.list_statuses()[0].model_copy(
-        update={
-            "failure_detail": "Runtime check failed",
-            "failure_code": "runtime_revision_mismatch",
+    receipt = {
+        "id": "fixture-receipt",
+        "generation": "nexus",
+        "name": "managed_start",
+        "event": "native_dispatch",
+        "state": "pending",
+    }
+
+    def request(
+        broker: BrokerClient, actor: str, operation: str, args: dict[str, str]
+    ) -> OperationReply:
+        assert actor == "admin"
+        if operation == "snapshot_list":
+            assert args == {}
+            return {"result": [], "elapsed_seconds": 0.0}
+        assert operation == "managed_status" and args == {"generation": "nexus"}
+        return {
+            "result": {"state": "unconfirmed", "operation": receipt},
+            "elapsed_seconds": 0.0,
         }
-    )
-    monkeypatch.setattr(service, "list_statuses", lambda: [status])
-    page = client.get("/managed-instances").text
-    primary, managed = page.split('<section id="managed-details"', 1)
-    notice = re.search(r'<p id="managed-attention".*?</p>', primary, re.S)
-    assert notice is not None
-    assert " hidden" not in notice.group()
-    assert "Advanced managed registrations need review" in notice.group()
-    assert 'href="#instances"' in notice.group()
-    assert "Runtime check failed" in managed
+
+    monkeypatch.setattr(BrokerClient, "request", request)
+    assert client.get("/api/managed-kodi/nexus").status_code == 401
+    login(client)
+    response = client.get("/api/managed-kodi/nexus")
+    assert response.status_code == 200
+    assert response.json()["profile"]["operation"] == receipt
+    page = client.get("/managed-kodi?generation=nexus")
+    assert 'data-action="managed_recover"' in page.text
 
 
 def test_agents_requires_deliberate_preset_and_supported_config(

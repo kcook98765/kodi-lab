@@ -1,88 +1,58 @@
-from uuid import UUID
+"""The agent replacement entry point uses a closed, owner-bound package request."""
+
+from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from .conftest import INSTANCE_ID, ORIGIN, login
+from kodi_lab.managed.broker import BrokerClient
+from kodi_lab.managed.controller import Controller
+from kodi_lab.managed.protocol import OperationReply
+from tests.web.test_external_target_web import _mcp_call
+from tests.web.test_managed_upload import bearer
 
-ARTIFACT_ID = UUID("00000000-0000-4000-8000-000000000211")
-PLAN_ID = UUID("00000000-0000-4000-8000-000000000212")
 
-
-def test_replacement_prepare_requires_auth_origin_csrf_and_empty_body(
-    client: TestClient,
+def test_managed_replacement_requires_explicit_owner_and_exact_package_identity(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = (
-        f"/api/instances/{INSTANCE_ID}/repository-artifacts/{ARTIFACT_ID}/"
-        "replacement-plans"
-    )
-    assert client.post(path, json={}).status_code == 401
-    csrf = login(client)
-    assert client.post(path, json={}, headers=ORIGIN).status_code == 403
+    root = tmp_path / "lab"
+    root.mkdir(mode=0o700)
+    controller = Controller(root)
+    actor, token = bearer(client, managed=True)
+    _, outside = bearer(client, managed=False)
+    calls: list[tuple[str, str, dict[str, str]]] = []
+
+    def dispatch(
+        _broker: BrokerClient, principal: str, operation: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        calls.append((principal, operation, dict(args)))
+        return controller.perform(operation, dict(args), actor=principal)
+
+    monkeypatch.setattr(BrokerClient, "request", dispatch)
+    tool = "managed_addon_install"
+    args: dict[str, object] = {
+        "addon": "script.fixture",
+        "version": "1.0.0",
+        "digest": "a" * 64,
+    }
+    outside_result = _mcp_call(client, outside, tool, args)
+    assert "error" in outside_result or outside_result["result"]["isError"]
+    assert not calls
+    for forbidden in ({**args, "destination": "/tmp"}, {**args, "confirmed": True}):
+        result = _mcp_call(client, token, tool, forbidden)["result"]
+        assert result["isError"]
+    assert not calls
+    denied = _mcp_call(client, token, tool, args)["result"]
     assert (
-        client.post(
-            path,
-            json={},
-            headers={
-                "Origin": "http://attacker.invalid",
-                "X-Kodi-Lab-CSRF": csrf,
-            },
-        ).status_code
-        == 403
+        denied["isError"] and denied["content"][0]["text"] == "managed_acquire_required"
     )
-    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
-    for field in (
-        "force",
-        "destination",
-        "source",
-        "incumbent_class",
-        "addon_id",
-        "version",
-        "snapshot_id",
-        "container_id",
-        "overwrite",
-        "delete",
-    ):
-        response = client.post(path, json={field: True}, headers=headers)
-        assert response.status_code == 422
-        assert response.json()["error"]["code"] == "request_validation_failed"
-        assert field not in response.text
-    unavailable = client.post(path, json={}, headers=headers)
-    assert unavailable.status_code == 422
-    assert "path" not in unavailable.text.lower()
-    assert "digest" not in unavailable.text.lower()
-
-
-@pytest.mark.parametrize(
-    "body",
-    [{}, {"confirmed": False}, {"confirmed": True, "force": True}],
-)
-def test_approve_and_execute_requires_exact_true_confirmation(
-    client: TestClient, body: dict[str, object]
-) -> None:
-    csrf = login(client)
-    response = client.post(
-        f"/api/instances/{INSTANCE_ID}/replacement-plans/{PLAN_ID}/approve-and-execute",
-        json=body,
-        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
-    )
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "request_validation_failed"
-    assert "force" not in response.text
-
-
-def test_replacement_status_and_plan_reads_are_private(client: TestClient) -> None:
-    operation_id = UUID("00000000-0000-4000-8000-000000000213")
-    assert (
-        client.get(
-            f"/api/instances/{INSTANCE_ID}/replacement-plans/{PLAN_ID}"
-        ).status_code
-        == 401
-    )
-    assert (
-        client.get(
-            f"/api/instances/{INSTANCE_ID}/repository-replacement-operations/"
-            f"{operation_id}"
-        ).status_code
-        == 401
-    )
+    assert controller.last_operation() is None
+    controller.perform("managed_acquire", {}, actor=actor)
+    denied = _mcp_call(client, token, tool, args)["result"]
+    assert denied["isError"] and denied["content"][0]["text"] == "package_not_approved"
+    receipt = controller.last_operation()
+    assert receipt is not None and receipt["state"] == "complete"
+    assert receipt["event"] == "refused" and receipt["error"] == "package_not_approved"
+    assert calls == [(actor, "addon_install", args)] * 2
+    assert not list(controller.runtime.feed.iterdir())

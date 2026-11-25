@@ -14,8 +14,10 @@ plus live noVNC and human input ownership. Docker Desktop's Engine socket
 is mounted in the restricted broker only. Matrix, Nexus and Piers were catalog
 checks on Windows. Piers remains a development preview.
 
-Use fresh application and managed volumes. Migration of previous pre-alpha
-installations is unsupported. [Stage 10 acceptance](https://github.com/kcook98765/kodi-lab/pull/406#issuecomment-7146880731)
+The fresh bootstrap uses empty application and managed volumes. Current
+managed-v2 update acceptance on Windows is separate from fresh bootstrap.
+The disposable public repository workflow is qualified on Linux. Migration
+from the retired pre-alpha architecture is unsupported. [Stage 10 acceptance](https://github.com/kcook98765/kodi-lab/pull/406#issuecomment-7146880731)
 
 ## Earlier observed configurations (historical)
 
