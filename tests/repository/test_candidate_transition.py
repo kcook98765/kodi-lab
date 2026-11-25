@@ -922,7 +922,7 @@ def test_forward_migration_rollback_to_verified_a_backup(
     assert not (state / ".repository-candidate-transition.json").exists()
 
 
-def test_0057_evidence_refuses_downgrade_but_a_backup_can_be_restored(
+def test_managed_v2_schema_refuses_downgrade_but_a_backup_can_be_restored(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     old, new, data, state, old_hash, new_hash, backup_id = _setup(
@@ -1044,15 +1044,17 @@ def test_0057_evidence_refuses_downgrade_but_a_backup_can_be_restored(
         external = session.get(ExternalKodiTargetRow, target_id)
         assert external is not None
         external.configured_capabilities_json = after
-    # Exercise downgrade refusal on a copy: Alembic may complete the safe
-    # 0058 -> 0057 step before 0057 refuses to discard amendment evidence.
+    # The Preview successor can unwind to the foundation revision. The
+    # foundation refuses downgrade to base, and the live database stays intact.
     downgrade_database = tmp_path / "downgrade-check.db"
     shutil.copy2(state / remote_lifecycle.DATABASE, downgrade_database)
     with (
         packaged_migrations.packaged_config(
             f"sqlite:///{downgrade_database}"
         ) as config,
-        pytest.raises(RuntimeError, match="history must be preserved"),
+        pytest.raises(
+            RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+        ),
     ):
         command.downgrade(config, "base")
     assert remote_lifecycle._revision(downgrade_database) == ("0001_foundation")

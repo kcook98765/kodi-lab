@@ -62,15 +62,14 @@ def live_application(
 
 
 env = _environment
-REVISION = "0001_initial_release"
-PREDECESSOR = "0001_initial_release"
+REVISION = "0001_foundation"
 
 
-def test_upgrade_reinitialization_and_schema_match(
+def test_initial_schema_reinitialization_and_schema_match(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
     command.upgrade(config, REVISION)
     assert set(inspect(engine).get_table_names()) >= {"household_onboarding_operations"}
@@ -88,11 +87,7 @@ def test_real_coordinator_on_migrated_schema_and_durable_history(
     tmp_path: Path,
     env: Environment,
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    command.upgrade(config, REVISION)
-    # The current coordinator also checks reconnect receipts introduced in 0075.
-    # Forward-upgrade the historical schema before running current application code.
-    command.upgrade(config, "head")
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     with env.sessions() as session:
@@ -133,8 +128,6 @@ def test_real_coordinator_on_migrated_schema_and_durable_history(
         env.service.resume(env.request.operation_id, HouseholdResumeRequest()).state
         == "connected"
     )
-    # Step back through the unused later features before exercising 0071's
-    # original populated-data downgrade guard in its own transaction.
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
@@ -151,7 +144,7 @@ def test_migrated_endpoint_reservation_and_independent_registration_guard(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     command.upgrade(config, REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
@@ -200,11 +193,11 @@ def test_migrated_endpoint_reservation_and_independent_registration_guard(
     engine.dispose()
 
 
-def test_pending_retirement_constraints_and_downgrade_refusal(
+def test_pending_retirement_constraints_on_initial_schema(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     command.upgrade(config, REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
@@ -285,9 +278,7 @@ def test_durable_retirement_on_migrated_schema_after_restart(
 ) -> None:
     from uuid import UUID
 
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    command.upgrade(config, REVISION)
-    command.upgrade(config, "head")
+    _config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     with env.sessions() as session:

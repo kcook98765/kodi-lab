@@ -5,7 +5,7 @@ Provider/validator doubles here exercise transactions, not live acquisition.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
+from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.install import (
     RecipeInstallationError,
     _create_operation,
@@ -27,6 +28,13 @@ from kodi_lab.storage.repositories import (
 )
 from tests.runtime.test_ostree_installation import acknowledgement, assembly, validation
 from tests.runtime.test_recipe_installation import factory as factory
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    handoff = tmp_path / "handoff"
+    handoff.mkdir(mode=0o700)
+    return Settings(runtime_root=handoff)
 
 
 def admitted(factory: sessionmaker[Session]) -> UUID:
@@ -55,9 +63,6 @@ def dependencies(
     )
     monkeypatch.setattr("docker.from_env", lambda **kwargs: client)
     monkeypatch.setattr(
-        "kodi_lab.runtime.install._installation_lock", lambda path: nullcontext()
-    )
-    monkeypatch.setattr(
         "kodi_lab.runtime.install._database_call",
         lambda settings, action: action(factory),
     )
@@ -81,13 +86,16 @@ def dependencies(
 
 
 def test_provider_uses_existing_phases_and_seals_ready(
-    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
     operation = admitted(factory)
     _client, phases = dependencies(factory, monkeypatch, operation)
     outcome = install_reviewed_runtime(
-        "piers", settings=Settings(), operation_id=operation, report=phases.append
+        "piers", settings=settings, operation_id=operation, report=phases.append
     )
+    assert (
+        settings.runtime_root / reviewed_image_file("piers")
+    ).read_text() == outcome.image_id
     assert outcome.operation_id == operation
     assert phases == ["acquiring", "assembling", "validating", "ready"]
     with factory() as session:
@@ -103,7 +111,10 @@ def test_provider_uses_existing_phases_and_seals_ready(
     "failure", ["acquisition", "assembly", "validation", "cancellation"]
 )
 def test_failure_never_creates_ready_and_retry_reacquires(
-    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch, failure: str
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    settings: Settings,
 ) -> None:
     operation = admitted(factory)
     _client, phases = dependencies(factory, monkeypatch, operation)
@@ -125,29 +136,31 @@ def test_failure_never_creates_ready_and_retry_reacquires(
         monkeypatch.setattr("kodi_lab.runtime.ostree_worker.assemble_in_worker", fail)
     with pytest.raises(RecipeInstallationError):
         install_reviewed_runtime(
-            "piers", settings=Settings(), operation_id=operation, report=phases.append
+            "piers", settings=settings, operation_id=operation, report=phases.append
         )
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)
         assert row
         assert row.state.value == "failed" and row.runtime_revision_id is None
+    assert not (settings.runtime_root / reviewed_image_file("piers")).exists()
     retry = admitted(factory)
     _client, phases = dependencies(factory, monkeypatch, retry)
     assert not install_reviewed_runtime(
-        "piers", settings=Settings(), operation_id=retry, report=phases.append
+        "piers", settings=settings, operation_id=retry, report=phases.append
     ).reused
 
 
 def test_preview_without_broker_admission_never_acquires(
-    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
 ) -> None:
     with pytest.raises(RecipeInstallationError, match="admission"):
-        install_reviewed_runtime("piers", settings=Settings())
+        install_reviewed_runtime("piers", settings=settings)
 
 
 def test_validation_and_cleanup_failure_remains_failed(
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
 ) -> None:
     operation = admitted(factory)
     client, phases = dependencies(factory, monkeypatch, operation)
@@ -164,7 +177,7 @@ def test_validation_and_cleanup_failure_remains_failed(
     )
     with pytest.raises(RecipeInstallationError):
         install_reviewed_runtime(
-            "piers", settings=Settings(), operation_id=operation, report=phases.append
+            "piers", settings=settings, operation_id=operation, report=phases.append
         )
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)
@@ -185,6 +198,7 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
     code: str,
     factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
 ) -> None:
     from kodi_lab.runtime.ostree import CommandResult
     from kodi_lab.runtime.ostree_worker import require_support_success
@@ -201,7 +215,7 @@ def test_missing_reviewed_support_records_exact_category_without_approval(
     )
     with pytest.raises(RecipeInstallationError):
         install_reviewed_runtime(
-            "piers", settings=Settings(), operation_id=operation, report=phases.append
+            "piers", settings=settings, operation_id=operation, report=phases.append
         )
     with factory() as session:
         row = RuntimeRecipeInstallationRepository(session).get(operation)

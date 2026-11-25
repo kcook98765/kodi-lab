@@ -52,7 +52,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0001_managed_v2",)
+        ).fetchone() == ("0001_foundation",)
 
 
 def test_failed_schema_command_cannot_poison_later_clone(
@@ -63,18 +63,18 @@ def test_failed_schema_command_cannot_poison_later_clone(
     config, _database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0001_managed_v2",
+        start_revision="0001_foundation",
     )
     with pytest.raises(CommandError, match="Can't locate revision"):
         command.upgrade(config, "not_a_revision")
 
     later = tmp_path / "later.db"
-    migration_templates.clone("0001_managed_v2", later)
+    migration_templates.clone("0001_foundation", later)
     with sqlite3.connect(later) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0001_managed_v2",)
+        ).fetchone() == ("0001_foundation",)
 
 
 _RESET_PHASE_INSTANCE = UUID("61000000-0000-4000-8000-000000000003")
@@ -617,7 +617,7 @@ def test_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0001_managed_v2"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     command.upgrade(config, "head")
     engine = create_database_engine(database_url)
@@ -1117,7 +1117,7 @@ def test_install_attempts_are_unique_active_and_terminal_immutable(
     config, database_url = migration_setup(
         monkeypatch,
         tmp_path,
-        start_revision="0001_managed_v2",
+        start_revision="0001_foundation",
     )
     command.upgrade(config, "head")
     engine = create_database_engine(database_url)
@@ -1174,7 +1174,7 @@ def test_development_publication_identity_is_durable_and_single_current(
     tmp_path: Path,
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0001_managed_v2"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     command.upgrade(config, "head")
     engine = create_database_engine(database_url)
@@ -1224,7 +1224,7 @@ def test_repository_workspace_deployment_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0001_managed_v2"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     command.upgrade(config, "head")
     engine = create_database_engine(database_url)
@@ -1249,7 +1249,7 @@ def test_development_capability_amendments_reinitialization(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(
-        monkeypatch, tmp_path, start_revision="0001_managed_v2"
+        monkeypatch, tmp_path, start_revision="0001_foundation"
     )
     baseline_engine = create_database_engine(database_url)
     baseline_tables = [
