@@ -31,6 +31,7 @@ from kodi_lab.broker.operations import (
 from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.socket_path import SocketPathConfig
 from kodi_lab.broker.transport import MAX_FRAME_PAYLOAD, receive_frame, send_frame
+from tests.broker.test_authorization_dispatch import REVIEWED_RUNTIME_OPERATIONS
 
 
 def raw_request(operation: str = "ping", params: object = None) -> bytes:
@@ -70,49 +71,7 @@ def test_real_temporary_unix_server_client_round_trip(
         assert client.ping() == PingResult(status="healthy", protocol_version=1)
         assert isinstance(client.broker_info(), BrokerInfoResult)
         assert client.capabilities() == CapabilitiesResult(
-            operations=[
-                "active_reviewed_runtime_installation",
-                "apply_addon_zip_installation",
-                "apply_assigned_fixture",
-                "apply_managed_instance_snapshot",
-                "apply_repository_replacement",
-                "broker_info",
-                "capabilities",
-                "capture_managed_instance_snapshot",
-                "capture_managed_kodi_screenshot",
-                "capture_promotion_kodi_log_cursor",
-                "capture_smoke_log_cursor",
-                "copy_sync_attached_development_source",
-                "copy_sync_mcp_workspace",
-                "copy_sync_promoted_development_source",
-                "delete_managed_snapshot_artifact",
-                "deprovision_managed_container",
-                "establish_managed_bridge_trust",
-                "inspect_mcp_workspace_deployment",
-                "inspect_repository_replacement",
-                "launch_reviewed_runtime_installation",
-                "managed_container_inventory",
-                "observe_addon_zip_destination",
-                "observe_managed_kodi_runtime",
-                "observe_native_zip_installation",
-                "observe_reviewed_runtime_installation",
-                "ping",
-                "provision_managed_container",
-                "read_promotion_kodi_log_window",
-                "read_smoke_log_window",
-                "read_stopped_managed_diagnostics",
-                "read_stopped_managed_logs",
-                "reconstruction_destination",
-                "remove_mismatched_managed_container",
-                "review_source_additions",
-                "reviewed_runtime_image_present",
-                "start_managed_container",
-                "stop_managed_container",
-                "verify_addon_zip_enablement_destination",
-                "verify_addon_zip_smoke_destination",
-                "verify_attached_development_source_destination",
-                "verify_mcp_workspace_destination",
-            ],
+            operations=REVIEWED_RUNTIME_OPERATIONS,
             protocol_version=1,
         )
     assert not socket_config.socket_path.exists()

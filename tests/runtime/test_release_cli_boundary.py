@@ -15,26 +15,19 @@ def test_release_profile_rejects_private_archive_commands(
     assert error.value.code == 2
 
 
-def test_release_network_setup_does_not_load_private_catalog(
+def test_release_rejects_retired_shared_network_setup_before_catalog_load(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from kodi_lab.runtime import distribution
 
-    class Client:
-        api = object()
-
-        def close(self) -> None:
-            pass
-
     monkeypatch.setenv("KODI_LAB_RELEASE_BUNDLE", "1")
-    monkeypatch.setattr("docker.from_env", lambda: Client())
-    monkeypatch.setattr(distribution, "ensure_managed_network", lambda api: True)
     monkeypatch.setattr(
         distribution,
         "load_curated_runtimes",
         lambda: pytest.fail("private catalog loaded"),
     )
-    assert main(["network-ensure"]) == 0
+    with pytest.raises(SystemExit, match="2"):
+        main(["network-ensure"])
 
 
 @pytest.mark.parametrize("experimental", (False, True))

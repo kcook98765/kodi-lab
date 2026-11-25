@@ -13,7 +13,7 @@ import pytest
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
 from kodi_lab.managed.protocol import Document
-from kodi_lab.managed.runtime import Refusal, Runtime
+from kodi_lab.managed.runtime import LABEL, Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
 
 
@@ -109,6 +109,32 @@ def test_managed_logging_does_not_inherit_daemon_local_compression(
     assert args[args.index("--log-driver") + 1] == "json-file"
     assert "max-file=1" in args
     assert "max-size=2m" in args
+
+
+@pytest.mark.parametrize("internal", [True, False])
+def test_managed_network_requires_private_target_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, internal: bool
+) -> None:
+    root = tmp_path / "trial"
+    root.mkdir(mode=0o700)
+    runtime = Runtime(root)
+    commands: list[tuple[str, ...]] = []
+
+    def docker(*args: str) -> str:
+        commands.append(args)
+        if args[1] == "ls":
+            assert args[-1] == f"name=^{runtime.network_name}$"
+            return "network-id"
+        assert args == ("network", "inspect", "network-id")
+        labels = {LABEL: str(uuid4()) if internal else str(runtime.target)}
+        return json.dumps(
+            [{"Id": "network-id", "Internal": internal, "Labels": labels}]
+        )
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
+    with pytest.raises(Refusal, match="network_identity"):
+        runtime.network()
+    assert [command[1] for command in commands] == ["ls", "inspect"]
 
 
 def test_strict_writer_and_active_gate(tmp_path: Path) -> None:
