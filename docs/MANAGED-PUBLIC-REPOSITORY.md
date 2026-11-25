@@ -79,10 +79,14 @@ ports accept only the Docker host gateway on its control interface. The
 native runtime remains protected by the existing RPC and signed Bridge
 auth. Egress has a 15-minute upper bound and no restart policy.
 
-The approved host is the transport boundary. The relay cannot inspect
-encrypted HTTP paths or authority headers on the shared Pages front end.
-It cannot attest exact content before Kodi processes it. An owner can use
-the private feed workflow when pre-install archive-byte control is required.
+The approved hostname and pinned IPv4 route are the transport boundary.
+Other project paths under the same Pages hostname are reachable during the
+disposable session. The relay cannot enforce individual encrypted HTTP paths
+or authority headers. Other authority routing depends on the shared Pages
+front end. Operator approval covers the reviewed repository and artifacts.
+Kodi can process changed public content and start an installed service before
+the post-install identity check. Use the private feed when exact archive bytes
+must be controlled before installation.
 
 The candidate uses the Docker isolated IPv4 gateway mode and its standard
 bridge for this temporary helper. This deployment arrangement is qualified

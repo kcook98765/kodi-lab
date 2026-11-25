@@ -621,7 +621,9 @@ class Controller:
         result: Document = self.runtime.rpc("Addons.GetAddons", properties=["version"])
         return {row["addonid"]: row["version"] for row in result["addons"]}
 
-    def verify(self, pkg: Package, *, origin: str = REPO, exact: bool = False) -> Document:
+    def verify(
+        self, pkg: Package, *, origin: str = REPO, exact: bool = False
+    ) -> Document:
         current = self.installed(pkg.id)
         if not current or not current["enabled"] or current["version"] != pkg.version:
             raise Refusal("native_install_state_mismatch")
