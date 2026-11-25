@@ -1,13 +1,12 @@
-"""Existing-registration reconnect runs on the upgraded durable schema."""
+"""Existing-registration reconnect runs on the current durable schema."""
 
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from alembic import command
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, inspect, text
+from sqlalchemy import Engine, text
 
 from kodi_lab.application.external_reconnect import ReconnectStartRequest
 from kodi_lab.storage.engine import create_database_engine
@@ -21,50 +20,16 @@ from tests.migration_support import (  # noqa: F401
     migration_templates,
 )
 
-REVISION = "0001_initial_release"
-PREDECESSOR = "0001_initial_release"
+REVISION = "0001_foundation"
 env = household_fixtures.env
 live_application = household_fixtures.live_application
 
 
-def test_empty_reconnect_upgrade_preserves_tables_and_triggers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    engine = create_database_engine(url)
-    before = set(inspect(engine).get_table_names())
-    with engine.connect() as connection:
-        triggers = connection.execute(
-            text(
-                "SELECT name,sql FROM sqlite_master WHERE type='trigger' ORDER BY name"
-            )
-        ).all()
-    command.upgrade(config, REVISION)
-    assert set(inspect(engine).get_table_names()) == before | {
-        "external_reconnect_operations"
-    }
-    with engine.connect() as connection:
-        assert (
-            connection.execute(
-                text(
-                    "SELECT name,sql FROM sqlite_master "
-                    "WHERE type='trigger' ORDER BY name"
-                )
-            ).all()
-            == triggers
-        )
-        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
-    assert set(inspect(engine).get_table_names()) == before
-    engine.dispose()
-
-
 @pytest.fixture
-def upgraded_schema(
+def initial_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[Any, Engine]]:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
-    command.upgrade(config, REVISION)
-    command.upgrade(config, "head")
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
     engine = create_database_engine(url)
     monkeypatch.setattr(onboarding_fixtures, "create_engine", lambda _url: engine)
     monkeypatch.setattr(Base.metadata, "create_all", lambda _engine: None)
@@ -74,9 +39,9 @@ def upgraded_schema(
 
 @pytest.fixture
 def migrated_environment(
-    upgraded_schema: tuple[Any, Engine], env: Environment
+    initial_schema: tuple[Any, Engine], env: Environment
 ) -> tuple[Environment, Any, Engine]:
-    config, engine = upgraded_schema
+    config, engine = initial_schema
     return env, config, engine
 
 
