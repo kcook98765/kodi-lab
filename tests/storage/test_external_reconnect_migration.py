@@ -20,16 +20,15 @@ from tests.migration_support import (  # noqa: F401
     migration_templates,
 )
 
-REVISION = "0001_foundation"
 env = household_fixtures.env
 live_application = household_fixtures.live_application
 
 
 @pytest.fixture
-def initial_schema(
+def head_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[Any, Engine]]:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
+    config, url = migration_setup(monkeypatch, tmp_path)
     engine = create_database_engine(url)
     monkeypatch.setattr(onboarding_fixtures, "create_engine", lambda _url: engine)
     monkeypatch.setattr(Base.metadata, "create_all", lambda _engine: None)
@@ -39,9 +38,9 @@ def initial_schema(
 
 @pytest.fixture
 def migrated_environment(
-    initial_schema: tuple[Any, Engine], env: Environment
+    head_schema: tuple[Any, Engine], env: Environment
 ) -> tuple[Environment, Any, Engine]:
-    config, engine = initial_schema
+    config, engine = head_schema
     return env, config, engine
 
 

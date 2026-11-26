@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sqlite3
 from contextlib import closing
@@ -60,6 +61,24 @@ def migration_config(database: Path) -> Config:
     )
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
     return config
+
+
+def assert_worker_replay_trigger_delta(
+    before: dict[str, str], after: dict[str, str]
+) -> None:
+    """Verify the recorded replay trigger additions and every prior trigger."""
+    fixture = Path(__file__).parent / "fixtures" / "worker-replay-schema.json"
+    expected = {
+        name: definition["sql_sha256"]
+        for name, definition in json.loads(fixture.read_text())["objects"].items()
+        if definition["type"] == "trigger"
+    }
+    assert before.keys().isdisjoint(expected)
+    assert after.keys() == before.keys() | expected.keys()
+    assert {name: after[name] for name in before} == before
+    assert {
+        name: hashlib.sha256(after[name].encode()).hexdigest() for name in expected
+    } == expected
 
 
 @pytest.fixture(scope="session", autouse=True)

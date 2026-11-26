@@ -6,8 +6,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-
-REVISION = "0001_foundation"
+from alembic.script import ScriptDirectory
 
 
 def _revision(database: Path) -> str:
@@ -67,14 +66,15 @@ def test_reinitialization_retains_reviewed_rows_and_capability_guards(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
+    head = ScriptDirectory.from_config(config).get_current_head()
     command.upgrade(config, "head")
-    assert _revision(database) == REVISION
+    assert _revision(database) == head
     with sqlite3.connect(database) as connection:
         _review(connection, '["screenshot","workspace_deployment"]', 1)
     original = _triggers(database)
     assert original
-    command.upgrade(config, REVISION)
-    assert _revision(database) == REVISION
+    command.upgrade(config, "head")
+    assert _revision(database) == head
     assert _triggers(database) == original
     with sqlite3.connect(database) as connection:
         assert connection.execute(
@@ -87,5 +87,5 @@ def test_reinitialization_retains_reviewed_rows_and_capability_guards(
             )
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["screenshot","arbitrary_execution"]', 3)
-    assert _revision(database) == REVISION
+    assert _revision(database) == head
     assert _triggers(database) == original
