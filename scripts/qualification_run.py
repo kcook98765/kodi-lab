@@ -321,13 +321,22 @@ def retire_root(root: Path) -> None:
     )
 
 
-def closeout(evidence: Path, children: Sequence[subprocess.Popen[bytes]] = ()) -> bool:
+def closeout(
+    evidence: Path,
+    children: Sequence[subprocess.Popen[bytes]] = (),
+    *,
+    release_hold: bool = False,
+) -> bool:
     record = read(evidence / OWNER)
     if record.get("owner_uid") != int(os.environ["SUDO_UID"]):
         raise ValueError("Only the recorded run owner can close this qualification")
-    if (evidence / "hold.json").exists():
-        write(evidence / RESULT, {"state": "retained", "run": record["run"]})
-        return False
+    hold = evidence / "hold.json"
+    if hold.exists():
+        if not release_hold:
+            write(evidence / RESULT, {"state": "retained", "run": record["run"]})
+            return False
+        write(evidence / "released-hold.json", read(hold))
+        hold.unlink()
     prior = read(evidence / RESULT) if (evidence / RESULT).is_file() else {}
     candidate = Path(record["root"])
     if (
@@ -479,6 +488,10 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
         f"--regid={gid}",
         "--init-groups",
         "git",
+        "-c",
+        "core.attributesFile=/dev/null",
+        "-c",
+        "core.excludesFile=/dev/null",
         "--no-optional-locks",
         "-C",
         str(source),
@@ -504,6 +517,7 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
         "source_commit": commit,
         "source_tree": tree,
         "owner_uid": uid,
+        "supervisor": stamp(os.getpid()),
         "namespace": "klq-" + run_id,
     }
     (root / "run-id").write_text(run_id)
@@ -606,6 +620,7 @@ def main() -> int:
     )
     arguments = sys.argv[1:]
     separator = arguments.index("--") if "--" in arguments else len(arguments)
+    parser.add_argument("--release-hold", action="store_true")
     options = parser.parse_args(arguments[:separator])
     command = arguments[separator + 1 :]
     evidence = options.evidence.absolute()
@@ -613,14 +628,14 @@ def main() -> int:
     if os.getuid() != 0:
         parser.error("Qualification supervision must run as root")
     if options.action == "run":
-        if not command:
+        if not command or options.release_hold:
             parser.error("Run requires a workload after --")
         evidence.mkdir(mode=0o700)
     with lock(evidence):
         if options.action == "closeout":
             if command or options.hold:
                 parser.error("Closeout accepts an exact evidence directory")
-            return 0 if closeout(evidence) else 2
+            return 0 if closeout(evidence, release_hold=options.release_hold) else 2
         if options.hold:
             owner, reason, scope, review = options.hold
             if not all(value.strip() for value in options.hold):

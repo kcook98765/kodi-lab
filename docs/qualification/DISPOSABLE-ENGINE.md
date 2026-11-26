@@ -39,7 +39,8 @@ with the same source owner. A live workload group blocks retirement. The
 closeout checks the recorded Engine, process incarnations, and run root before
 any mutation. It preserves a hold until the operator explicitly resolves it.
 Use `--hold OWNER REASON SCOPE YYYY-MM-DD` before the workload separator when
-an environment must remain for a specific review.
+an environment must remain for a specific review. The recorded owner can
+explicitly release it by adding `--release-hold` to the closeout command.
 
 ```sh
 sudo -n python3 -B -m scripts.qualification_run closeout /absolute/private-evidence-directory
