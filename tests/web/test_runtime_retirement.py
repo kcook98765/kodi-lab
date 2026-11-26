@@ -341,3 +341,32 @@ def test_reenable_fsync_failure_fences_native_writes(
         == "available"
     )
     target.omega.require_not_retired()
+
+
+def test_retirement_review_uses_matrix_generation_without_catalog_version(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def request(
+        _client: BrokerClient, actor: str, name: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        assert (actor, name, args["generation"]) == (
+            "admin",
+            "runtime_retirement_review",
+            "matrix",
+        )
+        return {
+            "result": {
+                "state": "available",
+                "image": IMAGE,
+                "working_profile": True,
+            },
+            "elapsed_seconds": 0,
+        }
+
+    monkeypatch.setattr(BrokerClient, "request", request)
+    login(client)
+    review = client.get("/storage-maintenance/runtime/matrix")
+    assert review.status_code == 200
+    assert "<h1>Matrix runtime retirement</h1>" in review.text
+    assert "Matrix 19.5" not in review.text
+    assert IMAGE in review.text
