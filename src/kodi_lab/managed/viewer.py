@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from kodi_lab.broker.novnc import (
+    VIEW_HELPER,
     DisplayLane,
     DockerViewTunnel,
     ViewBinding,
@@ -62,7 +63,8 @@ def display_lane(
             request,
             valid,
             proof=lambda exec_id: (
-                exec_id is None or helper_exited(binding.container, exec_id)
+                exec_id is None
+                or helper_exited(binding, exec_id, interactive=interactive)
             ),
             finished=(
                 (
@@ -89,17 +91,40 @@ def display_lane(
     )
 
 
-def helper_exited(container_id: str, exec_id: str) -> bool:
-    # The helper owns its X input fence until exit. If the exec completed,
-    # the tunnel's own exec_inspect check is sufficient. A removed container
-    # is also definitive. Other Docker errors keep the input gate occupied.
+def helper_exited(binding: ViewBinding, exec_id: str, *, interactive: bool) -> bool:
+    # The interactive helper exits successfully only after neutralizing keys
+    # and buttons. A failed exit in a still-live incarnation needs a read-only
+    # native probe before the controller can restore agent input.
     from docker import APIClient  # type: ignore[import-untyped]
     from docker.errors import NotFound  # type: ignore[import-untyped]
 
     with APIClient(base_url="unix:///var/run/docker.sock", timeout=1) as client:
         try:
-            return client.exec_inspect(exec_id).get("Running") is False
+            exec_state = client.exec_inspect(exec_id)
+            if exec_state.get("Running") is not False:
+                return False
+            if not interactive or exec_state.get("ExitCode") == 0:
+                return True
+            state = client.inspect_container(binding.container)["State"]
+            if state["Running"] is False or state["StartedAt"] != binding.started:
+                return True
+            probe = client.exec_create(
+                binding.container,
+                cmd=["/usr/bin/python3", "-I", "-B", VIEW_HELPER, "--probe-control"],
+                user="1000:1000",
+                stdin=False,
+                stdout=False,
+                stderr=False,
+                tty=False,
+                privileged=False,
+            )["Id"]
+            client.exec_start(probe)
+            observation = client.exec_inspect(probe)
+            return observation["Running"] is False and bool(
+                observation["ExitCode"] == 0
+            )
         except NotFound:
+            # No matching container means the old display and its input are gone.
             return not bool(
-                docker("ps", "-aq", "--no-trunc", "--filter", "id=" + container_id)
+                docker("ps", "-aq", "--no-trunc", "--filter", "id=" + binding.container)
             )

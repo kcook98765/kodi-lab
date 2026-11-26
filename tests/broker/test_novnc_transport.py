@@ -37,6 +37,7 @@ class DockerDouble:
     def __init__(self) -> None:
         self.wire, self.helper = socket.socketpair()
         self.calls: dict[str, Any] = {}
+        self.started = "start"
 
     def exec_create(self, container: str, **kwargs: Any) -> dict[str, str]:
         self.calls = {"container": container, **kwargs}
@@ -45,6 +46,13 @@ class DockerDouble:
     def exec_start(self, *args: Any, **kwargs: Any) -> Attached:
         assert kwargs == {"socket": True, "tty": False}
         return Attached(self.wire)
+
+    def inspect_container(self, container: str) -> dict[str, object]:
+        return {
+            "Id": container,
+            "Image": "sha256:" + "b" * 64,
+            "State": {"StartedAt": self.started, "Running": True},
+        }
 
     def exec_inspect(self, _: str) -> dict[str, bool]:
         return {"Running": False}
@@ -265,3 +273,111 @@ def test_proven_native_teardown_retries_unconfirmed_durable_completion(
     finally:
         peer.close()
         lane.close()
+
+
+@pytest.mark.parametrize("mode", ["view-only", "interactive"])
+def test_managed_absolute_deadline_only_applies_to_interactive(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    monkeypatch.setattr(transport, "MAX_CONTROL_SESSION", 0.1)
+    monkeypatch.setattr(transport, "PASSIVE_HELPER", "FIXED_PASSIVE_SOURCE")
+    client = DockerDouble()
+    tunnel = DockerViewTunnel(
+        ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", ()),
+        ViewRequest(uuid4(), "c" * 64, 2, uuid4(), mode),
+        lambda: True,
+        client=client,
+    )
+    web, broker = socket.socketpair()
+    thread = Thread(target=tunnel.run, args=(broker, Event()))
+    thread.start()
+    try:
+        web.settimeout(1)
+        client.helper.settimeout(1)
+        nonce = b"KLVNCARM" + b"n" * 32
+        client.helper.sendall(struct.pack("!B3sI", 1, b"\0" * 3, len(nonce)) + nonce)
+        assert client.helper.recv(37).endswith(nonce[8:])
+        thread.join(0.25)
+        assert thread.is_alive() is (mode == "view-only")
+        command = client.calls["cmd"]
+        if mode == "view-only":
+            assert command[3:] == ["-c", "FIXED_PASSIVE_SOURCE", transport.VIEW_HELPER]
+            web.sendall(struct.pack("!BI", 2, 0))
+            frame = b"RFB 003.008\n"
+            client.helper.sendall(
+                struct.pack("!B3sI", 1, b"\0" * 3, len(frame)) + frame
+            )
+            assert web.recv(len(frame)) == frame
+        else:
+            assert command[3:] == [transport.VIEW_HELPER]
+    finally:
+        web.close()
+        thread.join(2)
+        broker.close()
+    assert not thread.is_alive() and tunnel.result.terminated
+
+
+def test_same_container_restarted_before_arm_is_refused() -> None:
+    client = DockerDouble()
+    client.started = "new-start"
+    tunnel = make_tunnel(client)
+    web, broker = socket.socketpair()
+    signal = Event()
+
+    def run() -> None:
+        try:
+            tunnel.run(broker, Event())
+        except ValueError:
+            signal.set()
+
+    thread = Thread(target=run)
+    thread.start()
+    try:
+        nonce = b"KLVNCARM" + b"n" * 32
+        client.helper.sendall(struct.pack("!B3sI", 1, b"\0" * 3, len(nonce)) + nonce)
+        assert signal.wait(1)
+        assert tunnel.result.reason == "arming_denied"
+        assert not tunnel.result.armed
+    finally:
+        web.close()
+        thread.join(2)
+        broker.close()
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "started", "probe_exit", "proven", "probe_used"),
+    [
+        (0, "start", 0, True, False),
+        (1, "start", 0, True, True),
+        (1, "start", 1, False, True),
+        (1, "replacement", 1, True, False),
+    ],
+)
+def test_interactive_cleanup_checks_native_input_after_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    started: str,
+    probe_exit: int,
+    proven: bool,
+    probe_used: bool,
+) -> None:
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from kodi_lab.managed.viewer import helper_exited
+
+    binding = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", ())
+    docker = Mock()
+    docker.exec_inspect.side_effect = [
+        {"Running": False, "ExitCode": exit_code},
+        {"Running": False, "ExitCode": probe_exit},
+    ]
+    docker.inspect_container.return_value = {
+        "State": {"Running": True, "StartedAt": started}
+    }
+    docker.exec_create.return_value = {"Id": "probe"}
+    monkeypatch.setattr("docker.APIClient", lambda **_kwargs: nullcontext(docker))
+    assert helper_exited(binding, "interactive", interactive=True) is proven
+    assert bool(docker.exec_create.call_count) is probe_used
+    if probe_used:
+        assert docker.exec_create.call_args.kwargs["cmd"][-1] == "--probe-control"

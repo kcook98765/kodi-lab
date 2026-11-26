@@ -33,6 +33,12 @@ function disconnect() {
   control = false;
 }
 
+function stopWatching() {
+  disconnect();
+  watching = false;
+  view.textContent = "View";
+}
+
 function connect(interactive = false) {
   disconnect();
   if (!ready || !watching) return;
@@ -42,6 +48,7 @@ function connect(interactive = false) {
   const protocols = interactive ? ["novnc", "control." + panel.dataset.csrf] : ["novnc"];
   const url = scheme + "//" + location.host + base + "/view";
   viewer.hidden = false;
+  statusLine.textContent = "ready";
   viewStatus.textContent = "Connecting…";
   client = new RFB(viewer, url, {wsProtocols: protocols, shared: true});
   client.scaleViewport = true;
@@ -52,9 +59,8 @@ function connect(interactive = false) {
   client.addEventListener("disconnect", () => {
     if (sequence !== generation) return;
     client = null;
-    control = false;
-    viewer.hidden = true;
-    viewStatus.textContent = "Viewer disconnected.";
+    stopWatching();
+    viewStatus.textContent = "Viewer disconnected. Select View to reconnect.";
   });
 }
 
@@ -74,10 +80,14 @@ function renderNetwork(profile) {
 
 async function refresh() {
   const response = await fetch(base, {cache: "no-store"});
+  if (response.status === 401) {
+    ready = false;
+    statusLine.textContent = "Sign in to view Kodi.";
+    return;
+  }
   const data = await response.json();
   if (!response.ok) {
-    ready = false;
-
+    if (data.code !== "managed_busy") ready = false;
     statusLine.textContent = data.code === "managed_busy" ? "Kodi is busy." : "Kodi state unavailable.";
     return;
   }
@@ -85,13 +95,12 @@ async function refresh() {
   renderNetwork(data.profile);
   ready = state === "ready";
   if (!ready && client !== null) {
-    disconnect();
+    stopWatching();
     viewStatus.textContent = "Kodi screen unavailable.";
   }
-  if (ready && watching && client === null && !control) connect();
   recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
   const phase = {starting: "Starting", stopping: "Stopping", retired: "Retired"}[state] ?? state.replaceAll("_", " ");
-  statusLine.textContent = `${phase} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
+  statusLine.textContent = watching ? phase : `${phase} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
   if (retired) statusLine.textContent += " · Review retirement to re-enable this runtime.";
   if (profile_version) statusLine.textContent += ` · Working profile: Kodi ${profile_version}`;
   if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
@@ -162,12 +171,14 @@ panel.addEventListener("click", event => {
 });
 networkAccess.addEventListener("change", () => { networkSettingEdited = true; });
 view.addEventListener("click", () => {
-  watching = !watching;
-  view.textContent = watching ? "Close View" : "View";
-  if (watching) connect();
-  else {
-    disconnect();
+  if (!watching && !ready) return;
+  if (watching) {
+    stopWatching();
     viewStatus.textContent = "";
+  } else {
+    watching = true;
+    view.textContent = "Close View";
+    connect();
   }
 });
 document.querySelector("#managed-take-control").addEventListener("click", () => {
@@ -175,13 +186,18 @@ document.querySelector("#managed-take-control").addEventListener("click", () => 
   watching = true;
   view.textContent = "Close View";
   disconnect();
-  window.setTimeout(() => connect(true), 600);
+  const handoff = sequence;
+  window.setTimeout(() => { if (sequence === handoff && watching) connect(true); }, 600);
 });
 document.querySelector("#managed-release-control").addEventListener("click", () => {
   if (!control) return;
   disconnect();
-  window.setTimeout(() => connect(), 600);
+  const handoff = sequence;
+  window.setTimeout(() => { if (sequence === handoff && watching) connect(); }, 600);
 });
-window.addEventListener("pagehide", disconnect);
+window.addEventListener("pagehide", () => {
+  stopWatching();
+  viewStatus.textContent = "";
+});
 void refresh().catch(() => { statusLine.textContent = "Kodi state unavailable."; });
-window.setInterval(() => { if (!busy) void refresh().catch(() => {}); }, 4500);
+window.setInterval(() => { if (!busy && !watching) void refresh().catch(() => {}); }, 4500);

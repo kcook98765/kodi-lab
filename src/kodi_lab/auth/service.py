@@ -119,6 +119,11 @@ class WebAuthenticationService:
                 absolute_expires_at=record.absolute_expires_at,
             )
 
+    def resolve_read_only(self, token: str | None) -> AuthenticatedWebSession | None:
+        """Check revocation and expiry without treating a heartbeat as activity."""
+        with self._session_factory() as session:
+            return self.resolve_in_session(session, token)
+
     def resolve_in_session(
         self, session: Session, token: str | None
     ) -> AuthenticatedWebSession | None:

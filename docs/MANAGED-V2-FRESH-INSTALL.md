@@ -17,14 +17,27 @@ Prepare leaves the selected working profile stopped. Start checks native Kodi
 and authenticated Bridge readiness. There is one independent working profile
 per runtime version and one running managed instance per site. Stop preserves
 the profile. Reset replaces it with a clean baseline. Stop the current instance
-before switching versions. Release human input before granting agent ownership,
-and release agent ownership before taking human control.
+before switching versions. Use **Release Control** when the agent should
+resume native input.
 
 Under **Agents**, issue credentials and explicitly enable Trusted Managed Lab.
 Agents use [bounded ZIP admission](MCP-TOOLS-AND-PERMISSIONS.md#managed-package-transfer), acquire exclusive use and call the native installer.
 For ordinary edits, stop Kodi, deploy from the private workspace, then start
 and execute the changed add-on. Release exclusive use when finished.
 Administer external registrations and grants independently under **External Kodi**.
+
+## Watch managed Kodi during development
+
+Select **View** to watch the running Kodi at up to 2 FPS. The stream has no
+viewer-specific duration limit. The Web sign-in still expires after 12 hours
+without Web activity or seven days from login. Agent tool calls use their own
+credentials. When the Web session expires, sign in and select **View** again.
+
+**Take Control** temporarily excludes agent input for up to ten minutes.
+**Release Control** closes the interactive worker and restores any still-valid
+agent claim after cleanup. The agent can inspect Kodi while its previous claim
+remains valid. A stopped or replaced Kodi ends the stream. Select **View** again
+to watch the next start.
 
 ## Managed Kodi network access
 

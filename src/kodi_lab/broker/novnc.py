@@ -16,6 +16,7 @@ from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
+from importlib.resources import files
 from threading import BoundedSemaphore, Event, Lock, Thread
 from typing import Any
 from uuid import UUID
@@ -28,8 +29,16 @@ from kodi_lab.viewer_diagnostics import diagnostic
 
 CHUNK = 65536
 BACKLOG = 1024 * 1024
-MAX_SESSION = 600.0
+MAX_CONTROL_SESSION = 600.0
+VIEW_HELPER = "/usr/local/lib/kodi-lab-novnc-view.py"
 WEB_LEASE_SECONDS = 2.0
+# Closed, package-owned source. Existing sealed Kodi images keep their original
+# interactive helper and need no profile or image changes for passive viewing.
+PASSIVE_HELPER = (
+    files("kodi_lab.broker")
+    .joinpath("passive_view_helper.py")
+    .read_text(encoding="utf-8")
+)
 
 
 @dataclass(frozen=True)
@@ -125,11 +134,24 @@ class DockerViewTunnel:
         except Exception:
             return False
 
+    def same_incarnation(self) -> bool:
+        container = self.client.inspect_container(self.binding.container)
+        state = container["State"]
+        return (
+            container["Id"] == self.binding.container
+            and container["Image"] == self.binding.image
+            and state["Running"] is True
+            and bool(state["StartedAt"] == self.binding.started)
+        )
+
     def run(self, web: socket.socket, stopped: Event) -> None:
         attached: Any = None
         wire: socket.socket | None = None
         selector = selectors.DefaultSelector()
         start = time.monotonic()
+        interactive = self.request.mode == "interactive"
+        command = [VIEW_HELPER] if interactive else ["-c", PASSIVE_HELPER, VIEW_HELPER]
+        deadline = start + MAX_CONTROL_SESSION if interactive else float("inf")
         output = bytearray()
         from_exec = bytearray()
         to_exec = bytearray()
@@ -158,12 +180,7 @@ class DockerViewTunnel:
                 raise ValueError("view identity denied")
             created = self.client.exec_create(
                 self.binding.container,
-                cmd=[
-                    "/usr/bin/python3",
-                    "-I",
-                    "-B",
-                    "/usr/local/lib/kodi-lab-novnc-view.py",
-                ],
+                cmd=["/usr/bin/python3", "-I", "-B", *command],
                 user="1000:1000",
                 stdin=True,
                 stdout=True,
@@ -196,7 +213,7 @@ class DockerViewTunnel:
             phase = "helper_stream"
             last_write = time.monotonic()
             previous_iteration = last_write
-            while not stopped.is_set() and time.monotonic() - start < MAX_SESSION:
+            while not stopped.is_set() and time.monotonic() < deadline:
                 now = time.monotonic()
                 iteration_max = max(iteration_max, now - previous_iteration)
                 previous_iteration = now
@@ -231,7 +248,7 @@ class DockerViewTunnel:
                             # a later read or suffix cannot refresh that prefix.
                             web_renewed = web_receipts[0][1]
                         else:
-                            if self.request.mode == "interactive" and not valid():
+                            if interactive and not valid():
                                 self.result.reason = "input_revoked"
                                 return
                             self.result.bytes_up += size
@@ -299,6 +316,7 @@ class DockerViewTunnel:
                                         if (
                                             arm_challenge[:8] != b"KLVNCARM"
                                             or not valid()
+                                            or not self.same_incarnation()
                                         ):
                                             self.result.reason = "arming_denied"
                                             raise ValueError("native arming denied")

@@ -1,5 +1,7 @@
 # Standard managed Kodi viewing
 
+For the current managed-v2 viewer, see [Watch managed Kodi during development](MANAGED-V2-FRESH-INSTALL.md#watch-managed-kodi-during-development). This page records qualification of the earlier viewer.
+
 The [November 13 input scheduling correction](VIEWER-INPUT-SCHEDULING.md)
 addresses confirmed broker starvation during coalesced interactive input.
 It has bounded native transport evidence. The owner subsequently

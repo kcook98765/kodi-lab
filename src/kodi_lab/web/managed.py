@@ -49,6 +49,7 @@ def managed_router(
     mutation_session: Callable[..., AuthenticatedWebSession],
     *,
     resolve_session: Callable[[str | None], AuthenticatedWebSession | None],
+    recheck_passive_session: Callable[[str | None], AuthenticatedWebSession | None],
     cookie_name: str,
     same_origin: Callable[[WebSocket], bool],
     require_https: bool,
@@ -157,6 +158,7 @@ def managed_router(
             cookie_name,
             same_origin,
             require_https,
+            recheck_passive_session=recheck_passive_session,
             generation=version,
         )
 
