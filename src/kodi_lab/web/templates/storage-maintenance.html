@@ -5,7 +5,7 @@
 <h1>Storage &amp; Maintenance</h1>
 <p><a href="/kodi">Overview</a> · <a href="/managed-kodi">Managed Kodi</a> · <a href="/storage-maintenance">Refresh inventory</a></p>
 {% if inventory.warning %}
-<p class="notice" role="status">Storage is running low on a Kodi Lab filesystem.</p>
+<p class="notice" role="status">Storage is running low. Check the scope marked Low below. Stop and inspection remain available. Review eligible feed copies before retrying an operation refused for lack of space.</p>
 {% endif %}
 <p class="secondary">
   {% if inventory.age is none %}Managed storage inventory is unavailable.
@@ -119,6 +119,7 @@
     </select>
     <button type="submit">Review feed cleanup</button>
   </form>
+  <p><a href="/storage-maintenance/review#automatic-feed-cleanup">Pause or resume automatic feed cleanup</a></p>
   <p>Application and runtime rollback generations remain protected.</p>
 </section>
 {% endblock %}

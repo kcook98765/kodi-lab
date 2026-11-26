@@ -6,6 +6,7 @@
 <p><a href="/storage-maintenance">Storage &amp; Maintenance</a> · <a href="/managed-kodi?generation={{ generation }}">Managed Kodi</a></p>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 {% if review %}
+<p>Retirement disables this runtime and removes eligible private services. An administrator can re-enable it from this page. The working profile, snapshots, and image stay on disk.</p>
 <p>Runtime state {{ review.state | capitalize }}.</p>
 {% if review.reason %}<p role="status">{{ review.reason }}</p>{% endif %}
 <h2>Recovery and dependencies</h2>
@@ -41,7 +42,7 @@
 {% endif %}
 {% if outcome %}
 {% if outcome.state == "retired" %}
-<p role="status">The runtime retired. Its working profile, snapshots, backups and reviewed image remain available for recovery.</p>
+<p role="status">The runtime retired. You can re-enable it from the review page. Its working profile, snapshots, backups and reviewed image remain available for recovery.</p>
 {% elif outcome.state == "available" %}
 <p role="status">The runtime is enabled. Use Managed Kodi to start it when you are ready.</p>
 {% else %}
