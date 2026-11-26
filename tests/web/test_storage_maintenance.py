@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -245,3 +246,65 @@ def test_same_digest_replacement_requires_a_new_preview(target: Controller) -> N
     result = target.storage_maintenance.execute(item["token"], SESSION, "omega")
     assert result["state"] == "skipped"
     assert path.read_bytes() == old.data
+
+
+def test_partial_retry_preserves_a_same_digest_replacement(
+    target: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = publish(target, "1.0.0")
+    publish(target, "2.0.0")
+    item = preview(target)
+    path = path_for(target, old)
+    checksum = path.with_suffix(".zip.sha256")
+    unlink = Path.unlink
+
+    def fail(path: Path, missing_ok: bool = False) -> None:
+        if path == checksum:
+            raise OSError("checksum removal interrupted")
+        unlink(path, missing_ok=missing_ok)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(Path, "unlink", fail)
+        first = target.storage_maintenance.execute(item["token"], SESSION, "omega")
+    assert first["state"] == "pending" and not path.exists()
+    path.write_bytes(old.data)
+    resumed = target.storage_maintenance.execute(item["token"], SESSION, "omega")
+    assert resumed["state"] == "needs_review"
+    target.resume_feed_cleanup()
+    assert path.read_bytes() == old.data
+    assert checksum.exists()
+
+
+def test_pending_authorizations_are_deduplicated_and_can_expire(
+    target: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = publish(target, "1.0.0")
+    publish(target, "2.0.0")
+    first = preview(target)
+    second = preview(target)
+    service = target.storage_maintenance
+    with monkeypatch.context() as blocked:
+        blocked.setattr(storage_maintenance, "runtime_idle", lambda *_: False)
+        assert service.execute(first["token"], SESSION, "omega")["state"] == "pending"
+        with pytest.raises(Refusal, match="storage_maintenance_already_pending"):
+            service.execute(second["token"], SESSION, "omega")
+    assert len(service.history()) == 1 and path_for(target, old).exists()
+    monkeypatch.setattr(
+        storage_maintenance, "time", SimpleNamespace(time=lambda: first["expires"] + 1)
+    )
+    assert service.execute(first["token"], SESSION, "omega")["state"] == "needs_review"
+    fresh = service.review("omega", "d" * 64)["items"][0]
+    assert service.execute(fresh["token"], "d" * 64, "omega")["state"] == "removed"
+
+
+def test_bounded_review_can_page_past_protected_copies(target: Controller) -> None:
+    packages = [publish(target, f"{version}.0.0") for version in range(1, 7)]
+    catalog = target.omega.root / "catalog.json"
+    catalog.write_text(json.dumps([pkg.digest for pkg in packages[:4]]))
+    service = target.storage_maintenance
+    first = service.review("omega", SESSION, 1)
+    assert first["next_page"] == 2
+    assert not any(row["token"] for row in first["items"])
+    second = service.review("omega", SESSION, 2)
+    assert second["items"][0]["artifact"]["digest"] == packages[4].digest
+    assert second["items"][0]["token"]

@@ -29,6 +29,12 @@
 </section>
 {% endfor %}
 {% endif %}
+{% if review.previous_page or review.next_page %}
+<nav aria-label="Feed review pages">
+{% if review.previous_page %}<a href="/storage-maintenance/review?generation={{ generation }}&amp;page={{ review.previous_page }}">Previous feed copies</a>{% endif %}
+{% if review.next_page %}<a href="/storage-maintenance/review?generation={{ generation }}&amp;page={{ review.next_page }}">Next feed copies</a>{% endif %}
+</nav>
+{% endif %}
 <h2>Automatic feed cleanup</h2>
 <form action="/storage-maintenance/policy" method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

@@ -18,10 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from kodi_lab.storage.inventory_snapshot import observe_filesystem, read_file
 
 from .feed_retirement import (
+    PENDING_LIMIT,
     FeedCopy,
     FeedRetirement,
     FeedState,
+    PairIdentity,
     PendingCopy,
+    pair_matches,
     runtime_idle,
 )
 from .packages import HEX
@@ -59,6 +62,7 @@ class Plan(BaseModel):
     engine: str
     publication: str
     fingerprint: str
+    pair: PairIdentity
     artifact: FeedCopy
 
 
@@ -147,6 +151,7 @@ class StorageMaintenance:
 
     @staticmethod
     def summarize(outcome: Outcome) -> Document:
+        outcome = expired_summary(outcome, int(time.time()))
         return {
             "identity": outcome.identity,
             "generation": outcome.plan.generation,
@@ -158,10 +163,11 @@ class StorageMaintenance:
             "available_delta": outcome.available_delta,
         }
 
-    def review(self, generation: str, session: str) -> Document:
+    def review(self, generation: str, session: str, page: int = 1) -> Document:
         native, book = self.target(generation)
         result: Document = {
             "generation": generation,
+            "page": page,
             "automatic": self.automatic(),
             "items": [],
             "history": [self.summarize(item) for item in reversed(self.history())],
@@ -173,6 +179,10 @@ class StorageMaintenance:
             if not state.current or not state.pending:
                 result["reason"] = "No tracked superseded feed copies were found."
                 return result
+            if page > 1:
+                result["previous_page"] = page - 1
+            if page * REVIEW_LIMIT < len(state.pending):
+                result["next_page"] = page + 1
             self.offer_review(native, book, state, session, result)
         except (Refusal, *OBSERVATION_ERRORS):
             result["reason"] = (
@@ -199,7 +209,8 @@ class StorageMaintenance:
         elif not state.engine or not runtime_idle(native, state.engine):
             exclusion = "Kodi is active or its Engine could not be verified."
         catalog = book.approved_catalog() if exclusion is None else set()
-        for pending in state.pending[:REVIEW_LIMIT]:
+        offset = (result["page"] - 1) * REVIEW_LIMIT
+        for pending in state.pending[offset : offset + REVIEW_LIMIT]:
             item = pending.artifact
             row: Document = {
                 "artifact": item.model_dump(exclude={"source"}),
@@ -222,6 +233,7 @@ class StorageMaintenance:
                         engine=state.engine,
                         publication=state.current.index,
                         fingerprint=proof_digest(proof.identities),
+                        pair=proof.pair,
                         artifact=item,
                     )
                     row.update(
@@ -245,8 +257,16 @@ class StorageMaintenance:
         return {"automatic": self.automatic()}
 
     def reserve(self, history: list[Outcome], outcome: Outcome) -> list[Outcome]:
+        now = int(time.time())
+        history[:] = [expired_summary(item, now) for item in history]
+        if any(
+            item.state == "pending"
+            and item.plan.generation == outcome.plan.generation
+            and item.plan.artifact == outcome.plan.artifact
+            for item in history
+        ):
+            raise Refusal("storage_maintenance_already_pending")
         if len(history) == HISTORY_LIMIT:
-            now = int(time.time())
             expired = next(
                 (
                     index
@@ -275,7 +295,7 @@ class StorageMaintenance:
                     or previous.plan.generation != generation
                 ):
                     raise Refusal("storage_maintenance_preview_expired")
-                if previous.state != "pending":
+                if previous.state != "pending" or previous.plan.expires <= time.time():
                     return self.summarize(previous)
                 outcome = previous
             else:
@@ -306,7 +326,9 @@ class StorageMaintenance:
                     "The archive, current publication or protection changed.",
                 )
             if proof_digest(proof.identities) != plan.fingerprint and not (
-                outcome.attempted and pending.phase == "removing"
+                outcome.attempted
+                and pending.phase == "removing"
+                and pair_matches(plan.pair, proof.pair)
             ):
                 return self.store(
                     outcome, "skipped", "The reviewed file identity changed."
@@ -321,6 +343,11 @@ class StorageMaintenance:
                 latest = history[index]
                 if latest.state != "pending":
                     return latest
+                if latest.plan.expires <= time.time():
+                    expired = expired_summary(latest, int(time.time()))
+                    return self.save_result(
+                        history, latest, expired.state, expired.reason
+                    )
                 if self.operation_pending(native):
                     return latest.model_copy(
                         update={"reason": "A native or public operation is pending."}
@@ -392,6 +419,7 @@ class StorageMaintenance:
             item.state == "pending"
             and item.plan.generation == generation
             and item.plan.artifact == artifact
+            and item.plan.expires > time.time()
             for item in self.history()
         )
 
@@ -435,8 +463,14 @@ class StorageMaintenance:
         session = args.get("session", "")
         if not HEX.fullmatch(session):
             raise Refusal("invalid_storage_maintenance_request")
-        if name == "storage_review" and set(args) == {"session", "generation"}:
-            return self.review(args["generation"], session)
+        if name == "storage_review" and set(args) == {"session", "generation", "page"}:
+            raw_page = args["page"]
+            if not raw_page.isascii() or not raw_page.isdecimal() or len(raw_page) > 2:
+                raise Refusal("invalid_storage_maintenance_request")
+            page = int(raw_page)
+            if not 1 <= page <= (PENDING_LIMIT + REVIEW_LIMIT - 1) // REVIEW_LIMIT:
+                raise Refusal("invalid_storage_maintenance_request")
+            return self.review(args["generation"], session, page)
         if (
             name == "storage_execute"
             and set(args) == {"session", "token", "generation"}
@@ -444,6 +478,17 @@ class StorageMaintenance:
         ):
             return self.execute(args["token"], session, args["generation"])
         raise Refusal("invalid_storage_maintenance_request")
+
+
+def expired_summary(item: Outcome, now: int) -> Outcome:
+    if item.state == "pending" and item.plan.expires <= now:
+        return item.model_copy(
+            update={
+                "state": "needs_review",
+                "reason": "Authorization expired. Review the remaining files again.",
+            }
+        )
+    return item
 
 
 def only_exact_pending(state: FeedState, plan: Plan) -> PendingCopy | None:

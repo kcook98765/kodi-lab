@@ -1917,6 +1917,7 @@ def create_app(
                 "storage_maintenance_preview_expired": "Open a new review.",
                 "managed_busy": "Retry when the managed Kodi operation finishes.",
                 "storage_maintenance_history_capacity": "Maintenance is at capacity.",
+                "storage_maintenance_already_pending": "A review is pending.",
                 "managed_generation_unavailable": "This runtime is unavailable.",
             }
             error = errors.get(
@@ -1944,11 +1945,14 @@ def create_app(
     def storage_review(
         request: Request,
         generation: str = "omega",
+        page: Annotated[int, Query(ge=1, le=24)] = 1,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
         if generation not in RELEASES:
             raise HTTPException(404)
-        return maintenance_page(request, authenticated, generation)
+        return maintenance_page(
+            request, authenticated, generation, extra={"page": str(page)}
+        )
 
     @app.post("/storage-maintenance/cleanup", response_class=HTMLResponse)
     def storage_cleanup(

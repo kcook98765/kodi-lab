@@ -34,6 +34,7 @@ class FeedCapacity(Refusal):
     """Publication would exceed the bounded durable cleanup queue."""
 
 
+Identity = tuple[int, int, int, int, int]
 Digest = Annotated[str, Field(pattern=f"^{HEX.pattern}$")]
 Addon = Annotated[str, Field(pattern=f"^{ADDON_ID.pattern}$")]
 Version = Annotated[str, Field(pattern=f"^{VERSION.pattern}$")]
@@ -60,9 +61,15 @@ class Publication(FeedModel):
     copies: Annotated[tuple[FeedCopy, ...], Field(max_length=CATALOG_LIMIT)]
 
 
+class PairIdentity(FeedModel):
+    archive: Identity | None
+    checksum: Identity | None
+
+
 class PendingCopy(FeedModel):
     artifact: FeedCopy
     phase: Literal["pending", "removing"] = "pending"
+    pair: PairIdentity | None = None
 
 
 class FeedState(FeedModel):
@@ -325,6 +332,11 @@ class FeedRetirement:
                 if folder == self.managed_root:
                     break
         removing = pending.phase == "removing"
+        pair = PairIdentity(
+            archive=before[paths.index(target)], checksum=before[paths.index(sidecar)]
+        )
+        if removing and (pending.pair is None or not pair_matches(pending.pair, pair)):
+            return None
         primary = file_digest(target)
         try:
             secondary = read_file(sidecar, 65)
@@ -338,7 +350,7 @@ class FeedRetirement:
             or snapshot_paths(paths) != before
         ):
             return None
-        return RetirementProof(target, sidecar, canonical_root, paths, before)
+        return RetirementProof(target, sidecar, canonical_root, paths, before, pair)
 
     def require_feed_mounts(self) -> None:
         require_unmounted_tree(
@@ -360,7 +372,9 @@ class FeedRetirement:
         if self.read() != state or snapshot_paths(proof.paths) != proof.identities:
             return False
         if pending.phase == "pending":
-            marked = PendingCopy(artifact=pending.artifact, phase="removing")
+            marked = PendingCopy(
+                artifact=pending.artifact, phase="removing", pair=proof.pair
+            )
             self.write(
                 FeedState(
                     target=state.target,
@@ -393,9 +407,6 @@ class FeedRetirement:
         return True
 
 
-Identity = tuple[int, int, int, int, int]
-
-
 @dataclass(frozen=True)
 class IndexProof:
     paths: tuple[Path, ...]
@@ -409,6 +420,13 @@ class RetirementProof:
     canonical_root: Path
     paths: tuple[Path, ...]
     identities: tuple[Identity | None, ...]
+    pair: PairIdentity
+
+
+def pair_matches(expected: PairIdentity, current: PairIdentity) -> bool:
+    return (current.archive is None or current.archive == expected.archive) and (
+        current.checksum is None or current.checksum == expected.checksum
+    )
 
 
 def snapshot_paths(paths: tuple[Path, ...]) -> tuple[Identity | None, ...]:
