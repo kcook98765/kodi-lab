@@ -35,13 +35,6 @@
 {% if review.next_page %}<a href="/storage-maintenance/review?generation={{ generation }}&amp;page={{ review.next_page }}">Next feed copies</a>{% endif %}
 </nav>
 {% endif %}
-<h2>Automatic feed cleanup</h2>
-<form action="/storage-maintenance/policy" method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="generation" value="{{ generation }}">
-  <p>Automatic retirement is {{ "enabled" if review.automatic else "paused" }}.</p>
-  <button type="submit" name="enabled" value="{{ 'false' if review.automatic else 'true' }}">{{ "Pause" if review.automatic else "Resume" }} automatic feed cleanup</button>
-</form>
 {% if review.history %}
 <h2>Recent maintenance</h2>
 <ul>
@@ -49,11 +42,22 @@
 <li>
   <time datetime="{{ item.timestamp }}">{{ item.timestamp }}</time> · {{ item.actor }} · {{ item.generation | capitalize }} · {{ item.artifact.addon }} {{ item.artifact.version }} · {{ item.state | replace("_", " ") | capitalize }}.
   {{ item.reason }}
-  {% if item.state == "removed" %}Estimated reclaimable file bytes {{ byte_size(item.estimated_bytes) }}. Observed net available-space change {% if item.available_delta is not none %}{{ "%+d" | format(item.available_delta) }} B{% else %}Unknown{% endif %}.{% endif %}
+  {% if item.state == "removed" %}Estimated reclaimable file bytes {{ byte_size(item.estimated_bytes) }}. Observed net available-space change {% if item.available_delta is not none %}{{ "+" if item.available_delta > 0 else ("-" if item.available_delta < 0 else "") }}{{ byte_size(item.available_delta | abs) }}{% else %}Unknown{% endif %}.{% endif %}
 </li>
 {% endfor %}
 </ul>
 {% endif %}
+{% endif %}
+{% set cleanup = review if review else policy %}
+{% if cleanup %}
+<h2 id="automatic-feed-cleanup">Automatic feed cleanup</h2>
+<p>This setting applies to all managed Kodi versions and is enabled by default. Pausing leaves explicit cleanup available. A full feed cleanup backlog can block a publication that adds another cleanup obligation.</p>
+<form action="/storage-maintenance/policy" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="generation" value="{{ generation }}">
+  <p{% if policy %} role="status"{% endif %}>Automatic feed cleanup is {{ "enabled" if cleanup.automatic else "paused" }}.</p>
+  <button type="submit" name="enabled" value="{{ 'false' if cleanup.automatic else 'true' }}">{{ "Pause" if cleanup.automatic else "Resume" }} automatic feed cleanup</button>
+</form>
 {% endif %}
 {% if outcome %}
 <section aria-labelledby="cleanup-result">
@@ -62,7 +66,7 @@
 <p>{{ outcome.generation | capitalize }} · {{ outcome.artifact.addon }} {{ outcome.artifact.version }}</p>
 {% if outcome.state == "removed" %}
 <p>Estimated reclaimable file bytes {{ byte_size(outcome.estimated_bytes) }}.
-Observed net available-space change {% if outcome.available_delta is not none %}{{ "%+d" | format(outcome.available_delta) }} B{% else %}Unknown{% endif %}.</p>
+Observed net available-space change {% if outcome.available_delta is not none %}{{ "+" if outcome.available_delta > 0 else ("-" if outcome.available_delta < 0 else "") }}{{ byte_size(outcome.available_delta | abs) }}{% else %}Unknown{% endif %}.</p>
 <p>Concurrent writes, shared storage and delayed frees affect the filesystem measurement.</p>
 {% elif outcome.state == "pending" and token %}
 <form action="/storage-maintenance/cleanup" method="post">
@@ -74,5 +78,4 @@ Observed net available-space change {% if outcome.available_delta is not none %}
 {% endif %}
 </section>
 {% endif %}
-{% if policy %}<p role="status">Automatic feed cleanup is {{ "enabled" if policy.automatic else "paused" }}.</p>{% endif %}
 {% endblock %}

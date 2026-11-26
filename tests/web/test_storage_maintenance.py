@@ -308,3 +308,47 @@ def test_bounded_review_can_page_past_protected_copies(target: Controller) -> No
     second = service.review("omega", SESSION, 2)
     assert second["items"][0]["artifact"]["digest"] == packages[4].digest
     assert second["items"][0]["token"]
+
+
+def test_automatic_cleanup_control_keeps_scope_and_reverse_action_visible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = True
+
+    def request(
+        _client: BrokerClient, actor: str, name: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        nonlocal state
+        assert actor == "admin"
+        if name == "storage_policy":
+            state = args["enabled"] == "true"
+        else:
+            assert name == "storage_review"
+        return {"result": {"automatic": state, "items": []}, "elapsed_seconds": 0}
+
+    monkeypatch.setattr(BrokerClient, "request", request)
+    csrf = login(client)
+    review = client.get("/storage-maintenance/review?generation=matrix")
+    assert "This setting applies to all managed Kodi versions" in review.text
+    assert "Pause automatic feed cleanup" in review.text
+    data = {"generation": "matrix", "csrf_token": csrf}
+    pause = client.post(
+        "/storage-maintenance/policy",
+        data={**data, "enabled": "false"},
+        headers=ORIGIN,
+    )
+    assert pause.status_code == 200
+    assert "Automatic feed cleanup is paused" in pause.text
+    assert "Resume automatic feed cleanup" in pause.text
+    assert (
+        "Automatic feed cleanup is paused"
+        in client.get("/storage-maintenance/review?generation=omega").text
+    )
+    resume = client.post(
+        "/storage-maintenance/policy",
+        data={**data, "enabled": "true"},
+        headers=ORIGIN,
+    )
+    assert resume.status_code == 200
+    assert "Pause automatic feed cleanup" in resume.text
+    assert state
