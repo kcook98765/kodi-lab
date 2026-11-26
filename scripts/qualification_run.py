@@ -559,7 +559,11 @@ def collect(evidence: Path, root: Path, record: Doc, result: int | None) -> None
 
 def start_process(args: list[str], log: Path) -> subprocess.Popen[bytes]:
     with log.open("wb") as stream:
-        return subprocess.Popen(args, stdout=stream, stderr=subprocess.STDOUT)
+        # Keep evidence private without imposing that umask on unpacked
+        # container root filesystems, which must support image-configured users.
+        return subprocess.Popen(
+            args, stdout=stream, stderr=subprocess.STDOUT, umask=0o022
+        )
 
 
 def wait_ready(*args: str) -> None:
