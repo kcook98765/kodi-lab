@@ -23,9 +23,12 @@ additional socket bind in its actual worker namespace before that worker
 mutates a site. A separate nested Engine needs its own positive endpoint
 proof. The supervisor owns the complete private Docker and containerd stores,
 and thus the test site, run-local builder configuration, and resources created
-inside them. Keep unique inputs, source changes, and files required for
-reproduction in the evidence location before closeout. The source worktree is
-borrowed and stays under the operator's control.
+inside them. Keep the workload and its helper processes within the
+supervised process group. Write reproduction files to the directory named by
+`KODI_LAB_QUALIFICATION_ARTIFACTS`. Up to 64 owned regular files totaling
+64 MiB are exported and verified with the evidence manifest. Use an explicit
+hold for any evidence that requires a different export or more space.
+The source worktree is borrowed and stays under the operator's control.
 
 The run owner gets a private result, endpoint and resource inventory, bounded
 log files, and a checksum manifest. The supervisor reads the manifest back

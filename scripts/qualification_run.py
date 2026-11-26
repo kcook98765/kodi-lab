@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -28,6 +29,8 @@ from scripts.test_scratch import process_start_ticks
 
 TMP = Path("/tmp")
 MAX_LOG = 256 * 1024
+MAX_ARTIFACTS = 64
+MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 OWNER = "qualification-run.json"
 MANIFEST = "evidence-sha256.json"
 RESULT = "closeout.json"
@@ -127,6 +130,16 @@ def socket_identity(path: Path, process: Doc) -> tuple[int, int]:
 
 def namespaces(pid: int) -> tuple[str, str]:
     return (os.readlink(f"/proc/{pid}/ns/mnt"), os.readlink(f"/proc/{pid}/ns/net"))
+
+
+def require_private_mounts() -> None:
+    for line in Path("/proc/self/mountinfo").read_bytes().splitlines():
+        optional = line.partition(b" - ")[0].split()[6:]
+        if any(
+            field.startswith((b"shared:", b"master:", b"propagate_from:"))
+            for field in optional
+        ):
+            raise ValueError("Qualification mount propagation is not private")
 
 
 def docker(root: Path, *args: str) -> str:
@@ -259,11 +272,63 @@ def digest(path: Path) -> str:
 
 def evidence_verified(evidence: Path) -> bool:
     manifest = read(evidence / MANIFEST)
-    return set(manifest) == set(EVIDENCE) | {OWNER} and all(
+    required = set(EVIDENCE) | {OWNER}
+    extra = set(manifest) - required
+    if not required <= manifest.keys() or len(extra) > MAX_ARTIFACTS:
+        return False
+    if extra and (
+        not extra
+        <= {f"artifacts/{path.name}" for path in (evidence / "artifacts").iterdir()}
+        or (evidence / "artifacts").is_symlink()
+    ):
+        return False
+    return all(
         stat.S_ISREG((evidence / name).lstat().st_mode)
         and digest(evidence / name) == expected
         for name, expected in manifest.items()
     )
+
+
+def export_artifacts(root: Path, evidence: Path, uid: int) -> list[str]:
+    destination = evidence / "artifacts"
+    destination.mkdir(mode=0o700, exist_ok=True)
+    owned_path(destination, 0)
+    remaining = MAX_ARTIFACT_BYTES
+    exported: list[str] = []
+    inbox = root / "artifact-inbox"
+    for item in inbox.iterdir():
+        if len(exported) >= MAX_ARTIFACTS or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}", item.name
+        ):
+            raise ValueError("Unsupported qualification artifact inventory")
+        fd = os.open(item, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as artifact:
+            info = os.fstat(artifact.fileno())
+            if not (
+                stat.S_ISREG(info.st_mode)
+                and info.st_uid == uid
+                and info.st_nlink == 1
+                and 0 <= info.st_size <= remaining
+            ):
+                raise ValueError("Artifact ownership, type or size is unsupported")
+            data = artifact.read(info.st_size + 1)
+            if len(data) != info.st_size:
+                raise ValueError("Qualification artifact changed during readback")
+        path = destination / item.name
+        temporary = destination / ("." + uuid4().hex)
+        with temporary.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+        remaining -= len(data)
+        exported.append(f"artifacts/{item.name}")
+    fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return exported
 
 
 def inventory(root: Path) -> Doc:
@@ -281,15 +346,18 @@ def inventory(root: Path) -> Doc:
     }
 
 
-def check_root(record: Doc) -> Path:
+def check_root(record: Doc, *, retiring: bool) -> Path:
     root = Path(record["root"])
     if root.parent != TMP or not re.fullmatch(r"klq\.[a-z0-9_]{8}", root.name):
         raise ValueError("Run root is outside the private qualification namespace")
     observed = owned_path(root, 0, traversable=True)
-    if [observed.st_dev, observed.st_ino] != record["root_identity"] or (
-        (root / "run-id").read_text() != record["run"]
-    ):
+    if [observed.st_dev, observed.st_ino] != record["root_identity"]:
         raise ValueError("Run root was replaced")
+    marker = root / "run-id"
+    if retiring and not marker.exists() and not any(root.iterdir()):
+        return root
+    if not stat.S_ISREG(marker.lstat().st_mode) or marker.read_text() != record["run"]:
+        raise ValueError("Run root marker was replaced")
     return root
 
 
@@ -310,15 +378,48 @@ def wait_gone(identity: Doc) -> None:
     raise ValueError("Owned daemon did not exit")
 
 
+def require_inactive_run(root: Path, endpoint: Doc) -> None:
+    for name in ("docker.sock", "ctr.sock"):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(1)
+            try:
+                client.connect(str(root / name))
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ECONNREFUSED):
+                    raise
+            else:
+                raise ValueError("Qualification root still has an active daemon")
+    for process in Path("/proc").iterdir():
+        if not process.name.isdecimal() or int(process.name) == os.getpid():
+            continue
+        try:
+            mount, net = namespaces(int(process.name))
+            argv = (process / "cmdline").read_bytes().split(b"\0")
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        if mount == endpoint["mount_namespace"] or net == endpoint["network_namespace"]:
+            raise ValueError("Qualification namespaces still have an active process")
+        encoded = os.fsencode(root)
+        if any(arg == encoded or arg.startswith(encoded + b"/") for arg in argv):
+            raise ValueError("A process still references the qualification root")
+
+
 def retire_root(root: Path) -> None:
     mount = os.fsencode(root)
     for line in Path("/proc/self/mountinfo").read_bytes().splitlines():
         point = line.split()[4]
         if point == mount or point.startswith(mount + b"/"):
             raise ValueError("Qualification root still has a mounted descendant")
-    subprocess.run(
-        ["rm", "-r", "--one-file-system", "--", str(root)], check=True, timeout=60
-    )
+    marker = root / "run-id"
+    for child in root.iterdir():
+        if child != marker:
+            subprocess.run(
+                ["rm", "-r", "--one-file-system", "--", str(child)],
+                check=True,
+                timeout=60,
+            )
+    marker.unlink(missing_ok=True)
+    root.rmdir()
 
 
 def closeout(
@@ -348,7 +449,8 @@ def closeout(
             raise ValueError("Evidence readback failed")
         write(evidence / RESULT, {"state": "retired", "run": record["run"]})
         return True
-    root = check_root(record)
+    retiring = prior == {"state": "retiring", "run": record["run"]}
+    root = check_root(record, retiring=retiring)
     if record.get("workload") and record["workload"]["boot"] == boot_id():
         try:
             os.killpg(record["workload"]["pid"], 0)
@@ -363,10 +465,10 @@ def closeout(
         write(evidence / "teardown-endpoint.json", checked)
         if not (evidence / MANIFEST).exists():
             collect(evidence, root, record, None)
-    elif any(still_live):
-        if prior != {"state": "retiring", "run": record["run"]}:
+    else:
+        if not retiring:
             raise ValueError(
-                "Only one daemon is live and no verified teardown is in progress"
+                "Recorded daemon identity is incomplete without verified teardown"
             )
         checked = read(evidence / "teardown-endpoint.json")
         for process, active, name in zip(
@@ -390,6 +492,7 @@ def closeout(
         if child is not None:
             child.wait(timeout=12)
         wait_gone(process)
+    require_inactive_run(root, checked)
     retire_root(root)
     write(evidence / RESULT, {"state": "retired", "run": record["run"]})
     return True
@@ -412,9 +515,10 @@ def collect(evidence: Path, root: Path, record: Doc, result: int | None) -> None
     for name in EVIDENCE:
         with (evidence / name).open("rb") as stream:
             os.fsync(stream.fileno())
+    artifacts = export_artifacts(root, evidence, record["owner_uid"])
     write(
         evidence / MANIFEST,
-        {name: digest(evidence / name) for name in (*EVIDENCE, OWNER)},
+        {name: digest(evidence / name) for name in (*EVIDENCE, OWNER, *artifacts)},
     )
 
 
@@ -441,19 +545,46 @@ def workload(
         env.pop(name, None)
     env["DOCKER_HOST"] = "unix://" + str(DOCKER_ALIAS)
     env["DOCKER_CONFIG"] = str(root / "client")
+    env["KODI_LAB_QUALIFICATION_ARTIFACTS"] = str(root / "artifact-inbox")
+    read_fd, write_fd = os.pipe()
+    gate_script = """import os, sys
+fd = int(sys.argv[1])
+marker = os.read(fd, 1)
+os.close(fd)
+if marker != b"1":
+    sys.exit(125)
+os.execvp(sys.argv[2], sys.argv[2:])
+"""
     with (
+        os.fdopen(read_fd, "rb") as inherited,
         subprocess.Popen(
-            ["setpriv", f"--reuid={uid}", f"--regid={gid}", "--init-groups", *command],
+            [
+                "setpriv",
+                f"--reuid={uid}",
+                f"--regid={gid}",
+                "--init-groups",
+                sys.executable,
+                "-B",
+                "-c",
+                gate_script,
+                str(inherited.fileno()),
+                *command,
+            ],
+            pass_fds=(inherited.fileno(),),
             cwd=record["worktree"],
             env=env,
             start_new_session=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         ) as process,
+        os.fdopen(write_fd, "wb", buffering=0) as gate,
         (evidence / "workload.log").open("wb") as log,
     ):
+        inherited.close()
         record["workload"] = stamp(process.pid)
         write(evidence / OWNER, record)
+        gate.write(b"1")
+        gate.close()
         assert process.stdout is not None
         pipe = process.stdout.fileno()
         remaining = MAX_LOG
@@ -479,6 +610,7 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
     host_mount, host_net = namespaces(1)
     if os.getuid() != 0 or mount == host_mount or net == host_net:
         raise ValueError("Run in separate private Linux mount and network namespaces")
+    require_private_mounts()
     uid, gid = int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"])
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True, timeout=10)
     source = source.resolve(strict=True)
@@ -524,9 +656,10 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
     cfg = root / "containerd.toml"
     cfg.write_text(containerd_config(root))
     (root / "daemon.json").write_text("{}")
-    for name in ("docker-config", "client"):
+    for name in ("docker-config", "client", "artifact-inbox"):
         (root / name).mkdir(mode=0o700)
-    os.chown(root / "client", uid, gid)
+    for name in ("client", "artifact-inbox"):
+        os.chown(root / name, uid, gid)
     write(evidence / OWNER, record)
     inner = start_process(["containerd", "--config", str(cfg)], root / "containerd.log")
     outer: subprocess.Popen[bytes] | None = None
