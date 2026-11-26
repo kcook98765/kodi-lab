@@ -215,8 +215,6 @@ class Controller:
     def authorize_profile(
         self, name: str, actor: str, pending: Document | None
     ) -> Document | None:
-        if name in ADMIN and actor != "admin":
-            raise Refusal("managed_admin_required")
         if self.input_attempt is not None and name not in READ | PRIVATE:
             if actor == "admin" and name == "managed_release":
                 self.input_revoked = True
@@ -550,9 +548,9 @@ class Controller:
         }
 
     def perform_locked(self, name: str, args: dict[str, str]) -> object:
+        if name in ADMIN and self.actor != "admin":
+            raise Refusal("managed_admin_required")
         if name == "managed_network_access":
-            if self.actor != "admin":
-                raise Refusal("managed_admin_required")
             enabled = args["enabled"] == "true"
             atomic(self.omega.network_policy, b"true\n" if enabled else b"false\n")
             return {"network_access_configured": enabled}

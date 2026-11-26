@@ -22,6 +22,7 @@ from kodi_lab.managed.protocol import Document
 from kodi_lab.managed.runtime import LABEL, ProfileStage, Refusal, Runtime
 from kodi_lab.managed.runtime_retirement import Assets
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
+from kodi_lab.mcp.transport import MANAGED_TOOLS
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 
 
@@ -242,6 +243,7 @@ def test_configured_network_policy_is_global_admin_only_and_persistent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     controller = Controller(tmp_path, daemon_root=tmp_path, handoff_root=tmp_path)
+    assert "managed_network_access" not in MANAGED_TOOLS
     monkeypatch.setattr(Runtime, "inspect", lambda *_: None)
     actor = str(uuid4())
     controller.perform("managed_acquire", {}, actor=actor)

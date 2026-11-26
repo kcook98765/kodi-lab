@@ -38,7 +38,7 @@ PRIVATE = {
     "workspace_package",
     "package_import",
 }
-ADMIN = {"managed_take_control", "managed_recover"}
+ADMIN = {"managed_take_control", "managed_recover", "managed_network_access"}
 FIELDS = {
     "managed_prepare": (),
     "managed_public_repository_status": (),
