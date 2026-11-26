@@ -1,4 +1,4 @@
-"""Retained capability guards and real log pairing on the initial schema."""
+"""Retained capability guards and real log pairing on the current schema."""
 
 import json
 import sqlite3
@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.kodi.external import ExternalEndpointPolicy
@@ -23,8 +24,6 @@ from tests.storage.test_ui_observation_migration import (
     _revision,
     _triggers,
 )
-
-REVISION = "0001_foundation"
 
 
 def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
@@ -50,7 +49,7 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
             "SELECT * FROM external_bridge_pairings"
         ).fetchall()
     original = _triggers(database)
-    command.upgrade(config, REVISION)
+    command.upgrade(config, "head")
     assert _triggers(database) == original
     assert service.status(target) == paired
     with sqlite3.connect(database) as connection:
@@ -65,8 +64,8 @@ def test_current_migrated_pairing_preserves_rows_triggers_and_reinitialization(
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["arbitrary_execution","screenshot"]', 2)
     assert _triggers(database) == original
-    assert _revision(database) == REVISION
-    command.upgrade(config, REVISION)
+    assert _revision(database) == ScriptDirectory.from_config(config).get_current_head()
+    command.upgrade(config, "head")
     assert _triggers(database) == original
     engine.dispose()
 
@@ -117,6 +116,6 @@ def test_real_otp_coordinator_persists_log_capability_and_history(
             connection.execute("SELECT * FROM external_bridge_pairings").fetchall()
             == before
         )
-    assert _revision(database) == "0001_foundation"
+    assert _revision(database) == ScriptDirectory.from_config(config).get_current_head()
     assert _triggers(database) == current_triggers
     engine.dispose()

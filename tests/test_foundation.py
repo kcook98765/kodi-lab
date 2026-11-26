@@ -192,6 +192,9 @@ def test_development_root_rejects_unsafe_configuration(
 
 
 def test_migration_metadata_matches_fresh_schema() -> None:
-    schema_path = Path(__file__).parent / "fixtures/initial-schema.json"
-    expected = json.loads(schema_path.read_text())["tables"]
-    assert set(metadata.tables) == set(expected) - {"alembic_version"}
+    fixtures = Path(__file__).parent / "fixtures"
+    foundation = json.loads((fixtures / "initial-schema.json").read_text())["tables"]
+    replay = json.loads((fixtures / "worker-replay-schema.json").read_text())["tables"]
+    assert set(metadata.tables) == (foundation.keys() | replay.keys()) - {
+        "alembic_version"
+    }

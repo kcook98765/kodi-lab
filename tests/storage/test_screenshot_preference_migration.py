@@ -23,6 +23,7 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.storage.secrets import ExternalCredentialStore
 from tests.application.test_production_bridges import _Verifier
 from tests.migration_support import (  # noqa: F401
+    assert_worker_replay_trigger_delta,
     migration_setup,
     migration_templates,
 )
@@ -486,7 +487,7 @@ def test_reinitialization_preserves_opted_in_screenshot_authority_and_history(
             {k: v for k, v in before.items() if k != "external_screenshot_preferences"},
             old_columns,
         )
-        assert _triggers(connection) == original_triggers
+        assert_worker_replay_trigger_delta(original_triggers, _triggers(connection))
         assert {
             "external_secret_retirements",
             "household_onboarding_operations",

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from tests.application.test_production_bridges import (
@@ -19,8 +20,6 @@ from tests.storage.test_ui_observation_migration import (
     _triggers,
 )
 
-REVISION = "0001_foundation"
-
 
 @pytest.mark.parametrize(
     "capability_column", ["observed_capabilities_json", "verified_capabilities_json"]
@@ -29,6 +28,7 @@ def test_populated_production_authority_and_history_survive_reinitialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capability_column: str
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
+    head = ScriptDirectory.from_config(config).get_current_head()
     command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
@@ -78,7 +78,7 @@ def test_populated_production_authority_and_history_survive_reinitialization(
 
         before, triggers = rows(), _triggers(database)
         command.upgrade(config, "head")
-        assert _revision(database) == REVISION
+        assert _revision(database) == head
         assert rows() == before and _triggers(database) == triggers
         with sqlite3.connect(database) as connection:
             _review(connection, '["screenshot","system_snapshot"]', 2)
@@ -102,7 +102,7 @@ def test_populated_production_authority_and_history_survive_reinitialization(
             RuntimeError, match="initial managed-v2 schema cannot be downgraded"
         ):
             command.downgrade(config, "base")
-        assert _revision(database) == REVISION
+        assert _revision(database) == head
         assert _triggers(database) == triggers
     finally:
         engine.dispose()

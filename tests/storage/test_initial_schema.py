@@ -62,6 +62,13 @@ def test_fresh_contract_and_safe_reinitialization(
     )
     command.upgrade(config, "head")
     assert schema_manifest(database) == expected
+    before = database.read_bytes()
+    with pytest.raises(
+        RuntimeError, match="initial managed-v2 schema cannot be downgraded"
+    ):
+        command.downgrade(config, "base")
+    assert database.read_bytes() == before
+    assert schema_manifest(database) == expected
     fresh = tmp_path / "new-head.db"
     command.upgrade(migration_config(fresh), "head")
     assert schema_manifest(fresh) == expected

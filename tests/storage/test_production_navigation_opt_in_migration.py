@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
@@ -20,7 +21,7 @@ from tests.application.test_production_navigation import (
     _OuterLimiter,
     _Remote,
 )
-from tests.migration_support import migration_setup
+from tests.migration_support import assert_worker_replay_trigger_delta, migration_setup
 from tests.migration_support import migration_templates as migration_templates
 
 REVISION = "0001_foundation"
@@ -130,7 +131,7 @@ def test_reinitialization_preserves_rows_and_receipts_with_navigation_off(
                 text("SELECT name,sql FROM sqlite_master WHERE type='trigger'")
             ).all()
         )
-        assert triggers == after_triggers
+        assert_worker_replay_trigger_delta(triggers, after_triggers)
         assert indexes == {
             name: "".join(sql.replace('"', "").split())
             for name, sql in connection.execute(
@@ -171,7 +172,7 @@ def test_reinitialization_preserves_rows_and_receipts_with_navigation_off(
     with engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == REVISION
+            == ScriptDirectory.from_config(config).get_current_head()
         )
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
     engine.dispose()

@@ -38,7 +38,10 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    with connectable.connect() as connection:
+    with connectable.begin() as connection:
+        # sqlite3's legacy transaction mode does not begin a transaction for
+        # DDL. Keep all revision steps and version writes in one transaction.
+        connection.exec_driver_sql("BEGIN")
         check_database(
             cast(sqlite3.Connection, connection.connection.driver_connection),
             {

@@ -87,7 +87,7 @@ def test_real_coordinator_on_migrated_schema_and_durable_history(
     tmp_path: Path,
     env: Environment,
 ) -> None:
-    config, url = migration_setup(monkeypatch, tmp_path, start_revision=REVISION)
+    config, url = migration_setup(monkeypatch, tmp_path)
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     with env.sessions() as session:
