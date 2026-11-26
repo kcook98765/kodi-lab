@@ -302,6 +302,7 @@ from kodi_lab.web.presentation import (
     STATE_LABELS,
     state_label,
 )
+from kodi_lab.web.storage_inventory import StorageInventory, byte_size
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -1097,6 +1098,9 @@ def create_app(
     repository_data_root = Path(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
+    storage_inventory = StorageInventory(
+        settings.runtime_root, settings.data_root, repository_data_root
+    )
     development_repository = (
         DevelopmentRepositoryService(
             session_factory,
@@ -1146,6 +1150,7 @@ def create_app(
                 )
                 (development_repository.root / "ACK").unlink(missing_ok=True)
         context.mcp_workspace_development.sweep_startup()
+        storage_inventory.start()
         context.agent_workspace_executor.start()
         context.agent_workspace_cleanup_executor.start()
         context.mcp_workspace_retention.sweep(force=True)
@@ -1153,6 +1158,7 @@ def create_app(
             try:
                 yield
             finally:
+                storage_inventory.close()
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()
 
@@ -1861,6 +1867,30 @@ def create_app(
         )
     )
 
+    @app.get("/storage-maintenance", response_class=HTMLResponse)
+    def storage_maintenance_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "storage-maintenance.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "inventory": storage_inventory.snapshot(),
+                "byte_size": byte_size,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/storage-maintenance")
+    def storage_maintenance_status(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return JSONResponse(
+            storage_inventory.snapshot(), headers={"Cache-Control": "no-store"}
+        )
+
     @app.get("/kodi", response_class=HTMLResponse)
     def kodi_page(request: Request) -> Response:
         from kodi_lab import __version__
@@ -1876,6 +1906,7 @@ def create_app(
             {
                 "csrf_token": authenticated.csrf_token,
                 "overview": overview_summary(session_factory, kodi_views),
+                "storage_warning": storage_inventory.snapshot()["warning"],
                 "application_version": __version__,
             },
         )

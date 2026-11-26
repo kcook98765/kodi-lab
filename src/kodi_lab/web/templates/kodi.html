@@ -12,6 +12,10 @@
   {% if overview.production.attention or overview.development.attention %}
   <p class="notice">Some external Kodi connections need attention.</p>
   {% endif %}
+  {% if storage_warning %}
+  <p class="notice" role="status">Storage is running low on a Kodi Lab filesystem.</p>
+  {% endif %}
+  <p><a href="/storage-maintenance">Storage &amp; Maintenance</a></p>
   <p><a href="/settings">Advanced recovery and diagnostics</a></p>
 </section>
 <div class="kodi-grid">
