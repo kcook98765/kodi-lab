@@ -20,13 +20,19 @@ from kodi_lab.storage.inventory_snapshot import (
 
 class StorageInventory:
     def __init__(
-        self, runtime_root: Path, data_root: Path, repository_root: Path
+        self,
+        runtime_root: Path,
+        data_root: Path,
+        repository_root: Path,
+        development_root: Path | None = None,
     ) -> None:
         self._snapshot_path = runtime_root / SNAPSHOT_FILE
-        self._paths = (
+        self._paths = [
             (data_root, "Application data"),
             (repository_root, "Repository data"),
-        )
+        ]
+        if development_root is not None:
+            self._paths.append((development_root, "Development sources"))
         self._stopped = Event()
         self._broker: Document = {}
         self._local: tuple[float | None, list[Document]] = (None, [])
@@ -50,7 +56,12 @@ class StorageInventory:
             stopped.wait(10)
 
     def refresh(self) -> None:
-        rows = [observe_filesystem(path, scope) for path, scope in self._paths]
+        by_path: dict[Path, Document] = {}
+        rows = []
+        for path, scope in self._paths:
+            if path not in by_path:
+                by_path[path] = observe_filesystem(path, scope)
+            rows.append({**by_path[path], "scope": scope})
         self._local = (time.time(), rows)
         # Keep the most recent verified sample with its original timestamp.
         with suppress(OSError, ValueError, RecursionError):

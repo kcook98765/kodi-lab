@@ -16,7 +16,7 @@
 
 <section aria-labelledby="storage-filesystems">
   <h2 id="storage-filesystems">Filesystems</h2>
-  <p>Warnings appear below 10% available or 12 GiB available.</p>
+  <p>Warnings appear below 10% available or 12 GiB available. Identical observations appear together. Filesystem rows can overlap.</p>
   {% if inventory.filesystems %}
   <div class="matrix-table-wrap" role="region" aria-label="Filesystem measurements" tabindex="0">
   <table>
@@ -34,7 +34,7 @@
   </table>
   </div>
   {% else %}<p>Filesystem measurements are being collected.</p>{% endif %}
-  <p>{{ inventory.engine.scope | default("Docker Engine") }} filesystem capacity and available space are unknown unless represented by a measured application mount above. Engine metadata availability is {{ inventory.engine.state }}.</p>
+  <p>{{ inventory.engine.scope | default("Docker Engine") }} filesystem capacity and available space have no independent measurement. Engine metadata availability is {{ inventory.engine.state }}.</p>
   <p>Independent Windows host availability is unknown. Available space inside WSL 2 describes the guest filesystem. The Windows virtual disk changes separately.</p>
 </section>
 

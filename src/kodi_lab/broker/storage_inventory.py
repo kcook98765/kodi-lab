@@ -20,6 +20,8 @@ from kodi_lab.managed.prepare import (
     PREPARE_CLEANUP_CAPACITY,
     valid_prepare_receipt,
 )
+from kodi_lab.managed.protocol import Refusal
+from kodi_lab.managed.runtime import require_unmounted_tree
 from kodi_lab.storage.inventory_snapshot import (
     MAX_SNAPSHOT_BYTES,
     SNAPSHOT_FILE,
@@ -61,8 +63,9 @@ def allocated_bytes(root: Path, budget: WalkBudget) -> Document:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     total = 0
     try:
+        require_unmounted_tree(root)
         descriptor = os.open(root, flags)
-    except OSError:
+    except (OSError, Refusal):
         return {"bytes": None, "state": "unavailable"}
     try:
         base = os.fstat(descriptor)
@@ -96,6 +99,9 @@ def allocated_bytes(root: Path, budget: WalkBudget) -> Document:
                         total += info.st_blocks * 512
 
         walk(descriptor, 0)
+        require_unmounted_tree(root)
+    except Refusal:
+        return {"bytes": None, "state": "partial"}
     except FileNotFoundError:
         return {"bytes": None, "state": "changed"}
     except (OSError, InventoryLimit):
@@ -127,7 +133,12 @@ def profile_inventory(
         images.update(identity for identity in (pin, ready) if identity is not None)
         usage: Document = {"bytes": None, "state": "unprepared"}
         if slot:
-            usage = allocated_bytes(state_root / "volumes" / slot, budget)
+            volumes = state_root / "volumes"
+            usage = (
+                allocated_bytes(volumes / slot, budget)
+                if not state_root.is_symlink() and not volumes.is_symlink()
+                else {"bytes": None, "state": "unavailable"}
+            )
             if text_identity(pointer, SLOT) != slot:
                 usage = {"bytes": None, "state": "changed"}
         elif pointer.exists() or pointer.is_symlink():
@@ -176,8 +187,12 @@ def unattributed_profile_inventory(root: Path) -> Document:
 def snapshot_directories(root: Path) -> Iterator[tuple[str, Path]]:
     yield ("Administrator", root / "snapshots")
     agents = root / "agents"
-    if not directory(agents):
+    try:
+        valid = directory(agents)
+    except FileNotFoundError:
         return
+    if not valid:
+        raise InventoryLimit
     with os.scandir(agents) as entries:
         for count, entry in enumerate(entries):
             if count >= SNAPSHOT_LIMIT:
@@ -216,8 +231,6 @@ def snapshot_inventory(root: Path) -> Document:
                             "bytes": entry.stat(follow_symlinks=False).st_size,
                         }
                     )
-    except FileNotFoundError:
-        pass
     except (OSError, InventoryLimit):
         return {"items": results, "state": "partial"}
     return {"items": results, "state": "measured"}
@@ -247,7 +260,9 @@ def installer_backlog(root: Path) -> Document:
                 except (ValueError, OSError):
                     reason = "Worker receipt needs review"
                 else:
-                    if receipt.diagnostics:
+                    if receipt.create_rejected_status is not None:
+                        reason = "Rejected worker dispatch needs closeout"
+                    elif receipt.diagnostics:
                         reason = "Terminal worker removal pending"
                     elif receipt.container:
                         reason = "Exact worker needs reconciliation"
@@ -317,6 +332,8 @@ def prepare_inventory(root: Path) -> Document:
             if now < receipt["scratch_after"]:
                 reasons.add("Scratch is in its grace period")
                 grace += 1
+            elif receipt.get("scratch_allocation") is not None:
+                reasons.add("Scratch removal pending")
         if "engine" in receipt:
             reasons.add(
                 "Inspection removal pending"
@@ -351,14 +368,16 @@ def engine_inventory(images: set[str]) -> Document:
             timeout=ENGINE_TIMEOUT,
             check=True,
         )
-        system = outcome.stdout.lower()
-        if not system.strip():
-            raise ValueError("Empty Engine info")
+        _, _, kernel = outcome.stdout.strip().lower().split("|")
+        if not kernel:
+            raise ValueError("Empty Engine kernel")
     except (OSError, subprocess.SubprocessError, ValueError):
         return {"state": "unavailable", "images": unknown}
     result: Document = {
         "state": "measured",
-        "scope": "WSL 2 guest Engine" if "microsoft" in system else "Docker Engine",
+        "scope": "WSL 2 guest Engine"
+        if "wsl2" in kernel or "microsoft-standard" in kernel
+        else "Docker Engine",
         "images": unknown,
     }
     if not images:

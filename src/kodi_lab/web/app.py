@@ -1099,7 +1099,10 @@ def create_app(
         os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
     )
     storage_inventory = StorageInventory(
-        settings.runtime_root, settings.data_root, repository_data_root
+        settings.runtime_root,
+        settings.data_root,
+        repository_data_root,
+        settings.development_root,
     )
     development_repository = (
         DevelopmentRepositoryService(

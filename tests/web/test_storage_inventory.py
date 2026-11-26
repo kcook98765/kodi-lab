@@ -111,8 +111,7 @@ def test_background_engine_delay_keeps_committed_inventory_available(
         cache.refresh()
         data = cache.snapshot()
         assert data["stale"] is False
-        assert len(data["filesystems"]) == 1
-        assert set(data["filesystems"][0]["scopes"]) == {
+        assert {scope for fs in data["filesystems"] for scope in fs["scopes"]} == {
             "Application data",
             "Repository data",
             "Managed state",
@@ -154,8 +153,8 @@ def test_stale_broker_measurement_does_not_raise_fresh_storage_warning(
         "profiles": [],
         "snapshots": {"state": "partial", "items": []},
         "engine": {"state": "unavailable", "images": []},
-        "workers": {},
-        "prepare": {},
+        "workers": {"state": "unavailable"},
+        "prepare": {"state": "unavailable"},
         "unattributed_profiles": {},
     }
 
@@ -172,3 +171,91 @@ def test_stale_broker_measurement_does_not_raise_fresh_storage_warning(
     (runtime / SNAPSHOT_FILE).write_text('{"schema":1,"filesystems":null}')
     cache.refresh()
     assert cache.snapshot()["snapshots"]["state"] == "partial"
+
+
+@pytest.mark.parametrize(
+    "malformed", [0, {"scope": "Managed state", "state": "measured"}]
+)
+def test_malformed_nested_inventory_cannot_replace_last_sample(
+    tmp_path: Path, malformed: object
+) -> None:
+    valid: Document = {
+        "schema": 1,
+        "measured_at": time.time(),
+        "filesystems": [],
+        "profiles": [],
+        "snapshots": {"state": "measured", "items": []},
+        "engine": {"state": "unavailable", "images": []},
+        "workers": {"state": "unavailable"},
+        "prepare": {"state": "unavailable"},
+        "unattributed_profiles": {},
+    }
+    cache = web_storage.StorageInventory(tmp_path, tmp_path, tmp_path)
+    path = tmp_path / SNAPSHOT_FILE
+    broker_storage.publish_snapshot(path, os.getgid(), valid)
+    cache.refresh()
+    broker_storage.publish_snapshot(
+        path,
+        os.getgid(),
+        {
+            **valid,
+            "filesystems": [malformed],
+            "snapshots": {"state": "partial", "items": []},
+        },
+    )
+    cache.refresh()
+    assert cache.snapshot()["snapshots"]["state"] == "measured"
+
+
+def test_profile_measurement_excludes_nested_same_device_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = tmp_path / "working"
+    profile.mkdir()
+    mount = profile / "exterior"
+    mount.mkdir()
+    (mount / "outside").write_text("not a managed profile file")
+    read_bytes = Path.read_bytes
+
+    def mountinfo(path: Path) -> bytes:
+        if path == Path("/proc/self/mountinfo"):
+            return b"1 2 8:2 / " + os.fsencode(mount) + b" rw - ext4 /dev/sda2 rw\n"
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", mountinfo)
+    assert broker_storage.allocated_bytes(profile, broker_storage.WalkBudget()) == {
+        "bytes": None,
+        "state": "unavailable",
+    }
+
+
+def test_storage_keeps_quota_scoped_low_observation_visible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    row: Document = {
+        "scope": "Application data",
+        "device": 1,
+        "source": "Statvfs",
+        "state": "measured",
+        "capacity": 100,
+        "available": 70,
+        "warning": False,
+    }
+
+    def filesystem(path: Path, scope: str) -> Document:
+        return {
+            **row,
+            "scope": scope,
+            "available": 0 if path == second else 70,
+            "warning": path == second,
+        }
+
+    monkeypatch.setattr(web_storage, "observe_filesystem", filesystem)
+    cache = web_storage.StorageInventory(tmp_path, first, first, second)
+    cache.refresh()
+    snapshot = cache.snapshot()
+    assert snapshot["warning"]
+    assert snapshot["filesystems"][1]["scopes"] == ["Development sources"]
+    assert snapshot["filesystems"][1]["available"] == 0
