@@ -9,7 +9,7 @@ import re
 import stat
 import sys
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import AbstractContextManager, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -562,14 +562,14 @@ def _database_call(
 
 
 @contextmanager
-def _installation_lock(runtime_root: Path) -> Iterator[None]:
+def _runtime_lock(runtime_root: Path, name: str, flags: int) -> Iterator[None]:
     root = runtime_root.lstat()
     if not stat.S_ISDIR(root.st_mode) or stat.S_IMODE(root.st_mode) not in (
         0o700,
         0o750,
     ):
         raise RecipeInstallationError("runtime lock directory is unsafe")
-    path = runtime_root / "recipe-install.lock"
+    path = runtime_root / name
     descriptor = os.open(
         path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
     )
@@ -583,7 +583,7 @@ def _installation_lock(runtime_root: Path) -> Iterator[None]:
         ):
             raise RecipeInstallationError("runtime installation lock is unsafe")
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(descriptor, flags)
         except BlockingIOError as error:
             raise RecipeInstallationError(
                 "another runtime installation is active"
@@ -591,6 +591,21 @@ def _installation_lock(runtime_root: Path) -> Iterator[None]:
         yield
     finally:
         os.close(descriptor)
+
+
+def _installation_lock(runtime_root: Path) -> AbstractContextManager[None]:
+    return _runtime_lock(
+        runtime_root, "recipe-install.lock", fcntl.LOCK_EX | fcntl.LOCK_NB
+    )
+
+
+def _maintenance_gate(
+    runtime_root: Path, *, maintenance: bool
+) -> AbstractContextManager[None]:
+    # Installers can wait for a maintenance pass already in progress. Maintenance
+    # never queues behind installers, which still contend on the acquisition lock.
+    flags = fcntl.LOCK_EX | fcntl.LOCK_NB if maintenance else fcntl.LOCK_SH
+    return _runtime_lock(runtime_root, "recipe-install-maintenance.lock", flags)
 
 
 def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
@@ -683,6 +698,7 @@ def install_reviewed_runtime(
         reviewed = admitted
     with (
         _record_worker_start_failure(settings, reviewed, operation_id),
+        _maintenance_gate(settings.runtime_root, maintenance=False),
         _installation_lock(settings.runtime_root),
     ):
         import docker

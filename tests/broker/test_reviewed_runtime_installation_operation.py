@@ -8,13 +8,19 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
+from docker.errors import (  # type: ignore[import-untyped]
+    APIError,
+    DockerException,
+    NotFound,
+)
 
+from kodi_lab.application.runtime_installations import RuntimeInstallationService
 from kodi_lab.broker.errors import RequestError
 from kodi_lab.broker.operations import (
     OperationRegistry,
@@ -28,12 +34,16 @@ from kodi_lab.broker.reviewed_installations import (
     ReviewedWorkerError,
     worker_name,
 )
+from kodi_lab.broker.worker_receipts import RECEIPT_LIMIT
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.managed import reviewed_image_file
+from kodi_lab.runtime.install import _installation_lock, _maintenance_gate
 from kodi_lab.runtime.recipes import (
     load_inactive_ostree_recipe,
     load_installation_recipe,
 )
+from kodi_lab.storage import metadata
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 IMAGE = "sha256:" + "a" * 64
@@ -316,7 +326,7 @@ def test_exact_worker_launch_contract_and_liveness(
     assert not worker.launch("matrix", operation_id)
     with pytest.raises(ReviewedWorkerBusy):
         worker.launch("nexus", uuid4())
-    containers.items[0].attrs["State"] = {"Running": False}
+    containers.items[0].exit()
     assert worker.observe(operation_id).state == "exited"
 
 
@@ -560,7 +570,7 @@ def test_desktop_aliases_and_mixed_descriptors_keep_exact_worker_lifecycle(
     assert worker.active() == (operation, "omega")
     assert not worker.launch("omega", operation)
     assert len(containers.items) == 1 and containers.items[0].starts == 1
-    containers.items[0].attrs["State"] = {"Running": False}
+    containers.items[0].exit()
     assert worker.observe(operation).state == "exited"
 
 
@@ -568,15 +578,16 @@ def test_linux_literal_contract_does_not_require_desktop_observation(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
 ) -> None:
     worker, containers = backend
-
-    def forbidden() -> None:
-        raise AssertionError("Linux literal identity must not query Desktop")
-
     operation = uuid4()
     assert worker.launch("omega", operation)
-    worker._client().info = forbidden
+    client = worker._client()
+    client.info = lambda: {"ID": ENGINE}
     assert worker.observe(operation).state == "running"
     assert worker.active() == (operation, "omega")
+    client.info = lambda: {"ID": "another-engine"}
+    assert worker.observe(operation).state == "mismatch"
+    with pytest.raises(ReviewedWorkerError, match="ownership is ambiguous"):
+        worker.active()
     assert containers.items[0].starts == 1
 
 
@@ -1300,3 +1311,314 @@ def test_retirement_does_not_cross_the_existing_acquisition_lock(
         os.close(descriptor)
     worker.retire_terminal_workers()
     assert containers.removed == [item.id]
+
+
+def test_started_worker_can_take_installation_lock_during_retirement_probe(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    active = worker._active
+    checked = False
+
+    def worker_enters_acquisition_during_inventory(
+        client: Any,
+    ) -> tuple[UUID, str] | None:
+        nonlocal checked
+        # Docker has accepted Start. The entrypoint is only now taking the lock.
+        with _installation_lock(worker._runtime_root):
+            checked = True
+            return active(client)
+
+    monkeypatch.setattr(worker, "_active", worker_enters_acquisition_during_inventory)
+    worker.retire_terminal_workers()
+    assert checked
+    assert len(containers.items) == 1 and not containers.removed
+
+
+def test_installer_waits_for_in_progress_maintenance_without_failing_acquisition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered_gate = Event()
+    acquired_installation_lock = Event()
+    flock = fcntl.flock
+
+    def signal_shared_gate(fd: int, operation: int) -> None:
+        if operation == fcntl.LOCK_SH:
+            entered_gate.set()
+        flock(fd, operation)
+
+    def acquire_for_installer() -> None:
+        with (
+            _maintenance_gate(tmp_path, maintenance=False),
+            _installation_lock(tmp_path),
+        ):
+            acquired_installation_lock.set()
+
+    monkeypatch.setattr(fcntl, "flock", signal_shared_gate)
+    installer = Thread(target=acquire_for_installer)
+    with (
+        _maintenance_gate(tmp_path, maintenance=True),
+        _installation_lock(tmp_path),
+    ):
+        installer.start()
+        assert entered_gate.wait(5)
+        assert not acquired_installation_lock.is_set()
+    installer.join(timeout=5)
+    assert not installer.is_alive()
+    assert acquired_installation_lock.is_set()
+
+
+def docker_api_error(status: int, *, method: str, path: str) -> APIError:
+    return APIError(
+        "synthetic Docker response",
+        response=SimpleNamespace(
+            status_code=status, request=SimpleNamespace(method=method, path_url=path)
+        ),
+    )
+
+
+def test_definitively_rejected_creates_release_pending_inventory(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker, containers = backend
+    original_create = containers.create
+    for index in range(RECEIPT_LIMIT + 3):
+        operation = uuid4()
+        status = (400, 404, 409)[index % 3]
+
+        def reject(status: int = status, **_: object) -> FakeContainer:
+            raise docker_api_error(
+                status, method="POST", path="/v1.53/containers/create?name=fixture"
+            )
+
+        monkeypatch.setattr(containers, "create", reject)
+        with pytest.raises(ReviewedWorkerError, match="worker launch is unavailable"):
+            worker.launch("omega", operation)
+        assert not worker._receipts.pending()
+        retired = worker._receipts.directory("retired") / f"{operation.hex}.json"
+        assert worker._receipts.read(retired).create_rejected_status == status
+    assert (
+        len(list(worker._receipts.directory("retired").glob("*.json"))) <= RECEIPT_LIMIT
+    )
+    assert not containers.items and not containers.removed
+
+    monkeypatch.setattr(containers, "create", original_create)
+    operation = uuid4()
+    assert worker.launch("omega", operation)
+    assert worker.active() == (operation, "omega")
+
+
+@pytest.mark.parametrize("response", ["timeout", "server_error", "inspect_not_found"])
+def test_ambiguous_create_failure_retains_intent(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+    response: str,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+
+    def lose_create_result(**_: object) -> FakeContainer:
+        if response == "timeout":
+            raise TimeoutError("fixture transport timeout")
+        if response == "server_error":
+            raise docker_api_error(500, method="POST", path="/v1.53/containers/create")
+        raise docker_api_error(404, method="GET", path="/v1.53/containers/abc/json")
+
+    monkeypatch.setattr(containers, "create", lose_create_result)
+    with pytest.raises(ReviewedWorkerError, match="worker launch is unavailable"):
+        worker.launch("omega", operation)
+    (pending,) = worker._receipts.pending()
+    worker.retire_terminal_workers()
+    assert worker._receipts.pending() == [pending]
+    assert worker._receipts.read(pending).create_rejected_status is None
+    assert worker.observe(operation).state == "mismatch"
+    assert not containers.removed
+
+
+def test_create_name_conflict_leaves_legacy_container_untouched(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (legacy,) = containers.items
+    legacy.exit()
+    del legacy.attrs["Config"]["Labels"][LAUNCH_LABEL]
+    worker._receipts.pending()[0].unlink()
+
+    def reject(**_: object) -> FakeContainer:
+        raise docker_api_error(409, method="POST", path="/v1.53/containers/create")
+
+    monkeypatch.setattr(containers, "create", reject)
+    with pytest.raises(ReviewedWorkerError, match="worker launch is unavailable"):
+        worker.launch("omega", operation)
+    worker.retire_terminal_workers()
+    assert not worker._receipts.pending()
+    assert containers.items == [legacy] and not containers.removed
+
+
+def test_interrupted_worker_reconciles_and_retires_after_broker_upgrade(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    tmp_path: Path,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    assert worker.launch("omega", operation)
+    (item,) = containers.items
+    reviewed = load_installation_recipe("omega")
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'upgrade.db'}")
+    metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    now = datetime.now(UTC)
+    with factory.begin() as session:
+        repo = RuntimeRecipeInstallationRepository(session)
+        repo.create(
+            operation_id=operation,
+            recipe_id=reviewed.recipe.recipe_id,
+            recipe_revision=reviewed.recipe.recipe_revision,
+            recipe_digest=reviewed.digest,
+            generation="omega",
+            now=now,
+        )
+        repo.advance(
+            operation, expected=RuntimeRecipeInstallationState.PENDING, now=now
+        )
+    client = worker._client()
+    client.api.inspect_container("broker-id")["Image"] = "sha256:" + "b" * 64
+    client.api.inspect_image = lambda image: {
+        "Id": image,
+        "Os": "linux",
+        "Architecture": "amd64",
+    }
+    restarted = DockerReviewedInstallationWorker(
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+        session_factory=factory,
+    )
+    assert restarted.active() == (operation, "omega")
+    assert restarted.observe(operation).state == "running"
+    item.exit(137)
+    restarted.retire_terminal_workers()
+    assert containers.items == [item]
+    assert restarted.observe(operation).state == "exited"
+
+    service = RuntimeInstallationService(
+        factory,
+        SimpleNamespace(
+            observe_reviewed_runtime_installation=lambda value: restarted.observe(
+                UUID(value)
+            )
+        ),
+    )
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation)
+        assert row is not None
+    result = service._reconcile(row)
+    assert result.state is RuntimeRecipeInstallationState.FAILED
+    assert result.failure_code == "interrupted"
+    restarted.retire_terminal_workers()
+    assert containers.removed == [item.id]
+    retired = restarted._receipts.directory("retired") / f"{operation.hex}.json"
+    receipt = restarted._receipts.read(retired)
+    assert receipt.image == IMAGE
+    assert receipt.diagnostics is not None and receipt.diagnostics.outcome == "failed"
+
+
+@pytest.mark.parametrize("failure", ["rename", "file_sync", "directory_sync"])
+def test_durability_failure_preserves_worker_across_retry_and_restart(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    containers.terminal(operation)
+    (pending,) = worker._receipts.pending()
+    replace = Path.replace
+    fsync = os.fsync
+
+    def fault_rename(path: Path, target: Path) -> Path:
+        if target == pending:
+            raise OSError("injected receipt rename failure")
+        return replace(path, target)
+
+    def fault_fsync(fd: int) -> None:
+        path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        if failure == "directory_sync" and path == pending.parent:
+            raise OSError("injected receipt directory fsync failure")
+        if failure == "file_sync" and path.parent == pending.parent:
+            raise OSError("injected receipt file fsync failure")
+        fsync(fd)
+
+    restarted = DockerReviewedInstallationWorker(
+        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+    )
+    monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
+    with monkeypatch.context() as fault:
+        if failure == "rename":
+            fault.setattr(Path, "replace", fault_rename)
+        else:
+            fault.setattr(os, "fsync", fault_fsync)
+        worker.retire_terminal_workers()
+        assert not containers.removed
+        worker.retire_terminal_workers()
+        restarted.retire_terminal_workers()
+        assert containers.items == [item] and not containers.removed
+    restarted.retire_terminal_workers()
+    assert containers.removed == [item.id]
+
+
+@pytest.mark.parametrize("failed_path", ["file", "directory"])
+def test_existing_diagnostics_must_sync_again_after_broker_restart(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+    failed_path: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    containers.terminal(operation)
+    item.log_tail = b"private-fixture-diagnostic"
+
+    def lose_remove_response() -> None:
+        raise DockerException("fixture Docker error: private-fixture-diagnostic")
+
+    item.before_remove = lose_remove_response
+    worker.retire_terminal_workers()
+    (pending,) = worker._receipts.pending()
+    receipt = worker._receipts.read(pending)
+    assert receipt.diagnostics is not None
+    item.before_remove = None
+    fsync = os.fsync
+    failed = pending if failed_path == "file" else pending.parent
+
+    def fault_fsync(fd: int) -> None:
+        if Path(os.readlink(f"/proc/self/fd/{fd}")) == failed:
+            raise OSError("injected retry durability failure")
+        fsync(fd)
+
+    restarted = DockerReviewedInstallationWorker(
+        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+    )
+    monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
+    with monkeypatch.context() as fault:
+        fault.setattr(os, "fsync", fault_fsync)
+        restarted.retire_terminal_workers()
+        assert containers.items == [item] and not containers.removed
+        assert restarted._receipts.read(pending) == receipt
+    restarted.retire_terminal_workers()
+    assert containers.removed == [item.id]
+    retired = restarted._receipts.directory("retired") / pending.name
+    assert restarted._receipts.read(retired) == receipt
+    assert "private-fixture-diagnostic" not in caplog.text

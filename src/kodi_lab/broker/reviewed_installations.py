@@ -12,12 +12,16 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from threading import Event, Lock
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import docker  # type: ignore[import-untyped]
-from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
+from docker.errors import (  # type: ignore[import-untyped]
+    APIError,
+    DockerException,
+    NotFound,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -25,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.broker.worker_receipts import (
     LOG_TAIL_BYTES,
     RECEIPT_LIMIT,
+    CreateRejectionStatus,
     WorkerDiagnostics,
     WorkerReceipt,
     WorkerReceipts,
@@ -100,6 +105,9 @@ def _volume(mounts: object, destination: str) -> str:
 class _DesktopBindSources:
     socket: str
     route: str
+
+
+type _BrokerWorkerContract = tuple[str, str, str, _DesktopBindSources | None]
 
 
 def _desktop_bind_sources(
@@ -331,9 +339,7 @@ class DockerReviewedInstallationWorker:
         return self._client_factory(timeout=timeout)
 
     @staticmethod
-    def _self_contract(
-        client: Any,
-    ) -> tuple[str, str, str, _DesktopBindSources | None]:
+    def _self_contract(client: Any) -> _BrokerWorkerContract:
         own = client.api.inspect_container(socket.gethostname())
         if not isinstance(own, dict):
             raise ReviewedWorkerError("broker inspection is unavailable")
@@ -442,7 +448,7 @@ class DockerReviewedInstallationWorker:
 
     def _active(self, client: Any) -> tuple[UUID, str] | None:
         active: tuple[UUID, str] | None = None
-        image_id, state_volume, lock_volume, desktop = self._self_contract(client)
+        contract = self._self_contract(client)
         containers = client.containers.list(
             all=True,
             sparse=True,
@@ -456,8 +462,11 @@ class DockerReviewedInstallationWorker:
             raise ReviewedWorkerError("worker inventory exceeds its bound")
         for container in containers:
             container.reload()
-            if container.attrs.get("State", {}).get("Running") is not True:
-                continue
+            state = container.attrs.get("State", {})
+            if state.get("Running") is not True:
+                if state.get("Status") in {"exited", "created"}:
+                    continue
+                raise ReviewedWorkerError("active worker state is ambiguous")
             labels = container.attrs.get("Config", {}).get("Labels", {})
             try:
                 operation_id = UUID(labels.get(OPERATION_LABEL, ""))
@@ -467,13 +476,12 @@ class DockerReviewedInstallationWorker:
                 ) from error
             generation = labels.get(GENERATION_LABEL)
             if (
-                not self._identity(
+                not self._matches_observed_worker(
+                    client,
                     container,
                     operation_id,
-                    image_id,
-                    state_volume,
-                    lock_volume,
-                    desktop=desktop,
+                    contract,
+                    self._receipts.pending_receipt(operation_id),
                 )
                 or active is not None
             ):
@@ -488,7 +496,7 @@ class DockerReviewedInstallationWorker:
                 return self._active(client)
             finally:
                 client.close()
-        except DockerException as error:
+        except (DockerException, OSError, ValueError) as error:
             raise ReviewedWorkerError("worker inventory is unavailable") from error
 
     def _admit_preview(self, operation_id: UUID, ack: PreviewAcknowledgement) -> None:
@@ -607,9 +615,6 @@ class DockerReviewedInstallationWorker:
                         "recipe_digest": reviewed.digest,
                     }
                 )
-                # The nonce binds a worker created just before a lost Docker reply
-                # to this exact pre-create intent. Persist the full ID before start.
-                self._receipts.save(receipt)
                 settings = Settings()
                 worker_environment = {
                     "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": str(
@@ -620,47 +625,21 @@ class DockerReviewedInstallationWorker:
                     worker_environment["KODI_LAB_TEMPORARY_NETWORK_POOL"] = (
                         settings.temporary_network_pool
                     )
-                container = client.containers.create(
-                    image=image_id,
-                    name=worker_name(operation_id),
-                    entrypoint=["kodi-lab-runtime"],
-                    command=[
-                        "install",
-                        generation,
-                        "--operation-id",
-                        str(operation_id),
-                    ],
-                    user="0:0",
-                    detach=True,
-                    auto_remove=False,
-                    network_mode="none",
-                    log_config={
-                        "type": "json-file",
-                        "config": {"max-size": "256k", "max-file": "1"},
-                    },
-                    read_only=True,
-                    tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
-                    cap_drop=["ALL"],
-                    cap_add=["SETGID", "SETUID"],
-                    security_opt=["no-new-privileges:true"],
-                    volumes={
-                        state_volume: {"bind": STATE_DESTINATION, "mode": "rw"},
-                        lock_volume: {"bind": LOCK_DESTINATION, "mode": "rw"},
-                        DOCKER_SOCKET: {"bind": DOCKER_SOCKET, "mode": "rw"},
-                        HOST_ROUTE_SOURCE: {
-                            "bind": HOST_ROUTE_DESTINATION,
-                            "mode": "ro",
-                        },
-                    },
-                    environment=worker_environment,
-                    labels={
-                        WORKER_LABEL: WORKER_RESOURCE,
-                        OPERATION_LABEL: str(operation_id),
-                        GENERATION_LABEL: generation,
-                        IMAGE_LABEL: image_id,
-                        LAUNCH_LABEL: str(receipt.nonce),
-                    },
-                )
+                # The nonce binds a worker created just before a lost Docker reply
+                # to this exact pre-create intent. Persist the full ID before start.
+                self._receipts.save(receipt)
+                try:
+                    container = self._create_worker(client, receipt, worker_environment)
+                except APIError as error:
+                    status = self._create_rejection_status(error)
+                    if status is not None:
+                        rejected = receipt.model_copy(
+                            update={"create_rejected_status": status}
+                        )
+                        path = self._receipts.save(rejected)
+                        self._receipts.confirm_durable(path, rejected)
+                        self._receipts.finish(path)
+                    raise
                 container.reload()
                 if not self._receipt_matches(container, receipt, desktop):
                     raise ReviewedWorkerError("created worker identity differs")
@@ -679,6 +658,72 @@ class DockerReviewedInstallationWorker:
                 client.close()
         except (DockerException, OSError, SQLAlchemyError, ValueError) as error:
             raise ReviewedWorkerError("worker launch is unavailable") from error
+
+    @staticmethod
+    def _create_worker(
+        client: Any, receipt: WorkerReceipt, worker_environment: dict[str, str]
+    ) -> Any:
+        return client.containers.create(
+            image=receipt.image,
+            name=worker_name(receipt.operation),
+            entrypoint=["kodi-lab-runtime"],
+            command=[
+                "install",
+                receipt.generation,
+                "--operation-id",
+                str(receipt.operation),
+            ],
+            user="0:0",
+            detach=True,
+            auto_remove=False,
+            network_mode="none",
+            log_config={
+                "type": "json-file",
+                "config": {"max-size": "256k", "max-file": "1"},
+            },
+            read_only=True,
+            tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
+            cap_drop=["ALL"],
+            cap_add=["SETGID", "SETUID"],
+            security_opt=["no-new-privileges:true"],
+            volumes={
+                receipt.state_volume: {"bind": STATE_DESTINATION, "mode": "rw"},
+                receipt.lock_volume: {"bind": LOCK_DESTINATION, "mode": "rw"},
+                DOCKER_SOCKET: {"bind": DOCKER_SOCKET, "mode": "rw"},
+                HOST_ROUTE_SOURCE: {
+                    "bind": HOST_ROUTE_DESTINATION,
+                    "mode": "ro",
+                },
+            },
+            environment=worker_environment,
+            labels={
+                WORKER_LABEL: WORKER_RESOURCE,
+                OPERATION_LABEL: str(receipt.operation),
+                GENERATION_LABEL: receipt.generation,
+                IMAGE_LABEL: receipt.image,
+                LAUNCH_LABEL: str(receipt.nonce),
+            },
+        )
+
+    @staticmethod
+    def _create_rejection_status(error: APIError) -> CreateRejectionStatus | None:
+        # The SDK's create includes a follow-up inspect. Only a definite error
+        # from the Create POST itself can close the dispatch without a worker ID.
+        response = error.response
+        request = getattr(response, "request", None)
+        path = getattr(request, "path_url", None)
+        status = error.status_code
+        if (
+            status in (400, 404, 409)
+            and getattr(request, "method", None) == "POST"
+            and isinstance(path, str)
+            and re.fullmatch(
+                r"(?:/v[0-9]+\.[0-9]+)?/containers/create",
+                path.partition("?")[0],
+            )
+        ):
+            return cast(CreateRejectionStatus, status)
+        return None
 
     @staticmethod
     def _engine_id(client: Any) -> str:
@@ -742,6 +787,39 @@ class DockerReviewedInstallationWorker:
                 desktop=desktop,
             )
         )
+
+    def _receipt_site_matches(
+        self, client: Any, receipt: WorkerReceipt, contract: _BrokerWorkerContract
+    ) -> bool:
+        _, state_volume, lock_volume, _ = contract
+        return (
+            state_volume == receipt.state_volume
+            and lock_volume == receipt.lock_volume
+            and self._engine_id(client) == receipt.engine
+        )
+
+    def _matches_observed_worker(
+        self,
+        client: Any,
+        container: Any,
+        operation: UUID,
+        contract: _BrokerWorkerContract,
+        receipt: WorkerReceipt | None,
+    ) -> bool:
+        image, state_volume, lock_volume, desktop = contract
+        if receipt is not None:
+            return (
+                receipt.create_rejected_status is None
+                and self._receipt_site_matches(client, receipt, contract)
+                and self._receipt_matches(container, receipt, desktop)
+            )
+        # Pre-receipt workers retain their existing same-image observation
+        # contract. Workers carrying a launch nonce must have a trusted receipt.
+        if not self._identity(
+            container, operation, image, state_volume, lock_volume, desktop=desktop
+        ):
+            return False
+        return LAUNCH_LABEL not in container.attrs["Config"]["Labels"]
 
     @staticmethod
     def _stopped_state(container: Any, receipt: WorkerReceipt) -> dict[str, Any] | None:
@@ -837,19 +915,21 @@ class DockerReviewedInstallationWorker:
 
     def _retire(self, path: Path, client: Any) -> None:
         receipt = self._receipts.read(path)
-        _, state_volume, lock_volume, desktop = self._self_contract(client)
-        if (
-            self._engine_id(client) != receipt.engine
-            or state_volume != receipt.state_volume
-            or lock_volume != receipt.lock_volume
-        ):
+        contract = self._self_contract(client)
+        if not self._receipt_site_matches(client, receipt, contract):
             return
+        if receipt.create_rejected_status is not None:
+            self._receipts.confirm_durable(path, receipt)
+            self._receipts.finish(path)
+            return
+        desktop = contract[3]
         try:
             container = client.containers.get(
                 receipt.container or worker_name(receipt.operation)
             )
         except NotFound:
             if receipt.container is not None and receipt.diagnostics is not None:
+                self._receipts.confirm_durable(path, receipt)
                 self._receipts.finish(path)
             return
         if not self._receipt_matches(container, receipt, desktop):
@@ -870,13 +950,13 @@ class DockerReviewedInstallationWorker:
         if result is None:
             return
         if receipt.diagnostics is None:
-            self._receipts.save(
-                receipt.model_copy(
-                    update={"container": container.id, "diagnostics": result}
-                )
+            receipt = receipt.model_copy(
+                update={"container": container.id, "diagnostics": result}
             )
+            self._receipts.save(receipt)
         elif receipt.diagnostics != result:
             return
+        self._receipts.confirm_durable(path, receipt)
         container.reload()
         if (
             not self._receipt_matches(container, receipt, desktop)
@@ -889,7 +969,11 @@ class DockerReviewedInstallationWorker:
 
     def retire_terminal_workers(self) -> None:
         """Retry a small set of privately owned receipts per broker cycle."""
-        from kodi_lab.runtime.install import RecipeInstallationError, _installation_lock
+        from kodi_lab.runtime.install import (
+            RecipeInstallationError,
+            _installation_lock,
+            _maintenance_gate,
+        )
 
         if not self._lifecycle.acquire(blocking=False):
             return
@@ -902,9 +986,15 @@ class DockerReviewedInstallationWorker:
                 [path for path in paths if path.name > self._retirement_cursor]
                 + [path for path in paths if path.name <= self._retirement_cursor]
             )[:_RETIREMENT_BATCH]
-            with _installation_lock(self._runtime_root):
-                client = self._client(timeout=2)
-                try:
+            client = self._client(timeout=2)
+            try:
+                # Start can return before a worker takes its acquisition lock.
+                if self._active(client) is not None:
+                    return
+                with (
+                    _maintenance_gate(self._runtime_root, maintenance=True),
+                    _installation_lock(self._runtime_root),
+                ):
                     if self._active(client) is not None:
                         return
                     for path in batch:
@@ -923,9 +1013,15 @@ class DockerReviewedInstallationWorker:
                                 path.stem,
                                 type(error).__name__,
                             )
-                finally:
-                    client.close()
-        except (DockerException, OSError, RecipeInstallationError, ReviewedWorkerError):
+            finally:
+                client.close()
+        except (
+            DockerException,
+            OSError,
+            RecipeInstallationError,
+            ReviewedWorkerError,
+            ValueError,
+        ):
             # A concurrent install or an unavailable Engine leaves work pending.
             return
         finally:
@@ -937,36 +1033,48 @@ class DockerReviewedInstallationWorker:
             stopped.wait(_RETIREMENT_INTERVAL)
 
     def observe(self, operation_id: UUID) -> WorkerObservation:
-        try:
-            client = self._client()
+        with self._lifecycle:
             try:
-                image_id, state_volume, lock_volume, desktop = self._self_contract(
-                    client
-                )
+                client = self._client()
                 try:
-                    container = client.containers.get(worker_name(operation_id))
-                except NotFound:
-                    return WorkerObservation("missing", self.lock_held())
-                container.reload()
-                if not self._identity(
-                    container,
-                    operation_id,
-                    image_id,
-                    state_volume,
-                    lock_volume,
-                    desktop=desktop,
-                ):
-                    return WorkerObservation("mismatch", self.lock_held())
-                state: Literal["running", "exited"] = (
-                    "running"
-                    if container.attrs.get("State", {}).get("Running") is True
-                    else "exited"
-                )
-                return WorkerObservation(state, self.lock_held())
-            finally:
-                client.close()
-        except DockerException as error:
-            raise ReviewedWorkerError("worker observation is unavailable") from error
+                    return WorkerObservation(
+                        self._observe_state(client, operation_id), self.lock_held()
+                    )
+                finally:
+                    client.close()
+            except (DockerException, OSError, ValueError) as error:
+                raise ReviewedWorkerError(
+                    "worker observation is unavailable"
+                ) from error
+
+    def _observe_state(
+        self, client: Any, operation: UUID
+    ) -> Literal["running", "exited", "missing", "mismatch"]:
+        contract = self._self_contract(client)
+        receipt = self._receipts.pending_receipt(operation)
+        exact_id = receipt.container if receipt is not None else None
+        try:
+            container = client.containers.get(exact_id or worker_name(operation))
+        except NotFound:
+            if receipt is not None and (
+                not self._receipt_site_matches(client, receipt, contract)
+                or (exact_id is None and receipt.create_rejected_status is None)
+            ):
+                return "mismatch"
+            return "missing"
+        container.reload()
+        if not self._matches_observed_worker(
+            client, container, operation, contract, receipt
+        ):
+            return "mismatch"
+        running = container.attrs.get("State", {}).get("Running")
+        if running is True:
+            return "running"
+        if running is False and (
+            receipt is None or self._stopped_state(container, receipt) is not None
+        ):
+            return "exited"
+        return "mismatch"
 
     def image_present(self, operation_id: UUID) -> bool:
         factory = self._session_factory

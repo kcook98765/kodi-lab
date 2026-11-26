@@ -103,16 +103,22 @@ The broker records each new launch on its private socket volume under
 Docker Engine, worker image, site volumes and exact worker container. The
 broker retries terminal cleanup after restart. It preserves the installation
 outcome, exit code, OOM flag and up to 8 KiB of private diagnostic log tail
-before removing the exact worker container. Completed diagnostics are retained
-for up to seven days within a 128-receipt limit. The ordinary installation
-record remains in the application database.
+before removing the exact worker container. Each removal attempt syncs the
+receipt file and directory again, including after a restart. Completed
+diagnostics are retained for up to seven days within a 128-receipt limit. The
+ordinary installation record remains in the application database.
 
-An ambiguous launch, active installation, nonterminal database record or
-identity mismatch can leave a worker pending for review. A nonterminal
-installation follows the existing Kodi Runtimes status reconciliation first.
-Historical containers from before receipt recording remain in place. The
-broker's active-worker inventory excludes stopped history. Retirement keeps
-runtime images, attached volumes and other Docker resources intact.
+Installers retain exclusive acquisition authority. Retirement defers when an
+installer is active. An installer that arrives during a retirement pass waits
+for that pass before trying the acquisition lock.
+
+A definite Docker Create rejection is recorded with its status and released
+from the pending inventory. Transport interruptions and uncertain dispatches
+stay pending. The broker can observe an exact worker from its receipt after an
+image upgrade, allowing Kodi Runtimes to reconcile a nonterminal installation.
+Historical containers from before receipt recording remain in place. The active
+worker inventory excludes stopped history. Retirement keeps runtime images,
+attached volumes and other Docker resources intact.
 
 For managed Kodi, first recheck host routes and Docker network IPAM for overlap
 with `10.250.0.0/24`. Run the installed `kodi-lab-runtime network-ensure` as a

@@ -16,6 +16,7 @@ from kodi_lab.managed.runtime import atomic, sync_dir
 
 ContainerId = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Digest = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+CreateRejectionStatus = Literal[400, 404, 409]
 RECEIPT_LIMIT = 128
 LOG_TAIL_BYTES = 8192
 MAX_RECEIPT_BYTES = 64 * 1024
@@ -50,6 +51,7 @@ class WorkerReceipt(BaseModel):
     container: ContainerId | None = None
     start_requested: bool = False
     diagnostics: WorkerDiagnostics | None = None
+    create_rejected_status: CreateRejectionStatus | None = None
 
 
 class WorkerReceipts:
@@ -85,6 +87,15 @@ class WorkerReceipts:
     def pending(self) -> list[Path]:
         return self._entries(self.directory("pending"))
 
+    def _pending_path(self, operation: UUID) -> Path:
+        return self.directory("pending") / f"{operation.hex}.json"
+
+    def pending_receipt(self, operation: UUID) -> WorkerReceipt | None:
+        try:
+            return self.read(self._pending_path(operation))
+        except FileNotFoundError:
+            return None
+
     @staticmethod
     def _entries(directory: Path) -> list[Path]:
         return sorted(
@@ -93,12 +104,15 @@ class WorkerReceipts:
             if re.fullmatch(r"[0-9a-f]{32}\.json", path.name)
         )
 
-    def save(self, receipt: WorkerReceipt) -> None:
-        path = self.directory("pending") / f"{receipt.operation.hex}.json"
+    def save(self, receipt: WorkerReceipt) -> Path:
+        path = self._pending_path(receipt.operation)
         atomic(path, receipt.model_dump_json().encode())
+        sync_dir(self.root)
+        sync_dir(self.root.parent)
+        return path
 
     @staticmethod
-    def read(path: Path) -> WorkerReceipt:
+    def read(path: Path, *, durable: bool = False) -> WorkerReceipt:
         with os.fdopen(
             os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb"
         ) as stream:
@@ -114,9 +128,18 @@ class WorkerReceipts:
             receipt = WorkerReceipt.model_validate_json(
                 stream.read(MAX_RECEIPT_BYTES + 1)
             )
+            if durable:
+                os.fsync(stream.fileno())
         if path.stem != receipt.operation.hex:
             raise ValueError("worker receipt operation does not match its path")
         return receipt
+
+    def confirm_durable(self, path: Path, expected: WorkerReceipt) -> None:
+        if self.read(path, durable=True) != expected:
+            raise OSError("worker receipt changed before completion")
+        # A previous rename or mkdir can be visible after an unsuccessful fsync.
+        for directory in (path.parent, self.root, self.root.parent):
+            sync_dir(directory)
 
     def finish(self, path: Path) -> None:
         retired = self.directory("retired")
@@ -125,6 +148,7 @@ class WorkerReceipts:
         path.replace(retired / path.name)
         sync_dir(retired)
         sync_dir(path.parent)
+        self.trim()
 
     def contains_retired(self, operation: UUID) -> bool:
         return (self.directory("retired") / f"{operation.hex}.json").exists()
