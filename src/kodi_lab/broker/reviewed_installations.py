@@ -572,8 +572,10 @@ class DockerReviewedInstallationWorker:
                 )
                 pending = self._receipts.pending()
                 filename = f"{operation_id.hex}.json"
-                if any(path.name == filename for path in pending) or (
-                    self._receipts.contains_retired(operation_id)
+                if (
+                    any(path.name == filename for path in pending)
+                    or self._receipts.contains_retired(operation_id)
+                    or self._receipts.contains_terminal(operation_id)
                 ):
                     raise ReviewedWorkerError("worker launch already recorded")
                 row = self._recorded_operation(operation_id)
@@ -637,7 +639,7 @@ class DockerReviewedInstallationWorker:
                             update={"create_rejected_status": status}
                         )
                         path = self._receipts.save(rejected)
-                        self._receipts.confirm_durable(path, rejected)
+                        self._receipts.confirm_terminal(path, rejected)
                         self._receipts.finish(path)
                     raise
                 container.reload()
@@ -919,7 +921,7 @@ class DockerReviewedInstallationWorker:
         if not self._receipt_site_matches(client, receipt, contract):
             return
         if receipt.create_rejected_status is not None:
-            self._receipts.confirm_durable(path, receipt)
+            self._receipts.confirm_terminal(path, receipt)
             self._receipts.finish(path)
             return
         desktop = contract[3]
@@ -929,7 +931,7 @@ class DockerReviewedInstallationWorker:
             )
         except NotFound:
             if receipt.container is not None and receipt.diagnostics is not None:
-                self._receipts.confirm_durable(path, receipt)
+                self._receipts.confirm_terminal(path, receipt)
                 self._receipts.finish(path)
             return
         if not self._receipt_matches(container, receipt, desktop):
@@ -956,7 +958,7 @@ class DockerReviewedInstallationWorker:
             self._receipts.save(receipt)
         elif receipt.diagnostics != result:
             return
-        self._receipts.confirm_durable(path, receipt)
+        self._receipts.confirm_terminal(path, receipt)
         container.reload()
         if (
             not self._receipt_matches(container, receipt, desktop)

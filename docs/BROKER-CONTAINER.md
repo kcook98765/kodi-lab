@@ -105,8 +105,16 @@ broker retries terminal cleanup after restart. It preserves the installation
 outcome, exit code, OOM flag and up to 8 KiB of private diagnostic log tail
 before removing the exact worker container. Each removal attempt syncs the
 receipt file and directory again, including after a restart. Completed
-diagnostics are retained for up to seven days within a 128-receipt limit. The
-ordinary installation record remains in the application database.
+diagnostics are retained for up to seven days within a 128-receipt limit.
+
+An immutable READY or FAILED application row prevents replay of its UUID. For
+warm reuse, interruption before an application row, and definitive launch
+rejection, the broker syncs an empty file named by operation UUID in the private
+`terminal` directory before removing the worker or expiring its diagnostics.
+The same rule covers a verified worker that never started. These files are
+looked up directly by UUID and take no pending receipt slots. They retain one
+inode and directory entry per operation for the life of the broker socket
+volume.
 
 Installers retain exclusive acquisition authority. Retirement defers when an
 installer is active. An installer that arrives during a retirement pass waits

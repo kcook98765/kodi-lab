@@ -1,4 +1,4 @@
-"""Private launch and retirement receipts for reviewed installer workers."""
+"""Private worker receipts and durable terminal operation identities."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class WorkerReceipts:
     def __init__(self, runtime_root: Path) -> None:
         self.root = runtime_root / "reviewed-worker-receipts"
 
-    def directory(self, name: Literal["pending", "retired"]) -> Path:
+    def directory(self, name: Literal["pending", "retired", "terminal"]) -> Path:
         runtime = self.root.parent.lstat()
         if (
             not stat.S_ISDIR(runtime.st_mode)
@@ -134,26 +134,74 @@ class WorkerReceipts:
             raise ValueError("worker receipt operation does not match its path")
         return receipt
 
-    def confirm_durable(self, path: Path, expected: WorkerReceipt) -> None:
+    def confirm_terminal(self, path: Path, expected: WorkerReceipt) -> None:
         if self.read(path, durable=True) != expected:
             raise OSError("worker receipt changed before completion")
         # A previous rename or mkdir can be visible after an unsuccessful fsync.
         for directory in (path.parent, self.root, self.root.parent):
             sync_dir(directory)
+        self._preserve_terminal_identity(expected)
+
+    def _preserve_terminal_identity(self, receipt: WorkerReceipt) -> None:
+        if receipt.create_rejected_status is None:
+            result = receipt.diagnostics
+            if result is None:
+                raise ValueError("worker receipt has no terminal outcome")
+            if (
+                result.outcome in {"ready", "failed"}
+                and result.recorded_operation == receipt.operation
+            ):
+                # The immutable application row already guards this UUID.
+                return
+        self._terminal_marker(receipt.operation, persist=True)
+
+    def contains_terminal(self, operation: UUID) -> bool:
+        return self._terminal_marker(operation, persist=False)
+
+    def _terminal_marker(self, operation: UUID, *, persist: bool) -> bool:
+        directory = self.directory("terminal")
+        path = directory / operation.hex
+        flags = os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        flags |= os.O_RDWR | os.O_CREAT if persist else os.O_RDONLY
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except FileNotFoundError:
+            if persist:
+                raise
+            return False
+        try:
+            entry = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(entry.st_mode)
+                or entry.st_uid != os.geteuid()
+                or entry.st_nlink != 1
+                or stat.S_IMODE(entry.st_mode) != 0o600
+                or entry.st_size != 0
+            ):
+                raise OSError("terminal worker marker is unsafe")
+            if persist:
+                # An empty marker is complete on creation. Sync existing markers
+                # again because a previous attempt can fail after creating one.
+                os.fsync(descriptor)
+                for parent in (directory, self.root, self.root.parent):
+                    sync_dir(parent)
+        finally:
+            os.close(descriptor)
+        return True
 
     def finish(self, path: Path) -> None:
         retired = self.directory("retired")
+        self.trim(limit=RECEIPT_LIMIT - 1)
         # Touch before rename to measure retention from verified retirement.
         os.utime(path, None, follow_symlinks=False)
         path.replace(retired / path.name)
         sync_dir(retired)
         sync_dir(path.parent)
-        self.trim()
 
     def contains_retired(self, operation: UUID) -> bool:
         return (self.directory("retired") / f"{operation.hex}.json").exists()
 
-    def trim(self) -> None:
+    def trim(self, *, limit: int = RECEIPT_LIMIT) -> None:
         retired = self.directory("retired")
         now = datetime.now(UTC).timestamp()
         entries = sorted(
@@ -162,7 +210,10 @@ class WorkerReceipts:
         )
         changed = False
         for index, (updated, path) in enumerate(entries):
-            if index >= RECEIPT_LIMIT or now - updated >= RETENTION.total_seconds():
+            if index >= limit or now - updated >= RETENTION.total_seconds():
+                # Earlier brokers could retire a receipt without an independent
+                # replay guard. Preserve that identity before evicting it.
+                self._preserve_terminal_identity(self.read(path))
                 path.unlink()
                 changed = True
         if changed:
