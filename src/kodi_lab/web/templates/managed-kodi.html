@@ -24,6 +24,13 @@
     <button type="button" data-action="managed_recover" hidden>Recover</button>
   </div>
   <p id="managed-feedback" role="status"></p>
+  <section aria-labelledby="managed-network-heading">
+    <h3 id="managed-network-heading">Network access</h3>
+    <p id="managed-network-help">Applies to all managed Kodi versions at their next Start. Enabling this reduces isolation and lets Kodi and its add-ons reach the local network and the internet.</p>
+    <label><input type="checkbox" id="managed-network-access" aria-describedby="managed-network-help" disabled> Allow network access</label>
+    <button type="button" data-action="managed_network_access" disabled>Save network setting</button>
+    <p id="managed-network-status" role="status">Checking network policy…</p>
+  </section>
   <section aria-labelledby="managed-snapshots-heading">
     <h3 id="managed-snapshots-heading">Snapshots</h3>
     <label for="managed-snapshot">Administrator snapshots</label>

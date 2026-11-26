@@ -38,7 +38,7 @@ PRIVATE = {
     "workspace_package",
     "package_import",
 }
-ADMIN = {"managed_take_control", "managed_recover"}
+ADMIN = {"managed_take_control", "managed_recover", "managed_network_access"}
 FIELDS = {
     "managed_prepare": (),
     "managed_public_repository_status": (),
@@ -46,6 +46,7 @@ FIELDS = {
     "managed_public_catalog": (),
     "managed_public_install": ("addon", "version", "digest"),
     "managed_start": (),
+    "managed_network_access": ("enabled",),
     "managed_stop": (),
     "managed_reset": (),
     "managed_status": (),
@@ -83,6 +84,7 @@ VERSION_SCOPED = (
         "managed_acquire",
         "managed_release",
         "managed_take_control",
+        "managed_network_access",
     }
 )
 OPTIONAL = {
@@ -132,5 +134,7 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
     if "generation" in args and args["generation"] not in RELEASES:
         raise Refusal("invalid_arguments")
     if "replace" in args and args["replace"] not in {"true", "false"}:
+        raise Refusal("invalid_arguments")
+    if "enabled" in args and args["enabled"] not in {"true", "false"}:
         raise Refusal("invalid_arguments")
     return name, args

@@ -5,6 +5,10 @@ import RFB from "./vendor/novnc/core/rfb.js";
 const panel = document.querySelector("[data-managed-kodi]");
 const base = "/api/managed-kodi/" + panel.dataset.managedKodi;
 const statusLine = document.querySelector("#managed-status");
+const networkAccess = document.querySelector("#managed-network-access");
+const networkSave = panel.querySelector("[data-action=managed_network_access]");
+const networkStatus = document.querySelector("#managed-network-status");
+let networkSettingEdited = false;
 const feedback = document.querySelector("#managed-feedback");
 const saved = document.querySelector("#managed-snapshot");
 const viewer = document.querySelector("#managed-viewer");
@@ -54,6 +58,20 @@ function connect(interactive = false) {
   });
 }
 
+function renderNetwork(profile) {
+  if (!Object.hasOwn(profile, "network_access_configured")) return;
+  const configured = profile.network_access_configured;
+  const effective = profile.network_access_effective;
+  if (!networkSettingEdited) networkAccess.checked = configured === true;
+  networkAccess.disabled = false;
+  networkSave.disabled = false;
+  const savedMode = configured === true ? "Allowed" : configured === false ? "Isolated" : "Unavailable";
+  const effectiveMode = {
+    outbound: "Allowed", isolated: "Isolated", public_test: "Disposable repository test", stopped: "Kodi is stopped",
+  }[effective] ?? "Unavailable";
+  networkStatus.textContent = `Saved policy: ${savedMode} · Current: ${effectiveMode}`;
+}
+
 async function refresh() {
   const response = await fetch(base, {cache: "no-store"});
   const data = await response.json();
@@ -64,6 +82,7 @@ async function refresh() {
     return;
   }
   const {state, owner, operation, profile_version, public_repository_test, retired} = data.profile;
+  renderNetwork(data.profile);
   ready = state === "ready";
   if (!ready && client !== null) {
     disconnect();
@@ -87,6 +106,7 @@ async function refresh() {
 async function apply(button) {
   const operation = button.dataset.action;
   const args = {};
+  if (operation === "managed_network_access") args.enabled = String(networkAccess.checked);
   if (operation === "managed_navigate") args.action = button.dataset.key;
   if (operation === "snapshot_save") args.name = document.querySelector("#managed-snapshot-name").value.trim();
   if (operation === "snapshot_load" || operation === "snapshot_delete") args.name = saved.value;
@@ -102,6 +122,7 @@ async function apply(button) {
   if (confirms[operation] && !window.confirm(confirms[operation])) return;
   busy = true;
   button.disabled = true;
+  if (operation === "managed_network_access") networkAccess.disabled = true;
   try {
     const response = await fetch(`${base}/actions`, {
       method: "POST",
@@ -113,11 +134,16 @@ async function apply(button) {
       managed_profile_not_prepared: "Select Prepare for this generation before starting Kodi.",
       snapshot_identity_mismatch: "This snapshot requires its original runtime image and verified archive.",
       managed_runtime_retired: "Review runtime retirement to re-enable this runtime.",
+      managed_network_policy_invalid: "Save the network setting again before starting Kodi.",
+      managed_network_change_unavailable: "Kodi Lab could not safely replace the stopped runtime’s bridge. Check the managed network and retry.",
       disk_headroom: "There is too little free space for this operation. Open Storage & Maintenance for details.",
       disk_headroom_unavailable: "Kodi Lab could not verify available space. Open Storage & Maintenance for details.",
     };
     const errorText = errors[body.code] ?? (body.code || "Kodi action failed.").replaceAll("_", " ");
-    feedback.textContent = response.ok ? "Done." : errorText;
+    if (response.ok && operation === "managed_network_access") networkSettingEdited = false;
+    feedback.textContent = response.ok
+      ? operation === "managed_network_access" ? "Network setting saved for the next Start." : "Done."
+      : errorText;
 
     await refresh();
   } catch {
@@ -125,6 +151,7 @@ async function apply(button) {
   } finally {
     busy = false;
     button.disabled = false;
+    if (operation === "managed_network_access") networkAccess.disabled = false;
 
   }
 }
@@ -133,6 +160,7 @@ panel.addEventListener("click", event => {
   const button = event.target.closest("button[data-action]");
   if (button && !busy) void apply(button);
 });
+networkAccess.addEventListener("change", () => { networkSettingEdited = true; });
 view.addEventListener("click", () => {
   watching = !watching;
   view.textContent = watching ? "Close View" : "View";

@@ -96,6 +96,7 @@ class Controller:
                     daemon_root=daemon_root / generation,
                     reviewed_image=handoff_root / reviewed_image_file(generation),
                     generation=generation,
+                    network_policy=self.omega.network_policy,
                 )
         self.input_attempt: UUID | None = None
         self.input_revoked = False
@@ -214,8 +215,6 @@ class Controller:
     def authorize_profile(
         self, name: str, actor: str, pending: Document | None
     ) -> Document | None:
-        if name in ADMIN and actor != "admin":
-            raise Refusal("managed_admin_required")
         if self.input_attempt is not None and name not in READ | PRIVATE:
             if actor == "admin" and name == "managed_release":
                 self.input_revoked = True
@@ -549,6 +548,12 @@ class Controller:
         }
 
     def perform_locked(self, name: str, args: dict[str, str]) -> object:
+        if name in ADMIN and self.actor != "admin":
+            raise Refusal("managed_admin_required")
+        if name == "managed_network_access":
+            enabled = args["enabled"] == "true"
+            atomic(self.omega.network_policy, b"true\n" if enabled else b"false\n")
+            return {"network_access_configured": enabled}
         if name in {
             "managed_prepare",
             "managed_start",
@@ -859,6 +864,16 @@ class Controller:
         status["owner"] = self.owner()
         status["view_control"] = self.input_attempt is not None
         status["view_target"] = str(self.runtime.target)
+        if self.actor == "admin":
+            try:
+                status["network_access_configured"] = self.omega.network_access()
+            except Refusal:
+                status["network_access_configured"] = None
+            status["network_access_effective"] = (
+                self.runtime.effective_network(obj)
+                if obj and obj["State"]["Running"]
+                else "stopped"
+            )
         if self.runtime.public.session.exists():
             status["public_repository_test"] = True
         if previous and (self.actor == "admin" or previous.get("actor") == self.actor):

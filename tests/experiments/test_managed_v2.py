@@ -14,12 +14,15 @@ import pytest
 
 from kodi_lab.kodi.bridge import ExternalBridgeClient, b64url
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import Broker, BrokerClient
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
 from kodi_lab.managed.protocol import Document
 from kodi_lab.managed.runtime import LABEL, ProfileStage, Refusal, Runtime
+from kodi_lab.managed.runtime_retirement import Assets
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
+from kodi_lab.mcp.transport import MANAGED_TOOLS
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 
 
@@ -132,15 +135,175 @@ def test_managed_network_requires_private_target_identity(
             assert args[-1] == f"name=^{runtime.network_name}$"
             return "network-id"
         assert args == ("network", "inspect", "network-id")
-        labels = {LABEL: str(uuid4()) if internal else str(runtime.target)}
         return json.dumps(
-            [{"Id": "network-id", "Internal": internal, "Labels": labels}]
+            [
+                {
+                    "Id": "network-id",
+                    "Name": runtime.network_name,
+                    "Driver": "bridge",
+                    "Internal": internal,
+                    "Labels": {LABEL: str(uuid4())},
+                }
+            ]
         )
 
     monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
     with pytest.raises(Refusal, match="network_identity"):
         runtime.network()
     assert [command[1] for command in commands] == ["ls", "inspect"]
+
+
+@pytest.mark.parametrize("generation", RELEASES)
+@pytest.mark.parametrize("allow_access", [True, False])
+def test_managed_network_creates_owned_bridge_in_selected_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: str, allow_access: bool
+) -> None:
+    runtime = Runtime(tmp_path, generation=generation)
+    calls: list[tuple[str, ...]] = []
+
+    def docker(*args: str) -> str:
+        calls.append(args)
+        return "new-id" if args[1] == "create" else ""
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
+    assert runtime.network(allow_access=allow_access) == "new-id"
+    assert calls[1] == (
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        *(() if allow_access else ("--internal",)),
+        "--label",
+        f"{LABEL}={runtime.target}",
+        runtime.network_name,
+    )
+
+
+@pytest.mark.parametrize("allow_access", [True, False])
+def test_mode_change_replaces_only_verified_stopped_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_access: bool
+) -> None:
+    runtime = Runtime(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    def docker(*args: str) -> str:
+        calls.append(args)
+        if args[:2] == ("network", "ls"):
+            return "old-id"
+        if args[:2] == ("network", "inspect"):
+            return json.dumps(
+                [
+                    {
+                        "Id": "old-id",
+                        "Name": runtime.network_name,
+                        "Driver": "bridge",
+                        "Internal": allow_access,
+                        "Labels": {LABEL: str(runtime.target)},
+                    }
+                ]
+            )
+        return "new-id" if args[:2] == ("network", "create") else ""
+
+    monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)
+    monkeypatch.setattr(
+        Runtime, "inspect", lambda *_: {"Id": "feed-id", "State": {"Running": True}}
+    )
+
+    def occupied(*_args: object, **_kwargs: object) -> Assets:
+        raise Refusal("managed_retirement_assets_changed")
+
+    observed = "kodi_lab.managed.runtime_retirement.observe_assets"
+    monkeypatch.setattr(observed, occupied)
+    with pytest.raises(Refusal, match="managed_network_change_unavailable"):
+        runtime.network(allow_access=allow_access)
+    assert [command[:2] for command in calls] == [
+        ("network", "ls"),
+        ("network", "inspect"),
+    ]
+
+    calls.clear()
+    monkeypatch.setattr(
+        observed,
+        lambda _runtime, _engine, *, for_network_change: (
+            Assets(engine="verified", feed="feed-id", network="old-id")
+            if for_network_change
+            else pytest.fail("Wrong dependency inventory mode")
+        ),
+    )
+    assert runtime.network(allow_access=allow_access) == "new-id"
+    assert calls[2:5] == [
+        ("stop", "-t", "6", "feed-id"),
+        ("rm", "feed-id"),
+        ("network", "rm", "old-id"),
+    ]
+    assert calls[5][:4] == ("network", "create", "--driver", "bridge")
+
+
+def test_configured_network_policy_is_global_admin_only_and_persistent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = Controller(tmp_path, daemon_root=tmp_path, handoff_root=tmp_path)
+    assert "managed_network_access" not in MANAGED_TOOLS
+    monkeypatch.setattr(Runtime, "inspect", lambda *_: None)
+    actor = str(uuid4())
+    controller.perform("managed_acquire", {}, actor=actor)
+    for who, arguments, error in [
+        (actor, {"enabled": "true"}, "managed_admin_required"),
+        ("admin", {"enabled": "yes"}, "invalid_arguments"),
+        ("admin", {"enabled": "true", "generation": "piers"}, "invalid_arguments"),
+    ]:
+        with pytest.raises(Refusal, match=error):
+            controller.perform("managed_network_access", arguments, actor=who)
+    assert not controller.omega.network_policy.exists()
+    for generation in RELEASES:
+        status = controller.perform(
+            "managed_status", {"generation": generation}, actor="admin"
+        )
+        assert isinstance(status["result"], dict)
+        assert status["result"]["network_access_configured"] is False
+        assert status["result"]["network_access_effective"] == "stopped"
+    assert controller.perform(
+        "managed_network_access", {"enabled": "true"}, actor="admin"
+    )["result"] == {"network_access_configured": True}
+    assert controller.owner() == actor and not controller.record.exists()
+    assert controller.omega.network_policy.stat().st_mode & 0o777 == 0o600
+
+    controller = Controller(tmp_path, daemon_root=tmp_path, handoff_root=tmp_path)
+    native = []
+
+    def start(runtime: Runtime) -> Document:
+        native.append((runtime.generation, runtime.network_access()))
+        return {"state": "ready"}
+
+    monkeypatch.setattr(Runtime, "start", start)
+    for expected in (True, False):
+        for generation in RELEASES:
+            controller.perform("managed_start", {"generation": generation}, actor=actor)
+            assert native[-1] == (generation, expected)
+        controller.perform(
+            "managed_network_access", {"enabled": "false"}, actor="admin"
+        )
+
+
+def test_network_policy_readback_distinguishes_pending_and_effective(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = Controller(tmp_path)
+    active = {
+        "State": {"Running": True},
+        "NetworkSettings": {
+            "Networks": {
+                controller.runtime.network_name: {"NetworkID": "network-id"},
+            }
+        },
+    }
+    monkeypatch.setattr(Runtime, "inspect", lambda *_: active)
+    monkeypatch.setattr(Runtime, "ready", lambda *_: {"state": "ready"})
+    monkeypatch.setattr(Runtime, "inspect_network", lambda *_: {"Internal": True})
+    controller.perform("managed_network_access", {"enabled": "true"}, actor="admin")
+    status = controller.status()
+    assert status["network_access_configured"] is True
+    assert status["network_access_effective"] == "isolated"
 
 
 def test_strict_writer_and_active_gate(tmp_path: Path) -> None:

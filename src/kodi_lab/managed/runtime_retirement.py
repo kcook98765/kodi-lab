@@ -378,8 +378,10 @@ def remaining(original: Assets, current: Assets) -> bool:
     )
 
 
-def observe_assets(native: Runtime, expected: str | None) -> Assets:
-    deadline = time.monotonic() + 1.5
+def observe_assets(
+    native: Runtime, expected: str | None, *, for_network_change: bool = False
+) -> Assets:
+    deadline = time.monotonic() + (15 if for_network_change else 1.5)
     engine = expected or observed_engine(deadline)
     helper = idle_feed(native, engine, deadline=deadline)
     if helper is None:
@@ -417,7 +419,7 @@ def observe_assets(native: Runtime, expected: str | None) -> Assets:
             observed["Id"] != network
             or observed["Name"] != native.network_name
             or observed["Driver"] != "bridge"
-            or observed["Internal"] is not True
+            or type(observed["Internal"]) is not bool
             or observed["Labels"].get(LABEL) != str(native.target)
             or not isinstance(containers, dict)
             or set(containers) - {helper.identity}
@@ -425,7 +427,13 @@ def observe_assets(native: Runtime, expected: str | None) -> Assets:
             raise Refusal("managed_retirement_assets_changed")
         if helper.identity:
             require_feed_network(native, helper.identity, network, deadline)
-        require_no_service_dependents(native, helper.identity, network, deadline)
+        require_no_service_dependents(
+            native,
+            helper.identity,
+            network,
+            deadline,
+            bounded_inventory=not for_network_change,
+        )
     elif helper.identity is not None:
         raise Refusal("managed_retirement_assets_changed")
     return Assets(engine=engine, feed=helper.identity, network=network)
@@ -454,7 +462,12 @@ def require_feed_network(
 
 
 def require_no_service_dependents(
-    native: Runtime, feed: str | None, network: str, deadline: float
+    native: Runtime,
+    feed: str | None,
+    network: str,
+    deadline: float,
+    *,
+    bounded_inventory: bool = True,
 ) -> None:
     # Network inspect reports active endpoints. Stopped containers can keep
     # dependencies on the network or on the helper's network namespace.
@@ -464,11 +477,10 @@ def require_no_service_dependents(
         "--all",
         "--quiet",
         "--no-trunc",
-        "--last",
-        str(DEPENDENCY_LIMIT + 1),
+        *(["--last", str(DEPENDENCY_LIMIT + 1)] if bounded_inventory else []),
         deadline=deadline,
     ).splitlines()
-    if len(identifiers) > DEPENDENCY_LIMIT or not all(
+    if (bounded_inventory and len(identifiers) > DEPENDENCY_LIMIT) or not all(
         HEX.fullmatch(item) for item in identifiers
     ):
         raise Refusal("managed_retirement_dependencies_unknown")
@@ -486,14 +498,18 @@ def require_no_service_dependents(
             "{{json .NetworkSettings.Networks}}",
         )
     )
-    states = docker_read(
-        "container",
-        "inspect",
-        "--format",
-        state_format,
-        *others,
-        deadline=deadline,
-    ).splitlines()
+    states: list[str] = []
+    for offset in range(0, len(others), DEPENDENCY_LIMIT):
+        states.extend(
+            docker_read(
+                "container",
+                "inspect",
+                "--format",
+                state_format,
+                *others[offset : offset + DEPENDENCY_LIMIT],
+                deadline=deadline,
+            ).splitlines()
+        )
     if len(states) != len(others):
         raise Refusal("managed_retirement_dependencies_unknown")
     for identifier, line in zip(others, states, strict=True):

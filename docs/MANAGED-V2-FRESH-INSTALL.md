@@ -26,6 +26,33 @@ For ordinary edits, stop Kodi, deploy from the private workspace, then start
 and execute the changed add-on. Release exclusive use when finished.
 Administer external registrations and grants independently under **External Kodi**.
 
+## Managed Kodi network access
+
+On **Managed Kodi**, select **Allow network access** and save to let Matrix,
+Nexus, Omega and Piers connect to the LAN and internet. The setting is off
+by default. It is global to this Lab site and remains saved across restarts
+and upgrades. The saved policy and the selected runtime's current policy
+are shown separately. Stop Kodi normally and start it again to apply a
+change. A profile Reset is unnecessary.
+
+When allowed, Kodi and its add-ons use normal outbound Docker bridge routing
+and Docker's DNS forwarding. Local names such as `home.arpa` depend on the
+Docker host's resolver. This setting allows outbound access to reachable host,
+LAN and internet services and reduces network isolation. It does not publish
+additional inbound ports or change management authentication, Kodi container
+privileges or profile mounts. Access still depends on the host's Docker and
+network configuration. This is ordinary unicast networking; LAN multicast
+device discovery may differ from a standalone Kodi installation. The separate
+disposable public-repository test keeps its restricted network policy.
+
+To restore isolation, clear the setting, save, then Stop and Start any
+affected runtime. Each managed bridge is reconciled at the next Start for
+that version and its profile, named snapshots, approved packages and
+workspaces remain available. Before downgrading to a build that only
+recognizes internal managed bridges, start and stop each previously enabled
+generation once with access off. Verify that the ordinary internal bridge is
+in use and retain the usual application and managed-state recovery inputs.
+
 ## Reviewed runtimes
 
 | Managed runtime | Qualification and limits |
