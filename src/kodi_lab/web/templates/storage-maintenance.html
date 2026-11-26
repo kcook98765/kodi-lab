@@ -43,11 +43,11 @@
   {% if inventory.profiles %}
   <div class="matrix-table-wrap" role="region" aria-label="Working profiles" tabindex="0">
   <table>
-    <thead><tr><th scope="col">Kodi version</th><th scope="col">Working profile usage</th><th scope="col">Pinned image</th><th scope="col">Retirement</th></tr></thead>
+    <thead><tr><th scope="col">Managed generation</th><th scope="col">Working profile usage</th><th scope="col">Pinned image</th><th scope="col">Retirement</th></tr></thead>
     <tbody>
       {% for row in inventory.profiles %}
       <tr>
-        <th scope="row">{{ row.version }}</th>
+        <th scope="row">{{ row.generation | capitalize }}</th>
         <td>{{ byte_size(row.profile.bytes) }}{% if row.profile.state != "measured" %} · {{ row.profile.state | capitalize }}{% endif %}</td>
         <td>{% if row.image %}<code>{{ row.image }}</code>{% else %}Unknown{% endif %}</td>
         <td><a href="/storage-maintenance/runtime/{{ row.generation }}">Review {{ row.generation | capitalize }} retirement</a></td>
@@ -57,6 +57,7 @@
   </table>
   </div>
   {% else %}<p>Working profile usage is unknown.</p>{% endif %}
+  <p>The pinned image identifies the working profile’s runtime. See Managed Kodi for its version when available.</p>
   <p>Working profile usage counts allocated blocks from the backing directory once. The Docker volume points to the same directory.</p>
   <p>Unattributed profile directories{% if inventory.unattributed_profiles.count is defined and inventory.unattributed_profiles.count is not none %} · {{ inventory.unattributed_profiles.count }} observed{% else %} · Unknown count{% endif %}. Usage and retirement eligibility are unknown.</p>
 </section>
@@ -111,10 +112,10 @@
   <p>Oldest dated scratch obligation was {{ inventory.prepare.oldest_observed_seconds }} seconds old at the sample.</p>
   {% endif %}
   <form action="/storage-maintenance/review" method="get">
-    <label for="storage-generation">Managed Kodi version</label>
+    <label for="storage-generation">Managed Kodi generation</label>
     <select id="storage-generation" name="generation">
-      {% for generation, version in generations.items() %}
-      <option value="{{ generation }}"{% if generation == "omega" %} selected{% endif %}>{{ generation | capitalize }} {{ version | join(".") }}</option>
+      {% for generation in generations %}
+      <option value="{{ generation }}"{% if generation == "omega" %} selected{% endif %}>{{ generation | capitalize }}</option>
       {% endfor %}
     </select>
     <button type="submit">Review feed cleanup</button>

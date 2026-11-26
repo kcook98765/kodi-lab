@@ -25,7 +25,14 @@ def test_storage_requires_session_and_uses_cached_data(
             "warning": True,
             "age": 10,
             "stale": False,
-            "profiles": [],
+            "profiles": [
+                {
+                    "version": "Matrix 19.5",
+                    "generation": "matrix",
+                    "profile": {"bytes": 4096, "state": "measured"},
+                    "image": IMAGE,
+                }
+            ],
             "engine": {
                 "state": "unavailable",
                 "images": [{"identity": IMAGE, "bytes": None}],
@@ -60,6 +67,10 @@ def test_storage_requires_session_and_uses_cached_data(
     assert "6 of 6 cleanup slots used" in page.text
     assert "0 B" in page.text and "Unknown" in page.text
     assert "Windows host availability is unknown" in page.text
+    assert "Managed generation" in page.text
+    assert "Review Matrix retirement" in page.text
+    assert "Matrix 19.5" not in page.text
+    assert IMAGE in page.text
     assert "Storage is running low" in client.get("/kodi").text
     assert "/storage-maintenance" in client.get("/managed-kodi").text
     assert client.post("/api/storage-maintenance").status_code == 405

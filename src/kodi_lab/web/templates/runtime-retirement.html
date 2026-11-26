@@ -2,7 +2,7 @@
 {% set nav_section = "managed" %}
 {% block title %}Runtime retirement · Kodi Lab{% endblock %}
 {% block content %}
-<h1>{{ generation | capitalize }} {{ version | join(".") }} runtime retirement</h1>
+<h1>{{ generation | capitalize }}{% if generation != "matrix" %} {{ version | join(".") }}{% endif %} runtime retirement</h1>
 <p><a href="/storage-maintenance">Storage &amp; Maintenance</a> · <a href="/managed-kodi?generation={{ generation }}">Managed Kodi</a></p>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 {% if review %}
