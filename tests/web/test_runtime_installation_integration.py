@@ -33,6 +33,7 @@ from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 from kodi_lab.web.app import create_app
 from tests.broker.test_reviewed_runtime_installation_operation import (
     DISTRO,
+    ENGINE,
     IMAGE,
     FakeContainer,
     FakeContainers,
@@ -66,12 +67,14 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
             },
         ),
         containers=containers,
+        info=lambda: {"ID": ENGINE, "OperatingSystem": "Linux", "OSType": "linux"},
         close=lambda: None,
     )
     if desktop:
         own["Config"]["Labels"]["desktop.docker.io/wsl-distro"] = DISTRO
         translated(own)
         docker_client.info = lambda: {
+            "ID": ENGINE,
             "OperatingSystem": "Docker Desktop (containerized)",
             "OSType": "linux",
         }
@@ -109,6 +112,7 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
     worker = DockerReviewedInstallationWorker(
         client_factory=lambda **_kwargs: docker_client,
         runtime_root=runtime_root,
+        session_factory=database,
     )
     registry = OperationRegistry()
     register_reviewed_runtime_operations(registry, worker)
@@ -163,8 +167,9 @@ def test_web_broker_controlled_worker_durable_status_and_reconciliation(
             assert status.status_code == 200
             assert status.json()["status"] == "acquiring"
             assert "Acquiring runtime" in client.get("/runtimes").text
-            containers.items[0].attrs["State"] = {"Running": False}
+            containers.items[0].exit(code=1)
             interrupted = client.get(f"/api/runtime-installations/{operation_id}")
+            assert interrupted.status_code == 200
             assert interrupted.json()["status"] == "failed"
             with database() as session:
                 row = RuntimeRecipeInstallationRepository(session).get(

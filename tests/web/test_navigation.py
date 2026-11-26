@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -12,6 +13,8 @@ from urllib.parse import urljoin, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
+from kodi_lab.managed.broker import BrokerClient
+from kodi_lab.managed.protocol import OperationReply
 from tests.web.conftest import login
 
 
@@ -117,7 +120,23 @@ def test_shared_navigation_and_sign_out_on_existing_pages(
     assert html.count("<main ") == 1
 
 
-def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
+def test_grouped_links_resolve_including_fragments(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = BrokerClient.request
+
+    def request(
+        broker: BrokerClient, actor: str, command: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        if command != "runtime_retirement_review":
+            return original(broker, actor, command, args)
+        assert actor == "admin" and args["generation"] == "omega"
+        return {
+            "result": {"state": "available", "working_profile": False},
+            "elapsed_seconds": 0,
+        }
+
+    monkeypatch.setattr(BrokerClient, "request", request)
     login(client)
     destinations: set[str] = set()
     for path in [
