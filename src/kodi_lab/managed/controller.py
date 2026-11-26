@@ -26,6 +26,7 @@ from kodi_lab.kodi.remote import (
 )
 
 from . import RELEASES, reviewed_image_file
+from .feed_retirement import FeedRetirement
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
 from .prepare import (
     ABANDONED_SCRATCH_GRACE,
@@ -97,6 +98,8 @@ class Controller:
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
         self._prepare_cleanup_cursor = ""
+        self._feed_cleanup_cursor: dict[str, str] = {}
+        self._feed_generation_cursor = 0
         self._prepare_warning_at: dict[str, float] = {}
         self.lifecycle_status: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
@@ -422,6 +425,58 @@ class Controller:
             self.warn_prepare_cleanup(str(error))
         except OSError:
             self.warn_prepare_cleanup("prepare_cleanup_journal_io")
+
+    def resume_feed_cleanup(self) -> None:
+        """Offer at most one stopped generation's redundant feed copy per pass."""
+        from .runtime import DOCKER
+
+        runtimes = tuple(self.runtimes.values())
+        native = runtimes[self._feed_generation_cursor]
+        self._feed_generation_cursor = (self._feed_generation_cursor + 1) % len(
+            runtimes
+        )
+        book = FeedRetirement(self.omega.root, native.root, native.target)
+        try:
+            state = book.read()
+            pending_operation = self.last_operation()
+            if (pending_operation and pending_operation["state"] == "pending") or (
+                native.public.session.exists()
+            ):
+                return
+            if state.planned is not None:
+                with self.omega.exclusive():
+                    if book.read() == state:
+                        book.reconcile(state)
+                return
+            if not state.pending:
+                return
+            items = sorted(state.pending, key=lambda item: item.artifact.name)
+            cursor = self._feed_cleanup_cursor.get(native.generation, "")
+            index = bisect_right([item.artifact.name for item in items], cursor)
+            pending = items[index % len(items)]
+            self._feed_cleanup_cursor[native.generation] = pending.artifact.name
+            proof = book.prove(state, pending)
+            if proof is None:
+                return
+            with self.omega.exclusive():
+                latest = self.last_operation()
+                if (
+                    latest and latest["state"] == "pending"
+                ) or native.public.session.exists():
+                    return
+                # Any exact name collision also blocks retirement. Do not infer
+                # eligibility from a missing or unavailable Engine.
+                active = subprocess.run(
+                    [*DOCKER, "ps", "-aq", "--filter", f"name=^/{native.name}$"],
+                    capture_output=True,
+                    text=True,
+                    timeout=0.5,
+                    check=True,
+                )
+                if not active.stdout.strip():
+                    book.retire(state, pending, proof)
+        except (Refusal, OSError, ValueError, TypeError, subprocess.SubprocessError):
+            return
 
     def resume_interrupted_prepare(self) -> None:
         """Recover the active Prepare independently of terminal obligations."""
@@ -1095,7 +1150,14 @@ class Controller:
             for item in [pkg, *catalog.values()]
         ):
             raise Refusal("service_activation_consent_required")
-        checksum, catalog = self.packages.publish(pkg)
+        retirement = (
+            FeedRetirement(self.omega.root, self.runtime.root, self.runtime.target)
+            if self.runtime.feed == self.runtime.private_feed
+            else None
+        )
+        checksum, catalog = self.packages.publish(
+            pkg, retirement=retirement, owner=self.actor
+        )
         allowed = {dep.node.attrib["name"] for dep in catalog.values()}
         allowed.update(
             dep.attrib["addon"]

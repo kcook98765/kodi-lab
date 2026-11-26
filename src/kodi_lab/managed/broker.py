@@ -154,9 +154,11 @@ class Handler(socketserver.StreamRequestHandler):
             self.wfile.write(frame(reply))
 
 
-def maintain_prepare_resources(controller: Controller, stopped: Event) -> None:
+def maintain_resources(controller: Controller, stopped: Event) -> None:
     while not stopped.is_set():
         controller.resume_prepare_cleanup()
+        if not stopped.is_set():
+            controller.resume_feed_cleanup()
         stopped.wait(PREPARE_CLEANUP_INTERVAL)
 
 
@@ -204,9 +206,9 @@ def serve(
                         daemon=True,
                     ).start()
                     Thread(
-                        target=maintain_prepare_resources,
+                        target=maintain_resources,
                         args=(controller, stopped),
-                        name="managed-prepare-cleanup",
+                        name="managed-resource-cleanup",
                         daemon=True,
                     ).start()
                     broker.timeout = 0.2

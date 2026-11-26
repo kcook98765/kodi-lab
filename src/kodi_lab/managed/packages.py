@@ -6,18 +6,23 @@ import ctypes
 import hashlib
 import io
 import json
+import logging
 import re
 import shutil
 import stat
 import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from kodi_lab.package_hygiene import has_vcs_admin_component
 
 from .runtime import BRIDGE, REPO, Refusal, atomic
+
+if TYPE_CHECKING:
+    from .feed_retirement import FeedRetirement
 
 ADDON_ID = re.compile(r"[a-z][a-z0-9_.-]{1,95}")
 HEX = re.compile(r"[0-9a-f]{64}")
@@ -325,23 +330,42 @@ class Packages:
         reviewed = Packages(self.catalog_root, self.feed)
         return {p.id: p for digest in raw for p in [reviewed.get(digest)]}
 
-    def publish(self, package: Package) -> tuple[str, dict[str, Package]]:
+    def publish(
+        self,
+        package: Package,
+        *,
+        retirement: FeedRetirement | None = None,
+        owner: str = "admin",
+    ) -> tuple[str, dict[str, Package]]:
         candidates = self.catalog()
         candidates[package.id] = package
+        packages = sorted(candidates.values(), key=lambda item: item.id)
         index = ET.Element("addons")
-        # An equal-version package can change without changing addon.xml.
-        # Bind the catalogue checksum to the selected archive bytes.
-        index.append(ET.Comment("package sha256 " + package.digest))
-        for pkg in sorted(candidates.values(), key=lambda item: item.id):
+        # Bind the catalog checksum to each exact archive, including changes
+        # to the bytes of a dependency at the same version.
+        for pkg in packages:
+            index.append(ET.Comment("package sha256 " + pkg.digest))
+            index.append(pkg.node)
+        catalog = ET.tostring(index, encoding="utf-8", xml_declaration=True) + b"\n"
+        checksum = sha(catalog)
+        if retirement is not None:
+            try:
+                retirement.plan(package, candidates, checksum, owner)
+            except (Refusal, OSError, ValueError):
+                retirement = None
+                logging.warning("Managed feed retirement plan unavailable")
+        for pkg in packages:
             folder = self.feed / "zips" / pkg.id
             folder.mkdir(parents=True, exist_ok=True)
             target = folder / f"{pkg.id}-{pkg.version}.zip"
             # Both files are private to this one runtime and mutation gate.
             atomic(target, pkg.data)
             atomic(target.with_suffix(".zip.sha256"), (pkg.digest + "\n").encode())
-            index.append(pkg.node)
-        catalog = ET.tostring(index, encoding="utf-8", xml_declaration=True) + b"\n"
-        checksum = sha(catalog)
         atomic(self.feed / "addons.xml", catalog)
         atomic(self.feed / "addons.xml.sha256", (checksum + "\n").encode())
+        if retirement is not None:
+            try:
+                retirement.confirm_publication()
+            except (Refusal, OSError, ValueError):
+                logging.warning("Managed feed retirement publication pending")
         return checksum, candidates
