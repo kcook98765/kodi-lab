@@ -11,6 +11,7 @@ import socket
 import socketserver
 import stat
 import struct
+import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -22,6 +23,7 @@ from .controller import Controller
 from .packages import HEX, MAX_ZIP
 from .prepare import PREPARE_CLEANUP_INTERVAL
 from .protocol import OperationReply, Refusal, actor_key, validate
+from .storage_maintenance import OPERATIONS as STORAGE_OPERATIONS
 from .viewer import display_lane
 
 MAX_REQUEST = 810_000
@@ -112,6 +114,17 @@ class Broker(socketserver.ThreadingUnixStreamServer):
         # Only the exact application service UID can assert an actor. Web cookies
         # and agent bearer credentials never cross the broker socket.
         actor = actor_key(request["actor"])
+        operation = request["name"]
+        if isinstance(operation, str) and operation in STORAGE_OPERATIONS:
+            if actor != "admin":
+                raise Refusal("storage_maintenance_admin_required")
+            started = time.monotonic()
+            return {
+                "result": self.controller.storage_maintenance.request(
+                    operation, request["args"]
+                ),
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+            }
         if request["name"] == "package_upload":
             args = request["args"]
             if (

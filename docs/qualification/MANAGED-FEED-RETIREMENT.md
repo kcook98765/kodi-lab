@@ -28,3 +28,19 @@ those stores, public feed artifacts, untracked files from older releases or
 runtime images. Unsupported or changed receipt identities are preserved. A full bounded
 queue blocks only publications that add another cleanup obligation until
 eligible copies retire.
+
+## Administrator maintenance
+
+Open Storage & Maintenance and choose a generation for feed review. The
+review shows a bounded selection of tracked copies, applicable protections and
+estimated file bytes. Confirm an eligible copy within five minutes. The
+server rechecks the original Engine, runtime, publication, exact file
+identity, approved source, active work and protection before removal.
+
+A recent maintenance receipt records the exact item and outcome. A pending
+result can be retried from the same authenticated session. The available-space
+change is an observation across that execution window on one filesystem.
+Concurrent writes, shared storage and delayed frees can affect it.
+
+Automatic private feed cleanup is enabled by default. Pausing it keeps
+explicit review available and preserves existing recovery holds.

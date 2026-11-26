@@ -109,6 +109,15 @@
   {% if inventory.prepare.oldest_observed_seconds is defined and inventory.prepare.oldest_observed_seconds is not none %}
   <p>Oldest dated scratch obligation was {{ inventory.prepare.oldest_observed_seconds }} seconds old at the sample.</p>
   {% endif %}
-  <p>Superseded packages, feed files and rollback generations need verified reference information before their eligible usage can be reported.</p>
+  <form action="/storage-maintenance/review" method="get">
+    <label for="storage-generation">Managed Kodi version</label>
+    <select id="storage-generation" name="generation">
+      {% for generation, version in generations.items() %}
+      <option value="{{ generation }}"{% if generation == "omega" %} selected{% endif %}>{{ generation | capitalize }} {{ version | join(".") }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Review feed cleanup</button>
+  </form>
+  <p>Application and runtime rollback generations remain protected.</p>
 </section>
 {% endblock %}

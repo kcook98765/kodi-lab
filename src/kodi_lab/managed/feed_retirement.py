@@ -8,7 +8,7 @@ import os
 import stat
 import subprocess
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, cast
@@ -269,7 +269,9 @@ class FeedRetirement:
             raise Refusal("feed_catalog_protection_unknown")
         return set(raw)
 
-    def prove(self, state: FeedState, pending: PendingCopy) -> RetirementProof | None:
+    def prove(
+        self, state: FeedState, pending: PendingCopy, *, durable: bool = True
+    ) -> RetirementProof | None:
         current, item = state.current, pending.artifact
         if (
             not current
@@ -315,12 +317,13 @@ class FeedRetirement:
             return None
         if not self.index_matches(current) or item.digest in self.approved_catalog():
             return None
-        if file_digest(canonical, durable=True) != item.digest:
+        if file_digest(canonical, durable=durable) != item.digest:
             return None
-        for folder in canonical.parents:
-            sync_dir(folder)
-            if folder == self.managed_root:
-                break
+        if durable:
+            for folder in canonical.parents:
+                sync_dir(folder)
+                if folder == self.managed_root:
+                    break
         removing = pending.phase == "removing"
         primary = file_digest(target)
         try:
@@ -343,7 +346,12 @@ class FeedRetirement:
         )
 
     def retire(
-        self, state: FeedState, pending: PendingCopy, proof: RetirementProof
+        self,
+        state: FeedState,
+        pending: PendingCopy,
+        proof: RetirementProof,
+        *,
+        record_outcome: Callable[[], None] | None = None,
     ) -> bool:
         # The controller holds the site lock and has observed an absent managed
         # container. Large archive reads occurred outside the lifecycle lock.
@@ -372,6 +380,8 @@ class FeedRetirement:
         proof.target.unlink(missing_ok=True)
         proof.sidecar.unlink(missing_ok=True)
         sync_dir(proof.target.parent)
+        if record_outcome is not None:
+            record_outcome()
         self.write(
             FeedState(
                 target=state.target,
