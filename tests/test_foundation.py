@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 import kodi_lab
 from kodi_lab.config import Settings, safe_settings_error
-from kodi_lab.storage import metadata
+from kodi_lab.storage.models import TargetRow
 
 
 def _isolate_settings_environment(
@@ -195,6 +195,6 @@ def test_migration_metadata_matches_fresh_schema() -> None:
     fixtures = Path(__file__).parent / "fixtures"
     foundation = json.loads((fixtures / "initial-schema.json").read_text())["tables"]
     replay = json.loads((fixtures / "worker-replay-schema.json").read_text())["tables"]
-    assert set(metadata.tables) == (foundation.keys() | replay.keys()) - {
+    assert set(TargetRow.metadata.tables) == (foundation.keys() | replay.keys()) - {
         "alembic_version"
     }
