@@ -487,6 +487,61 @@ def test_forward_migration_transition_before_application_upgrade(
     )
 
 
+def test_clean_recovery_preflights_transition_and_rollback_ancestry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new, data, state, old_hash, new_hash, predecessor = _setup(
+        tmp_path,
+        monkeypatch,
+        old_revision="0001_foundation",
+    )
+    url = f"sqlite:///{state / 'database/kodi-lab.db'}"
+    transition(old, new, data, state, BASE, old_hash, new_hash, predecessor)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    assert upgrade(state, url)[1] == CURRENT_HEAD
+    with lifecycle_lock(state):
+        second = backup(state, url)
+    third = _replacement(
+        new, tmp_path / "third", source_commit="e" * 40, source_tree="f" * 40
+    )
+    third_hash = sha256((third / "BUNDLE.json").read_bytes())
+    transition(new, third, data, state, BASE, new_hash, third_hash, second)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", third_hash)
+    with lifecycle_lock(state):
+        after_upgrade = backup(state, url)
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir(mode=0o700)
+    staged = fresh / "backups"
+    staged.mkdir(mode=0o700)
+    shutil.copytree(state / "backups" / after_upgrade, staged / after_upgrade)
+    fresh_repo = tmp_path / "fresh-repo"
+    generate(third, fresh_repo, BASE)
+    initialize_development(fresh_repo / "development-data", BASE, third)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(fresh_repo))
+    fresh_url = f"sqlite:///{fresh / 'database/kodi-lab.db'}"
+    before = (fresh_repo / "CURRENT").read_bytes()
+    for missing in (second, predecessor):
+        with pytest.raises(HostBootstrapError, match=missing):
+            remote_lifecycle.recover_clean(
+                fresh, fresh_url, after_upgrade, after_upgrade
+            )
+        assert {path.name for path in fresh.iterdir()} == {"backups", ".lifecycle.lock"}
+        assert (fresh_repo / "CURRENT").read_bytes() == before
+        shutil.copytree(state / "backups" / missing, staged / missing)
+    assert (
+        remote_lifecycle.recover_clean(fresh, fresh_url, after_upgrade, after_upgrade)
+        == CURRENT_HEAD
+    )
+    assert remote_lifecycle.verify_candidate_transition_completion(fresh, fresh_url)
+    transition(
+        third, new, fresh_repo, fresh, BASE, third_hash, new_hash, second, rollback=True
+    )
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    assert restore(fresh, fresh_url, second, second)[0] == CURRENT_HEAD
+    assert remote_lifecycle.verify_candidate_transition_completion(fresh, fresh_url)
+
+
 def _web_owned_transition_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
