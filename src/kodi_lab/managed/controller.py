@@ -26,6 +26,7 @@ from kodi_lab.kodi.remote import (
 )
 
 from . import RELEASES, reviewed_image_file
+from .feed_retirement import FeedRetirement, observed_engine, runtime_idle
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
 from .prepare import (
     ABANDONED_SCRATCH_GRACE,
@@ -97,6 +98,9 @@ class Controller:
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
         self._prepare_cleanup_cursor = ""
+        self._feed_cleanup_cursor: dict[str, str] = {}
+        self._feed_generation_cursor = 0
+        self._feed_engine_bound = daemon_root is not None
         self._prepare_warning_at: dict[str, float] = {}
         self.lifecycle_status: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
@@ -422,6 +426,60 @@ class Controller:
             self.warn_prepare_cleanup(str(error))
         except OSError:
             self.warn_prepare_cleanup("prepare_cleanup_journal_io")
+
+    def resume_feed_cleanup(self) -> None:
+        """Offer at most one stopped generation's redundant feed copy per pass."""
+        runtimes = tuple(self.runtimes.values())
+        native = runtimes[self._feed_generation_cursor]
+        self._feed_generation_cursor = (self._feed_generation_cursor + 1) % len(
+            runtimes
+        )
+        book = FeedRetirement(self.omega.root, native.root, native.target)
+        try:
+            state = book.read()
+            pending_operation = self.last_operation()
+            if (pending_operation and pending_operation["state"] == "pending") or (
+                native.public.session.exists()
+            ):
+                return
+            if state.planned is not None:
+                planned = book.planned_proof(state)
+                if planned is not None:
+                    with self.omega.exclusive():
+                        latest = self.last_operation()
+                        if book.read() == state and not (
+                            latest and latest["state"] == "pending"
+                        ):
+                            book.reconcile(state, planned)
+                return
+            if not state.pending:
+                return
+            items = sorted(state.pending, key=lambda item: item.artifact.name)
+            cursor = self._feed_cleanup_cursor.get(native.generation, "")
+            index = bisect_right([item.artifact.name for item in items], cursor)
+            pending = items[index % len(items)]
+            self._feed_cleanup_cursor[native.generation] = pending.artifact.name
+            proof = book.prove(state, pending)
+            if proof is None:
+                return
+            with self.omega.exclusive():
+                latest = self.last_operation()
+                if (
+                    latest and latest["state"] == "pending"
+                ) or native.public.session.exists():
+                    return
+                if runtime_idle(native, state.engine):
+                    book.retire(state, pending, proof)
+        except (
+            Refusal,
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+            IndexError,
+            subprocess.SubprocessError,
+        ):
+            return
 
     def resume_interrupted_prepare(self) -> None:
         """Recover the active Prepare independently of terminal obligations."""
@@ -1095,7 +1153,19 @@ class Controller:
             for item in [pkg, *catalog.values()]
         ):
             raise Refusal("service_activation_consent_required")
-        checksum, catalog = self.packages.publish(pkg)
+        retirement = None
+        if self._feed_engine_bound and self.runtime.feed == self.runtime.private_feed:
+            try:
+                engine = observed_engine(time.monotonic() + 0.5)
+            except (Refusal, OSError, subprocess.SubprocessError):
+                pass
+            else:
+                retirement = FeedRetirement(
+                    self.omega.root, self.runtime.root, self.runtime.target, engine
+                )
+        checksum, catalog = self.packages.publish(
+            pkg, retirement=retirement, owner=self.actor
+        )
         allowed = {dep.node.attrib["name"] for dep in catalog.values()}
         allowed.update(
             dep.attrib["addon"]
