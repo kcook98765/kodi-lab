@@ -28,8 +28,8 @@ Administer external registrations and grants independently under **External Kodi
 
 ## Watch managed Kodi during development
 
-Select **View** to watch the running Kodi at up to 2 FPS. The stream has no
-viewer-specific duration limit. The Web sign-in still expires after 12 hours
+Select **View** to watch the running Kodi. The passive viewer requests a
+2 FPS update rate and has no viewer-specific duration limit. The Web sign-in still expires after 12 hours
 without Web activity or seven days from login. Agent tool calls use their own
 credentials. When the Web session expires, sign in and select **View** again.
 
