@@ -1099,10 +1099,11 @@ def test_managed_v2_schema_refuses_downgrade_but_a_backup_can_be_restored(
         external = session.get(ExternalKodiTargetRow, target_id)
         assert external is not None
         external.configured_capabilities_json = after
-    # The Preview successor can unwind to the foundation revision. The
-    # foundation refuses downgrade to base, and the live database stays intact.
+    # Even after traversing the Preview successor, refusal at the foundation
+    # must leave the attempted copy byte-identical at its current revision.
     downgrade_database = tmp_path / "downgrade-check.db"
     shutil.copy2(state / remote_lifecycle.DATABASE, downgrade_database)
+    before_downgrade = downgrade_database.read_bytes()
     with (
         packaged_migrations.packaged_config(
             f"sqlite:///{downgrade_database}"
@@ -1112,7 +1113,8 @@ def test_managed_v2_schema_refuses_downgrade_but_a_backup_can_be_restored(
         ),
     ):
         command.downgrade(config, "base")
-    assert remote_lifecycle._revision(downgrade_database) == ("0001_foundation")
+    assert remote_lifecycle._revision(downgrade_database) == CURRENT_HEAD
+    assert downgrade_database.read_bytes() == before_downgrade
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     transition(
         new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
