@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import stat
@@ -42,6 +43,7 @@ TYPES = {
 }
 MAX_ZIP = 32 * 1024**2
 MAX_TREE = 64 * 1024**2
+FEED_METADATA_ALLOWANCE = 1024**2
 
 
 def sha(data: bytes) -> str:
@@ -330,6 +332,22 @@ class Packages:
         reviewed = Packages(self.catalog_root, self.feed)
         return {p.id: p for digest in raw for p in [reviewed.get(digest)]}
 
+    @staticmethod
+    def require_publication_space(directory: Path, lengths: list[int]) -> None:
+        try:
+            usage = os.statvfs(directory)
+        except OSError as error:
+            raise Refusal("disk_headroom_unavailable") from error
+        fragment = usage.f_frsize
+        if fragment <= 0:
+            raise Refusal("disk_headroom_unavailable")
+        # Treat every write as adding blocks. This covers new paths and the
+        # overlap while atomic replacements still retain the original bytes.
+        # Leave room for directory entries and small lifecycle records.
+        peak_blocks = sum((length + fragment - 1) // fragment for length in lengths)
+        if usage.f_bavail * fragment < FEED_METADATA_ALLOWANCE + peak_blocks * fragment:
+            raise Refusal("disk_headroom")
+
     def publish(
         self,
         package: Package,
@@ -348,9 +366,21 @@ class Packages:
             index.append(pkg.node)
         catalog = ET.tostring(index, encoding="utf-8", xml_declaration=True) + b"\n"
         checksum = sha(catalog)
-        if retirement is not None:
-            from .feed_retirement import FeedCapacity
+        lengths = [len(catalog), 65]
+        for pkg in packages:
+            lengths.extend((len(pkg.data), 65))
+        if retirement is None:
+            self.require_publication_space(self.feed, lengths)
+        else:
+            from .feed_retirement import RECEIPT_LIMIT, FeedCapacity
 
+            # The committed receipt is staged alongside the intent receipt.
+            receipts = [RECEIPT_LIMIT, RECEIPT_LIMIT]
+            if self.feed.stat().st_dev == retirement.root.stat().st_dev:
+                self.require_publication_space(self.feed, [*lengths, *receipts])
+            else:
+                self.require_publication_space(self.feed, lengths)
+                self.require_publication_space(retirement.root, receipts)
             try:
                 retirement.plan(package, candidates, checksum, owner)
             except FeedCapacity:

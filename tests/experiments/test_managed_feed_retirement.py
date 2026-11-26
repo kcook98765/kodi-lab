@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pytest
@@ -12,7 +13,8 @@ from kodi_lab.managed import feed_retirement
 from kodi_lab.managed import packages as managed_packages
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.feed_retirement import FeedCapacity, FeedRetirement
-from kodi_lab.managed.packages import Package
+from kodi_lab.managed.packages import FEED_METADATA_ALLOWANCE, Package
+from kodi_lab.managed.protocol import Refusal
 from kodi_lab.managed.runtime import LABEL, Runtime, atomic
 
 ADDON = "script.retirementfixture"
@@ -301,3 +303,49 @@ def test_recovery_hold_appearing_during_intent_commit_blocks_unlink(
         assert not tracker.retire(state, pending, proof)
     assert path_for(site, first).read_bytes() == first.data
     assert tracker.read().pending[0].phase == "removing"
+
+
+def test_publication_headroom_refuses_before_the_journal_or_feed_changes(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    previous = publish(site, "1.0.0")
+    pending = site.packages.approve(archive("2.0.0"))
+    tracker = book(site)
+    receipt = tracker.record.read_bytes()
+    index = (tracker.feed / "addons.xml").read_bytes()
+    fragment = 4096
+    reserve = FEED_METADATA_ALLOWANCE // fragment
+    staged_receipts = 2 * feed_retirement.RECEIPT_LIMIT // fragment
+    # New ZIP, its checksum, index, and index checksum each need one fragment.
+    budget = reserve + staged_receipts + 3
+    monkeypatch.setattr(
+        managed_packages,
+        "os",
+        SimpleNamespace(
+            statvfs=lambda path: SimpleNamespace(f_frsize=fragment, f_bavail=budget)
+        ),
+    )
+    with pytest.raises(Refusal, match="disk_headroom"):
+        site.packages.publish(pending, retirement=tracker)
+    assert tracker.record.read_bytes() == receipt
+    assert (tracker.feed / "addons.xml").read_bytes() == index
+    assert path_for(site, previous).read_bytes() == previous.data
+    assert not path_for(site, pending).exists()
+    assert site.packages.get(pending.digest).data == pending.data
+    budget += 1
+    site.packages.publish(pending, retirement=tracker)
+    assert path_for(site, pending).read_bytes() == pending.data
+
+
+def test_publication_refuses_when_space_cannot_be_observed(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = site.packages.approve(archive("1.0.0"))
+
+    def unavailable(path: Path) -> None:
+        raise OSError("test filesystem unavailable")
+
+    monkeypatch.setattr(managed_packages, "os", SimpleNamespace(statvfs=unavailable))
+    with pytest.raises(Refusal, match="disk_headroom_unavailable"):
+        site.packages.publish(package)
+    assert not path_for(site, package).exists()
