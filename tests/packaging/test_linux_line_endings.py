@@ -25,12 +25,25 @@ def _tracked_paths() -> list[str]:
     )
 
 
-def _protected_paths() -> list[str]:
+def _assembly_keyrings() -> list[str]:
     return [
         name
         for name in _tracked_paths()
-        if (ROOT / name).read_bytes().startswith(b"#!")
-        or name.startswith("src/kodi_lab/runtime/assembly_assets/")
+        if name.startswith("src/kodi_lab/runtime/assembly_assets/")
+        and name.endswith(".gpg")
+    ]
+
+
+def _protected_text_paths() -> list[str]:
+    keyrings = set(_assembly_keyrings())
+    return [
+        name
+        for name in _tracked_paths()
+        if name not in keyrings
+        and (
+            (ROOT / name).read_bytes().startswith(b"#!")
+            or name.startswith("src/kodi_lab/runtime/assembly_assets/")
+        )
     ]
 
 
@@ -55,11 +68,15 @@ def windows_checkout(tmp_path: Path) -> Path:
     git("config", "core.autocrlf", "true")
     git("config", "core.eol", "crlf")
     (tmp_path / ".gitattributes").write_bytes((ROOT / ".gitattributes").read_bytes())
-    for name in _protected_paths():
+    for name in _protected_text_paths():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         # Also prove Git canonicalizes CRLF contributor input in the index.
         path.write_bytes((ROOT / name).read_bytes().replace(b"\n", b"\r\n"))
+    for name in _assembly_keyrings():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((ROOT / name).read_bytes())
     for name in EXTENSIONLESS:
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,13 +84,14 @@ def windows_checkout(tmp_path: Path) -> Path:
     for name in ("unrelated.txt", "windows.cmd"):
         (tmp_path / name).write_bytes(b"unprotected\n")
     git("add", ".")
-    for name in [*_protected_paths(), *EXTENSIONLESS]:
+    for name in [*_protected_text_paths(), *EXTENSIONLESS]:
         assert b"\r" not in git("show", f":{name}"), name
     # Remove the existing worktree: checkout-index may leave a stat-matching
     # CRLF input untouched even with --force. This must be a fresh checkout.
     for name in [
         ".gitattributes",
-        *_protected_paths(),
+        *_protected_text_paths(),
+        *_assembly_keyrings(),
         *EXTENSIONLESS,
         "unrelated.txt",
         "windows.cmd",
@@ -101,7 +119,7 @@ def test_attributes_explicitly_protect_linux_execution_inputs(
     windows_checkout: Path,
 ) -> None:
     # Current source launchers acquire extensionless names during Docker COPY.
-    paths = [*_protected_paths(), *EXTENSIONLESS]
+    paths = [*_protected_text_paths(), *EXTENSIONLESS]
     result = (
         subprocess.check_output(
             ["git", "check-attr", "--cached", "text", "eol", "--", *paths],
@@ -116,7 +134,7 @@ def test_attributes_explicitly_protect_linux_execution_inputs(
 
 
 def test_windows_checkout_preserves_linux_bytes(windows_checkout: Path) -> None:
-    for name in _protected_paths():
+    for name in _protected_text_paths():
         assert (windows_checkout / name).read_bytes() == (ROOT / name).read_bytes(), (
             name
         )
@@ -126,6 +144,28 @@ def test_windows_checkout_preserves_linux_bytes(windows_checkout: Path) -> None:
     # and Windows scripts were not accidentally forced to LF.
     for name in ("unrelated.txt", "windows.cmd"):
         assert (windows_checkout / name).read_bytes() == b"unprotected\r\n"
+
+
+def test_windows_checkout_preserves_binary_archive_keyrings(
+    windows_checkout: Path,
+) -> None:
+    keyrings = _assembly_keyrings()
+    assert (
+        "src/kodi_lab/runtime/assembly_assets/matrix-19.5-candidate/"
+        "team-kodi-archive.gpg" in keyrings
+    )
+    for name in keyrings:
+        original = (ROOT / name).read_bytes()
+        indexed = subprocess.check_output(
+            ["git", "show", f":{name}"], cwd=windows_checkout
+        )
+        assert indexed == (windows_checkout / name).read_bytes() == original
+        attributes = subprocess.check_output(
+            ["git", "check-attr", "--cached", "text", "eol", "--", name],
+            cwd=windows_checkout,
+            text=True,
+        ).splitlines()
+        assert attributes == [f"{name}: text: unset", f"{name}: eol: unspecified"]
 
 
 def test_remote_web_copy_and_default_entrypoint_use_protected_launcher(
