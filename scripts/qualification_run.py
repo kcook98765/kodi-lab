@@ -94,11 +94,18 @@ def stamp(pid: int) -> Doc:
     ticks = process_start_ticks(pid)
     if ticks is None:
         raise ValueError("Owned process exited before its identity could be saved")
-    return {"pid": pid, "start_ticks": ticks}
+    return {"pid": pid, "start_ticks": ticks, "boot": boot_id()}
+
+
+def boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
 
 
 def live(identity: Doc) -> bool:
-    return process_start_ticks(identity["pid"]) == identity["start_ticks"]
+    return bool(
+        identity["boot"] == boot_id()
+        and process_start_ticks(identity["pid"]) == identity["start_ticks"]
+    )
 
 
 def socket_identity(path: Path, process: Doc) -> tuple[int, int]:
@@ -331,7 +338,7 @@ def closeout(evidence: Path, children: Sequence[subprocess.Popen[bytes]] = ()) -
         write(evidence / RESULT, {"state": "retired", "run": record["run"]})
         return True
     root = check_root(record)
-    if record.get("workload"):
+    if record.get("workload") and record["workload"]["boot"] == boot_id():
         try:
             os.killpg(record["workload"]["pid"], 0)
         except ProcessLookupError:
@@ -437,9 +444,10 @@ def workload(
         record["workload"] = stamp(process.pid)
         write(evidence / OWNER, record)
         assert process.stdout is not None
+        pipe = process.stdout.fileno()
         remaining = MAX_LOG
         try:
-            for chunk in iter(lambda: process.stdout.read1(32768), b""):
+            for chunk in iter(lambda: os.read(pipe, 32768), b""):
                 log.write(chunk[:remaining])
                 remaining = max(0, remaining - len(chunk))
             return process.wait()
