@@ -6,7 +6,10 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from hashlib import sha256
+from importlib import resources
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,7 +38,12 @@ from kodi_lab.runtime.install import (
     install_reviewed_runtime,
     recipe_target_id,
 )
-from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, load_reviewed_recipe
+from kodi_lab.runtime.matrix_candidate import Closure
+from kodi_lab.runtime.recipes import (
+    MatrixCandidateRecipe,
+    load_novnc_phase1_recipe,
+    load_reviewed_recipe,
+)
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.runtime.validation import ValidationResult
 from kodi_lab.storage import metadata
@@ -96,6 +104,40 @@ def factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sessionmaker[Ses
 
 def _assembly(image_id: str = IMAGE, generation: str = "matrix") -> AssemblyResult:
     reviewed = load_reviewed_recipe(generation)
+    recipe = reviewed.recipe
+    if isinstance(recipe, MatrixCandidateRecipe):
+        raw = (
+            resources.files("kodi_lab.runtime")
+            .joinpath(
+                "assembly_assets", "matrix-19.5-candidate", "package-closure.json"
+            )
+            .read_bytes()
+        )
+        assert sha256(raw).hexdigest() == recipe.closure_sha256
+        closure = cast(Closure, json.loads(raw))
+        packages = tuple(
+            (name, version, architecture)
+            for name, version, architecture in closure["installed_inventory"]
+        )
+        metadata = tuple(
+            (name, "sha256:" + release["sha256"])
+            for name, release in closure["releases"].items()
+        )
+    else:
+        packages = (
+            *(
+                (item.name, item.version, item.architecture)
+                for item in recipe.critical_packages
+            ),
+            ("libaudit-transitive", "1.0-1", "amd64"),
+        )
+        metadata = tuple(
+            (
+                f"archive.ubuntu.com_ubuntu_dists_{pocket}_InRelease",
+                "sha256:" + "c" * 64,
+            )
+            for pocket in recipe.provider.pockets
+        )
     return AssemblyResult(
         image_id=image_id,
         image_size=1_050_650_811,
@@ -104,20 +146,8 @@ def _assembly(image_id: str = IMAGE, generation: str = "matrix") -> AssemblyResu
         build_log_bytes=124_319,
         apt_index_download="34.2 MB",
         apt_package_download="144 MB",
-        package_inventory=(
-            *tuple(
-                (item.name, item.version, item.architecture)
-                for item in reviewed.recipe.critical_packages
-            ),
-            ("libaudit-transitive", "1.0-1", "amd64"),
-        ),
-        apt_metadata_digests=tuple(
-            (
-                f"archive.ubuntu.com_ubuntu_dists_{pocket}_InRelease",
-                "sha256:" + "c" * 64,
-            )
-            for pocket in reviewed.recipe.provider.pockets
-        ),
+        package_inventory=packages,
+        apt_metadata_digests=metadata,
     )
 
 
@@ -192,7 +222,40 @@ def _ready(
         _validation(image_id, generation),
         data_root=Settings().data_root,
     )
+    assert _ready_installation(factory, reviewed)["operation_id"] == str(operation_id)
     return operation_id
+
+
+def test_valid_matrix_attestation_requires_explicit_legacy_policy(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = _ready(factory)
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None and row.runtime_revision_id is not None
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        assert definition is not None and revision is not None
+        eligibility = RuntimeRevisionEligibilityPolicy()
+        default = eligibility.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(),
+        )
+        assert default.reason is RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED
+        allowed = eligibility.evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(include_legacy=True),
+        )
+        assert allowed.eligible
 
 
 def test_recipe_provenance_tamper_removes_eligibility(
@@ -219,7 +282,7 @@ def test_recipe_provenance_tamper_removes_eligibility(
             required_release=definition.kodi_release,
             definition=definition,
             revision=revision,
-            policy=RuntimeSelectionPolicy(),
+            policy=RuntimeSelectionPolicy(include_legacy=True),
         )
         assert result.reason is RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
         assert not supports_reviewed_recipe_capability(
@@ -252,7 +315,7 @@ def _assert_recipe_ineligible(
             required_release=definition.kodi_release,
             definition=definition,
             revision=revision,
-            policy=RuntimeSelectionPolicy(),
+            policy=RuntimeSelectionPolicy(include_legacy=True),
         )
         assert result.reason is RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
     assert _ready_installation(factory, reviewed) == {}
@@ -287,7 +350,13 @@ def test_valid_shape_persisted_provenance_tamper_fails_closed(
         if case == "signed_metadata_digest":
             attestation["signed_metadata_digests"][0][1] = "sha256:" + "f" * 64
         elif case == "transitive_inventory":
-            attestation["installed_packages"][-1][1] = "1.0-2"
+            critical = {item["name"] for item in attestation["critical_packages"]}
+            transitive = next(
+                row
+                for row in attestation["installed_packages"]
+                if row[0] not in critical
+            )
+            transitive[1] = "99.0-1"
             attestation["installed_packages_digest"] = installed_package_digest(
                 attestation["installed_packages"]
             )
@@ -441,7 +510,7 @@ def test_corrupted_ready_attestation_is_ineligible_and_not_reused(
             required_release=definition.kodi_release,
             definition=definition,
             revision=revision,
-            policy=RuntimeSelectionPolicy(),
+            policy=RuntimeSelectionPolicy(include_legacy=True),
         )
         assert result.reason is RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
 
@@ -450,7 +519,7 @@ def test_corrupted_ready_attestation_is_ineligible_and_not_reused(
     ("field", "replacement"),
     [
         ("schema", "old-contract"),
-        ("release", "19.5"),
+        ("release", "20.5"),
         ("cycles", []),
         ("screenshot", None),
     ],
