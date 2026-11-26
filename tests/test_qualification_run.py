@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.qualification_run import MANIFEST, require_current_artifacts, write
+from scripts.qualification_run import (
+    MANIFEST,
+    require_current_artifacts,
+    require_owned_namespaces,
+    write,
+)
 
 
 def test_cleanup_preserves_artifacts_added_after_manifest(tmp_path: Path) -> None:
@@ -35,3 +40,13 @@ def test_absent_artifact_inbox_requires_verified_removal_phase(tmp_path: Path) -
         require_current_artifacts(
             tmp_path, tmp_path, os.getuid(), already_removing=False
         )
+
+
+def test_exact_default_builder_history_namespace_is_run_owned() -> None:
+    namespace = "klq-0123456789abcdef0123456789abcdef"
+    require_owned_namespaces(
+        namespace, {namespace, namespace + "-plugins", namespace + "_history"}
+    )
+    for foreign in ("buildkit_history", namespace + "_history-copy"):
+        with pytest.raises(ValueError, match="Unexpected containerd namespaces"):
+            require_owned_namespaces(namespace, {namespace, foreign})

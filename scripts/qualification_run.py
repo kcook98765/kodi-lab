@@ -153,6 +153,14 @@ def docker(root: Path, *args: str) -> str:
     )
 
 
+def require_owned_namespaces(namespace: str, observed: set[str]) -> None:
+    # The Engine's embedded BuildKit records history in the configured
+    # containerd namespace plus "_history". The private peer and store must
+    # already have been verified before considering these exact names.
+    if not observed <= {namespace, namespace + "-plugins", namespace + "_history"}:
+        raise ValueError(f"Unexpected containerd namespaces: {sorted(observed)}")
+
+
 def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     outer, inner = record["dockerd"], record["containerd"]
     store = daemon_store(root, record)
@@ -230,11 +238,7 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
             "ctr", "--address", str(ctr_socket), "namespaces", "list"
         ).splitlines()[1:]
     }
-    if not ctr_names <= {
-        record["namespace"],
-        record["namespace"] + "-plugins",
-    }:
-        raise ValueError(f"Unexpected containerd namespaces: {sorted(ctr_names)}")
+    require_owned_namespaces(record["namespace"], ctr_names)
     if alias and socket_identity(DOCKER_ALIAS, outer) != docker_identity:
         raise ValueError("The child worker socket alias has a different listener")
     return {
