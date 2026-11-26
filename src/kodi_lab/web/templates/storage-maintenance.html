@@ -43,13 +43,14 @@
   {% if inventory.profiles %}
   <div class="matrix-table-wrap" role="region" aria-label="Working profiles" tabindex="0">
   <table>
-    <thead><tr><th scope="col">Kodi version</th><th scope="col">Working profile usage</th><th scope="col">Pinned image</th></tr></thead>
+    <thead><tr><th scope="col">Kodi version</th><th scope="col">Working profile usage</th><th scope="col">Pinned image</th><th scope="col">Retirement</th></tr></thead>
     <tbody>
       {% for row in inventory.profiles %}
       <tr>
         <th scope="row">{{ row.version }}</th>
         <td>{{ byte_size(row.profile.bytes) }}{% if row.profile.state != "measured" %} · {{ row.profile.state | capitalize }}{% endif %}</td>
         <td>{% if row.image %}<code>{{ row.image }}</code>{% else %}Unknown{% endif %}</td>
+        <td><a href="/storage-maintenance/runtime/{{ row.generation }}">Review {{ row.generation | capitalize }} retirement</a></td>
       </tr>
       {% endfor %}
     </tbody>

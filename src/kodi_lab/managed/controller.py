@@ -48,6 +48,7 @@ from .protocol import (
 )
 from .public_repository import REPOSITORY, Approval, approval
 from .runtime import ESTUARY, REPO, Runtime, atomic, sync_dir
+from .runtime_retirement import RuntimeRetirement
 from .snapshots import Snapshots
 from .source_provenance import (
     SourceFiles,
@@ -82,6 +83,7 @@ class Controller:
         )
         self.omega = self.runtime
         self.storage_maintenance = StorageMaintenance(self)
+        self.runtime_retirement = RuntimeRetirement(self)
         self.runtimes = {"omega": self.omega}
         if handoff_root is not None:
             assert daemon_root is not None
@@ -547,6 +549,15 @@ class Controller:
         }
 
     def perform_locked(self, name: str, args: dict[str, str]) -> object:
+        if name in {
+            "managed_prepare",
+            "managed_start",
+            "managed_reset",
+            "snapshot_load",
+            "managed_public_repository_select",
+            "workspace_deploy",
+        }:
+            self.runtime.require_not_retired()
         previous = self.last_operation()
         pending = previous if previous and previous["state"] == "pending" else None
         lease_result = self.authorize_profile(name, self.actor, pending)
@@ -832,6 +843,10 @@ class Controller:
             ),
         }
         previous = self.last_operation()
+        if self.runtime.retired():
+            status["retired"] = True
+            if obj is None:
+                status["state"] = "retired"
         status["generation"] = self.runtime.generation
         if self.runtime.generation == "matrix" and self.runtime.pointer.exists():
             try:

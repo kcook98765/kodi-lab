@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set nav_section = "managed" %}
+{% block title %}Runtime retirement · Kodi Lab{% endblock %}
+{% block content %}
+<h1>{{ generation | capitalize }} {{ version | join(".") }} runtime retirement</h1>
+<p><a href="/storage-maintenance">Storage &amp; Maintenance</a> · <a href="/managed-kodi?generation={{ generation }}">Managed Kodi</a></p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if review %}
+<p>Runtime state {{ review.state | capitalize }}.</p>
+{% if review.reason %}<p role="status">{{ review.reason }}</p>{% endif %}
+<h2>Recovery and dependencies</h2>
+<ul>
+  <li>Reviewed runtime image {% if review.image %}<code>{{ review.image }}</code>{% else %}Unknown{% endif %}. The image is retained.</li>
+  <li>{% if review.working_profile is none %}Working profile information is unavailable.{% elif review.working_profile %}The working profile and its volume are retained.{% else %}No working profile was observed.{% endif %}</li>
+  <li>All named snapshots, automatic rollback assets, manual backups and unique source stay protected.</li>
+  {% if review.shared_versions %}<li>The image is also referenced by {{ review.shared_versions | map("capitalize") | join(", ") }}.</li>{% endif %}
+</ul>
+{% if review.snapshots %}
+<h3>Administrator snapshots associated with this image</h3>
+<ul>{% for item in review.snapshots %}<li>{{ item.name }} · {{ byte_size(item.bytes) }}</li>{% endfor %}</ul>
+{% endif %}
+{% if review.eligible %}
+<h2>Services eligible for retirement</h2>
+<ul>{% for item in review.eligible %}<li>{{ item }}</li>{% endfor %}</ul>
+<p>Estimated available-space recovery is unknown.</p>
+{% endif %}
+{% if review.token %}
+<form action="/storage-maintenance/runtime/{{ generation }}" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="token" value="{{ review.token }}">
+  <input type="hidden" name="action" value="{{ review.action }}">
+  {% if review.action == "retire" %}
+  <label><input type="checkbox" name="confirmed" value="yes" required> Confirm retirement while keeping the profile and recovery assets</label>
+  <button type="submit">{{ "Resume retirement" if review.state == "pending" else "Retire stopped runtime" }}</button>
+  {% else %}
+  <label><input type="checkbox" name="confirmed" value="yes" required> Confirm re-enabling this runtime</label>
+  <button type="submit">Re-enable runtime</button>
+  {% endif %}
+</form>
+{% endif %}
+{% endif %}
+{% if outcome %}
+{% if outcome.state == "retired" %}
+<p role="status">The runtime retired. Its working profile, snapshots, backups and reviewed image remain available for recovery.</p>
+{% elif outcome.state == "available" %}
+<p role="status">The runtime is enabled. Use Managed Kodi to start it when you are ready.</p>
+{% else %}
+<p role="status">Service retirement is pending. The runtime stays disabled until you review and resume it.</p>
+{% endif %}
+<p><a href="/storage-maintenance/runtime/{{ generation }}">Review current retirement state</a></p>
+{% endif %}
+{% endblock %}

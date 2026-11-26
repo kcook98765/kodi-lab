@@ -115,21 +115,25 @@ class StorageMaintenance:
             raise Refusal("storage_maintenance_history_capacity")
         atomic(self.history_file, payload)
 
-    def token(self, plan: Plan) -> str:
+    def token(self, plan: BaseModel) -> str:
         body = base64.urlsafe_b64encode(plan.model_dump_json().encode()).decode()
         signature = hmac.digest(self.key, body.encode(), "sha256").hex()
         return body + "." + signature
 
-    def decoded(self, raw: str, session: str) -> Plan:
+    def verified_payload(self, raw: str) -> bytes:
         try:
             body, separator, signature = raw.partition(".")
             if not separator or not hmac.compare_digest(
                 signature, hmac.digest(self.key, body.encode(), "sha256").hex()
             ):
                 raise ValueError
-            plan = Plan.model_validate_json(
-                base64.b64decode(body, altchars=b"-_", validate=True)
-            )
+            return base64.b64decode(body, altchars=b"-_", validate=True)
+        except (ValueError, UnicodeError):
+            raise Refusal("storage_maintenance_preview_expired") from None
+
+    def decoded(self, raw: str, session: str) -> Plan:
+        try:
+            plan = Plan.model_validate_json(self.verified_payload(raw))
             if plan.session != session or time.time() >= plan.expires:
                 raise ValueError
             return plan

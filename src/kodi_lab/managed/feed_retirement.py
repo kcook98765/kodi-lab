@@ -492,14 +492,20 @@ def observed_engine(deadline: float) -> str:
     return identity
 
 
-def runtime_idle(native: Runtime, expected: str | None) -> bool:
-    deadline = time.monotonic() + 0.75
+@dataclass(frozen=True)
+class IdleFeed:
+    identity: str | None
+
+
+def idle_feed(
+    native: Runtime, expected: str | None, *, deadline: float
+) -> IdleFeed | None:
     if not expected or observed_engine(deadline) != expected:
-        return False
+        return None
     if docker_read(
         "ps", "-aq", "--filter", f"name=^/{native.name}$", deadline=deadline
     ):
-        return False
+        return None
     labelled = docker_read(
         "ps",
         "-a",
@@ -511,12 +517,12 @@ def runtime_idle(native: Runtime, expected: str | None) -> bool:
         deadline=deadline,
     ).splitlines()
     if not labelled:
-        return True
+        return IdleFeed(None)
     if len(labelled) != 1:
-        return False
+        return None
     identifier, name = labelled[0].split()
     if not HEX.fullmatch(identifier) or name != native.feed_name:
-        return False
+        return None
     observed = json.loads(
         docker_read(
             "inspect",
@@ -527,7 +533,7 @@ def runtime_idle(native: Runtime, expected: str | None) -> bool:
         )
     )[0]
     mounts = observed["Mounts"]
-    return bool(
+    valid = bool(
         observed["Id"] == identifier
         and observed["Name"] == "/" + native.feed_name
         and observed["Image"] == native.image
@@ -542,3 +548,8 @@ def runtime_idle(native: Runtime, expected: str | None) -> bool:
         and mounts[0]["Destination"] == "/feed"
         and mounts[0]["RW"] is False
     )
+    return IdleFeed(identifier) if valid else None
+
+
+def runtime_idle(native: Runtime, expected: str | None) -> bool:
+    return idle_feed(native, expected, deadline=time.monotonic() + 0.75) is not None
