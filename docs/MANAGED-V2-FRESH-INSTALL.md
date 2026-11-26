@@ -112,8 +112,14 @@ publication data. Keep the backup private. To recover, stage that verified
 backup in `backups/ID` on the empty application volume and run
 `kodi-lab-admin recover-clean ID --confirm ID` with the matching repository
 configuration. Use a compatible application version and the backup's
-application key. Verify the recovered site on the separate empty volume before
-retiring any original volume. SQLite includes terminal installer UUIDs recorded
+application key. If the chosen backup contains
+`.repository-candidate-transition.json`, also stage the verified pre-transition
+backup identified by its `backup_id` under `backups/<that-id>` in the destination.
+Repeat for each predecessor that contains a transition receipt. Clean recovery
+verifies the chain before restoring state so the selected bundle and a later
+supported rollback can both start. Keep those dependencies with each recovery
+set that references them. Verify the recovered site on the
+separate empty volume before retiring any original volume. SQLite includes terminal installer UUIDs recorded
 by the time of backup, so they remain protected from replay on a fresh broker
 socket volume.
 

@@ -461,10 +461,7 @@ def validate(
     return revision
 
 
-def verify_candidate_transition_completion(
-    root: Path, database_url: str, *, before_upgrade: bool = False
-) -> dict[str, object] | None:
-    """Bind an installed schema to its reviewed repository transition."""
+def candidate_transition_receipt(root: Path) -> dict[str, object] | None:
     path = root / ".repository-candidate-transition.json"
     if not path.exists() and not path.is_symlink():
         last_upgrade = root / ".last-upgrade.json"
@@ -472,10 +469,6 @@ def verify_candidate_transition_completion(
             last_upgrade.exists() or last_upgrade.is_symlink()
         ) and "repository_transition_operation_id" in _read_json(last_upgrade):
             raise HostBootstrapError("candidate transition receipt is missing")
-        if before_upgrade:
-            repository_root = _repository_root()
-            if repository_root is not None and (repository_root / "CURRENT").exists():
-                raise HostBootstrapError("candidate transition receipt is missing")
         return None
     receipt = _read_json(path)
     if set(receipt) != {
@@ -492,6 +485,46 @@ def verify_candidate_transition_completion(
         for field in ("old_bundle_sha256", "new_bundle_sha256")
     ):
         raise HostBootstrapError("candidate transition identity is invalid")
+    return receipt
+
+
+def require_candidate_transition_backup(root: Path, receipt: dict[str, object]) -> None:
+    identifier = str(receipt["backup_id"])
+    try:
+        backup_metadata = _verify_backup(root, identifier)
+    except FileNotFoundError as error:
+        raise HostBootstrapError(
+            f"candidate transition requires verified backup {identifier}"
+        ) from error
+    if backup_metadata["revision"] != receipt["old_migration_revision"]:
+        raise HostBootstrapError("candidate transition backup revision differs")
+    try:
+        backup_repository_identity = backup_metadata.get("repository_identity")
+        if not isinstance(backup_repository_identity, dict):
+            raise ValueError("old candidate backup has no repository identity")
+        old_development = load_development_current(
+            root / "backups" / identifier / REPOSITORY_BACKUP_ROOT / "development-data",
+            expected_base_url=str(backup_repository_identity["base_url"]),
+        )[1]
+        if old_development["bundle_sha256"] != receipt["old_bundle_sha256"]:
+            raise ValueError("old candidate differs")
+    except (OSError, ValueError, KeyError) as error:
+        raise HostBootstrapError(
+            "candidate transition backup candidate differs"
+        ) from error
+
+
+def verify_candidate_transition_completion(
+    root: Path, database_url: str, *, before_upgrade: bool = False
+) -> dict[str, object] | None:
+    """Bind an installed schema to its reviewed repository transition."""
+    receipt = candidate_transition_receipt(root)
+    if receipt is None:
+        if before_upgrade:
+            repository_root = _repository_root()
+            if repository_root is not None and (repository_root / "CURRENT").exists():
+                raise HostBootstrapError("candidate transition receipt is missing")
+        return None
     old_revision = str(receipt["old_migration_revision"])
     new_revision = str(receipt["new_migration_revision"])
     if (
@@ -502,27 +535,7 @@ def verify_candidate_transition_completion(
         != (old_revision if before_upgrade else new_revision)
     ):
         raise HostBootstrapError("candidate transition schema or bundle differs")
-    backup_metadata = _verify_backup(root, str(receipt["backup_id"]))
-    if backup_metadata["revision"] != old_revision:
-        raise HostBootstrapError("candidate transition backup revision differs")
-    try:
-        backup_repository_identity = backup_metadata.get("repository_identity")
-        if not isinstance(backup_repository_identity, dict):
-            raise ValueError("old candidate backup has no repository identity")
-        old_development = load_development_current(
-            root
-            / "backups"
-            / str(receipt["backup_id"])
-            / REPOSITORY_BACKUP_ROOT
-            / "development-data",
-            expected_base_url=str(backup_repository_identity["base_url"]),
-        )[1]
-        if old_development["bundle_sha256"] != receipt["old_bundle_sha256"]:
-            raise ValueError("old candidate differs")
-    except (OSError, ValueError, KeyError) as error:
-        raise HostBootstrapError(
-            "candidate transition backup candidate differs"
-        ) from error
+    require_candidate_transition_backup(root, receipt)
     repository_root = _repository_root()
     if repository_root is None:
         raise HostBootstrapError("candidate transition repository is unavailable")
@@ -1071,6 +1084,19 @@ def _verify_restored(root: Path, metadata: dict[str, object]) -> None:
             raise HostBootstrapError("restored directory mode differs from backup")
 
 
+def require_recovery_ancestry(root: Path, backup: Path) -> None:
+    # Recovery and a subsequent rollback must both be able to start the
+    # restored bundle. Follow only the references in verified backups.
+    seen = {backup.name}
+    while (receipt := candidate_transition_receipt(backup)) is not None:
+        predecessor = str(receipt["backup_id"])
+        if predecessor in seen:
+            raise HostBootstrapError("candidate transition backup ancestry has a cycle")
+        require_candidate_transition_backup(root, receipt)
+        seen.add(predecessor)
+        backup = root / "backups" / predecessor
+
+
 def recover_clean(
     root: Path, database_url: str, identifier: str, confirmation: str
 ) -> str:
@@ -1098,8 +1124,9 @@ def recover_clean(
             raise HostBootstrapError(
                 "repository recovery requires matching stable feed"
             )
-        _write_json(root / ".recovery-pending.json", {"backup_id": identifier})
         source = root / "backups" / identifier
+        require_recovery_ancestry(root, source)
+        _write_json(root / ".recovery-pending.json", {"backup_id": identifier})
         for child in source.iterdir():
             if child.name not in {"manifest.json", REPOSITORY_BACKUP_ROOT}:
                 if child.is_dir():
