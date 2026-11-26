@@ -1183,3 +1183,38 @@ def test_recovery_does_not_accept_replaced_committed_slot(
     assert kept.read_text() == "foreign"
     assert before is None or before.exists()
     assert not native.public.session.exists()
+
+
+@pytest.mark.parametrize("action", ["managed_reset", "snapshot_load"])
+def test_pointer_sync_failure_preserves_prior_profile_on_recovery(
+    site: Site, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    site.perform()
+    native = site.controller.runtime
+    prior = native.read_pointer()
+    path = native.profile(prior)
+    (path / "original").write_text("preserve")
+    args = {"name": "Recovery"} if action == "snapshot_load" else {}
+    if args:
+        site.perform("snapshot_save", **args)
+    sync = runtime.sync_dir
+
+    def fail_sync(directory: Path) -> None:
+        if directory == site.root and native.read_pointer() != prior:
+            raise OSError("pointer directory sync failed")
+        sync(directory)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime, "sync_dir", fail_sync)
+        with pytest.raises(OSError, match="pointer directory sync failed"):
+            site.perform(action, **args)
+        assert native.read_pointer() != prior
+        assert site.record["event"] == "profile_before_commit"
+        patch.setattr(managed, "sync_dir", fail_sync)
+        with pytest.raises(OSError, match="pointer directory sync failed"):
+            site.perform("managed_recover")
+        assert (path / "original").read_text() == "preserve"
+        assert native.volume(prior) in site.engine.volumes
+    assert site.perform("managed_recover")["state"] == "recovered"
+    assert not path.exists()
+    assert native.volume(prior) not in site.engine.volumes

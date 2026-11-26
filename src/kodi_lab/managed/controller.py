@@ -905,12 +905,13 @@ class Controller:
                 self.require_reconciled_volume(record, active)
             else:
                 native.require_volume(active)
+            # A visible rename can precede a failed directory sync. Keep the
+            # prior profile until the selected pointer is durable.
+            sync_dir(native.root)
             if "prepare" in record:
                 receipt = record["prepare"]
                 if native.image != receipt["image"]:
                     raise Refusal("prepare_profile_image_identity")
-                # The pointer rename may have completed before its directory fsync.
-                sync_dir(native.root)
                 PrepareResources(native, record["id"], receipt).publish_baseline()
             elif record.get("prior_slot"):
                 native.retire(record["prior_slot"])
