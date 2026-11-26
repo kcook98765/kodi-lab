@@ -109,13 +109,14 @@ async function apply(button) {
       body: JSON.stringify({operation, arguments: args}),
     });
     const body = await response.json();
-    const errorText = body.code === "managed_profile_not_prepared"
-      ? "Select Prepare for this generation before starting Kodi."
-      : body.code === "snapshot_identity_mismatch"
-        ? "This snapshot requires its original runtime image and verified archive."
-        : body.code === "managed_runtime_retired"
-          ? "Review runtime retirement to re-enable this runtime."
-          : (body.code || "Kodi action failed.").replaceAll("_", " ");
+    const errors = {
+      managed_profile_not_prepared: "Select Prepare for this generation before starting Kodi.",
+      snapshot_identity_mismatch: "This snapshot requires its original runtime image and verified archive.",
+      managed_runtime_retired: "Review runtime retirement to re-enable this runtime.",
+      disk_headroom: "There is too little free space for this operation. Open Storage & Maintenance for details.",
+      disk_headroom_unavailable: "Kodi Lab could not verify available space. Open Storage & Maintenance for details.",
+    };
+    const errorText = errors[body.code] ?? (body.code || "Kodi action failed.").replaceAll("_", " ");
     feedback.textContent = response.ok ? "Done." : errorText;
 
     await refresh();
