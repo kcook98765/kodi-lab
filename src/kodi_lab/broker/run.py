@@ -23,6 +23,7 @@ from kodi_lab.broker.errors import (
 from kodi_lab.broker.operations import build_reviewed_runtime_registry
 from kodi_lab.broker.reviewed_installations import DockerReviewedInstallationWorker
 from kodi_lab.broker.server import BrokerServer, ProductionBrokerConfiguration
+from kodi_lab.broker.storage_inventory import serve_storage_inventory
 from kodi_lab.managed.broker import serve
 from kodi_lab.managed.runtime import docker
 from kodi_lab.viewer_diagnostics import configure_diagnostics
@@ -187,6 +188,18 @@ def main() -> int:
             stopped.set()
 
         Thread(target=watch, name="managed-monitor", daemon=True).start()
+        inventory_socket = ProductionBrokerConfiguration.resolve().socket
+        Thread(
+            target=serve_storage_inventory,
+            args=(
+                stopped,
+                MANAGED_STATE,
+                inventory_socket.runtime_directory,
+                inventory_socket.socket_group_gid,
+            ),
+            name="storage-inventory",
+            daemon=True,
+        ).start()
         Thread(
             target=worker.serve_retirement,
             args=(stopped,),

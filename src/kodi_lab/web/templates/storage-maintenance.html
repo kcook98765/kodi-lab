@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set nav_section = "managed" %}
+{% block title %}Storage &amp; Maintenance · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Storage &amp; Maintenance</h1>
+<p><a href="/kodi">Overview</a> · <a href="/managed-kodi">Managed Kodi</a> · <a href="/storage-maintenance">Refresh inventory</a></p>
+{% if inventory.warning %}
+<p class="notice" role="status">Storage is running low on a Kodi Lab filesystem.</p>
+{% endif %}
+<p class="secondary">
+  {% if inventory.age is none %}Managed storage inventory is unavailable.
+  {% elif inventory.stale %}Managed storage inventory is stale. Last measured {{ inventory.age }} seconds ago.
+  {% else %}Managed storage measured {{ inventory.age }} seconds ago.
+  {% endif %}
+</p>
+
+<section aria-labelledby="storage-filesystems">
+  <h2 id="storage-filesystems">Filesystems</h2>
+  <p>Warnings appear below 10% available or 12 GiB available. Identical observations appear together. Filesystem rows can overlap.</p>
+  {% if inventory.filesystems %}
+  <div class="matrix-table-wrap" role="region" aria-label="Filesystem measurements" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Scope</th><th scope="col">Source</th><th scope="col">Capacity</th><th scope="col">Available</th><th scope="col">Age</th></tr></thead>
+    <tbody>
+      {% for row in inventory.filesystems %}
+      <tr>
+        <th scope="row">{{ row.scopes | join(", ") }}</th>
+        <td>{{ row.source }}</td><td>{{ byte_size(row.capacity | default(none)) }}</td>
+        <td>{{ byte_size(row.available | default(none)) }}{% if row.warning and not row.stale %} · Low{% endif %}</td>
+        <td>{% if row.age is not none %}{{ row.age }} s{% if row.stale %} · Stale{% endif %}{% else %}Unknown{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p>Filesystem measurements are being collected.</p>{% endif %}
+  <p>{{ inventory.engine.scope | default("Docker Engine") }} filesystem capacity and available space have no independent measurement. Engine metadata availability is {{ inventory.engine.state }}.</p>
+  <p>Independent Windows host availability is unknown. Available space inside WSL 2 describes the guest filesystem. The Windows virtual disk changes separately.</p>
+</section>
+
+<section aria-labelledby="storage-profiles">
+  <h2 id="storage-profiles">Managed profiles</h2>
+  {% if inventory.profiles %}
+  <div class="matrix-table-wrap" role="region" aria-label="Working profiles" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Kodi version</th><th scope="col">Working profile usage</th><th scope="col">Pinned image</th></tr></thead>
+    <tbody>
+      {% for row in inventory.profiles %}
+      <tr>
+        <th scope="row">{{ row.version }}</th>
+        <td>{{ byte_size(row.profile.bytes) }}{% if row.profile.state != "measured" %} · {{ row.profile.state | capitalize }}{% endif %}</td>
+        <td>{% if row.image %}<code>{{ row.image }}</code>{% else %}Unknown{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p>Working profile usage is unknown.</p>{% endif %}
+  <p>Working profile usage counts allocated blocks from the backing directory once. The Docker volume points to the same directory.</p>
+  <p>Unattributed profile directories{% if inventory.unattributed_profiles.count is defined and inventory.unattributed_profiles.count is not none %} · {{ inventory.unattributed_profiles.count }} observed{% else %} · Unknown count{% endif %}. Usage and retirement eligibility are unknown.</p>
+</section>
+
+<section aria-labelledby="storage-images">
+  <h2 id="storage-images">Runtime images</h2>
+  {% if inventory.engine.images %}
+  <div class="matrix-table-wrap" role="region" aria-label="Shared runtime images" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Shared image identity</th><th scope="col">Docker logical size</th></tr></thead>
+    <tbody>{% for row in inventory.engine.images %}<tr><th scope="row"><code>{{ row.identity }}</code></th><td>{{ byte_size(row.bytes) }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  {% else %}<p>Runtime image usage is unknown.</p>{% endif %}
+  <p>Image sizes can include the same layers. Physical reclaimable space and host build-cache attribution are unknown.</p>
+</section>
+
+<section aria-labelledby="storage-protected">
+  <h2 id="storage-protected">Protected recovery assets</h2>
+  <p>Persistent profiles, named snapshots, manual backups, original imports, unique source and required rollback assets are protected. Backup and rollback usage outside this inventory is unknown.</p>
+  {% if inventory.snapshots.state != "measured" %}<p>Snapshot inventory is {{ inventory.snapshots.state }}.</p>{% endif %}
+  {% if inventory.snapshots["items"] %}
+  <div class="matrix-table-wrap" role="region" aria-label="Snapshot sizes" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Snapshot</th><th scope="col">Archive size</th></tr></thead>
+    <tbody>{% for row in inventory.snapshots["items"] %}<tr><th scope="row">{{ row.name }}</th><td>{{ byte_size(row.bytes) }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  {% elif inventory.snapshots.state == "measured" %}<p>No completed snapshots were observed.</p>{% endif %}
+</section>
+
+{% macro backlog(label, row) %}
+  <h3>{{ label }}</h3>
+  {% if row.count is defined and row.count is not none %}
+  <p>{{ row.count }} of {{ row.capacity }} cleanup slots used.
+  {% if inventory.stale %}Current admission impact is unknown.
+  {% elif row.blocks_new %}The last sample showed the backlog blocking new resource-creating operations.
+  {% else %}The last sample showed space for new cleanup obligations.
+  {% endif %}</p>
+  {% else %}<p>Cleanup backlog and current admission impact are unknown{% if row.capacity is defined %}. Capacity is {{ row.capacity }}{% endif %}.</p>{% endif %}
+{% endmacro %}
+<section aria-labelledby="storage-temporary">
+  <h2 id="storage-temporary">Temporary and superseded resources</h2>
+  {{ backlog("Installer-worker cleanup", inventory.workers) }}
+  {% if inventory.workers.reason %}<p>{{ inventory.workers.reason }}. Oldest receipt last changed {{ inventory.workers.oldest_seconds }} seconds before the sample.</p>{% endif %}
+  {{ backlog("Prepare cleanup", inventory.prepare) }}
+  {% if inventory.prepare.scratch_count is defined %}
+  <p>{{ inventory.prepare.scratch_count }} recorded scratch obligations, {{ inventory.prepare.grace }} in the grace period. Temporary storage usage is unknown.</p>
+  {% endif %}
+  {% if inventory.prepare.reasons %}<ul>{% for reason in inventory.prepare.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+  {% if inventory.prepare.oldest_observed_seconds is defined and inventory.prepare.oldest_observed_seconds is not none %}
+  <p>Oldest dated scratch obligation was {{ inventory.prepare.oldest_observed_seconds }} seconds old at the sample.</p>
+  {% endif %}
+  <p>Superseded packages, feed files and rollback generations need verified reference information before their eligible usage can be reported.</p>
+</section>
+{% endblock %}
