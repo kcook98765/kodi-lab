@@ -172,6 +172,7 @@ def serve(
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Refusal("broker_already_running") from exc
+        controller.resume_prepare_cleanup()
         if path.exists() or path.is_symlink():
             entry = path.lstat()
             if not stat.S_ISSOCK(entry.st_mode) or entry.st_uid != os.getuid():

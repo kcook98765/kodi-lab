@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import re
 import shutil
 import sqlite3
@@ -25,6 +26,7 @@ from kodi_lab.kodi.remote import (
 
 from . import RELEASES, reviewed_image_file
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
+from .prepare import ABANDONED_SCRATCH_GRACE, PrepareResources
 from .protocol import (
     ADMIN,
     PRIVATE,
@@ -36,7 +38,7 @@ from .protocol import (
     validate,
 )
 from .public_repository import REPOSITORY, Approval, approval
-from .runtime import ESTUARY, REPO, Runtime, atomic
+from .runtime import ESTUARY, REPO, Runtime, atomic, sync_dir
 from .snapshots import Snapshots
 from .source_provenance import (
     SourceFiles,
@@ -250,8 +252,88 @@ class Controller:
     def checkpoint(self, event: str, **data: object) -> None:
         if self.current is not None:
             self.current.update(event=event, **data)
-            atomic(self.record, json.dumps(self.current).encode())
+            self.write_operation(self.current)
             self.interrupt(event)
+
+    def write_operation(self, record: Document) -> None:
+        atomic(self.record, json.dumps(record).encode())
+
+    def retry_prepare_cleanup(
+        self, record: Document, *, only: str | None = None
+    ) -> None:
+        obligations = record.get("prepare_cleanup")
+        if not obligations:
+            return
+        # An earlier atomic write can be visible after its directory fsync failed.
+        # Make the journal's retirement intent durable before acting on it.
+        sync_dir(self.record.parent)
+        for operation, receipt in list(obligations.items()):
+            if only is not None and only != operation:
+                continue
+            try:
+                resources = PrepareResources(
+                    self.runtimes[receipt["generation"]], operation, receipt
+                )
+            except Refusal as error:
+                logging.warning("Managed Prepare cleanup pending (%s)", error)
+                continue
+            for key in ("engine", "scratch"):
+                if key not in receipt or (
+                    key == "scratch" and time.time() < receipt["scratch_after"]
+                ):
+                    continue
+                try:
+                    if key == "engine":
+                        resources.retire_inspection(
+                            lambda: self.write_operation(record)
+                        )
+                    else:
+                        resources.retire_scratch()
+                except (Refusal, OSError) as error:
+                    logging.warning(
+                        "Managed Prepare cleanup pending (%s)",
+                        str(error) if isinstance(error, Refusal) else key,
+                    )
+                else:
+                    del receipt[key]
+                    if key == "engine":
+                        receipt.pop("container", None)
+                    if not {"scratch", "engine"} & receipt.keys():
+                        del obligations[operation]
+                    if not obligations:
+                        del record["prepare_cleanup"]
+                    self.write_operation(record)
+
+    def finish_prepare(
+        self, record: Document, *, abandoned: bool = False, **outcome: object
+    ) -> None:
+        receipt = record.pop("prepare")
+        if {"scratch", "engine"} & receipt.keys():
+            receipt.update(
+                generation=self.runtime.generation,
+                scratch_after=time.time() + ABANDONED_SCRATCH_GRACE if abandoned else 0,
+            )
+            record.setdefault("prepare_cleanup", {})[record["id"]] = receipt
+        record.update(state="complete", **outcome)
+        # Retain the obligation and the terminal outcome together before deletion.
+        self.write_operation(record)
+        self.retry_prepare_cleanup(record, only=record["id"])
+
+    def resume_prepare_cleanup(self) -> None:
+        """Broker startup, under the same site lock as Prepare."""
+        try:
+            with self.omega.exclusive():
+                record = self.last_operation()
+                if record:
+                    self.retry_prepare_cleanup(record)
+                    if record["state"] == "pending" and "prepare" in record:
+                        self.runtime = self.runtimes[record["generation"]]
+                        try:
+                            self.recover()
+                        finally:
+                            self.runtime = self.omega
+        except (Refusal, OSError, subprocess.SubprocessError):
+            logging.warning("Managed Prepare startup reconciliation remains pending")
 
     def perform(self, name: str, args: dict[str, str], *, actor: str) -> OperationReply:
         started = time.monotonic()
@@ -293,6 +375,8 @@ class Controller:
         lease_result = self.authorize_profile(name, self.actor, pending)
         if lease_result is not None:
             return lease_result
+        if previous and name in {"managed_prepare", "managed_recover"}:
+            self.retry_prepare_cleanup(previous)
         if self.omega.public.session.exists():
             if self.runtime is not self.omega and name in {
                 "managed_prepare",
@@ -324,7 +408,9 @@ class Controller:
         if pending and pending.get("recovery_error") and name == "managed_stop":
             return self.runtime.stop()
         if pending and not (
-            pending.get("recovery_error") and name in {"managed_reset", "snapshot_load"}
+            "prepare" not in pending
+            and pending.get("recovery_error")
+            and name in {"managed_reset", "snapshot_load"}
         ):
             raise Refusal("managed_recovery_required")
         self.current = {
@@ -339,6 +425,8 @@ class Controller:
                 if key in {"addon", "version", "digest", "name"}
             },
         }
+        if previous and "prepare_cleanup" in previous:
+            self.current["prepare_cleanup"] = previous["prepare_cleanup"]
         try:
             phase = {"managed_start": "starting", "managed_stop": "stopping"}.get(name)
             if phase is not None:
@@ -352,14 +440,26 @@ class Controller:
                     "view_target": str(self.runtime.target),
                 }
             self.checkpoint("begin")
-            result = self.actions[name](**args)
-            if not (self.current.get("native_pending") or self.current.get("skin")):
+            try:
+                result = self.actions[name](**args)
+            except Exception as error:
+                if "prepare" in self.current:
+                    self.reconcile_profile(self.current)
+                    self.finish_prepare(
+                        self.current,
+                        event="prepare_failed",
+                        error=str(error)
+                        if isinstance(error, Refusal)
+                        else "operation_outcome_unconfirmed",
+                    )
+                elif isinstance(error, Refusal) and self.current["event"] == "begin":
+                    self.checkpoint("refused", state="complete", error=str(error))
+                raise
+            if "prepare" in self.current:
+                self.finish_prepare(self.current, event="reply", result=result)
+            elif not (self.current.get("native_pending") or self.current.get("skin")):
                 self.checkpoint("reply", state="complete", result=result)
             return result
-        except Refusal as exc:
-            if self.current["event"] == "begin":
-                self.checkpoint("refused", state="complete", error=str(exc))
-            raise
         finally:
             self.lifecycle_status = None
             self.current = None
@@ -399,7 +499,8 @@ class Controller:
     def prepare_runtime(self) -> Document:
         if self.runtime.public.session.exists():
             self.runtime.public.require_unexpired()
-        return self.runtime.prepare()
+        assert self.current is not None
+        return self.runtime.prepare(self.current["id"])
 
     def start_runtime(self) -> Document:
         try:
@@ -564,7 +665,7 @@ class Controller:
             self.reconcile(record)
         except Refusal as exc:
             record["recovery_error"] = str(exc)
-            atomic(self.record, json.dumps(record).encode())
+            self.write_operation(record)
             raise
         # No native install has been replayed or marked successful here.
         report = {
@@ -573,24 +674,34 @@ class Controller:
             "completion": "unconfirmed",
             "native_verification_required": bool(record.get("native_pending")),
         }
-        atomic(
-            self.record,
-            json.dumps(
-                {
-                    "id": record["id"],
-                    "name": record["name"],
-                    "generation": self.runtime.generation,
-                    "actor": record.get("actor", "admin"),
-                    "subject": record["subject"],
-                    "event": "recovered",
-                    "state": "complete",
-                    "result": report,
-                }
-            ).encode(),
-        )
+        if "prepare" in record:
+            committed = (
+                self.runtime.pointer.exists()
+                and self.runtime.read_pointer() == record.get("slot")
+            )
+            self.finish_prepare(
+                record, abandoned=not committed, event="recovered", result=report
+            )
+        else:
+            record = {
+                key: record[key]
+                for key in ("id", "name", "actor", "subject", "prepare_cleanup")
+                if key in record
+            }
+            record.setdefault("actor", "admin")
+            record.update(
+                generation=self.runtime.generation,
+                event="recovered",
+                state="complete",
+                result=report,
+            )
+            self.write_operation(record)
         return report
 
     def reconcile(self, record: Document) -> None:
+        if "prepare" in record:
+            self.reconcile_profile(record)
+            return
         native = self.runtime
         if native.public.session.exists():
             self.stop_runtime()
@@ -625,15 +736,28 @@ class Controller:
                 record
             )
         elif "slot" in record:
-            active = native.read_pointer() if native.pointer.exists() else None
-            if active is not None and active == record["slot"]:
-                native.require_volume(active)
-                if record.get("prior_slot"):
-                    native.retire(record["prior_slot"])
-            else:
-                native.retire(record["slot"])
+            self.reconcile_profile(record)
         elif "deploy" in record:
             self.recover_deploy(record["deploy"])
+
+    def reconcile_profile(self, record: Document) -> None:
+        if "slot" not in record:
+            return
+        native = self.runtime
+        active = native.read_pointer() if native.pointer.exists() else None
+        if active is not None and active == record["slot"]:
+            native.require_volume(active)
+            if "prepare" in record:
+                receipt = record["prepare"]
+                if native.image != receipt["image"]:
+                    raise Refusal("prepare_profile_image_identity")
+                # The pointer rename may have completed before its directory fsync.
+                sync_dir(native.root)
+                PrepareResources(native, record["id"], receipt).publish_baseline()
+            elif record.get("prior_slot"):
+                native.retire(record["prior_slot"])
+        else:
+            native.retire(record["slot"])
 
     def import_zip(self, encoded: str, digest: str) -> Document:
         if len(encoded) > 740_000:

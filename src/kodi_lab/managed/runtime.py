@@ -31,6 +31,7 @@ from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST, MATRIX_RECOVERY_DIGESTS
 
 from . import RELEASES
+from .prepare import PrepareResources
 from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
 from .public_network import PublicNetwork
@@ -305,14 +306,16 @@ class Runtime:
     def daemon_path(self, path: Path) -> Path:
         return self.daemon_root / path.relative_to(self.root)
 
-    def stage(self, clean: bool) -> str:
+    def stage(self, clean: bool, *, material: Path | None = None) -> str:
         self.capacity()
         slot = uuid4().hex
         self.checkpoint("profile_staging", slot=slot)
         path = self.root / "volumes" / slot
         path.mkdir(mode=0o700)
         if clean:
-            shutil.copytree(self.material / "profile", path, dirs_exist_ok=True)
+            shutil.copytree(
+                (material or self.material) / "profile", path, dirs_exist_ok=True
+            )
         docker(
             "volume",
             "create",
@@ -366,22 +369,21 @@ class Runtime:
         if old is not None:
             self.retire(old)
 
-    def prepare(self) -> Document:
+    def prepare(self, operation: str) -> Document:
         if self.pointer.exists():
             self.profile()
             return {"state": "prepared", "profile": self.generation}
         image = self.capacity()
-        build = self.root / ("baseline-" + uuid4().hex)
-        build.mkdir(mode=0o700)
-        image_seed = docker("create", *self.args(), "--network", "none", image)
-        try:
-            docker(
-                "cp",
-                f"{image_seed}:{self.system}/system/addon-manifest.xml",
-                str(build / "manifest.xml"),
-            )
-        finally:
-            docker("rm", image_seed)
+        resources = PrepareResources(
+            self, operation, {"target": str(self.target), "image": image}
+        )
+        build = resources.allocate_scratch()
+        image_seed = resources.create_inspection()
+        docker(
+            "cp",
+            f"{image_seed}:{self.system}/system/addon-manifest.xml",
+            str(build / "manifest.xml"),
+        )
         xml = ET.parse(build / "manifest.xml")
         for addon in (BRIDGE, REPO):
             ET.SubElement(xml.getroot(), "addon").text = addon
@@ -423,11 +425,10 @@ class Runtime:
         (userdata / "advancedsettings.xml").write_text(
             '<advancedsettings><loglevel hide="true">1</loglevel></advancedsettings>'
         )
-        if self.material.exists():
-            shutil.rmtree(self.material)
-        build.rename(self.material)
+        resources.mark_baseline_ready(build)
         atomic(self.image_pin, image.encode())
-        self.exchange(self.stage(clean=True))
+        self.exchange(self.stage(clean=True, material=build))
+        resources.publish_baseline()
         return {"state": "prepared", "profile": self.generation}
 
     def address(self) -> str:
