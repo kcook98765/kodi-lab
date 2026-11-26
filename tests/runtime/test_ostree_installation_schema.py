@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -30,7 +31,7 @@ def test_existing_head_accepts_preview_and_refuses_terminal_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _config, url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    config, url = migration_setup(monkeypatch, tmp_path, start_revision="head")
     root = tmp_path / "data"
     root.chmod(0o700)
     generate_master_key(root)
@@ -43,7 +44,7 @@ def test_existing_head_accepts_preview_and_refuses_terminal_mutation(
                 connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar()
-                == "0001_foundation"
+                == ScriptDirectory.from_config(config).get_current_head()
             )
         with (
             pytest.raises(IntegrityError, match="terminal_immutable"),

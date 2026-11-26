@@ -19,6 +19,7 @@ from docker.errors import (  # type: ignore[import-untyped]
     DockerException,
     NotFound,
 )
+from sqlalchemy import select
 
 from kodi_lab.application.runtime_installations import RuntimeInstallationService
 from kodi_lab.broker.errors import RequestError
@@ -35,6 +36,7 @@ from kodi_lab.broker.reviewed_installations import (
     worker_name,
 )
 from kodi_lab.broker.worker_receipts import RECEIPT_LIMIT
+from kodi_lab.broker.worker_replay import record_terminal_operation
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.managed import reviewed_image_file
 from kodi_lab.runtime.install import _installation_lock, _maintenance_gate
@@ -44,6 +46,7 @@ from kodi_lab.runtime.recipes import (
 )
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import RuntimeWorkerTerminalOperationRow
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 IMAGE = "sha256:" + "a" * 64
@@ -243,7 +246,7 @@ def broker_attributes() -> dict[str, Any]:
 @pytest.fixture
 def backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[DockerReviewedInstallationWorker, FakeContainers]:
+) -> Iterator[tuple[DockerReviewedInstallationWorker, FakeContainers]]:
     monkeypatch.setattr(
         "kodi_lab.broker.reviewed_installations.socket.gethostname", lambda: "broker-id"
     )
@@ -267,12 +270,16 @@ def backend(
             "ID": ENGINE,
         },
     )
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'worker-replay.db'}")
+    metadata.create_all(engine)
     worker = DockerReviewedInstallationWorker(
         client_factory=lambda **_kwargs: client,
         runtime_root=tmp_path,
+        session_factory=create_session_factory(engine),
     )
     monkeypatch.setattr(worker, "_recorded_operation", containers.rows.get)
-    return worker, containers
+    yield worker, containers
+    engine.dispose()
 
 
 def test_exact_worker_launch_contract_and_liveness(
@@ -1026,7 +1033,7 @@ def test_terminal_retirement_records_ready_before_exact_removal(
     assert worker._receipts.contains_retired(operation)
     with pytest.raises(ReviewedWorkerError, match="already recorded"):
         worker.launch("omega", operation)
-    assert not worker._receipts.contains_terminal(operation)
+    assert not worker._terminal_operation_recorded(operation)
     retired = worker._receipts.directory("retired") / f"{operation.hex}.json"
     os.utime(retired, (0, 0))
     worker.retire_terminal_workers()
@@ -1087,6 +1094,7 @@ def test_broker_restart_retries_after_durable_diagnostics(
     restarted = DockerReviewedInstallationWorker(
         client_factory=worker._client_factory,
         runtime_root=worker._runtime_root,
+        session_factory=worker._session_factory,
     )
     monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
     item.before_remove = None
@@ -1141,11 +1149,9 @@ def test_interruption_before_installation_row(
         worker.launch("omega", operation)
         containers.items[0].exit(137)
     (item,) = containers.items
-    marker = worker._receipts.directory("terminal") / operation.hex
 
     def check_identity() -> None:
-        assert worker._receipts.contains_terminal(operation)
-        assert marker.stat().st_size == 0
+        assert worker._terminal_operation_recorded(operation)
 
     item.before_remove = check_identity
     worker.retire_terminal_workers()
@@ -1158,7 +1164,9 @@ def test_interruption_before_installation_row(
     os.utime(retired, (0, 0))
 
     restarted = DockerReviewedInstallationWorker(
-        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+        session_factory=worker._session_factory,
     )
     monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
     restarted.retire_terminal_workers()
@@ -1325,27 +1333,27 @@ def test_expiry_backfills_earlier_receipt_before_discarding_replay_guard(
     operation = uuid4()
     worker.launch("omega", operation)
     containers.items[0].exit(137)
-    worker.retire_terminal_workers()
+    # Model a still-retained receipt from before the durable replay table.
+    with monkeypatch.context() as old:
+        old.setattr(worker._receipts, "_preserve_terminal_identity", lambda _: None)
+        worker.retire_terminal_workers()
     retired = worker._receipts.directory("retired") / f"{operation.hex}.json"
-    terminal_dir = worker._receipts.directory("terminal")
-    # Earlier candidates retired this receipt without a terminal marker.
-    (terminal_dir / operation.hex).unlink()
     os.utime(retired, (0, 0))
+    assert not worker._terminal_operation_recorded(operation)
 
-    fsync = os.fsync
-
-    def fail_marker_directory_sync(fd: int) -> None:
-        if Path(os.readlink(f"/proc/self/fd/{fd}")) == terminal_dir:
-            raise OSError("injected marker directory sync failure")
-        fsync(fd)
+    def fail_commit(*_args: object) -> None:
+        raise OSError("injected replay transaction failure")
 
     with monkeypatch.context() as fault:
-        fault.setattr(os, "fsync", fail_marker_directory_sync)
+        fault.setattr(
+            "kodi_lab.broker.reviewed_installations.record_terminal_operation",
+            fail_commit,
+        )
         worker.retire_terminal_workers()
         assert retired.is_file()
     worker.retire_terminal_workers()
     assert not retired.exists()
-    assert worker._receipts.contains_terminal(operation)
+    assert worker._terminal_operation_recorded(operation)
     with pytest.raises(ReviewedWorkerError, match="worker launch already recorded"):
         worker.launch("omega", operation)
 
@@ -1453,10 +1461,9 @@ def test_definitively_rejected_creates_release_pending_inventory(
     item.log_tail = f"kodi-lab-reviewed-reuse {reused} {prior} {IMAGE}\n".encode()
     worker.retire_terminal_workers()
     retired_dir = worker._receipts.directory("retired")
-    terminal_dir = worker._receipts.directory("terminal")
     reused_receipt = retired_dir / f"{reused.hex}.json"
     assert reused_receipt.exists()
-    assert worker._receipts.contains_terminal(reused)
+    assert worker._terminal_operation_recorded(reused)
     # Eviction is by count. Keep the original receipt within the age limit.
     earlier = (datetime.now(UTC) - timedelta(minutes=2)).timestamp()
     os.utime(reused_receipt, (earlier, earlier))
@@ -1479,18 +1486,14 @@ def test_definitively_rejected_creates_release_pending_inventory(
     assert not reused_receipt.exists()
     assert not (retired_dir / f"{operations[0].hex}.json").exists()
     assert not containers.items and containers.removed == [item.id]
-    markers = list(terminal_dir.iterdir())
-    assert len(markers) == len(operations) + 1
-    assert all(path.stat().st_size == 0 for path in markers)
+    assert worker._session_factory is not None
+    with worker._session_factory() as session:
+        recorded = set(
+            session.scalars(select(RuntimeWorkerTerminalOperationRow.operation_id))
+        )
+    assert recorded == {operation.bytes for operation in (*operations, reused)}
 
     monkeypatch.setattr(containers, "create", original_create)
-    iterdir = Path.iterdir
-
-    def disallow_terminal_scan(path: Path) -> Iterator[Path]:
-        assert path != terminal_dir, "lookup must address the UUID directly"
-        return iterdir(path)
-
-    monkeypatch.setattr(Path, "iterdir", disallow_terminal_scan)
     for old_operation in (reused, operations[0]):
         with pytest.raises(ReviewedWorkerError, match="worker launch already recorded"):
             worker.launch("omega", old_operation)
@@ -1524,7 +1527,7 @@ def test_ambiguous_create_failure_retains_intent(
     worker.retire_terminal_workers()
     assert worker._receipts.pending() == [pending]
     assert worker._receipts.read(pending).create_rejected_status is None
-    assert not worker._receipts.contains_terminal(operation)
+    assert not worker._terminal_operation_recorded(operation)
     assert worker.observe(operation).state == "mismatch"
     assert not containers.removed
 
@@ -1617,7 +1620,7 @@ def test_interrupted_worker_reconciles_and_retires_after_broker_upgrade(
     receipt = restarted._receipts.read(retired)
     assert receipt.image == IMAGE
     assert receipt.diagnostics is not None and receipt.diagnostics.outcome == "failed"
-    assert not restarted._receipts.contains_terminal(operation)
+    assert not restarted._terminal_operation_recorded(operation)
     os.utime(retired, (0, 0))
     restarted.retire_terminal_workers()
     assert not retired.exists()
@@ -1630,46 +1633,44 @@ def test_interrupted_worker_reconciles_and_retires_after_broker_upgrade(
         restarted.launch("omega", operation)
 
 
-@pytest.mark.parametrize("fault_target", ["marker", "directory"])
-def test_terminal_identity_sync_must_succeed_before_removing_worker(
+@pytest.mark.parametrize("committed", [False, True])
+def test_terminal_identity_commit_must_succeed_before_removing_worker(
     backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
     monkeypatch: pytest.MonkeyPatch,
-    fault_target: str,
+    committed: bool,
 ) -> None:
     worker, containers = backend
     operation = uuid4()
     worker.launch("omega", operation)
     (item,) = containers.items
     item.exit(137)
-    marker = worker._receipts.directory("terminal") / operation.hex
-    target = marker if fault_target == "marker" else marker.parent
-    fsync = os.fsync
+    factory = worker._session_factory
+    assert factory is not None
 
-    def fail_terminal_sync(fd: int) -> None:
-        if Path(os.readlink(f"/proc/self/fd/{fd}")) == target:
-            raise OSError("injected terminal marker sync failure")
-        fsync(fd)
+    def interrupted_writer(*_args: object) -> None:
+        if committed:
+            record_terminal_operation(factory, operation)
+        raise OSError("injected replay writer interruption")
 
     restarted = DockerReviewedInstallationWorker(
-        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+        session_factory=factory,
     )
     monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
     with monkeypatch.context() as fault:
-        fault.setattr(os, "fsync", fail_terminal_sync)
+        fault.setattr(
+            "kodi_lab.broker.reviewed_installations.record_terminal_operation",
+            interrupted_writer,
+        )
         worker.retire_terminal_workers()
         (pending,) = worker._receipts.pending()
         assert worker._receipts.read(pending).diagnostics is not None
-        entry = marker.stat()
-        assert entry.st_size == 0 and entry.st_mode & 0o777 == 0o600
-        assert containers.items == [item]
-        restarted.retire_terminal_workers()
+        assert worker._terminal_operation_recorded(operation) is committed
         assert containers.items == [item] and not containers.removed
-        assert marker.stat().st_ino == entry.st_ino
 
-    # Retry the same durable marker even after Docker removes the worker but
-    # returns an error. Recovery must neither start nor remove another worker.
     def lose_remove_reply() -> None:
-        assert restarted._receipts.contains_terminal(operation)
+        assert restarted._terminal_operation_recorded(operation)
         containers.items.remove(item)
         containers.removed.append(item.id)
         raise DockerException("injected lost removal reply")
@@ -1680,7 +1681,10 @@ def test_terminal_identity_sync_must_succeed_before_removing_worker(
     restarted.retire_terminal_workers()
     assert not restarted._receipts.pending()
     assert containers.removed == [item.id]
-    assert marker.stat().st_ino == entry.st_ino
+    with factory() as session:
+        assert list(
+            session.scalars(select(RuntimeWorkerTerminalOperationRow.operation_id))
+        ) == [operation.bytes]
     with pytest.raises(ReviewedWorkerError, match="worker launch already recorded"):
         restarted.launch("omega", operation)
 
@@ -1715,7 +1719,9 @@ def test_durability_failure_preserves_worker_across_retry_and_restart(
         fsync(fd)
 
     restarted = DockerReviewedInstallationWorker(
-        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+        session_factory=worker._session_factory,
     )
     monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
     with monkeypatch.context() as fault:
@@ -1765,7 +1771,9 @@ def test_existing_diagnostics_must_sync_again_after_broker_restart(
         fsync(fd)
 
     restarted = DockerReviewedInstallationWorker(
-        client_factory=worker._client_factory, runtime_root=worker._runtime_root
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+        session_factory=worker._session_factory,
     )
     monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
     with monkeypatch.context() as fault:

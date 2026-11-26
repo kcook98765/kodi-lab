@@ -9,6 +9,8 @@ import os
 import re
 import socket
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from threading import Event, Lock
@@ -34,6 +36,10 @@ from kodi_lab.broker.worker_receipts import (
     WorkerReceipt,
     WorkerReceipts,
 )
+from kodi_lab.broker.worker_replay import (
+    persist_terminal_operation,
+    record_terminal_operation,
+)
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.managed import reviewed_image_file
@@ -48,7 +54,10 @@ from kodi_lab.runtime.recipes import (
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.models import RuntimeRecipeInstallationRow
+from kodi_lab.storage.models import (
+    RuntimeRecipeInstallationRow,
+    RuntimeWorkerTerminalOperationRow,
+)
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 WORKER_RESOURCE = "reviewed-runtime-installation"
@@ -331,7 +340,7 @@ class DockerReviewedInstallationWorker:
         self._client_factory = client_factory or docker.from_env
         self._runtime_root = runtime_root
         self._session_factory = session_factory
-        self._receipts = WorkerReceipts(runtime_root)
+        self._receipts = WorkerReceipts(runtime_root, self._preserve_terminal_identity)
         self._lifecycle = Lock()
         self._retirement_cursor = ""
 
@@ -575,7 +584,7 @@ class DockerReviewedInstallationWorker:
                 if (
                     any(path.name == filename for path in pending)
                     or self._receipts.contains_retired(operation_id)
-                    or self._receipts.contains_terminal(operation_id)
+                    or self._terminal_operation_recorded(operation_id)
                 ):
                     raise ReviewedWorkerError("worker launch already recorded")
                 row = self._recorded_operation(operation_id)
@@ -737,13 +746,13 @@ class DockerReviewedInstallationWorker:
             raise ReviewedWorkerError("Docker Engine identity is unavailable")
         return value
 
-    def _recorded_operation(
-        self, operation: UUID
-    ) -> RuntimeRecipeInstallationRow | None:
+    @contextmanager
+    def _read_installation_session(self) -> Iterator[Session]:
         factory = self._session_factory
         if factory is not None:
             with factory() as session:
-                return RuntimeRecipeInstallationRepository(session).get(operation)
+                yield session
+            return
         url = make_url(Settings().database_url)
         if (
             url.drivername != "sqlite"
@@ -758,9 +767,42 @@ class DockerReviewedInstallationWorker:
         )
         try:
             with create_session_factory(engine)() as session:
-                return RuntimeRecipeInstallationRepository(session).get(operation)
+                yield session
         finally:
             engine.dispose()
+
+    def _recorded_operation(
+        self, operation: UUID
+    ) -> RuntimeRecipeInstallationRow | None:
+        with self._read_installation_session() as session:
+            return RuntimeRecipeInstallationRepository(session).get(operation)
+
+    def _terminal_operation_recorded(self, operation: UUID) -> bool:
+        with self._read_installation_session() as session:
+            return (
+                session.get(RuntimeWorkerTerminalOperationRow, operation.bytes)
+                is not None
+            )
+
+    def _preserve_terminal_identity(self, receipt: WorkerReceipt) -> None:
+        if receipt.create_rejected_status is None:
+            diagnostics = receipt.diagnostics
+            if diagnostics is None:
+                raise ValueError("worker receipt has no terminal outcome")
+            if (
+                diagnostics.outcome in {"ready", "failed"}
+                and diagnostics.recorded_operation == receipt.operation
+            ):
+                row = self._recorded_operation(receipt.operation)
+                if row is not None and row.state in TERMINAL:
+                    return
+        if self._terminal_operation_recorded(receipt.operation):
+            return
+        factory = self._session_factory
+        if factory is not None:
+            record_terminal_operation(factory, receipt.operation)
+        else:
+            persist_terminal_operation(Settings().data_root, receipt.operation)
 
     def _receipt_matches(
         self,
@@ -1022,6 +1064,7 @@ class DockerReviewedInstallationWorker:
             OSError,
             RecipeInstallationError,
             ReviewedWorkerError,
+            SQLAlchemyError,
             ValueError,
         ):
             # A concurrent install or an unavailable Engine leaves work pending.

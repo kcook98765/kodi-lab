@@ -109,12 +109,18 @@ diagnostics are retained for up to seven days within a 128-receipt limit.
 
 An immutable READY or FAILED application row prevents replay of its UUID. For
 warm reuse, interruption before an application row, and definitive launch
-rejection, the broker syncs an empty file named by operation UUID in the private
-`terminal` directory before removing the worker or expiring its diagnostics.
-The same rule covers a verified worker that never started. These files are
-looked up directly by UUID and take no pending receipt slots. They retain one
-inode and directory entry per operation for the life of the broker socket
-volume.
+rejection, the broker commits the UUID to SQLite before removing the worker or
+expiring its diagnostics. The same rule covers a verified worker that never
+started. The replay table stores one 16-byte primary key per UUID without a
+terminal installation row, plus SQLite page overhead. Admission uses an indexed
+lookup. The replay table has no age or count expiry and uses no pending receipt
+slots.
+
+The broker reads the application database read-only. Its fixed replay writer
+runs as the application state owner and commits only the terminal UUID. The
+verified application backup includes this table. Clean recovery restores guards
+present at backup time even with a fresh broker socket volume. Pending receipts,
+locks and raw diagnostics remain on the broker volume.
 
 Installers retain exclusive acquisition authority. Retirement defers when an
 installer is active. An installer that arrives during a retirement pass waits

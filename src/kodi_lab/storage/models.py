@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -2492,6 +2493,21 @@ class RuntimeRecipeInstallationRow(Base):
     attestation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+
+
+class RuntimeWorkerTerminalOperationRow(Base):
+    """Replay guard for terminal installer operations without an installation row."""
+
+    __tablename__ = "runtime_worker_terminal_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "typeof(operation_id) = 'blob' AND length(operation_id) = 16",
+            name="runtime_worker_terminal_uuid",
+        ),
+        {"sqlite_with_rowid": False},
+    )
+
+    operation_id: Mapped[bytes] = mapped_column(LargeBinary(16), primary_key=True)
 
 
 class WebAdminCredentialRow(Base):
