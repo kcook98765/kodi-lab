@@ -1,10 +1,11 @@
-"""Initial schema defaults reviewed updates off and preserves policy history."""
+"""Current schema defaults reviewed updates off and preserves policy history."""
 
 import sqlite3
 from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import select
 
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
@@ -16,13 +17,12 @@ from tests.application.test_production_bridges import (
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 from tests.storage.test_ui_observation_migration import _config, _revision, _triggers
 
-REVISION = "0001_foundation"
-
 
 def test_reinitialization_preserves_original_rows_and_defaults_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
+    head = ScriptDirectory.from_config(config).get_current_head()
     command.upgrade(config, "head")
     engine = create_database_engine(f"sqlite:///{database}")
     factory = create_session_factory(engine)
@@ -48,8 +48,9 @@ def test_reinitialization_preserves_original_rows_and_defaults_off(
 
         before = rows()
         triggers = _triggers(database)
-        command.upgrade(config, REVISION)
-        assert rows() == before and triggers.items() <= _triggers(database).items()
+        command.upgrade(config, "head")
+        assert _revision(database) == head
+        assert rows() == before and _triggers(database) == triggers
         assert not service.reviewed_update_policy(target).enabled
         with factory() as session:
             assert not list(session.scalars(select(ProductionBridgeUpdatePolicyRow)))
@@ -72,9 +73,12 @@ def test_reinitialization_preserves_original_rows_and_defaults_off(
                     "INSERT OR REPLACE INTO production_bridge_update_policies "
                     "SELECT * FROM production_bridge_update_policies"
                 )
+        before_downgrade = database.read_bytes()
         with pytest.raises(
             RuntimeError, match="initial managed-v2 schema cannot be downgraded"
         ):
             command.downgrade(config, "base")
-        assert _revision(database) == REVISION and rows() == before
+        assert _revision(database) == head and rows() == before
+        assert _triggers(database) == triggers
+        assert database.read_bytes() == before_downgrade
     engine.dispose()
