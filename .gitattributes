@@ -15,6 +15,7 @@
 /scripts/*.py text eol=lf
 /scripts/install-windows.ps1 text eol=lf
 
-# Container assembly inputs are text and checked against reviewed byte hashes.
-# This includes the Python display guard and XML profile, as well as shell code.
+# Text assembly inputs are LF and checked against reviewed byte hashes.
 /src/kodi_lab/runtime/assembly_assets/** text eol=lf
+# OpenPGP keyrings are binary and must retain every byte.
+/src/kodi_lab/runtime/assembly_assets/**/*.gpg -text !eol
