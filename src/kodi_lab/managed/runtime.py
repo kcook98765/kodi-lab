@@ -214,6 +214,7 @@ class Runtime:
         if mode.st_mode & 0o077 or mode.st_uid != os.getuid():
             raise Refusal("private_owner_root_required")
         self.pointer = self.root / "profile"
+        self.retirement_file = self.root / "retired-runtime.json"
         self.image_pin = self.root / "image"
         self.reviewed_image = reviewed_image
         self.material = self.root / "baseline"
@@ -264,6 +265,21 @@ class Runtime:
             except BlockingIOError as error:
                 raise Refusal("managed_busy") from error
             yield
+
+    def retired(self) -> bool:
+        from .runtime_retirement import RuntimeRetirement
+
+        try:
+            marker = RuntimeRetirement.read(self)
+        except (Refusal, OSError, ValueError):
+            return True
+        return marker is not None and marker.state != "enabled"
+
+    def require_not_retired(self) -> None:
+        if self.retired():
+            raise Refusal("managed_runtime_retired")
+        if self.retirement_file.exists():
+            sync_dir(self.root)
 
     def capacity(self) -> str:
         if shutil.disk_usage(self.root).free < 8 * 1024**3 + 128 * 1024**2:
@@ -368,6 +384,7 @@ class Runtime:
         return self.daemon_root / path.relative_to(self.root)
 
     def stage(self, clean: bool, *, material: Path | None = None) -> ProfileStage:
+        self.require_not_retired()
         self.capacity()
         slot = uuid4().hex
         self.checkpoint("profile_staging", slot=slot, slot_inode=None)
@@ -493,6 +510,7 @@ class Runtime:
             self.retire(old)
 
     def prepare(self, operation: str) -> Document:
+        self.require_not_retired()
         if self.pointer.exists():
             self.profile()
             return {"state": "prepared", "profile": self.generation}
@@ -702,6 +720,7 @@ class Runtime:
         return hashlib.sha256(data).hexdigest()
 
     def start(self) -> Document:
+        self.require_not_retired()
         self.capacity()
         if self.public.session.exists():
             self.public.require_unexpired()

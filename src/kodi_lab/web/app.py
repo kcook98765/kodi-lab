@@ -1999,6 +1999,86 @@ def create_app(
             extra={"enabled": enabled},
         )
 
+    def runtime_retirement_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession,
+        generation: str,
+        command: str,
+        extra: dict[str, str],
+    ) -> Response:
+        if generation not in RELEASES:
+            raise HTTPException(404)
+        details = None
+        error = None
+        status_code = 200
+        try:
+            details = managed.request(
+                "admin",
+                command,
+                {
+                    "generation": generation,
+                    "session": hashlib.sha256(
+                        authenticated.csrf_token.encode()
+                    ).hexdigest(),
+                    **extra,
+                },
+            )["result"]
+        except ManagedRefusal as failure:
+            if str(failure) == "storage_maintenance_preview_expired":
+                error = "Open a new retirement review."
+            elif str(failure) == "managed_busy":
+                error = "Retry when the managed Kodi operation finishes."
+            else:
+                error = "Retirement could not be confirmed. Review the runtime again."
+            status_code = 409
+        return templates.TemplateResponse(
+            request,
+            "runtime-retirement.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "generation": generation,
+                "version": RELEASES[generation],
+                "byte_size": byte_size,
+                "review": details if command == "runtime_retirement_review" else None,
+                "outcome": details if command == "runtime_retirement_execute" else None,
+                "error": error,
+            },
+            status_code=status_code,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/storage-maintenance/runtime/{generation}", response_class=HTMLResponse)
+    def runtime_retirement_review(
+        request: Request,
+        generation: str,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return runtime_retirement_page(
+            request, authenticated, generation, "runtime_retirement_review", {}
+        )
+
+    @app.post("/storage-maintenance/runtime/{generation}", response_class=HTMLResponse)
+    def runtime_retirement_execute(
+        request: Request,
+        generation: str,
+        action: Annotated[Literal["retire", "reactivate"], Form()],
+        token: Annotated[str, Form(min_length=1, max_length=2048)],
+        confirmed: Annotated[Literal["yes"], Form()],
+        csrf_token: Annotated[str, Form(max_length=256)],
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(403)
+        assert confirmed == "yes"
+        return runtime_retirement_page(
+            request,
+            authenticated,
+            generation,
+            "runtime_retirement_execute",
+            {"action": action, "token": token},
+        )
+
     @app.get("/api/storage-maintenance")
     def storage_maintenance_status(
         _authenticated: AuthenticatedWebSession = Depends(current_session),

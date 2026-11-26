@@ -63,7 +63,7 @@ async function refresh() {
     statusLine.textContent = data.code === "managed_busy" ? "Kodi is busy." : "Kodi state unavailable.";
     return;
   }
-  const {state, owner, operation, profile_version, public_repository_test} = data.profile;
+  const {state, owner, operation, profile_version, public_repository_test, retired} = data.profile;
   ready = state === "ready";
   if (!ready && client !== null) {
     disconnect();
@@ -71,8 +71,9 @@ async function refresh() {
   }
   if (ready && watching && client === null && !control) connect();
   recover.hidden = operation?.state !== "pending" || (operation.generation || "omega") !== panel.dataset.managedKodi;
-  const phase = {starting: "Starting", stopping: "Stopping"}[state] ?? state.replaceAll("_", " ");
+  const phase = {starting: "Starting", stopping: "Stopping", retired: "Retired"}[state] ?? state.replaceAll("_", " ");
   statusLine.textContent = `${phase} · ${owner === "admin" ? "Administrator" : owner ? "Agent in control" : "Available"}`;
+  if (retired) statusLine.textContent += " · Review retirement to re-enable this runtime.";
   if (profile_version) statusLine.textContent += ` · Working profile: Kodi ${profile_version}`;
   if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
   if (Array.isArray(data.snapshots)) {
@@ -112,7 +113,9 @@ async function apply(button) {
       ? "Select Prepare for this generation before starting Kodi."
       : body.code === "snapshot_identity_mismatch"
         ? "This snapshot requires its original runtime image and verified archive."
-        : (body.code || "Kodi action failed.").replaceAll("_", " ");
+        : body.code === "managed_runtime_retired"
+          ? "Review runtime retirement to re-enable this runtime."
+          : (body.code || "Kodi action failed.").replaceAll("_", " ");
     feedback.textContent = response.ok ? "Done." : errorText;
 
     await refresh();

@@ -23,6 +23,7 @@ from .controller import Controller
 from .packages import HEX, MAX_ZIP
 from .prepare import PREPARE_CLEANUP_INTERVAL
 from .protocol import OperationReply, Refusal, actor_key, validate
+from .runtime_retirement import OPERATIONS as RETIREMENT_OPERATIONS
 from .storage_maintenance import OPERATIONS as STORAGE_OPERATIONS
 from .viewer import display_lane
 
@@ -115,14 +116,19 @@ class Broker(socketserver.ThreadingUnixStreamServer):
         # and agent bearer credentials never cross the broker socket.
         actor = actor_key(request["actor"])
         operation = request["name"]
-        if isinstance(operation, str) and operation in STORAGE_OPERATIONS:
+        if isinstance(operation, str) and operation in (
+            STORAGE_OPERATIONS | RETIREMENT_OPERATIONS
+        ):
             if actor != "admin":
                 raise Refusal("storage_maintenance_admin_required")
             started = time.monotonic()
+            handler = (
+                self.controller.runtime_retirement
+                if operation in RETIREMENT_OPERATIONS
+                else self.controller.storage_maintenance
+            )
             return {
-                "result": self.controller.storage_maintenance.request(
-                    operation, request["args"]
-                ),
+                "result": handler.request(operation, request["args"]),
                 "elapsed_seconds": round(time.monotonic() - started, 3),
             }
         if request["name"] == "package_upload":
