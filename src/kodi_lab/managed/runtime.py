@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import base64
+import errno
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -31,6 +35,7 @@ from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.runtime.recipes import MATRIX_CANDIDATE_DIGEST, MATRIX_RECOVERY_DIGESTS
 
 from . import RELEASES
+from .prepare import PrepareResources
 from .protocol import Checkpoint, Document
 from .protocol import Refusal as Refusal
 from .public_network import PublicNetwork
@@ -39,6 +44,8 @@ BRIDGE = "service.kodi_lab_bridge"
 ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
 LABEL = "io.kodi-lab.managed-v2"
+ALLOCATION_LABEL = "io.kodi-lab.profile-allocation"
+ALLOCATION_XATTR = "user.kodi_lab.allocation"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
 OPENER = build_opener(ProxyHandler({}))
 
@@ -63,6 +70,61 @@ def sync_dir(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+@dataclass(frozen=True)
+class ProfileStage:
+    slot: str
+    inode: int
+    allocation: str
+
+
+def mark_allocation(path: Path) -> tuple[int, str]:
+    # The attribute survives partial recursive removal and does not enter
+    # snapshots. An inode alone can be recycled immediately after unlink.
+    allocation = secrets.token_hex(16)
+    os.setxattr(
+        path,
+        ALLOCATION_XATTR,
+        allocation.encode(),
+        os.XATTR_CREATE,
+        follow_symlinks=False,
+    )
+    inode = path.lstat().st_ino
+    sync_dir(path)
+    sync_dir(path.parent)
+    return inode, allocation
+
+
+def has_allocation(path: Path, allocation: object) -> bool:
+    if not isinstance(allocation, str) or not re.fullmatch(r"[0-9a-f]{32}", allocation):
+        return False
+    try:
+        return (
+            os.getxattr(path, ALLOCATION_XATTR, follow_symlinks=False)
+            == allocation.encode()
+        )
+    except OSError as error:
+        if error.errno == errno.ENODATA:
+            return False
+        raise
+
+
+def require_unmounted_tree(path: Path) -> None:
+    # Bind mounts within the same filesystem can share its device number.
+    # Refuse recursive deletion across any mount below this exact path.
+    mount = os.fsencode(path)
+    for char, escape in (
+        (b"\\", rb"\134"),
+        (b" ", rb"\040"),
+        (b"\t", rb"\011"),
+        (b"\n", rb"\012"),
+    ):
+        mount = mount.replace(char, escape)
+    for line in Path("/proc/self/mountinfo").read_bytes().splitlines():
+        point = line.split()[4]
+        if point == mount or point.startswith(mount + b"/"):
+            raise Refusal("prepare_staging_mount")
 
 
 def docker(*args: str) -> str:
@@ -305,19 +367,31 @@ class Runtime:
     def daemon_path(self, path: Path) -> Path:
         return self.daemon_root / path.relative_to(self.root)
 
-    def stage(self, clean: bool) -> str:
+    def stage(self, clean: bool, *, material: Path | None = None) -> ProfileStage:
         self.capacity()
         slot = uuid4().hex
-        self.checkpoint("profile_staging", slot=slot)
+        self.checkpoint("profile_staging", slot=slot, slot_inode=None)
         path = self.root / "volumes" / slot
-        path.mkdir(mode=0o700)
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError as error:
+            self.checkpoint("profile_staging_collision", slot=None)
+            raise Refusal("profile_staging_collision") from error
+        inode, allocation = mark_allocation(path)
+        self.checkpoint(
+            "profile_allocated", slot_inode=inode, slot_allocation=allocation
+        )
         if clean:
-            shutil.copytree(self.material / "profile", path, dirs_exist_ok=True)
+            shutil.copytree(
+                (material or self.material) / "profile", path, dirs_exist_ok=True
+            )
         docker(
             "volume",
             "create",
             "--label",
             f"{LABEL}={self.target}",
+            "--label",
+            f"{ALLOCATION_LABEL}={allocation}",
             "--opt",
             "type=none",
             "--opt",
@@ -326,18 +400,23 @@ class Runtime:
             f"device={self.daemon_path(path)}",
             self.volume(slot),
         )
-        return slot
+        return ProfileStage(slot, inode, allocation)
 
-    def require_volume(self, slot: str) -> Path:
+    def require_volume(self, slot: str, *, allocation: str | None = None) -> Path:
         value = json.loads(docker("volume", "inspect", self.volume(slot)))[0]
         path = self.profile(slot)
         if value["Labels"].get(LABEL) != str(self.target) or value["Options"].get(
             "device"
         ) != str(self.daemon_path(path)):
             raise Refusal("volume_identity")
+        if allocation is not None and (
+            value["Labels"].get(ALLOCATION_LABEL) != allocation
+            or not has_allocation(path, allocation)
+        ):
+            raise Refusal("profile_staging_identity")
         return path
 
-    def retire(self, slot: str) -> None:
+    def retire(self, slot: str, *, allocation: str | None = None) -> None:
         if self.pointer.exists() and slot == self.read_pointer():
             raise Refusal("cannot_retire_active_profile")
         if not re.fullmatch(r"[0-9a-f]{32}", slot):
@@ -346,14 +425,61 @@ class Runtime:
         found = docker("volume", "ls", "-q", "--filter", "name=^" + volume + "$")
         path = self.root / "volumes" / slot
         if found:
-            self.require_volume(slot)
+            self.require_volume(slot, allocation=allocation)
             docker("volume", "rm", volume)
         if path.exists() or path.is_symlink():
             shutil.rmtree(self.profile(slot))
         (self.root / "source-provenance" / (slot + ".json")).unlink(missing_ok=True)
 
-    def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
-        self.require_volume(slot)
+    def retire_staged(self, slot: str, inode: object, allocation: object) -> None:
+        if not isinstance(slot, str) or not re.fullmatch(r"[0-9a-f]{32}", slot):
+            raise Refusal("profile_identity")
+        path = self.root / "volumes" / slot
+        if path.parent.is_symlink():
+            raise Refusal("profile_staging_identity")
+        if inode is None:
+            # Includes legacy checkpoints without an allocation receipt.
+            if path.exists() or path.is_symlink():
+                logging.warning("Managed staged profile allocation unconfirmed")
+            return
+        if (
+            type(inode) is not int
+            or not 0 < inode < 2**64
+            or not isinstance(allocation, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", allocation)
+        ):
+            raise Refusal("profile_staging_identity")
+        try:
+            observed = path.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            if (
+                not stat.S_ISDIR(observed.st_mode)
+                or observed.st_uid != os.getuid()
+                or observed.st_dev != self.root.stat().st_dev
+                or observed.st_ino != inode
+                or not has_allocation(path, allocation)
+            ):
+                raise Refusal("profile_staging_identity")
+            require_unmounted_tree(path)
+        self.retire(slot, allocation=allocation)
+        sync_dir(path.parent)
+
+    def require_staged_volume(
+        self, slot: str, inode: object, allocation: object
+    ) -> None:
+        if not isinstance(allocation, str) or not re.fullmatch(
+            r"[0-9a-f]{32}", allocation
+        ):
+            raise Refusal("profile_staging_identity")
+        path = self.require_volume(slot, allocation=allocation)
+        if type(inode) is not int or path.lstat().st_ino != inode:
+            raise Refusal("profile_staging_identity")
+
+    def exchange(self, staged: ProfileStage, *, replace_exited: bool = False) -> None:
+        slot = staged.slot
+        self.require_staged_volume(slot, staged.inode, staged.allocation)
         if replace_exited:
             self.remove_exited()
         self.require_stopped()
@@ -366,22 +492,21 @@ class Runtime:
         if old is not None:
             self.retire(old)
 
-    def prepare(self) -> Document:
+    def prepare(self, operation: str) -> Document:
         if self.pointer.exists():
             self.profile()
             return {"state": "prepared", "profile": self.generation}
         image = self.capacity()
-        build = self.root / ("baseline-" + uuid4().hex)
-        build.mkdir(mode=0o700)
-        image_seed = docker("create", *self.args(), "--network", "none", image)
-        try:
-            docker(
-                "cp",
-                f"{image_seed}:{self.system}/system/addon-manifest.xml",
-                str(build / "manifest.xml"),
-            )
-        finally:
-            docker("rm", image_seed)
+        resources = PrepareResources(
+            self, operation, {"version": 1, "target": str(self.target), "image": image}
+        )
+        build = resources.allocate_scratch()
+        image_seed = resources.create_inspection()
+        docker(
+            "cp",
+            f"{image_seed}:{self.system}/system/addon-manifest.xml",
+            str(build / "manifest.xml"),
+        )
         xml = ET.parse(build / "manifest.xml")
         for addon in (BRIDGE, REPO):
             ET.SubElement(xml.getroot(), "addon").text = addon
@@ -423,11 +548,10 @@ class Runtime:
         (userdata / "advancedsettings.xml").write_text(
             '<advancedsettings><loglevel hide="true">1</loglevel></advancedsettings>'
         )
-        if self.material.exists():
-            shutil.rmtree(self.material)
-        build.rename(self.material)
+        resources.mark_baseline_ready(build)
         atomic(self.image_pin, image.encode())
-        self.exchange(self.stage(clean=True))
+        self.exchange(self.stage(clean=True, material=build))
+        resources.publish_baseline()
         return {"state": "prepared", "profile": self.generation}
 
     def address(self) -> str:

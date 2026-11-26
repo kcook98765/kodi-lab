@@ -13,7 +13,7 @@ from uuid import uuid4
 from xml.etree import ElementTree as ET
 
 from .protocol import Checkpoint, Document
-from .runtime import BRIDGE, Refusal, atomic, sync_dir
+from .runtime import BRIDGE, ProfileStage, Refusal, atomic, sync_dir
 from .source_provenance import (
     MAX_SOURCE_METADATA,
     ProfileSources,
@@ -79,11 +79,13 @@ class ProfileVolumes(Protocol):
 
     def require_stopped(self, *, allow_exited: bool = False) -> None: ...
     def capacity(self) -> str: ...
-    def stage(self, clean: bool) -> str: ...
+    def stage(self, clean: bool) -> ProfileStage: ...
     def profile(self, slot: str | None = None) -> Path: ...
-    def exchange(self, slot: str, *, replace_exited: bool = False) -> None: ...
+    def exchange(
+        self, staged: ProfileStage, *, replace_exited: bool = False
+    ) -> None: ...
     def read_pointer(self) -> str: ...
-    def retire(self, slot: str) -> None: ...
+    def retire_staged(self, slot: str, inode: int, allocation: str) -> None: ...
 
 
 class Snapshots:
@@ -199,7 +201,8 @@ class Snapshots:
         if path.is_symlink() or not path.is_file():
             raise Refusal("snapshot_not_found")
         sources = self.read_metadata(path)
-        slot = self.runtime.stage(clean=False)
+        staged = self.runtime.stage(clean=False)
+        slot = staged.slot
         stage = self.runtime.profile(slot)
         seen: set[PurePosixPath] = set()
         size = 0
@@ -233,10 +236,10 @@ class Snapshots:
                 raise Refusal("snapshot_profile_settings_invalid")
             validate_profile(stage)
             write_sources(self.runtime.root, slot, sources)
-            self.runtime.exchange(slot, replace_exited=True)
+            self.runtime.exchange(staged, replace_exited=True)
         except Exception:
             if self.runtime.read_pointer() != slot:
-                self.runtime.retire(slot)
+                self.runtime.retire_staged(slot, staged.inode, staged.allocation)
             raise
         return {"name": name, "state": "restored", "entries": len(seen)}
 
