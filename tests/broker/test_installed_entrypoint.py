@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import signal
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
@@ -14,7 +15,7 @@ from kodi_lab.broker.errors import BrokerAuthorizationError, BrokerUnavailableEr
 
 
 def test_entrypoint_serves_production_until_stopped(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     observed: list[object] = []
     monkeypatch.setattr("kodi_lab.broker.run.sys.argv", ["kodi-lab-broker"])
@@ -24,6 +25,24 @@ def test_entrypoint_serves_production_until_stopped(
         lambda signum, _handler: observed.append(signum),
     )
     retirement_started = Event()
+    inventory_started = Event()
+
+    def inventory(
+        stopped: Event, managed_root: Path, runtime_directory: Path, web_group: int
+    ) -> None:
+        assert managed_root == run.MANAGED_STATE
+        assert runtime_directory == tmp_path
+        assert web_group == 10001
+        inventory_started.set()
+        stopped.wait(2)
+
+    socket = SimpleNamespace(runtime_directory=tmp_path, socket_group_gid=10001)
+    monkeypatch.setattr(
+        run,
+        "ProductionBrokerConfiguration",
+        SimpleNamespace(resolve=lambda: SimpleNamespace(socket=socket)),
+    )
+    monkeypatch.setattr(run, "serve_storage_inventory", inventory)
 
     def retirement(_worker: object, stopped: Event) -> None:
         retirement_started.set()
@@ -41,6 +60,7 @@ def test_entrypoint_serves_production_until_stopped(
         def serve_forever(self, stopped: object) -> None:
             observed.append(stopped)
             assert retirement_started.wait(2)
+            assert inventory_started.wait(2)
 
     terminated = Event()
     managed = SimpleNamespace(
