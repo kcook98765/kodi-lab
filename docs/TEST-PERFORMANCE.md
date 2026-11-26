@@ -405,3 +405,6 @@ hashed template for each revision in the current graph: the initial release and
 the managed setup upgrade. This supports direct predecessor-to-new-revision and
 downgrade preservation checks without rebuilding either schema per case. It does
 not restore the obsolete prerelease migration chain or share writable databases.
+
+See [disposable Engine qualification](qualification/DISPOSABLE-ENGINE.md) for
+isolated native runs, evidence verification, and exact environment closeout.
