@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from kodi_lab.runtime.recipes import (
     FlathubOstreeProvider,
     InactiveOstreeRecipe,
+    MatrixCandidateRecipe,
     RuntimeRecipe,
     load_inactive_ostree_recipe,
     load_reviewed_recipe,
@@ -129,8 +130,10 @@ def test_component_closure_is_exact(change: str) -> None:
 @pytest.mark.parametrize("generation", ["matrix", "nexus", "omega"])
 def test_apt_parser_and_serialization_remain_exact(generation: str) -> None:
     reviewed = load_reviewed_recipe(generation)
-    original = RuntimeRecipe.model_validate_json(reviewed.raw)
+    model = MatrixCandidateRecipe if generation == "matrix" else RuntimeRecipe
+    original = model.model_validate_json(reviewed.raw)
     parsed = parse_runtime_recipe(reviewed.raw)
+    assert type(parsed) is model
     assert isinstance(parsed, RuntimeRecipe)
     assert parsed.model_dump_json() == original.model_dump_json()
     assert parsed.provider.model_dump() == original.provider.model_dump()
