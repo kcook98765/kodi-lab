@@ -8352,3 +8352,15 @@ application state owner. Worker retirement and diagnostic trimming require the
 guard or an existing terminal row before discarding evidence. The application
 backup carries the guards through clean recovery. The broker volume continues
 to hold worker ownership receipts, diagnostics, sockets and locks.
+
+## D-0508: Managed Kodi network access applies on Start
+
+- Status: implemented for issue #465, pending deployment approval.
+- Decision: an administrator saves one site setting in the broker's private
+  managed root. Only the broker's ordinary Start selects an internal or routed
+  Docker bridge. A running Kodi keeps its current bridge.
+- Reason: one bridge per target keeps the existing authenticated Bridge, display
+  and private feed paths. Docker provides normal routing and DNS in the enabled
+  mode. Before switching modes, the broker verifies the stopped runtime and its
+  owned feed and bridge, then replaces those services without replacing the
+  runtime's storage. The absent setting retains the internal default.

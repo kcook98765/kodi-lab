@@ -82,6 +82,35 @@ def test_managed_view_rejects_cross_origin_before_contacting_broker(
     assert denial.value.code == 4403
 
 
+def test_network_setting_uses_only_web_admin_authority(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, str, dict[str, str]]] = []
+
+    def request(
+        self: BrokerClient, actor: str, name: str, args: Mapping[str, str]
+    ) -> OperationReply:
+        calls.append((actor, name, dict(args)))
+        return {"result": {"network_access_configured": True}, "elapsed_seconds": 0.1}
+
+    monkeypatch.setattr(BrokerClient, "request", request)
+    url = "/api/managed-kodi/piers/actions"
+    action = {"operation": "managed_network_access", "arguments": {"enabled": "true"}}
+    assert client.post(url, json=action).status_code == 401
+    csrf = login(client)
+    assert client.post(url, json=action).status_code == 403
+    assert calls == []
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    assert client.post(url, json=action, headers=headers).json() == {
+        "result": {"network_access_configured": True},
+        "elapsed_seconds": 0.1,
+    }
+    assert calls == [("admin", "managed_network_access", {"enabled": "true"})]
+    page = client.get("/managed-kodi?generation=piers")
+    assert "Allow network access" in page.text
+    assert "at their next Start" in page.text
+
+
 @pytest.mark.parametrize("phase", ["starting", "stopping"])
 def test_managed_status_renders_lifecycle_without_waiting_for_snapshots(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, phase: str

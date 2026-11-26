@@ -203,6 +203,7 @@ class Runtime:
         daemon_root: Path | None = None,
         reviewed_image: Path | None = None,
         generation: str = "omega",
+        network_policy: Path | None = None,
     ) -> None:
         self.generation = generation
         self.system = "/app/share/kodi" if generation == "piers" else "/usr/share/kodi"
@@ -214,6 +215,7 @@ class Runtime:
         if mode.st_mode & 0o077 or mode.st_uid != os.getuid():
             raise Refusal("private_owner_root_required")
         self.pointer = self.root / "profile"
+        self.network_policy = network_policy or self.root / "network-access"
         self.retirement_file = self.root / "retired-runtime.json"
         self.image_pin = self.root / "image"
         self.reviewed_image = reviewed_image
@@ -339,28 +341,86 @@ class Runtime:
             raise Refusal("container_identity")
         return obj
 
-    def network(self) -> str:
-        name = self.network_name
-        matches = docker(
-            "network", "ls", "-q", "--filter", "name=^" + name + "$"
-        ).splitlines()
-        if not matches:
-            return docker(
-                "network",
-                "create",
-                "--internal",
-                "--label",
-                f"{LABEL}={self.target}",
-                name,
-            )
-        data = json.loads(docker("network", "inspect", matches[0]))[0]
+    def inspect_network(self, identifier: str) -> Document:
+        data: Document = json.loads(docker("network", "inspect", identifier))[0]
         if (
-            len(matches) != 1
-            or not data["Internal"]
+            data["Id"] != identifier
+            or data["Name"] != self.network_name
+            or data["Driver"] != "bridge"
+            or type(data["Internal"]) is not bool
             or data["Labels"].get(LABEL) != str(self.target)
         ):
             raise Refusal("network_identity")
-        return cast(str, data["Id"])
+        return data
+
+    def network_access(self) -> bool:
+        try:
+            value = self.network_policy.read_bytes()
+        except FileNotFoundError:
+            return False
+        if value not in {b"true\n", b"false\n"}:
+            raise Refusal("managed_network_policy_invalid")
+        return value == b"true\n"
+
+    def network(self, *, allow_access: bool = False) -> str:
+        matches = docker(
+            "network",
+            "ls",
+            "-q",
+            "--no-trunc",
+            "--filter",
+            f"name=^{self.network_name}$",
+        ).splitlines()
+        if len(matches) > 1:
+            raise Refusal("network_identity")
+        if matches:
+            identifier = matches[0]
+            data = self.inspect_network(identifier)
+            if data["Internal"] is not allow_access:
+                return identifier
+            self.replace_network(identifier)
+        return docker(
+            "network",
+            "create",
+            "--driver",
+            "bridge",
+            *([] if allow_access else ["--internal"]),
+            "--label",
+            f"{LABEL}={self.target}",
+            self.network_name,
+        )
+
+    def replace_network(self, identifier: str) -> None:
+        from .runtime_retirement import OBSERVATION_ERRORS, observe_assets
+
+        # Reuse the retirement checks for the exact stopped, broker-owned
+        # feed and bridge, including dependencies from stopped containers.
+        try:
+            assets = observe_assets(self, None, for_network_change=True)
+        except (Refusal, *OBSERVATION_ERRORS) as error:
+            raise Refusal("managed_network_change_unavailable") from error
+        if assets.network != identifier:
+            raise Refusal("network_identity")
+        if assets.feed:
+            helper = self.inspect(self.feed_name)
+            if not helper or helper["Id"] != assets.feed:
+                raise Refusal("network_identity")
+            if helper["State"]["Running"]:
+                docker("stop", "-t", "6", assets.feed)
+            docker("rm", assets.feed)
+        docker("network", "rm", identifier)
+
+    def effective_network(self, obj: Document) -> str:
+        networks = obj["NetworkSettings"]["Networks"]
+        if self.public.session.exists() and set(networks) == {self.public.name}:
+            return "public_test"
+        if set(networks) == {self.network_name}:
+            try:
+                network = self.inspect_network(networks[self.network_name]["NetworkID"])
+            except (Refusal, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                return "unknown"
+            return "isolated" if network["Internal"] else "outbound"
+        return "unknown"
 
     def read_pointer(self) -> str:
         value = self.pointer.read_text()
@@ -755,7 +815,11 @@ class Runtime:
             not self.public_slot.exists() or self.public_slot.read_text() != slot
         ):
             raise Refusal("public_profile_required")
-        network, proxy = self.public.prepare() if public else ("", None)
+        network, proxy = (
+            self.public.prepare()
+            if public
+            else (self.network(allow_access=self.network_access()), None)
+        )
         rpc_password = secrets.token_urlsafe(32)
         self.configure_rpc(rpc_password, proxy=proxy)
         atomic(self.credentials / "rpc", rpc_password.encode())
@@ -770,8 +834,6 @@ class Runtime:
             "rollback": None,
         }
         atomic(self.credentials / "state.json", json.dumps(seed).encode())
-        if not public:
-            network = self.network()
         feed_name = self.public.feed if public else self.feed_name
         helper = self.inspect(feed_name)
         if not helper:

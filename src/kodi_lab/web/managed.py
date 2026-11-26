@@ -22,6 +22,7 @@ WEB_OPERATIONS = frozenset(
     {
         "managed_prepare",
         "managed_start",
+        "managed_network_access",
         "managed_stop",
         "managed_reset",
         "managed_take_control",
