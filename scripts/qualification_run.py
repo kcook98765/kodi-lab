@@ -289,15 +289,11 @@ def evidence_verified(evidence: Path) -> bool:
     )
 
 
-def export_artifacts(root: Path, evidence: Path, uid: int) -> list[str]:
-    destination = evidence / "artifacts"
-    destination.mkdir(mode=0o700, exist_ok=True)
-    owned_path(destination, 0)
+def artifact_files(root: Path, uid: int) -> Iterator[tuple[str, bytes]]:
     remaining = MAX_ARTIFACT_BYTES
-    exported: list[str] = []
     inbox = root / "artifact-inbox"
-    for item in inbox.iterdir():
-        if len(exported) >= MAX_ARTIFACTS or not re.fullmatch(
+    for count, item in enumerate(inbox.iterdir()):
+        if count >= MAX_ARTIFACTS or not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}", item.name
         ):
             raise ValueError("Unsupported qualification artifact inventory")
@@ -314,21 +310,48 @@ def export_artifacts(root: Path, evidence: Path, uid: int) -> list[str]:
             data = artifact.read(info.st_size + 1)
             if len(data) != info.st_size:
                 raise ValueError("Qualification artifact changed during readback")
-        path = destination / item.name
+        remaining -= len(data)
+        yield item.name, data
+
+
+def export_artifacts(root: Path, evidence: Path, uid: int) -> list[str]:
+    destination = evidence / "artifacts"
+    destination.mkdir(mode=0o700, exist_ok=True)
+    owned_path(destination, 0)
+    exported: list[str] = []
+    for name, data in artifact_files(root, uid):
+        path = destination / name
         temporary = destination / ("." + uuid4().hex)
         with temporary.open("xb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         temporary.replace(path)
-        remaining -= len(data)
-        exported.append(f"artifacts/{item.name}")
+        exported.append(f"artifacts/{name}")
     fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
     return exported
+
+
+def require_current_artifacts(
+    root: Path, evidence: Path, uid: int, *, already_removing: bool
+) -> None:
+    if already_removing and not (root / "artifact-inbox").exists():
+        return
+    preserved = {
+        name: value
+        for name, value in read(evidence / MANIFEST).items()
+        if name.startswith("artifacts/")
+    }
+    current = {
+        f"artifacts/{name}": hashlib.sha256(data).hexdigest()
+        for name, data in artifact_files(root, uid)
+    }
+    if preserved != current:
+        raise ValueError("Qualification artifact inbox changed after evidence readback")
 
 
 def inventory(root: Path) -> Doc:
@@ -411,6 +434,9 @@ def retire_root(root: Path) -> None:
         if point == mount or point.startswith(mount + b"/"):
             raise ValueError("Qualification root still has a mounted descendant")
     marker = root / "run-id"
+    inbox = root / "artifact-inbox"
+    if inbox.exists():
+        inbox.rename(root / ".retiring-artifacts")
     for child in root.iterdir():
         if child != marker:
             subprocess.run(
@@ -442,14 +468,18 @@ def closeout(
     candidate = Path(record["root"])
     if (
         prior.get("run") == record["run"]
-        and prior.get("state") in {"retiring", "retired"}
+        and prior.get("state") in {"removing", "retired"}
         and not candidate.exists()
     ):
         if not evidence_verified(evidence):
             raise ValueError("Evidence readback failed")
         write(evidence / RESULT, {"state": "retired", "run": record["run"]})
         return True
-    retiring = prior == {"state": "retiring", "run": record["run"]}
+    retiring = prior.get("run") == record["run"] and prior.get("state") in {
+        "retiring",
+        "removing",
+    }
+    already_removing = retiring and prior.get("state") == "removing"
     root = check_root(record, retiring=retiring)
     if record.get("workload") and record["workload"]["boot"] == boot_id():
         try:
@@ -485,7 +515,8 @@ def closeout(
                 )
     if not evidence_verified(evidence):
         raise ValueError("Evidence readback failed")
-    write(evidence / RESULT, {"state": "retiring", "run": record["run"]})
+    if not already_removing:
+        write(evidence / RESULT, {"state": "retiring", "run": record["run"]})
     # Shutdown targets the exact daemon incarnations whose endpoints were checked.
     for process, child in zip(daemons, (*children, None, None), strict=False):
         signal_owned(process, signal.SIGTERM)
@@ -493,6 +524,10 @@ def closeout(
             child.wait(timeout=12)
         wait_gone(process)
     require_inactive_run(root, checked)
+    require_current_artifacts(
+        root, evidence, record["owner_uid"], already_removing=already_removing
+    )
+    write(evidence / RESULT, {"state": "removing", "run": record["run"]})
     retire_root(root)
     write(evidence / RESULT, {"state": "retired", "run": record["run"]})
     return True
