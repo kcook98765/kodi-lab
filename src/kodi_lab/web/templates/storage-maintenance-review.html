@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% set nav_section = "managed" %}
+{% block title %}Review feed cleanup · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Review feed cleanup</h1>
+<p><a href="/storage-maintenance">Storage &amp; Maintenance</a> · <a href="/storage-maintenance/review?generation={{ generation }}">Refresh {{ generation | capitalize }} review</a></p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if review %}
+<h2>{{ generation | capitalize }} private feed</h2>
+<p>Cleanup removes redundant published copies. Approved ZIPs and dependency approvals, current feed files, named snapshots, working profiles and rollback assets stay protected.</p>
+{% if review.reason %}<p role="status">{{ review.reason }}</p>{% endif %}
+{% if review["items"] %}
+<p>Reviewing {{ review["items"] | length }} of {{ review.count }} tracked copies. Each confirmation applies to one exact copy and expires after five minutes.</p>
+{% for item in review["items"] %}
+<section class="navigation-group" aria-labelledby="feed-copy-{{ loop.index }}">
+  <h3 id="feed-copy-{{ loop.index }}">{{ item.artifact.addon }} {{ item.artifact.version }}</h3>
+  <p><code>SHA-256 {{ item.artifact.digest }}</code></p>
+  <p>{{ item.reason }}</p>
+  {% if item.token %}
+  <p>Estimated reclaimable file bytes {{ byte_size(item.estimated_bytes) }}.</p>
+  <form action="/storage-maintenance/cleanup" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="generation" value="{{ generation }}">
+    <input type="hidden" name="token" value="{{ item.token }}">
+    <label><input type="checkbox" name="confirmed" value="yes" required> Confirm removal of this feed copy and its checksum</label>
+    <button type="submit">Remove exact copy</button>
+  </form>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% if review.previous_page or review.next_page %}
+<nav aria-label="Feed review pages">
+{% if review.previous_page %}<a href="/storage-maintenance/review?generation={{ generation }}&amp;page={{ review.previous_page }}">Previous feed copies</a>{% endif %}
+{% if review.next_page %}<a href="/storage-maintenance/review?generation={{ generation }}&amp;page={{ review.next_page }}">Next feed copies</a>{% endif %}
+</nav>
+{% endif %}
+<h2>Automatic feed cleanup</h2>
+<form action="/storage-maintenance/policy" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="generation" value="{{ generation }}">
+  <p>Automatic retirement is {{ "enabled" if review.automatic else "paused" }}.</p>
+  <button type="submit" name="enabled" value="{{ 'false' if review.automatic else 'true' }}">{{ "Pause" if review.automatic else "Resume" }} automatic feed cleanup</button>
+</form>
+{% if review.history %}
+<h2>Recent maintenance</h2>
+<ul>
+{% for item in review.history %}
+<li>
+  <time datetime="{{ item.timestamp }}">{{ item.timestamp }}</time> · {{ item.actor }} · {{ item.generation | capitalize }} · {{ item.artifact.addon }} {{ item.artifact.version }} · {{ item.state | replace("_", " ") | capitalize }}.
+  {{ item.reason }}
+  {% if item.state == "removed" %}Estimated reclaimable file bytes {{ byte_size(item.estimated_bytes) }}. Observed net available-space change {% if item.available_delta is not none %}{{ "%+d" | format(item.available_delta) }} B{% else %}Unknown{% endif %}.{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% if outcome %}
+<section aria-labelledby="cleanup-result">
+<h2 id="cleanup-result">{{ outcome.state | replace("_", " ") | capitalize }}</h2>
+<p role="status">{{ outcome.reason }}</p>
+<p>{{ outcome.generation | capitalize }} · {{ outcome.artifact.addon }} {{ outcome.artifact.version }}</p>
+{% if outcome.state == "removed" %}
+<p>Estimated reclaimable file bytes {{ byte_size(outcome.estimated_bytes) }}.
+Observed net available-space change {% if outcome.available_delta is not none %}{{ "%+d" | format(outcome.available_delta) }} B{% else %}Unknown{% endif %}.</p>
+<p>Concurrent writes, shared storage and delayed frees affect the filesystem measurement.</p>
+{% elif outcome.state == "pending" and token %}
+<form action="/storage-maintenance/cleanup" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="generation" value="{{ generation }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <button type="submit" name="confirmed" value="yes">Retry this cleanup</button>
+</form>
+{% endif %}
+</section>
+{% endif %}
+{% if policy %}<p role="status">Automatic feed cleanup is {{ "enabled" if policy.automatic else "paused" }}.</p>{% endif %}
+{% endblock %}

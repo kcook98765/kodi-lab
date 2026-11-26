@@ -55,6 +55,7 @@ from .source_provenance import (
     validate_sources,
     write_sources,
 )
+from .storage_maintenance import StorageMaintenance
 
 
 class GeneratedInclude(TypedDict):
@@ -80,6 +81,7 @@ class Controller:
             reviewed_image=reviewed_image,
         )
         self.omega = self.runtime
+        self.storage_maintenance = StorageMaintenance(self)
         self.runtimes = {"omega": self.omega}
         if handoff_root is not None:
             assert daemon_root is not None
@@ -452,7 +454,7 @@ class Controller:
                         ):
                             book.reconcile(state, planned)
                 return
-            if not state.pending:
+            if not state.pending or not self.storage_maintenance.automatic():
                 return
             items = sorted(state.pending, key=lambda item: item.artifact.name)
             cursor = self._feed_cleanup_cursor.get(native.generation, "")
@@ -468,7 +470,13 @@ class Controller:
                     latest and latest["state"] == "pending"
                 ) or native.public.session.exists():
                     return
-                if runtime_idle(native, state.engine):
+                if (
+                    self.storage_maintenance.automatic()
+                    and not self.storage_maintenance.reserved(
+                        native.generation, pending.artifact
+                    )
+                    and runtime_idle(native, state.engine)
+                ):
                     book.retire(state, pending, proof)
         except (
             Refusal,

@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -24,6 +24,7 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -259,7 +260,9 @@ from kodi_lab.kodi.bridge import (
 from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.window_resolver import WindowResolver
+from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
+from kodi_lab.managed.protocol import Refusal as ManagedRefusal
 from kodi_lab.mcp.authorization import (
     McpAuthorizationService,
 )
@@ -1882,8 +1885,118 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "inventory": storage_inventory.snapshot(),
                 "byte_size": byte_size,
+                "generations": RELEASES,
             },
             headers={"Cache-Control": "no-store"},
+        )
+
+    def maintenance_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession,
+        generation: str,
+        *,
+        command: str = "storage_review",
+        extra: dict[str, str] | None = None,
+        token: str | None = None,
+    ) -> Response:
+        error = None
+        status_code = 200
+        details = None
+        args = {
+            "session": hashlib.sha256(authenticated.csrf_token.encode()).hexdigest(),
+            **(extra or {}),
+        }
+        if command == "storage_review":
+            args["generation"] = generation
+        try:
+            details = managed.request(
+                "admin", command, args if command != "storage_policy" else (extra or {})
+            )["result"]
+        except ManagedRefusal as failure:
+            errors = {
+                "storage_maintenance_preview_expired": "Open a new review.",
+                "managed_busy": "Retry when the managed Kodi operation finishes.",
+                "storage_maintenance_history_capacity": "Maintenance is at capacity.",
+                "storage_maintenance_already_pending": "A review is pending.",
+                "managed_generation_unavailable": "This runtime is unavailable.",
+            }
+            error = errors.get(
+                str(failure), "Storage maintenance could not be confirmed."
+            )
+            status_code = 409 if str(failure) in errors else 503
+        return templates.TemplateResponse(
+            request,
+            "storage-maintenance-review.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "generation": generation,
+                "byte_size": byte_size,
+                "review": details if command == "storage_review" else None,
+                "outcome": details if command == "storage_execute" else None,
+                "policy": details if command == "storage_policy" else None,
+                "token": token,
+                "error": error,
+            },
+            status_code=status_code,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/storage-maintenance/review", response_class=HTMLResponse)
+    def storage_review(
+        request: Request,
+        generation: str = "omega",
+        page: Annotated[int, Query(ge=1, le=24)] = 1,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        if generation not in RELEASES:
+            raise HTTPException(404)
+        return maintenance_page(
+            request, authenticated, generation, extra={"page": str(page)}
+        )
+
+    @app.post("/storage-maintenance/cleanup", response_class=HTMLResponse)
+    def storage_cleanup(
+        request: Request,
+        generation: Annotated[str, Form(max_length=12)],
+        token: Annotated[str, Form(min_length=1, max_length=2048)],
+        confirmed: Annotated[Literal["yes"], Form()],
+        csrf_token: Annotated[str, Form(max_length=256)],
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(403)
+        if generation not in RELEASES:
+            raise HTTPException(404)
+        assert confirmed == "yes"
+        return maintenance_page(
+            request,
+            authenticated,
+            generation,
+            command="storage_execute",
+            extra={"token": token, "generation": generation},
+            token=token,
+        )
+
+    @app.post("/storage-maintenance/policy", response_class=HTMLResponse)
+    def storage_policy(
+        request: Request,
+        generation: Annotated[str, Form(max_length=12)],
+        enabled: Annotated[Literal["true", "false"], Form()],
+        csrf_token: Annotated[str, Form(max_length=256)],
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(403)
+        if generation not in RELEASES:
+            raise HTTPException(404)
+        return maintenance_page(
+            request,
+            authenticated,
+            generation,
+            command="storage_policy",
+            extra={"enabled": enabled},
         )
 
     @app.get("/api/storage-maintenance")

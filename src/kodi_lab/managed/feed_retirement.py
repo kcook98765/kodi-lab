@@ -8,7 +8,7 @@ import os
 import stat
 import subprocess
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, cast
@@ -34,6 +34,7 @@ class FeedCapacity(Refusal):
     """Publication would exceed the bounded durable cleanup queue."""
 
 
+Identity = tuple[int, int, int, int, int]
 Digest = Annotated[str, Field(pattern=f"^{HEX.pattern}$")]
 Addon = Annotated[str, Field(pattern=f"^{ADDON_ID.pattern}$")]
 Version = Annotated[str, Field(pattern=f"^{VERSION.pattern}$")]
@@ -60,9 +61,15 @@ class Publication(FeedModel):
     copies: Annotated[tuple[FeedCopy, ...], Field(max_length=CATALOG_LIMIT)]
 
 
+class PairIdentity(FeedModel):
+    archive: Identity | None
+    checksum: Identity | None
+
+
 class PendingCopy(FeedModel):
     artifact: FeedCopy
     phase: Literal["pending", "removing"] = "pending"
+    pair: PairIdentity | None = None
 
 
 class FeedState(FeedModel):
@@ -269,7 +276,9 @@ class FeedRetirement:
             raise Refusal("feed_catalog_protection_unknown")
         return set(raw)
 
-    def prove(self, state: FeedState, pending: PendingCopy) -> RetirementProof | None:
+    def prove(
+        self, state: FeedState, pending: PendingCopy, *, durable: bool = True
+    ) -> RetirementProof | None:
         current, item = state.current, pending.artifact
         if (
             not current
@@ -315,13 +324,19 @@ class FeedRetirement:
             return None
         if not self.index_matches(current) or item.digest in self.approved_catalog():
             return None
-        if file_digest(canonical, durable=True) != item.digest:
+        if file_digest(canonical, durable=durable) != item.digest:
             return None
-        for folder in canonical.parents:
-            sync_dir(folder)
-            if folder == self.managed_root:
-                break
+        if durable:
+            for folder in canonical.parents:
+                sync_dir(folder)
+                if folder == self.managed_root:
+                    break
         removing = pending.phase == "removing"
+        pair = PairIdentity(
+            archive=before[paths.index(target)], checksum=before[paths.index(sidecar)]
+        )
+        if removing and (pending.pair is None or not pair_matches(pending.pair, pair)):
+            return None
         primary = file_digest(target)
         try:
             secondary = read_file(sidecar, 65)
@@ -335,7 +350,7 @@ class FeedRetirement:
             or snapshot_paths(paths) != before
         ):
             return None
-        return RetirementProof(target, sidecar, canonical_root, paths, before)
+        return RetirementProof(target, sidecar, canonical_root, paths, before, pair)
 
     def require_feed_mounts(self) -> None:
         require_unmounted_tree(
@@ -343,7 +358,12 @@ class FeedRetirement:
         )
 
     def retire(
-        self, state: FeedState, pending: PendingCopy, proof: RetirementProof
+        self,
+        state: FeedState,
+        pending: PendingCopy,
+        proof: RetirementProof,
+        *,
+        record_outcome: Callable[[], None] | None = None,
     ) -> bool:
         # The controller holds the site lock and has observed an absent managed
         # container. Large archive reads occurred outside the lifecycle lock.
@@ -352,7 +372,9 @@ class FeedRetirement:
         if self.read() != state or snapshot_paths(proof.paths) != proof.identities:
             return False
         if pending.phase == "pending":
-            marked = PendingCopy(artifact=pending.artifact, phase="removing")
+            marked = PendingCopy(
+                artifact=pending.artifact, phase="removing", pair=proof.pair
+            )
             self.write(
                 FeedState(
                     target=state.target,
@@ -372,6 +394,8 @@ class FeedRetirement:
         proof.target.unlink(missing_ok=True)
         proof.sidecar.unlink(missing_ok=True)
         sync_dir(proof.target.parent)
+        if record_outcome is not None:
+            record_outcome()
         self.write(
             FeedState(
                 target=state.target,
@@ -381,9 +405,6 @@ class FeedRetirement:
             )
         )
         return True
-
-
-Identity = tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -399,6 +420,13 @@ class RetirementProof:
     canonical_root: Path
     paths: tuple[Path, ...]
     identities: tuple[Identity | None, ...]
+    pair: PairIdentity
+
+
+def pair_matches(expected: PairIdentity, current: PairIdentity) -> bool:
+    return (current.archive is None or current.archive == expected.archive) and (
+        current.checksum is None or current.checksum == expected.checksum
+    )
 
 
 def snapshot_paths(paths: tuple[Path, ...]) -> tuple[Identity | None, ...]:
