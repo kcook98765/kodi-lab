@@ -124,14 +124,14 @@ class BrokerServer:
         self._display_lane = display_lane
 
     @classmethod
-    def production(cls) -> BrokerServer:
+    def production(cls, *, registry: OperationRegistry | None = None) -> BrokerServer:
         """Resolve the approved root/kodi-lab production policy."""
 
         configuration = ProductionBrokerConfiguration.resolve()
         return cls(
             socket_config=configuration.socket,
             authorization=configuration.authorization,
-            registry=build_reviewed_runtime_registry(),
+            registry=registry,
         )
 
     @property

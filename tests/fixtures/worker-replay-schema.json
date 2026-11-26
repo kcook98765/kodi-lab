@@ -1,0 +1,62 @@
+{
+  "objects": {
+    "runtime_worker_terminal_operations": {
+      "sql_sha256": "db256a326215f09f1a73cec21b1bb01e4afb5476a700d6714011ba4bd9ff9cdf",
+      "table": "runtime_worker_terminal_operations",
+      "type": "table"
+    },
+    "trg_runtime_worker_terminal_no_delete": {
+      "sql_sha256": "9013f4dcbcd2960da315556178cd920980f3287e38c298217f175525b6a5c2e7",
+      "table": "runtime_worker_terminal_operations",
+      "type": "trigger"
+    },
+    "trg_runtime_worker_terminal_no_update": {
+      "sql_sha256": "6e70e622287956315a0d227f58e73308cc8bc4b1260723f3b93e593647b159ac",
+      "table": "runtime_worker_terminal_operations",
+      "type": "trigger"
+    }
+  },
+  "table_list": [
+    [
+      "main",
+      "runtime_worker_terminal_operations",
+      "table",
+      1,
+      1,
+      0
+    ]
+  ],
+  "tables": {
+    "runtime_worker_terminal_operations": {
+      "columns": [
+        [
+          0,
+          "operation_id",
+          "BLOB",
+          1,
+          null,
+          1,
+          0
+        ]
+      ],
+      "foreign_keys": [],
+      "indexes": {
+        "sqlite_autoindex_runtime_worker_terminal_operations_1": {
+          "columns": [
+            [
+              0,
+              0,
+              "operation_id",
+              0,
+              "BINARY",
+              1
+            ]
+          ],
+          "origin": "pk",
+          "partial": 0,
+          "unique": 1
+        }
+      }
+    }
+  }
+}

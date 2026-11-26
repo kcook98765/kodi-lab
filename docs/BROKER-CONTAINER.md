@@ -96,6 +96,44 @@ Web/Kodi. The broker healthcheck proves that a live listener returns the
 expected denial to its root probe. Broker shutdown unlinks only its verified
 socket inode; a correctly owned stale socket is revalidated on restart.
 
+### Reviewed-runtime installer worker retirement
+
+The broker records each new launch on its private socket volume under
+`/run/kodi-lab/reviewed-worker-receipts`. The receipt binds the operation,
+Docker Engine, worker image, site volumes and exact worker container. The
+broker retries terminal cleanup after restart. It preserves the installation
+outcome, exit code, OOM flag and up to 8 KiB of private diagnostic log tail
+before removing the exact worker container. Each removal attempt syncs the
+receipt file and directory again, including after a restart. Completed
+diagnostics are retained for up to seven days within a 128-receipt limit.
+
+An immutable READY or FAILED application row prevents replay of its UUID. For
+warm reuse, interruption before an application row, and definitive launch
+rejection, the broker commits the UUID to SQLite before removing the worker or
+expiring its diagnostics. The same rule covers a verified worker that never
+started. The replay table stores one 16-byte primary key per UUID without a
+terminal installation row, plus SQLite page overhead. Admission uses an indexed
+lookup. The replay table has no age or count expiry and uses no pending receipt
+slots.
+
+The broker reads the application database read-only. Its fixed replay writer
+runs as the application state owner and commits only the terminal UUID. The
+verified application backup includes this table. Clean recovery restores guards
+present at backup time even with a fresh broker socket volume. Pending receipts,
+locks and raw diagnostics remain on the broker volume.
+
+Installers retain exclusive acquisition authority. Retirement defers when an
+installer is active. An installer that arrives during a retirement pass waits
+for that pass before trying the acquisition lock.
+
+A definite Docker Create rejection is recorded with its status and released
+from the pending inventory. Transport interruptions and uncertain dispatches
+stay pending. The broker can observe an exact worker from its receipt after an
+image upgrade, allowing Kodi Runtimes to reconcile a nonterminal installation.
+Historical containers from before receipt recording remain in place. The active
+worker inventory excludes stopped history. Retirement keeps runtime images,
+attached volumes and other Docker resources intact.
+
 For managed Kodi, first recheck host routes and Docker network IPAM for overlap
 with `10.250.0.0/24`. Run the installed `kodi-lab-runtime network-ensure` as a
 one-shot broker-container command. It creates only the fixed

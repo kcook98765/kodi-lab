@@ -68,10 +68,12 @@ def test_broker_accepted_worker_failure_before_pending_is_durable(
         "kodi_lab.runtime.install._database_call",
         lambda _settings, action: action(factory),
     )
+    runtime_root = tmp_path / "lock"
+    runtime_root.mkdir(mode=0o700)
     with pytest.raises(RecipeInstallationError):
         install_reviewed_runtime(
             "matrix",
-            settings=Settings(runtime_root=tmp_path / "lock"),
+            settings=Settings(runtime_root=runtime_root),
             operation_id=operation_id,
         )
     with factory() as session:

@@ -151,6 +151,7 @@ def test_native_linux_literal_broker_needs_no_desktop_engine_query(
 
     client.info = forbidden
     assert worker._self_contract(client)[3] is None
+    client.info = lambda: {"ID": "fixture-native-engine"}
     assert worker.launch("omega", uuid4())
 
 

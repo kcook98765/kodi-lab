@@ -8342,3 +8342,13 @@ are in [SOURCE-ADDITION-REVIEW.md](SOURCE-ADDITION-REVIEW.md).
 - Scope: Omega. Shared external services use the existing independent target
   authority. The older migration graph and advanced managed paths require a
   separate cutover before promoting managed-v2.
+
+## D-0507 Terminal installer replay guards follow application recovery
+
+Reviewed installer operations with terminal application rows use those rows to
+block replay. The closed broker records a UUID-only SQLite guard for verified
+terminal outcomes without an installation row. Its fixed writer runs as the
+application state owner. Worker retirement and diagnostic trimming require the
+guard or an existing terminal row before discarding evidence. The application
+backup carries the guards through clean recovery. The broker volume continues
+to hold worker ownership receipts, diagnostics, sockets and locks.

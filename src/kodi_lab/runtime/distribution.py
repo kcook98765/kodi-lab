@@ -527,6 +527,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{arguments.generation}: revision={installed.runtime_revision_id} "
                 f"image={installed.image_id} reused={installed.reused}"
             )
+            if installed.reused and arguments.operation_id is not None:
+                print(
+                    f"kodi-lab-reviewed-reuse {arguments.operation_id} "
+                    f"{installed.operation_id} {installed.image_id}"
+                )
             if arguments.experimental_novnc:
                 from kodi_lab.runtime.recipes import (
                     load_novnc_phase1_recipe,

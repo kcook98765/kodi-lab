@@ -16,6 +16,7 @@ from tests.migration_support import migration_config
 from tests.schema_manifest import schema_manifest
 
 BASELINE = "0001_foundation"
+HEAD = "0002_worker_replay"
 
 
 def test_fresh_contract_and_safe_reinitialization(
@@ -25,6 +26,7 @@ def test_fresh_contract_and_safe_reinitialization(
     config = migration_config(database)
     graph = ScriptDirectory.from_config(config)
     assert [(r.revision, r.down_revision) for r in graph.walk_revisions()] == [
+        (HEAD, BASELINE),
         (BASELINE, None),
     ]
     command.upgrade(config, BASELINE)
@@ -49,6 +51,23 @@ def test_fresh_contract_and_safe_reinitialization(
     with pytest.raises(RuntimeError, match="cannot be downgraded"):
         command.downgrade(config, "base")
     assert database.read_bytes() == before
+
+    delta = json.loads(
+        (Path(__file__).parents[1] / "fixtures/worker-replay-schema.json").read_text()
+    )
+    for section in ("objects", "tables"):
+        expected[section].update(delta[section])
+    expected["properties"]["table_list"] = sorted(
+        expected["properties"]["table_list"] + delta["table_list"]
+    )
+    command.upgrade(config, "head")
+    assert schema_manifest(database) == expected
+    fresh = tmp_path / "new-head.db"
+    command.upgrade(migration_config(fresh), "head")
+    assert schema_manifest(fresh) == expected
+    before = fresh.read_bytes()
+    command.upgrade(migration_config(fresh), "head")
+    assert fresh.read_bytes() == before
 
 
 @pytest.mark.parametrize(

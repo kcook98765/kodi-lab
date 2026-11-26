@@ -1,7 +1,7 @@
 # Managed-v2 fresh installation
 
 Use the packaged Web, broker and repository services with empty application
-and managed volumes. The installer initializes `0001_foundation` with
+and managed volumes. The installer initializes the installed schema head with
 `kodi-lab-admin initialize`. Deployments use `compose.release.yaml --profile lab`.
 The in-place update below applies to compatible managed-v2 sites. Migration
 from the retired pre-alpha architecture is unsupported.
@@ -50,8 +50,8 @@ another.
 
 ## Update a managed-v2 site
 
-Use this path for a compatible packaged managed-v2 site at the
-`0001_foundation` schema. Use a reviewed successor with its exact source,
+Use this path for a compatible packaged managed-v2 site at a supported
+schema revision. Use a reviewed successor with its exact source,
 bundle and image identities. Keep the existing Engine, Compose project,
 volumes, configuration, runtime pins and repository origin. Retain the
 old verified bundle and application image IDs before staging the successor.
@@ -111,8 +111,11 @@ configured, the backup also contains the matching external development
 publication data. Keep the backup private. To recover, stage that verified
 backup in `backups/ID` on the empty application volume and run
 `kodi-lab-admin recover-clean ID --confirm ID` with the matching repository
-configuration. Use the same `0001_foundation` schema and application key. Verify the recovered
-site on the separate empty volume before retiring any original volume.
+configuration. Use a compatible application version and the backup's
+application key. Verify the recovered site on the separate empty volume before
+retiring any original volume. SQLite includes terminal installer UUIDs recorded
+by the time of backup, so they remain protected from replay on a fresh broker
+socket volume.
 
 The broker-owned managed volume holds Kodi's working profile, private snapshots,
 workspaces, package approvals and the latest operation. A managed snapshot

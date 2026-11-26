@@ -23,6 +23,7 @@ from alembic.script import ScriptDirectory
 from kodi_lab import remote_lifecycle
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
 from kodi_lab.application.workspace_source_captures import WorkspaceSourceCaptureService
+from kodi_lab.broker.worker_replay import persist_terminal_operation
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.host_bootstrap import (
     HostBootstrapError,
@@ -421,6 +422,25 @@ def test_failed_migration_blocks_startup_and_restore_recovers(
         validate(root, _url(root), require_head=True)
     restored, _ = restore(root, _url(root), receipt["backup_id"], receipt["backup_id"])
     assert restored == "0001_foundation"
+
+
+def test_in_place_rollback_preserves_terminal_uuid_from_its_backup(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "state"
+    _baseline(root)
+    with packaged_migrations.packaged_config(_url(root)) as config:
+        command.upgrade(config, "0002_worker_replay")
+    operation = uuid4()
+    persist_terminal_operation(root, operation)
+    previous, current, archive = upgrade(root, _url(root))
+    assert previous == "0002_worker_replay" and current == _head_revision()
+    assert archive is not None
+    assert restore(root, _url(root), archive, archive)[0] == previous
+    with sqlite3.connect(root / "database" / "kodi-lab.db") as database:
+        assert database.execute(
+            "SELECT operation_id FROM runtime_worker_terminal_operations"
+        ).fetchall() == [(operation.bytes,)]
 
 
 def test_failed_backup_prevents_migration(
