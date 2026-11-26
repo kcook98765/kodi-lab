@@ -26,7 +26,7 @@ from kodi_lab.kodi.remote import (
 )
 
 from . import RELEASES, reviewed_image_file
-from .feed_retirement import FeedRetirement
+from .feed_retirement import FeedRetirement, observed_engine, runtime_idle
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
 from .prepare import (
     ABANDONED_SCRATCH_GRACE,
@@ -100,6 +100,7 @@ class Controller:
         self._prepare_cleanup_cursor = ""
         self._feed_cleanup_cursor: dict[str, str] = {}
         self._feed_generation_cursor = 0
+        self._feed_engine_bound = daemon_root is not None
         self._prepare_warning_at: dict[str, float] = {}
         self.lifecycle_status: Document | None = None
         self.interrupt = interrupt or (lambda _event: None)
@@ -428,8 +429,6 @@ class Controller:
 
     def resume_feed_cleanup(self) -> None:
         """Offer at most one stopped generation's redundant feed copy per pass."""
-        from .runtime import DOCKER
-
         runtimes = tuple(self.runtimes.values())
         native = runtimes[self._feed_generation_cursor]
         self._feed_generation_cursor = (self._feed_generation_cursor + 1) % len(
@@ -444,9 +443,14 @@ class Controller:
             ):
                 return
             if state.planned is not None:
-                with self.omega.exclusive():
-                    if book.read() == state:
-                        book.reconcile(state)
+                planned = book.planned_proof(state)
+                if planned is not None:
+                    with self.omega.exclusive():
+                        latest = self.last_operation()
+                        if book.read() == state and not (
+                            latest and latest["state"] == "pending"
+                        ):
+                            book.reconcile(state, planned)
                 return
             if not state.pending:
                 return
@@ -464,18 +468,17 @@ class Controller:
                     latest and latest["state"] == "pending"
                 ) or native.public.session.exists():
                     return
-                # Any exact name collision also blocks retirement. Do not infer
-                # eligibility from a missing or unavailable Engine.
-                active = subprocess.run(
-                    [*DOCKER, "ps", "-aq", "--filter", f"name=^/{native.name}$"],
-                    capture_output=True,
-                    text=True,
-                    timeout=0.5,
-                    check=True,
-                )
-                if not active.stdout.strip():
+                if runtime_idle(native, state.engine):
                     book.retire(state, pending, proof)
-        except (Refusal, OSError, ValueError, TypeError, subprocess.SubprocessError):
+        except (
+            Refusal,
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+            IndexError,
+            subprocess.SubprocessError,
+        ):
             return
 
     def resume_interrupted_prepare(self) -> None:
@@ -1150,11 +1153,16 @@ class Controller:
             for item in [pkg, *catalog.values()]
         ):
             raise Refusal("service_activation_consent_required")
-        retirement = (
-            FeedRetirement(self.omega.root, self.runtime.root, self.runtime.target)
-            if self.runtime.feed == self.runtime.private_feed
-            else None
-        )
+        retirement = None
+        if self._feed_engine_bound and self.runtime.feed == self.runtime.private_feed:
+            try:
+                engine = observed_engine(time.monotonic() + 0.5)
+            except (Refusal, OSError, subprocess.SubprocessError):
+                pass
+            else:
+                retirement = FeedRetirement(
+                    self.omega.root, self.runtime.root, self.runtime.target, engine
+                )
         checksum, catalog = self.packages.publish(
             pkg, retirement=retirement, owner=self.actor
         )

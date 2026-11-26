@@ -19,7 +19,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from kodi_lab.package_hygiene import has_vcs_admin_component
 
-from .runtime import BRIDGE, REPO, Refusal, atomic
+from .runtime import BRIDGE, REPO, Refusal, atomic, sync_dir
 
 if TYPE_CHECKING:
     from .feed_retirement import FeedRetirement
@@ -349,8 +349,12 @@ class Packages:
         catalog = ET.tostring(index, encoding="utf-8", xml_declaration=True) + b"\n"
         checksum = sha(catalog)
         if retirement is not None:
+            from .feed_retirement import FeedCapacity
+
             try:
                 retirement.plan(package, candidates, checksum, owner)
+            except FeedCapacity:
+                raise
             except (Refusal, OSError, ValueError):
                 retirement = None
                 logging.warning("Managed feed retirement plan unavailable")
@@ -361,6 +365,8 @@ class Packages:
             # Both files are private to this one runtime and mutation gate.
             atomic(target, pkg.data)
             atomic(target.with_suffix(".zip.sha256"), (pkg.digest + "\n").encode())
+        if retirement is not None:
+            sync_dir(self.feed / "zips")
         atomic(self.feed / "addons.xml", catalog)
         atomic(self.feed / "addons.xml.sha256", (checksum + "\n").encode())
         if retirement is not None:

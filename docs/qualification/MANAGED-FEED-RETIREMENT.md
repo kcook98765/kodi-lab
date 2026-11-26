@@ -9,7 +9,10 @@ After a verified successor publication, an older feed copy can retire if its
 exact ZIP and digest sidecar match the recorded copy, its original approved
 archive still matches the digest, and the old digest is outside current
 dependency approvals. Cleanup runs only when the runtime container is absent,
-no lifecycle operation is unresolved, and no public test applies. It does not
+the original Engine and target-labelled inventory agree, no lifecycle operation
+is unresolved, and no public test or local recovery hold applies. The
+`feed-retirement.hold` file in the generation's private state protects all its
+retirement candidates until the owner clears it. It does not
 fetch or replay a native installation. Publication changes and archive proofs
 are rechecked under the managed site lock before unlinking the two exact files.
 
@@ -22,5 +25,6 @@ Both approved archive digests remain available.
 Named snapshots, workspace source, deployment provenance and original package
 ZIPs stay in their respective stores. This retirement path does not delete
 those stores, public feed artifacts, untracked files from older releases or
-runtime images. Unsupported or changed receipt identities stay visible for
-operator review.
+runtime images. Unsupported or changed receipt identities are preserved. A full bounded
+queue blocks only publications that add another cleanup obligation until
+eligible copies retire.

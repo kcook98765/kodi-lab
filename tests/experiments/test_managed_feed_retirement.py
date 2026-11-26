@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 
 from kodi_lab.managed import controller as managed
+from kodi_lab.managed import feed_retirement
 from kodi_lab.managed import packages as managed_packages
 from kodi_lab.managed.controller import Controller
-from kodi_lab.managed.feed_retirement import FeedRetirement
+from kodi_lab.managed.feed_retirement import FeedCapacity, FeedRetirement
 from kodi_lab.managed.packages import Package
+from kodi_lab.managed.runtime import LABEL, Runtime, atomic
 
 ADDON = "script.retirementfixture"
 
@@ -41,7 +42,9 @@ def site(tmp_path: Path) -> Controller:
 
 
 def book(site: Controller) -> FeedRetirement:
-    return FeedRetirement(site.omega.root, site.omega.root, site.omega.target)
+    return FeedRetirement(
+        site.omega.root, site.omega.root, site.omega.target, "fixture-engine"
+    )
 
 
 def path_for(site: Controller, package: Package) -> Path:
@@ -68,22 +71,12 @@ def eligible(site: Controller) -> bool:
 
 
 def idle_engine(monkeypatch: pytest.MonkeyPatch, *, observed: str = "") -> None:
-    def run(
-        args: list[str], *, timeout: float, **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        assert args == [
-            "docker",
-            "--host",
-            "unix:///var/run/docker.sock",
-            "ps",
-            "-aq",
-            "--filter",
-            "name=^/kodi-lab-managed-v2$",
-        ]
-        assert timeout == 0.5
-        return subprocess.CompletedProcess(args, 0, stdout=observed)
+    def idle(native: Runtime, engine: str | None) -> bool:
+        assert native.generation == "omega"
+        assert engine == "fixture-engine"
+        return observed == ""
 
-    monkeypatch.setattr(managed.subprocess, "run", run)
+    monkeypatch.setattr(managed, "runtime_idle", idle)
 
 
 def test_keeps_canonical_bytes_current_copy_and_unknown_legacy(
@@ -117,7 +110,7 @@ def test_same_version_uses_current_path_and_retains_both_approved_archives(
 
 
 @pytest.mark.parametrize(
-    "protection", ["catalog", "canonical_changed", "copy_changed", "public"]
+    "protection", ["catalog", "canonical_changed", "copy_changed", "public", "hold"]
 )
 def test_declines_retirement_on_protection_or_identity_drift(
     site: Controller, monkeypatch: pytest.MonkeyPatch, protection: str
@@ -131,8 +124,10 @@ def test_declines_retirement_on_protection_or_identity_drift(
         original.write_bytes(b"changed canonical")
     elif protection == "copy_changed":
         path_for(site, first).write_bytes(b"changed copy")
-    else:
+    elif protection == "public":
         site.omega.public.session.write_text("pending test")
+    else:
+        book(site).hold.write_text("protect recovery")
     idle_engine(monkeypatch)
     site.resume_feed_cleanup()
     assert path_for(site, first).exists()
@@ -165,8 +160,6 @@ def test_interrupted_publication_reconciles_only_verified_index(
 
     def interrupt(_book: FeedRetirement) -> None:
         raise Interrupted
-
-    atomic = managed_packages.atomic
 
     def fail_before_checksum(path: Path, data: bytes) -> None:
         if path.name == "addons.xml.sha256":
@@ -229,3 +222,59 @@ def test_changed_file_after_proof_is_preserved(site: Controller) -> None:
     path_for(site, first).write_bytes(b"replacement")
     assert not tracker.retire(state, pending, proof)
     assert path_for(site, first).read_bytes() == b"replacement"
+
+
+def test_inconsistent_ledger_cannot_retire_a_current_path(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = publish(site, "1.0.0")
+    second = publish(site, "2.0.0")
+    tracker = book(site)
+    state = tracker.read()
+    assert state.current is not None
+    published = state.current.copies[0]
+    tracker.write(
+        state.model_copy(
+            update={
+                "current": state.current.model_copy(update={"copies": ()}),
+                "pending": (feed_retirement.PendingCopy(artifact=published),),
+            }
+        )
+    )
+    idle_engine(monkeypatch)
+    site.resume_feed_cleanup()
+    assert path_for(site, first).exists()
+    assert path_for(site, second).read_bytes() == second.data
+
+
+def test_capacity_refuses_only_a_new_obligation_without_touching_feed(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    publish(site, "1.0.0")
+    second = publish(site, "2.0.0")
+    monkeypatch.setattr(feed_retirement, "PENDING_LIMIT", 1)
+    with pytest.raises(FeedCapacity, match="feed_retirement_capacity"):
+        publish(site, "3.0.0")
+    assert len(book(site).read().pending) == 1
+    assert path_for(site, second).read_bytes() == second.data
+    assert not (path_for(site, second).parent / f"{ADDON}-3.0.0.zip").exists()
+    replacement = publish(site, "2.0.0", payload="same-path")
+    assert path_for(site, replacement).read_bytes() == replacement.data
+
+
+def test_renamed_labelled_runtime_blocks_cleanup(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    native = site.omega
+
+    def command(*args: str, deadline: float) -> str:
+        assert deadline > 0
+        if args[0] == "info":
+            return "fixture-engine"
+        if args[:2] == ("ps", "-aq"):
+            return ""
+        assert f"label={LABEL}={native.target}" in args
+        return "b" * 64 + " renamed-kodi"
+
+    monkeypatch.setattr(feed_retirement, "docker_read", command)
+    assert not feed_retirement.runtime_idle(native, "fixture-engine")
