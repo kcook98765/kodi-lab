@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import stat
+import time
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -24,7 +25,89 @@ if TYPE_CHECKING:
     from .runtime import Runtime
 
 ABANDONED_SCRATCH_GRACE = 24 * 60 * 60
+PREPARE_CLEANUP_CAPACITY = 6
+PREPARE_CLEANUP_BATCH = 2
+PREPARE_CLEANUP_SECONDS = 1.0
+PREPARE_CLEANUP_INTERVAL = 5.0
 OPERATION_LABEL = "io.kodi-lab.prepare-operation"
+
+
+def valid_prepare_receipt(
+    operation: object, receipt: object, *, terminal: bool
+) -> bool:
+    if (
+        not isinstance(operation, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", operation)
+        or not isinstance(receipt, dict)
+    ):
+        return False
+    fields = {
+        "version",
+        "target",
+        "image",
+        "scratch",
+        "material",
+        "engine",
+        "container",
+    }
+    if terminal:
+        fields.update(("generation", "scratch_after"))
+        after = receipt.get("scratch_after")
+        # Reject nonfinite or out-of-range POSIX timestamps.
+        if (
+            not isinstance(receipt.get("generation"), str)
+            or not isinstance(after, (int, float))
+            or isinstance(after, bool)
+            or not 0 <= after <= 253402300799
+            or not ({"scratch", "engine"} & receipt.keys())
+        ):
+            return False
+    # Missing version is the original additive receipt format.
+    version = receipt.get("version", 1)
+    if (
+        not receipt.keys() <= fields
+        or type(version) is not int
+        or version != 1
+        or not _matches(
+            receipt.get("target"), r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+        )
+        or not _matches(receipt.get("image"), r"sha256:[0-9a-f]{64}")
+        or (
+            "engine" in receipt
+            and not _matches(receipt["engine"], r"[A-Za-z0-9:-]{1,128}")
+        )
+        or (
+            "container" in receipt
+            and (
+                "engine" not in receipt
+                or not _matches(receipt["container"], r"[0-9a-f]{64}")
+            )
+        )
+    ):
+        return False
+    inode = receipt.get("scratch")
+    if inode is not None and (type(inode) is not int or not 0 < inode < 2**64):
+        return False
+    if "engine" in receipt and inode is None and (not terminal or "scratch" in receipt):
+        return False
+    if "material" in receipt:
+        material = receipt["material"]
+        if type(material) is not int or not 0 < material < 2**64:
+            return False
+        if inode is None and (not terminal or "scratch" in receipt):
+            return False
+    return True
+
+
+def _matches(value: object, pattern: str) -> bool:
+    return isinstance(value, str) and re.fullmatch(pattern, value) is not None
+
+
+def maintenance_timeout(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Refusal("prepare_cleanup_budget")
+    return remaining
 
 
 class PrepareResources:
@@ -67,10 +150,12 @@ class PrepareResources:
         self.checkpoint("prepare_baseline_ready")
 
     def publish_baseline(self) -> None:
-        from .runtime import sync_dir
+        from .runtime import require_unmounted_tree, sync_dir
 
+        if self.receipt.get("scratch") is None or "material" not in self.receipt:
+            raise Refusal("prepare_baseline_identity")
         self._require_directory(self.scratch, self.receipt["scratch"])
-        self._require_unmounted_tree(self.scratch)
+        require_unmounted_tree(self.scratch)
         build = self.scratch / "material"
         try:
             self._require_directory(build, self.receipt["material"])
@@ -80,7 +165,7 @@ class PrepareResources:
             previous = self.scratch / "prior-material"
             if self.runtime.material.exists() or self.runtime.material.is_symlink():
                 self._require_directory(self.runtime.material, None)
-                self._require_unmounted_tree(self.runtime.material)
+                require_unmounted_tree(self.runtime.material)
                 if previous.exists() or previous.is_symlink():
                     raise Refusal("prepare_baseline_identity")
                 self.runtime.material.rename(previous)
@@ -99,25 +184,8 @@ class PrepareResources:
         ):
             raise Refusal("prepare_staging_identity")
 
-    @staticmethod
-    def _require_unmounted_tree(path: Path) -> None:
-        # Bind mounts within the same filesystem can share its device number.
-        # Refuse recursive deletion across any mount below this exact path.
-        mount = os.fsencode(path)
-        for char, escape in (
-            (b"\\", rb"\134"),
-            (b" ", rb"\040"),
-            (b"\t", rb"\011"),
-            (b"\n", rb"\012"),
-        ):
-            mount = mount.replace(char, escape)
-        for line in Path("/proc/self/mountinfo").read_bytes().splitlines():
-            point = line.split()[4]
-            if point == mount or point.startswith(mount + b"/"):
-                raise Refusal("prepare_staging_mount")
-
     def retire_scratch(self) -> None:
-        from .runtime import sync_dir
+        from .runtime import require_unmounted_tree, sync_dir
 
         inode = self.receipt["scratch"]
         try:
@@ -126,12 +194,9 @@ class PrepareResources:
             pass
         else:
             if inode is None:
-                # Only mkdir can have happened before the inode checkpoint.
-                # An unexpected nonempty directory must survive this window.
-                self.scratch.rmdir()
-            else:
-                self._require_unmounted_tree(self.scratch)
-                shutil.rmtree(self.scratch)
+                raise Refusal("prepare_staging_allocation_unconfirmed")
+            require_unmounted_tree(self.scratch)
+            shutil.rmtree(self.scratch)
         sync_dir(self.scratch.parent)
 
     @staticmethod
@@ -144,10 +209,10 @@ class PrepareResources:
         return observed
 
     @staticmethod
-    def _client() -> Any:
+    def _client(*, timeout: float = 35) -> Any:
         from .runtime import DOCKER
 
-        return APIClient(base_url=DOCKER[2], version="auto", timeout=35)
+        return APIClient(base_url=DOCKER[2], version="auto", timeout=timeout)
 
     def _labels(self) -> dict[str, str]:
         from .runtime import LABEL
@@ -221,12 +286,16 @@ class PrepareResources:
             raise Refusal("prepare_inspection_identity")
         return container
 
-    def retire_inspection(self, persist: Callable[[], None]) -> None:
+    def retire_inspection(
+        self, persist: Callable[[], None], *, deadline: float
+    ) -> None:
         try:
-            with self._client() as client:
+            with self._client(timeout=maintenance_timeout(deadline)) as client:
+                client.timeout = maintenance_timeout(deadline)
                 if self._engine(client) != self.receipt["engine"]:
                     raise Refusal("prepare_engine_identity")
                 identity = self.receipt.get("container", self.name)
+                client.timeout = maintenance_timeout(deadline)
                 try:
                     observed = client.inspect_container(identity)
                 except NotFound:
@@ -241,6 +310,7 @@ class PrepareResources:
                 if "container" not in self.receipt:
                     self.receipt["container"] = container
                     persist()
+                client.timeout = maintenance_timeout(deadline)
                 with suppress(NotFound):
                     client.remove_container(container, force=False, v=False)
         except DockerException as error:

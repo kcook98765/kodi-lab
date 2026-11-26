@@ -11,15 +11,17 @@ import socket
 import socketserver
 import stat
 import struct
+import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from typing import Protocol, cast
 
 from . import REVIEWED_IMAGE_FILE
 from .controller import Controller
 from .packages import HEX, MAX_ZIP
+from .prepare import PREPARE_CLEANUP_INTERVAL
 from .protocol import OperationReply, Refusal, actor_key, validate
 from .viewer import display_lane
 
@@ -172,7 +174,6 @@ def serve(
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Refusal("broker_already_running") from exc
-        controller.resume_prepare_cleanup()
         if path.exists() or path.is_symlink():
             entry = path.lstat()
             if not stat.S_ISSOCK(entry.st_mode) or entry.st_uid != os.getuid():
@@ -190,9 +191,20 @@ def serve(
                 )
                 lane.start(stopped)
                 try:
+                    # Active recovery may need the ordinary lifecycle timeouts.
+                    # Serve the socket while it reconciles under the site lock.
+                    Thread(
+                        target=controller.resume_interrupted_prepare,
+                        name="managed-prepare-recovery",
+                        daemon=True,
+                    ).start()
                     broker.timeout = 0.2
+                    cleanup_due = time.monotonic()
                     while not stopped.is_set():
                         broker.handle_request()
+                        if not stopped.is_set() and time.monotonic() >= cleanup_due:
+                            controller.resume_prepare_cleanup()
+                            cleanup_due = time.monotonic() + PREPARE_CLEANUP_INTERVAL
                 finally:
                     lane.close()
             finally:

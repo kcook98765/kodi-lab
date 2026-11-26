@@ -1,22 +1,30 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import time
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import Self
+from uuid import UUID
 
 import pytest
 from docker.errors import APIError, NotFound  # type: ignore[import-untyped]
 from requests import Response
+from requests.exceptions import ReadTimeout
 
+from kodi_lab.managed import broker, prepare, runtime
 from kodi_lab.managed import controller as managed
-from kodi_lab.managed import runtime
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.prepare import (
     ABANDONED_SCRATCH_GRACE,
     OPERATION_LABEL,
+    PREPARE_CLEANUP_BATCH,
+    PREPARE_CLEANUP_CAPACITY,
+    PREPARE_CLEANUP_SECONDS,
     PrepareResources,
 )
 from kodi_lab.managed.protocol import Document, Refusal
@@ -31,6 +39,7 @@ class Interrupted(BaseException):
 class Engine:
     def __init__(self) -> None:
         self.identity = "test-engine"
+        self.timeout = 35.0
         self.containers: dict[str, Document] = {}
         self.volumes: dict[str, Document] = {}
         self.removed: list[str] = []
@@ -107,7 +116,7 @@ class Engine:
                 if self.fail_copy:
                     raise OSError("copy failed")
                 Path(dest).write_text("<addons/>")
-            case ("ps", "-aq", "--filter", _):
+            case ("ps", "-aq", "--filter", _) | ("network", "ls", "-q", *_):
                 return ""
             case ("volume", "create", "--label", label, *_, device, name):
                 assert device.startswith("device=")
@@ -137,7 +146,7 @@ class Site:
         self.now = time.time()
         monkeypatch.setattr(runtime, "docker", self.engine.cli)
         monkeypatch.setattr(runtime.Runtime, "capacity", lambda native: native.image)
-        monkeypatch.setattr(PrepareResources, "_client", lambda _resources: self.engine)
+        monkeypatch.setattr(PrepareResources, "_client", self.client)
         monkeypatch.setattr(
             managed,
             "time",
@@ -145,12 +154,19 @@ class Site:
         )
         self.controller = Controller(self.root, reviewed_image=self.image)
 
-    def perform(self, name: str = "managed_prepare") -> object:
-        return self.controller.perform(name, {}, actor="admin")["result"]
+    def client(self, *, timeout: float = 35) -> Engine:
+        self.engine.timeout = timeout
+        return self.engine
+
+    def perform(self, action: str = "managed_prepare", **args: str) -> Document:
+        result = self.controller.perform(action, args, actor="admin")["result"]
+        assert isinstance(result, dict)
+        return result
 
     def restart(self) -> None:
         self.controller = Controller(self.root, reviewed_image=self.image)
         self.controller.resume_prepare_cleanup()
+        self.controller.resume_interrupted_prepare()
 
     def interrupt(self, event: str) -> None:
         def stop(checkpoint: str) -> None:
@@ -481,7 +497,10 @@ def test_interruption_between_mkdir_and_inode_checkpoint(
     site.restart()
     site.now += ABANDONED_SCRATCH_GRACE
     site.restart()
-    assert not scratch.exists()
+    assert scratch.is_dir()
+    assert site.record["prepare_cleanup"][site.record["id"]]["scratch"] is None
+    scratch.rmdir()  # Simulate administrator resolution of the ambiguous allocation.
+    site.restart()
     assert "prepare_cleanup" not in site.record
 
 
@@ -533,3 +552,467 @@ def test_scratch_with_nested_mount_is_preserved(
         assert "prepare_cleanup" in site.record
     site.restart()
     assert not scratch.exists()
+
+
+def test_intent_only_preserves_unrelated_empty_directory(site: Site) -> None:
+    site.interrupt("prepare_staging")
+    scratch = site.scratch
+    assert site.record["prepare"]["scratch"] is None
+    assert not scratch.exists()
+    scratch.mkdir(mode=0o700)
+    site.restart()
+    site.now += ABANDONED_SCRATCH_GRACE
+    site.restart()
+    assert scratch.is_dir() and not list(scratch.iterdir())
+    assert site.record["prepare_cleanup"][site.record["id"]]["scratch"] is None
+
+
+@pytest.mark.parametrize(
+    "action", ["managed_prepare", "managed_reset", "snapshot_load"]
+)
+def test_profile_collision_preserves_directory(
+    site: Site, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    args: dict[str, str] = {}
+    native = site.controller.runtime
+    if action != "managed_prepare":
+        site.perform()
+        if action == "snapshot_load":
+            args = {"name": "Preserved"}
+            site.perform("snapshot_save", **args)
+    active = native.read_pointer() if native.pointer.exists() else None
+    slot = UUID("f" * 32)
+    profile = site.root / "volumes" / slot.hex
+    profile.mkdir(mode=0o700)
+    sentinel = profile / "keep"
+    sentinel.write_text("foreign")
+    monkeypatch.setattr(runtime, "uuid4", lambda: slot)
+    with pytest.raises(Refusal, match="profile_staging_collision"):
+        site.perform(action, **args)
+    site.perform("managed_recover")
+    assert sentinel.read_text() == "foreign"
+    assert native.volume(slot.hex) not in site.engine.volumes
+    assert (native.read_pointer() if native.pointer.exists() else None) == active
+    assert site.record["state"] == "complete"
+
+
+def test_profile_mkdir_interrupted_before_receipt(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = runtime.sync_dir
+
+    def interrupt(path: Path) -> None:
+        if path == site.root / "volumes":
+            raise Interrupted
+        original(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime, "sync_dir", interrupt)
+        with pytest.raises(Interrupted):
+            site.perform()
+    assert site.record["slot_inode"] is None
+    profile = site.root / "volumes" / site.record["slot"]
+    assert profile.is_dir()
+    site.restart()
+    assert profile.is_dir()
+    assert not site.engine.volumes
+    assert site.record["state"] == "complete"
+
+
+@pytest.mark.parametrize("kind", ["scratch", "profile"])
+def test_failure_to_record_allocation_preserves_directory(
+    site: Site, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    original = site.controller.write_operation
+    fail = {"scratch": "prepare_staging_allocated", "profile": "profile_allocated"}[
+        kind
+    ]
+
+    def reject(record: Document) -> None:
+        if record["event"] == fail:
+            raise OSError("allocation receipt not persisted")
+        original(record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(site.controller, "write_operation", reject)
+        with pytest.raises(OSError, match="allocation receipt not persisted"):
+            site.perform()
+    if kind == "scratch":
+        assert site.scratch.is_dir()
+        assert site.record["prepare_cleanup"][site.record["id"]]["scratch"] is None
+    else:
+        assert (site.root / "volumes" / site.record["slot"]).is_dir()
+        assert site.record["slot_inode"] is None
+    assert site.record["state"] == "complete"
+    assert not site.engine.volumes
+
+
+def test_legacy_profile_intent_preserves_unverified_directory(site: Site) -> None:
+    slot = "a" * 32
+    detached = site.root / "volumes" / slot
+    detached.mkdir(mode=0o700)
+    (detached / "keep").write_text("manual")
+    site.controller.write_operation(
+        {
+            "id": "b" * 32,
+            "name": "managed_reset",
+            "slot": slot,
+            "subject": {},
+            "event": "profile_staging",
+            "state": "pending",
+        }
+    )
+    assert site.perform("managed_recover")["state"] == "recovered"
+    assert (detached / "keep").read_text() == "manual"
+
+
+def test_failed_prepare_before_pointer_preserves_prior_baseline(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    native = site.controller.runtime
+    native.material.mkdir(mode=0o700)
+    prior = native.material / "prior"
+    prior.write_text("valid seed")
+
+    def refuse(event: str) -> None:
+        if event == "profile_before_commit":
+            raise Refusal("cannot_commit")
+
+    site.controller.interrupt = refuse
+    with pytest.raises(Refusal, match="cannot_commit"):
+        site.perform()
+    assert prior.read_text() == "valid seed"
+    assert not native.pointer.exists()
+    assert site.record["event"] == "prepare_failed"
+    assert not site.engine.volumes
+    assert not site.scratch.exists()
+    site.controller.interrupt = lambda _event: None
+    assert site.perform()["state"] == "prepared"
+    assert (native.material / "manifest.xml").is_file()
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_publish_error_after_pointer_records_committed_outcome(
+    site: Site, monkeypatch: pytest.MonkeyPatch, persistent: bool
+) -> None:
+    native = site.controller.runtime
+    native.material.mkdir(mode=0o700)
+    old = native.material / "prior"
+    old.write_text("valid seed")
+    rename = Path.rename
+    failures = 0
+
+    def fail_publication(path: Path, target: Path) -> Path:
+        nonlocal failures
+        if target == native.material and (persistent or failures == 0):
+            failures += 1
+            raise OSError("baseline publication failure")
+        return rename(path, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "rename", fail_publication)
+        if persistent:
+            with pytest.raises(OSError, match="baseline publication failure"):
+                site.perform()
+        else:
+            assert site.perform() == {"state": "prepared", "profile": "omega"}
+    assert failures == (2 if persistent else 1)
+    pointer = native.read_pointer()
+    assert native.require_volume(pointer) == native.profile()
+    if persistent:
+        assert site.record["state"] == "pending"
+        assert (site.scratch / "prior-material" / old.name).read_text() == "valid seed"
+        assert site.perform("managed_recover")["completion"] == "committed"
+    else:
+        assert site.record["event"] == "reply"
+        assert site.record["result"]["state"] == "prepared"
+    assert site.record["state"] == "complete"
+    assert not old.exists()
+    assert (native.material / "manifest.xml").is_file()
+    assert native.read_pointer() == pointer
+    assert not site.scratch.exists()
+    marker = native.profile() / "keep"
+    marker.write_text("working")
+    snapshot = site.perform("snapshot_save", name="Recovered")
+    archive_bytes = site.controller.snapshots.path("Recovered").read_bytes()
+    assert site.perform("managed_reset")["state"] == "stopped"
+    assert not (native.profile() / marker.name).exists()
+    assert site.perform("snapshot_load", name="Recovered")["state"] == "restored"
+    assert (native.profile() / marker.name).read_text() == "working"
+    assert (
+        site.controller.snapshots.path(snapshot["name"]).read_bytes() == archive_bytes
+    )
+
+
+def test_retirement_write_failure_keeps_successful_reply(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = site.controller.write_operation
+
+    def reject_removal_write(record: Document) -> None:
+        previous = site.controller.last_operation()
+        if previous and previous.get("prepare_cleanup"):
+            raise OSError("failed to persist retirement")
+        original(record)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(site.controller, "write_operation", reject_removal_write)
+        assert site.perform()["state"] == "prepared"
+        assert site.record["state"] == "complete"
+        assert site.record["prepare_cleanup"]
+    site.restart()
+    assert not site.engine.containers
+    assert "prepare_cleanup" not in site.record
+
+
+def test_six_ambiguous_dispatches_bound_admission_and_maintenance(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+
+    def unknown_create(*_args: object, **_kwargs: object) -> Document:
+        nonlocal attempts
+        attempts += 1
+        raise ReadTimeout("simulated lost Create reply")
+
+    monkeypatch.setattr(site.engine, "create_container", unknown_create)
+    for _ in range(6):
+        with pytest.raises(ReadTimeout):
+            site.perform()
+    assert (
+        attempts == len(site.record["prepare_cleanup"]) == PREPARE_CLEANUP_CAPACITY == 6
+    )
+    with pytest.raises(Refusal, match="prepare_cleanup_capacity"):
+        site.perform()
+    assert attempts == 6
+    assert site.perform("managed_status")["state"] == "unprepared"
+    assert site.perform("managed_stop")["state"] == "stopped"
+    assert site.perform("managed_recover")["state"] == "no_recovery_required"
+
+    clock = SimpleNamespace(seconds=100.0)
+    time_source = SimpleNamespace(
+        time=lambda: site.now, monotonic=lambda: clock.seconds
+    )
+    monkeypatch.setattr(managed, "time", time_source)
+    monkeypatch.setattr(prepare, "time", time_source)
+    calls: list[float] = []
+
+    def slow_client(*, timeout: float) -> Engine:
+        assert 0 < timeout <= PREPARE_CLEANUP_SECONDS
+        calls.append(timeout)
+        clock.seconds += timeout
+        raise ReadTimeout("simulated Engine timeout")
+
+    monkeypatch.setattr(PrepareResources, "_client", staticmethod(slow_client))
+    obligations = site.record["prepare_cleanup"]
+    first = sorted(obligations)[0]
+    second = sorted(obligations)[1]
+    site.controller.resume_prepare_cleanup()
+    assert calls == [PREPARE_CLEANUP_SECONDS]
+    assert site.controller._prepare_cleanup_cursor == first
+    site.controller.resume_prepare_cleanup()
+    assert calls == [PREPARE_CLEANUP_SECONDS] * 2
+    assert site.controller._prepare_cleanup_cursor == second
+    assert site.record["prepare_cleanup"] == obligations
+    calls.clear()
+
+    def unavailable_client(*, timeout: float) -> Engine:
+        calls.append(timeout)
+        raise OSError("simulated unavailable Engine")
+
+    monkeypatch.setattr(PrepareResources, "_client", staticmethod(unavailable_client))
+    site.controller.resume_prepare_cleanup()
+    assert len(calls) == PREPARE_CLEANUP_BATCH
+
+
+def test_maintenance_shares_budget_across_docker_requests(
+    site: Site, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site.engine.fail_removal = True
+    site.perform()
+    site.engine.fail_removal = False
+    identity = next(iter(site.engine.containers))
+    clock = SimpleNamespace(seconds=100.0)
+    time_source = SimpleNamespace(
+        time=lambda: site.now, monotonic=lambda: clock.seconds
+    )
+    monkeypatch.setattr(managed, "time", time_source)
+    monkeypatch.setattr(prepare, "time", time_source)
+    info = site.engine.info
+    inspect = site.engine.inspect_container
+
+    def client(*, timeout: float) -> Engine:
+        assert timeout == PREPARE_CLEANUP_SECONDS
+        clock.seconds += 0.25
+        return site.client(timeout=timeout)
+
+    def slow_info() -> Document:
+        assert site.engine.timeout == 0.75
+        clock.seconds += 0.25
+        return info()
+
+    def slow_inspect(identity: str) -> Document:
+        assert site.engine.timeout == 0.5
+        clock.seconds += 0.5
+        return inspect(identity)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(PrepareResources, "_client", staticmethod(client))
+        patch.setattr(site.engine, "info", slow_info)
+        patch.setattr(site.engine, "inspect_container", slow_inspect)
+        site.controller.resume_prepare_cleanup()
+    assert identity in site.engine.containers
+    assert site.record["prepare_cleanup"]
+    site.controller.resume_prepare_cleanup()
+    assert not site.engine.containers
+    assert "prepare_cleanup" not in site.record
+
+
+@pytest.mark.parametrize("unsupported", [None, ["private-value"], "private-value", 0])
+def test_unsupported_collection_survives_startup_and_operations(
+    site: Site, caplog: pytest.LogCaptureFixture, unsupported: object
+) -> None:
+    site.controller.write_operation(
+        {"state": "complete", "prepare_cleanup": unsupported}
+    )
+    site.restart()
+    assert site.perform("managed_status")["state"] == "unprepared"
+    assert site.perform("managed_stop")["state"] == "stopped"
+    assert site.perform("managed_recover")["state"] == "no_recovery_required"
+    with pytest.raises(Refusal, match="prepare_cleanup_collection_invalid"):
+        site.perform()
+    assert site.record["prepare_cleanup"] == unsupported
+    assert "prepare_cleanup_collection_invalid" in caplog.text
+    assert "private-value" not in caplog.text
+
+
+def test_mixed_cleanup_receipts_preserve_invalid_and_unsupported_entries(
+    site: Site, caplog: pytest.LogCaptureFixture
+) -> None:
+    def scratch(key: str) -> tuple[Path, Document]:
+        path = site.root / ("baseline-" + key)
+        path.mkdir(mode=0o700)
+        return path, {
+            "generation": "omega",
+            "scratch_after": 0,
+            "scratch": path.lstat().st_ino,
+            "target": str(site.controller.runtime.target),
+            "image": IMAGE,
+        }
+
+    other, unsupported = scratch("a" * 32)
+    unsupported["generation"] = "private-future-runtime"
+    unknown, newer = scratch("b" * 32)
+    newer["version"] = 2
+    own, valid = scratch("c" * 32)
+    malformed, invalid = scratch("d" * 32)
+    invalid["scratch"] = str(invalid["scratch"])
+    no_engine, dangling = scratch("e" * 32)
+    dangling["container"] = "0" * 64
+    preserved = {
+        "a" * 32: unsupported,
+        "b" * 32: newer,
+        "d" * 32: invalid,
+        "e" * 32: dangling,
+        "f" * 32: ["invalid"],
+    }
+    site.controller.write_operation(
+        {"state": "complete", "prepare_cleanup": {**preserved, "c" * 32: valid}}
+    )
+    site.restart()
+    assert own.exists()
+    site.controller.resume_prepare_cleanup()
+    assert not own.exists()
+    site.controller.resume_prepare_cleanup()
+    assert all(path.exists() for path in (other, unknown, malformed, no_engine))
+    assert site.record["prepare_cleanup"] == preserved
+    site.perform("managed_stop")
+    assert site.record["prepare_cleanup"] == preserved
+    assert "prepare_cleanup_generation_unsupported" in caplog.text
+    assert "prepare_cleanup_receipt_invalid" in caplog.text
+    assert "private-future-runtime" not in caplog.text
+
+
+@pytest.mark.parametrize("recover_on_startup", [True, False])
+def test_interrupted_public_prepare_revokes_session(
+    site: Site, recover_on_startup: bool
+) -> None:
+    native = site.controller.runtime
+    native.public.session.write_text(str(time.time() + 900))
+    site.interrupt("profile_committed")
+    assert native.public.session.is_file()
+    if recover_on_startup:
+        site.restart()
+    else:
+        assert site.perform("managed_recover")["completion"] == "committed"
+    assert not native.public.session.exists()
+    assert native.public_slot.read_text() == native.read_pointer()
+    assert (native.material / "manifest.xml").is_file()
+    assert site.record["state"] == "complete"
+
+
+def test_broker_binds_before_maintenance(
+    site: Site, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "broker.sock"
+    stop = Event()
+    recovery_started = Event()
+    recovery_finished = Event()
+
+    def recover() -> None:
+        if path.is_socket():
+            recovery_started.set()
+        stop.wait(3)
+        recovery_finished.set()
+
+    def maintenance() -> None:
+        assert path.is_socket()
+        assert recovery_started.wait(2)
+        assert not recovery_finished.is_set()
+        stop.set()
+
+    monkeypatch.setattr(site.controller, "resume_interrupted_prepare", recover)
+    monkeypatch.setattr(site.controller, "resume_prepare_cleanup", maintenance)
+    monkeypatch.setattr(broker, "Controller", lambda *_args, **_kwargs: site.controller)
+    monkeypatch.setattr(broker, "Event", lambda: stop)
+    monkeypatch.setattr(signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(
+        broker,
+        "display_lane",
+        lambda *_args: SimpleNamespace(start=lambda _: None, close=lambda: None),
+    )
+    frontend_uid = os.getuid() + 1
+    broker.serve(site.root, path, frontend_uid, os.getgid(), site.root)
+    assert stop.is_set()
+    assert recovery_finished.wait(2)
+    assert not path.exists()
+
+
+def test_replaced_staged_profile_is_preserved(site: Site) -> None:
+    site.interrupt("profile_before_commit")
+    slot = site.record["slot"]
+    path = site.root / "volumes" / slot
+    moved = path.rename(path.with_name("parked-profile"))
+    path.mkdir(mode=0o700)
+    (path / "keep").write_text("replacement")
+    site.restart()
+    assert site.record["state"] == "pending"
+    assert site.record["recovery_error"] == "profile_staging_identity"
+    assert (path / "keep").read_text() == "replacement"
+    assert moved.is_dir()
+    assert site.controller.runtime.volume(slot) in site.engine.volumes
+
+
+def test_cleanup_capacity_does_not_block_prepared_profile(site: Site) -> None:
+    site.perform()
+    native = site.controller.runtime
+    prior = native.read_pointer()
+    record = site.record
+    record["prepare_cleanup"] = {
+        f"{i:032x}": {} for i in range(PREPARE_CLEANUP_CAPACITY)
+    }
+    site.controller.write_operation(record)
+    assert site.perform()["state"] == "prepared"
+    assert native.read_pointer() == prior
+    assert site.engine.creates == 1
+    assert len(site.record["prepare_cleanup"]) == PREPARE_CLEANUP_CAPACITY

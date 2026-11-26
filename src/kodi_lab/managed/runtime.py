@@ -6,10 +6,12 @@ import base64
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -64,6 +66,23 @@ def sync_dir(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def require_unmounted_tree(path: Path) -> None:
+    # Bind mounts within the same filesystem can share its device number.
+    # Refuse recursive deletion across any mount below this exact path.
+    mount = os.fsencode(path)
+    for char, escape in (
+        (b"\\", rb"\134"),
+        (b" ", rb"\040"),
+        (b"\t", rb"\011"),
+        (b"\n", rb"\012"),
+    ):
+        mount = mount.replace(char, escape)
+    for line in Path("/proc/self/mountinfo").read_bytes().splitlines():
+        point = line.split()[4]
+        if point == mount or point.startswith(mount + b"/"):
+            raise Refusal("prepare_staging_mount")
 
 
 def docker(*args: str) -> str:
@@ -309,9 +328,16 @@ class Runtime:
     def stage(self, clean: bool, *, material: Path | None = None) -> str:
         self.capacity()
         slot = uuid4().hex
-        self.checkpoint("profile_staging", slot=slot)
+        self.checkpoint("profile_staging", slot=slot, slot_inode=None)
         path = self.root / "volumes" / slot
-        path.mkdir(mode=0o700)
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError as error:
+            self.checkpoint("profile_staging_collision", slot=None)
+            raise Refusal("profile_staging_collision") from error
+        inode = path.lstat().st_ino
+        sync_dir(path.parent)
+        self.checkpoint("profile_allocated", slot_inode=inode)
         if clean:
             shutil.copytree(
                 (material or self.material) / "profile", path, dirs_exist_ok=True
@@ -355,6 +381,35 @@ class Runtime:
             shutil.rmtree(self.profile(slot))
         (self.root / "source-provenance" / (slot + ".json")).unlink(missing_ok=True)
 
+    def retire_staged(self, slot: str, inode: object) -> None:
+        if not isinstance(slot, str) or not re.fullmatch(r"[0-9a-f]{32}", slot):
+            raise Refusal("profile_identity")
+        path = self.root / "volumes" / slot
+        if path.parent.is_symlink():
+            raise Refusal("profile_staging_identity")
+        if inode is None:
+            # Includes legacy checkpoints without an allocation receipt.
+            if path.exists() or path.is_symlink():
+                logging.warning("Managed staged profile allocation unconfirmed")
+            return
+        if type(inode) is not int or not 0 < inode < 2**64:
+            raise Refusal("profile_staging_identity")
+        try:
+            observed = path.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            if (
+                not stat.S_ISDIR(observed.st_mode)
+                or observed.st_uid != os.getuid()
+                or observed.st_dev != self.root.stat().st_dev
+                or observed.st_ino != inode
+            ):
+                raise Refusal("profile_staging_identity")
+            require_unmounted_tree(path)
+        self.retire(slot)
+        sync_dir(path.parent)
+
     def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
         self.require_volume(slot)
         if replace_exited:
@@ -375,7 +430,7 @@ class Runtime:
             return {"state": "prepared", "profile": self.generation}
         image = self.capacity()
         resources = PrepareResources(
-            self, operation, {"target": str(self.target), "image": image}
+            self, operation, {"version": 1, "target": str(self.target), "image": image}
         )
         build = resources.allocate_scratch()
         image_seed = resources.create_inspection()
