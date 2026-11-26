@@ -20,6 +20,8 @@ from kodi_lab.broker.errors import (
     BrokerStartupError,
     BrokerUnavailableError,
 )
+from kodi_lab.broker.operations import build_reviewed_runtime_registry
+from kodi_lab.broker.reviewed_installations import DockerReviewedInstallationWorker
 from kodi_lab.broker.server import BrokerServer, ProductionBrokerConfiguration
 from kodi_lab.managed.broker import serve
 from kodi_lab.managed.runtime import docker
@@ -171,7 +173,10 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop)
     managed: Process | None = None
     try:
-        server = BrokerServer.production()
+        worker = DockerReviewedInstallationWorker()
+        server = BrokerServer.production(
+            registry=build_reviewed_runtime_registry(worker)
+        )
         server.open()
         managed = _managed_process()
         managed.start()
@@ -182,6 +187,12 @@ def main() -> int:
             stopped.set()
 
         Thread(target=watch, name="managed-monitor", daemon=True).start()
+        Thread(
+            target=worker.serve_retirement,
+            args=(stopped,),
+            name="reviewed-worker-retirement",
+            daemon=True,
+        ).start()
         server.serve_forever(stopped)
         if managed.exitcode is not None:
             return 1
@@ -192,6 +203,7 @@ def main() -> int:
         logging.getLogger(__name__).exception("broker stopped unexpectedly")
         return 1
     finally:
+        stopped.set()
         if managed is not None and managed.is_alive():
             managed.terminate()
             managed.join(timeout=6)

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import fcntl
+import os
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from docker.errors import DockerException  # type: ignore[import-untyped]
+from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
 
 from kodi_lab.broker.errors import RequestError
 from kodi_lab.broker.operations import (
@@ -19,6 +22,7 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.broker.protocol import Request
 from kodi_lab.broker.reviewed_installations import (
+    LAUNCH_LABEL,
     DockerReviewedInstallationWorker,
     ReviewedWorkerBusy,
     ReviewedWorkerError,
@@ -33,29 +37,67 @@ from kodi_lab.runtime.recipes import (
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 IMAGE = "sha256:" + "a" * 64
+ENGINE = "fixture-engine"
 
 
 class FakeContainer:
-    def __init__(self, attributes: dict[str, Any]) -> None:
+    def __init__(self, attributes: dict[str, Any], owner: FakeContainers) -> None:
         self.attrs = attributes
+        self.owner = owner
+        self.id = attributes.get("Id", uuid4().hex + uuid4().hex)
         self.starts = 0
+        self.log_tail = b"worker diagnostics\n"
+        self.before_remove: Callable[[], None] | None = None
 
     def reload(self) -> None:
         pass
 
     def start(self) -> None:
         self.starts += 1
-        self.attrs["State"] = {"Running": True}
+        self.attrs["State"].update(Running=True, Status="running")
+
+    def exit(self, code: int = 0, *, oom: bool = False) -> None:
+        self.attrs["State"].update(
+            Running=False,
+            Status="exited",
+            ExitCode=code,
+            OOMKilled=oom,
+            StartedAt="2026-11-25T12:00:00Z",
+            FinishedAt="2026-11-25T12:01:00Z",
+        )
+
+    def logs(self, **_kwargs: object) -> bytes:
+        return self.log_tail
+
+    def remove(self, *, force: bool, v: bool) -> None:
+        assert force is False and v is False
+        if self.before_remove is not None:
+            self.before_remove()
+        self.owner.items.remove(self)
+        self.owner.removed.append(self.id)
 
 
 class FakeContainers:
     def __init__(self) -> None:
         self.items: list[FakeContainer] = []
+        self.removed: list[str] = []
+        self.rows: dict[UUID, Any] = {}
         self.created: dict[str, object] | None = None
         self.on_create: Callable[[dict[str, Any]], None] | None = None
 
-    def list(self, **_kwargs: object) -> list[FakeContainer]:
-        return self.items
+    def list(
+        self, *, filters: dict[str, Any], limit: int, **_kwargs: object
+    ) -> list[FakeContainer]:
+        key, value = filters["label"].split("=")
+        return [
+            item
+            for item in self.items
+            if item.attrs["Config"]["Labels"].get(key) == value
+            and item.attrs["State"].get(
+                "Status", "running" if item.attrs["State"]["Running"] else "exited"
+            )
+            in filters["status"]
+        ][:limit]
 
     def create(self, **kwargs: object) -> FakeContainer:
         self.created = kwargs
@@ -78,6 +120,7 @@ class FakeContainers:
         ]
         item = FakeContainer(
             {
+                "Id": uuid4().hex + uuid4().hex,
                 "Name": "/" + str(kwargs["name"]),
                 "Image": IMAGE,
                 "Config": {
@@ -98,10 +141,23 @@ class FakeContainers:
                     "Privileged": False,
                     "AutoRemove": kwargs["auto_remove"],
                     "SecurityOpt": kwargs["security_opt"],
+                    "RestartPolicy": {"Name": "no", "MaximumRetryCount": 0},
                 },
                 "Mounts": mounts,
-                "State": {"Running": False},
-            }
+                "State": {
+                    "Status": "created",
+                    "Running": False,
+                    "Paused": False,
+                    "Restarting": False,
+                    "Dead": False,
+                    "ExitCode": 0,
+                    "OOMKilled": False,
+                    "StartedAt": "",
+                    "FinishedAt": "",
+                },
+                "NetworkSettings": {"Networks": {"none": {}}},
+            },
+            self,
         )
         self.items.append(item)
         if self.on_create is not None:
@@ -109,7 +165,25 @@ class FakeContainers:
         return item
 
     def get(self, name: str) -> FakeContainer:
-        return next(item for item in self.items if item.attrs["Name"] == "/" + name)
+        for item in self.items:
+            if item.attrs.get("Name") == "/" + name or item.id == name:
+                return item
+        raise NotFound("no exact fixture container")
+
+    def terminal(
+        self, operation: UUID, *, ready: bool = True, generation: str = "omega"
+    ) -> None:
+        self.rows[operation] = SimpleNamespace(
+            id=str(operation),
+            generation=generation,
+            recipe_digest=load_installation_recipe(generation).digest,
+            state=RuntimeRecipeInstallationState.READY
+            if ready
+            else RuntimeRecipeInstallationState.FAILED,
+            completed_at=datetime.now(UTC).isoformat(),
+            image_id=IMAGE if ready else None,
+            failure_code=None if ready else "installation_failed",
+        )
 
 
 def broker_attributes() -> dict[str, Any]:
@@ -177,15 +251,18 @@ def backend(
         api=api,
         containers=containers,
         close=lambda: None,
-        info=lambda: {"OperatingSystem": "Ubuntu 24.04", "OSType": "linux"},
+        info=lambda: {
+            "OperatingSystem": "Ubuntu 24.04",
+            "OSType": "linux",
+            "ID": ENGINE,
+        },
     )
-    return (
-        DockerReviewedInstallationWorker(
-            client_factory=lambda **_kwargs: client,
-            runtime_root=tmp_path,
-        ),
-        containers,
+    worker = DockerReviewedInstallationWorker(
+        client_factory=lambda **_kwargs: client,
+        runtime_root=tmp_path,
     )
+    monkeypatch.setattr(worker, "_recorded_operation", containers.rows.get)
+    return worker, containers
 
 
 def test_exact_worker_launch_contract_and_liveness(
@@ -224,11 +301,15 @@ def test_exact_worker_launch_contract_and_liveness(
     assert created["user"] == "0:0"
     assert created["security_opt"] == ["no-new-privileges:true"]
     assert created["tmpfs"] == {"/tmp": "rw,noexec,nosuid,size=64m"}
-    assert created["labels"] == {
+    labels = created["labels"]
+    assert isinstance(labels, dict)
+    nonce = UUID(labels[LAUNCH_LABEL])
+    assert labels == {
         "io.kodi-lab.resource": "reviewed-runtime-installation",
         "io.kodi-lab.installation-operation-id": str(operation_id),
         "io.kodi-lab.installation-generation": "matrix",
         "io.kodi-lab.installation-worker-image-id": IMAGE,
+        LAUNCH_LABEL: str(nonce),
     }
     assert worker.observe(operation_id).state == "running"
     assert worker.active() == (operation_id, "matrix")
@@ -394,6 +475,7 @@ def desktop_backend(worker: DockerReviewedInstallationWorker) -> Any:
     client.info = lambda: {
         "OperatingSystem": "Docker Desktop (containerized)",
         "OSType": "linux",
+        "ID": ENGINE,
     }
     return client
 
@@ -463,7 +545,11 @@ def test_desktop_aliases_and_mixed_descriptors_keep_exact_worker_lifecycle(
 ) -> None:
     worker, containers = backend
     client = desktop_backend(worker)
-    client.info = lambda: {"OperatingSystem": engine_os, "OSType": "linux"}
+    client.info = lambda: {
+        "OperatingSystem": engine_os,
+        "OSType": "linux",
+        "ID": ENGINE,
+    }
     containers.on_create = lambda attrs: translated(
         attrs, mount_socket, mount_route, bind_socket, bind_route
     )
@@ -486,9 +572,9 @@ def test_linux_literal_contract_does_not_require_desktop_observation(
     def forbidden() -> None:
         raise AssertionError("Linux literal identity must not query Desktop")
 
-    worker._client().info = forbidden
     operation = uuid4()
     assert worker.launch("omega", operation)
+    worker._client().info = forbidden
     assert worker.observe(operation).state == "running"
     assert worker.active() == (operation, "omega")
     assert containers.items[0].starts == 1
@@ -524,9 +610,17 @@ def test_desktop_aliases_need_verified_engine_and_broker_context(
     own = client.api.inspect_container("broker-id")
     labels = own["Config"]["Labels"]
     if context == "linux":
-        client.info = lambda: {"OperatingSystem": "Ubuntu 24.04", "OSType": "linux"}
+        client.info = lambda: {
+            "OperatingSystem": "Ubuntu 24.04",
+            "OSType": "linux",
+            "ID": ENGINE,
+        }
     elif context == "windows-engine":
-        client.info = lambda: {"OperatingSystem": "Docker Desktop", "OSType": "windows"}
+        client.info = lambda: {
+            "OperatingSystem": "Docker Desktop",
+            "OSType": "windows",
+            "ID": ENGINE,
+        }
     elif context in {"missing-distro", "worker-label-only"}:
         labels.clear()
     elif context == "other-distro":
@@ -548,7 +642,7 @@ def test_desktop_aliases_need_verified_engine_and_broker_context(
     elif context == "malformed-info":
         client.info = lambda: None
     elif context == "malformed-os":
-        client.info = lambda: {"OperatingSystem": [], "OSType": "linux"}
+        client.info = lambda: {"OperatingSystem": [], "OSType": "linux", "ID": ENGINE}
     elif context == "missing-route":
         own["Mounts"].pop()
     elif context == "wrong-broker-route":
@@ -572,6 +666,8 @@ def test_desktop_aliases_need_verified_engine_and_broker_context(
         "writable-broker-route",
         "readonly-broker-state",
         "duplicate-broker-route",
+        "info-error",
+        "malformed-info",
     }:
         with pytest.raises(ReviewedWorkerError):
             worker.launch("omega", uuid4())
@@ -806,8 +902,11 @@ def test_desktop_compatibility_preserves_all_worker_identity_and_security_checks
     containers.get = lambda name: containers.items[0]  # type: ignore[method-assign]
     assert worker.observe(operation).state == "mismatch"
     containers.items[0].attrs["State"] = {"Running": True}
-    with pytest.raises(ReviewedWorkerError):
-        worker.active()
+    if defect == "worker-label":
+        assert worker.active() is None
+    else:
+        with pytest.raises(ReviewedWorkerError):
+            worker.active()
     assert containers.items[0].starts == 0
 
 
@@ -885,3 +984,319 @@ def test_broker_socket_provenance_remains_exact_before_create(
     with pytest.raises(ReviewedWorkerError, match=r"broker.*mounts"):
         worker.launch("omega", uuid4())
     assert containers.created is None and containers.items == []
+
+
+def test_terminal_retirement_records_ready_before_exact_removal(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    assert worker.launch("omega", operation)
+    item = containers.items[0]
+    item.exit()
+    containers.terminal(operation)
+    item.log_tail = b"a" * 9000 + b"verified ready\n"
+
+    def check_receipt() -> None:
+        path = worker._receipts.pending()[0]
+        result = worker._receipts.read(path).diagnostics
+        assert result is not None
+        assert result.outcome == "ready"
+        assert result.recorded_operation == operation
+        assert result.log_tail.endswith("verified ready\n")
+        assert len(result.log_tail) == 8192
+
+    item.before_remove = check_receipt
+    worker.retire_terminal_workers()
+    worker.retire_terminal_workers()
+    assert containers.removed == [item.id]
+    assert worker.active() is None
+    assert worker.observe(operation).state == "missing"
+    assert worker._receipts.contains_retired(operation)
+    with pytest.raises(ReviewedWorkerError, match="already recorded"):
+        worker.launch("omega", operation)
+
+
+@pytest.mark.parametrize(("code", "oom"), [(2, False), (143, False), (137, True)])
+def test_failure_or_signal_preserves_diagnostics(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    code: int,
+    oom: bool,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    item = containers.items[0]
+    item.exit(code, oom=oom)
+    containers.terminal(operation, ready=False)
+    worker.retire_terminal_workers()
+    path = worker._receipts.directory("retired") / f"{operation.hex}.json"
+    result = worker._receipts.read(path).diagnostics
+    assert result is not None
+    assert result.outcome == "failed"
+    assert result.failure_code == "installation_failed"
+    assert (result.exit_code, result.oom_killed) == (code, oom)
+    assert result.log_tail == "worker diagnostics\n"
+    assert containers.removed == [item.id]
+
+
+@pytest.mark.parametrize("lost_remove_reply", [False, True])
+def test_broker_restart_retries_after_durable_diagnostics(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+    lost_remove_reply: bool,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    item = containers.items[0]
+    item.exit()
+    containers.terminal(operation)
+
+    def fail_remove() -> None:
+        if lost_remove_reply:
+            containers.items.remove(item)
+            containers.removed.append(item.id)
+        raise DockerException("interrupted removal")
+
+    item.before_remove = fail_remove
+    worker.retire_terminal_workers()
+    (pending,) = worker._receipts.pending()
+    saved = worker._receipts.read(pending)
+    assert saved.diagnostics is not None
+    assert not worker._receipts.contains_retired(operation)
+
+    restarted = DockerReviewedInstallationWorker(
+        client_factory=worker._client_factory,
+        runtime_root=worker._runtime_root,
+    )
+    monkeypatch.setattr(restarted, "_recorded_operation", containers.rows.get)
+    item.before_remove = None
+    item.log_tail = b"changed tail must not replace original evidence"
+    restarted.retire_terminal_workers()
+    restarted.retire_terminal_workers()
+    assert not restarted._receipts.pending()
+    retired = restarted._receipts.directory("retired") / pending.name
+    assert restarted._receipts.read(retired) == saved
+    assert containers.removed == [item.id]
+
+
+def test_nonterminal_application_outcome_waits_for_existing_reconciliation(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    item = containers.items[0]
+    containers.terminal(operation, ready=False)
+    row = containers.rows[operation]
+    row.state = RuntimeRecipeInstallationState.ACQUIRING
+    worker.retire_terminal_workers()
+    assert containers.items == [item]
+    item.exit(137)
+    worker.retire_terminal_workers()
+    assert containers.items == [item]
+    assert worker.observe(operation).state == "exited"
+    row.state = RuntimeRecipeInstallationState.FAILED
+    row.failure_code = "interrupted"
+    worker.retire_terminal_workers()
+    assert containers.removed == [item.id]
+
+
+@pytest.mark.parametrize("created_only", [True, False])
+def test_interruption_before_installation_row(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    created_only: bool,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    if created_only:
+
+        def fail_create_reply(_attrs: dict[str, Any]) -> None:
+            raise DockerException("lost reply after create")
+
+        containers.on_create = fail_create_reply
+        with pytest.raises(ReviewedWorkerError):
+            worker.launch("omega", operation)
+    else:
+        worker.launch("omega", operation)
+        containers.items[0].exit(137)
+    (item,) = containers.items
+    worker.retire_terminal_workers()
+    retired = worker._receipts.directory("retired") / f"{operation.hex}.json"
+    result = worker._receipts.read(retired).diagnostics
+    assert result is not None
+    assert result.outcome == ("not_started" if created_only else "interrupted")
+    assert result.recorded_operation is None
+    assert containers.removed == [item.id]
+
+
+def test_preserves_worker_after_ambiguous_start_dispatch(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker, containers = backend
+
+    def delayed_start(_self: FakeContainer) -> None:
+        raise DockerException("start outcome unknown")
+
+    monkeypatch.setattr(FakeContainer, "start", delayed_start)
+    with pytest.raises(ReviewedWorkerError):
+        worker.launch("omega", uuid4())
+    worker.retire_terminal_workers()
+    assert len(containers.items) == 1
+    assert not containers.removed
+
+
+@pytest.mark.parametrize(
+    "protection",
+    ["nonce", "id", "engine", "mount", "network", "ready_recipe", "legacy"],
+)
+def test_protected_or_unrelated_workers_survive(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+    protection: str,
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    containers.terminal(operation)
+    if protection == "nonce":
+        item.attrs["Config"]["Labels"][LAUNCH_LABEL] = str(uuid4())
+    elif protection == "id":
+        item.attrs["Id"] = "b" * 64
+    elif protection == "engine":
+        worker._client().info = lambda: {"ID": "foreign-engine"}
+    elif protection == "mount":
+        item.attrs["Mounts"][0]["RW"] = False
+    elif protection == "network":
+        item.attrs["NetworkSettings"]["Networks"]["foreign"] = {}
+    elif protection == "ready_recipe":
+        containers.rows[operation].recipe_digest = "sha256:" + "b" * 64
+    elif protection == "legacy":
+        worker._receipts.pending()[0].unlink()
+    worker.retire_terminal_workers()
+    assert containers.items == [item]
+    assert not containers.removed
+
+
+def test_repeated_installs_ignore_stopped_legacy_inventory_and_preserve_live_work(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (legacy,) = containers.items
+    legacy.exit()
+    worker._receipts.pending()[0].unlink()
+    containers.items.extend([legacy] * 128)
+    unrelated = FakeContainer(
+        {"State": {"Running": True, "Status": "running"}, "Config": {"Labels": {}}},
+        containers,
+    )
+    containers.items.append(unrelated)
+    for _ in range(4):
+        operation = uuid4()
+        worker.launch("omega", operation)
+        item = containers.items[-1]
+        assert worker.active() == (operation, "omega")
+        worker.retire_terminal_workers()
+        assert item in containers.items
+        item.exit()
+        containers.terminal(operation)
+        worker.retire_terminal_workers()
+        assert item not in containers.items
+    assert containers.items == [legacy] * 129 + [unrelated]
+    assert len(containers.removed) == 4
+    assert worker.active() is None
+
+
+def test_verified_warm_reuse_preserves_original_ready_operation(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    previous, operation = uuid4(), uuid4()
+    containers.terminal(previous)
+    worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    worker.retire_terminal_workers()
+    assert not containers.removed
+    item.log_tail = f"kodi-lab-reviewed-reuse {operation} {previous} {IMAGE}\n".encode()
+    worker.retire_terminal_workers()
+    retired = worker._receipts.directory("retired") / f"{operation.hex}.json"
+    result = worker._receipts.read(retired).diagnostics
+    assert result is not None
+    assert result.outcome == "reused"
+    assert result.recorded_operation == previous
+
+
+def test_retirement_checks_desktop_aliases_and_survives_same_site_broker_upgrade(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    client = desktop_backend(worker)
+    own = client.api.inspect_container("broker-id")
+    translated(own)
+    containers.on_create = translated
+    operation = uuid4()
+    assert worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    containers.terminal(operation)
+    own["Image"] = "sha256:" + "b" * 64
+    client.api.inspect_image = lambda image: {
+        "Id": image,
+        "Os": "linux",
+        "Architecture": "amd64",
+    }
+    item.attrs["Mounts"][-1]["Source"] = "/tmp/foreign-route"
+    worker.retire_terminal_workers()
+    assert not containers.removed
+    translated(item.attrs)
+    worker.retire_terminal_workers()
+    assert containers.removed == [item.id]
+
+
+def test_retirement_expires_only_completed_receipts(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    completed, pending = uuid4(), uuid4()
+    worker.launch("omega", completed)
+    containers.items[0].exit()
+    containers.terminal(completed)
+    worker.retire_terminal_workers()
+    retired_path = worker._receipts.directory("retired") / f"{completed.hex}.json"
+    assert retired_path.exists()
+    worker.launch("omega", pending)
+    pending_path = worker._receipts.pending()[0]
+    os.utime(retired_path, (0, 0))
+    os.utime(pending_path, (0, 0))
+    worker.retire_terminal_workers()
+    assert not retired_path.exists()
+    assert pending_path.exists()
+    assert len(containers.items) == 1
+
+
+def test_retirement_does_not_cross_the_existing_acquisition_lock(
+    backend: tuple[DockerReviewedInstallationWorker, FakeContainers],
+) -> None:
+    worker, containers = backend
+    operation = uuid4()
+    worker.launch("omega", operation)
+    (item,) = containers.items
+    item.exit()
+    containers.terminal(operation)
+    lock = worker._runtime_root / "recipe-install.lock"
+    descriptor = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        worker.retire_terminal_workers()
+        assert not containers.removed
+        assert worker._receipts.read(worker._receipts.pending()[0]).diagnostics is None
+    finally:
+        os.close(descriptor)
+    worker.retire_terminal_workers()
+    assert containers.removed == [item.id]

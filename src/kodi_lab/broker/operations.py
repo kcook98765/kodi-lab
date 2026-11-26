@@ -372,7 +372,11 @@ def register_reviewed_runtime_operations(
     )
 
 
-def build_reviewed_runtime_registry() -> OperationRegistry:
+def build_reviewed_runtime_registry(
+    reviewed_worker: DockerReviewedInstallationWorker | None = None,
+) -> OperationRegistry:
     registry = OperationRegistry()
-    register_reviewed_runtime_operations(registry, DockerReviewedInstallationWorker())
+    register_reviewed_runtime_operations(
+        registry, reviewed_worker or DockerReviewedInstallationWorker()
+    )
     return registry

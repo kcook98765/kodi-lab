@@ -23,6 +23,16 @@ def test_entrypoint_serves_production_until_stopped(
         "kodi_lab.broker.run.signal.signal",
         lambda signum, _handler: observed.append(signum),
     )
+    retirement_started = Event()
+
+    def retirement(_worker: object, stopped: Event) -> None:
+        retirement_started.set()
+        stopped.wait(2)
+
+    monkeypatch.setattr(
+        "kodi_lab.broker.reviewed_installations.DockerReviewedInstallationWorker.serve_retirement",
+        retirement,
+    )
 
     class FakeServer:
         def open(self) -> None:
@@ -30,6 +40,7 @@ def test_entrypoint_serves_production_until_stopped(
 
         def serve_forever(self, stopped: object) -> None:
             observed.append(stopped)
+            assert retirement_started.wait(2)
 
     terminated = Event()
     managed = SimpleNamespace(
@@ -42,7 +53,8 @@ def test_entrypoint_serves_production_until_stopped(
     monkeypatch.setattr(run, "_managed_process", lambda: managed)
 
     monkeypatch.setattr(
-        "kodi_lab.broker.run.BrokerServer", SimpleNamespace(production=FakeServer)
+        "kodi_lab.broker.run.BrokerServer",
+        SimpleNamespace(production=lambda **_kwargs: FakeServer()),
     )
     assert run.main() == 0
     assert observed[2:4] == ["opened", "managed started"]

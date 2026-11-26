@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import logging
 import os
 import re
 import socket
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from threading import Event, Lock
 from typing import Any, Literal
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import docker  # type: ignore[import-untyped]
 from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.broker.worker_receipts import (
+    LOG_TAIL_BYTES,
+    RECEIPT_LIMIT,
+    WorkerDiagnostics,
+    WorkerReceipt,
+    WorkerReceipts,
+)
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.managed import reviewed_image_file
@@ -33,6 +43,7 @@ from kodi_lab.runtime.recipes import (
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import RuntimeRecipeInstallationRow
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 WORKER_RESOURCE = "reviewed-runtime-installation"
@@ -40,12 +51,17 @@ WORKER_LABEL = "io.kodi-lab.resource"
 OPERATION_LABEL = "io.kodi-lab.installation-operation-id"
 GENERATION_LABEL = "io.kodi-lab.installation-generation"
 IMAGE_LABEL = "io.kodi-lab.installation-worker-image-id"
+LAUNCH_LABEL = "io.kodi-lab.installation-worker-launch"
 STATE_DESTINATION = "/var/lib/kodi-lab"
 LOCK_DESTINATION = "/run/kodi-lab"
 DOCKER_SOCKET = "/var/run/docker.sock"
 HOST_ROUTE_SOURCE = "/proc/1/net/route"
 HOST_ROUTE_DESTINATION = "/tmp/kodi-lab-host-ipv4-route"
 GENERATIONS = ("matrix", "nexus", "omega", "piers")
+TERMINAL = {RuntimeRecipeInstallationState.READY, RuntimeRecipeInstallationState.FAILED}
+_LOGGER = logging.getLogger(__name__)
+_RETIREMENT_INTERVAL = 2
+_RETIREMENT_BATCH = 1
 
 
 class ReviewedWorkerError(RuntimeError):
@@ -307,9 +323,12 @@ class DockerReviewedInstallationWorker:
         self._client_factory = client_factory or docker.from_env
         self._runtime_root = runtime_root
         self._session_factory = session_factory
+        self._receipts = WorkerReceipts(runtime_root)
+        self._lifecycle = Lock()
+        self._retirement_cursor = ""
 
-    def _client(self) -> Any:
-        return self._client_factory(timeout=10)
+    def _client(self, *, timeout: int = 10) -> Any:
+        return self._client_factory(timeout=timeout)
 
     @staticmethod
     def _self_contract(
@@ -360,7 +379,7 @@ class DockerReviewedInstallationWorker:
             item = os.fstat(fd)
             if (
                 not stat.S_ISREG(item.st_mode)
-                or item.st_uid != 0
+                or item.st_uid != os.geteuid()
                 or item.st_nlink != 1
                 or stat.S_IMODE(item.st_mode) != 0o600
             ):
@@ -425,7 +444,13 @@ class DockerReviewedInstallationWorker:
         active: tuple[UUID, str] | None = None
         image_id, state_volume, lock_volume, desktop = self._self_contract(client)
         containers = client.containers.list(
-            all=True, filters={"label": f"{WORKER_LABEL}={WORKER_RESOURCE}"}
+            all=True,
+            sparse=True,
+            limit=129,
+            filters={
+                "label": f"{WORKER_LABEL}={WORKER_RESOURCE}",
+                "status": ["running", "paused", "restarting", "removing"],
+            },
         )
         if len(containers) > 128:
             raise ReviewedWorkerError("worker inventory exceeds its bound")
@@ -509,6 +534,15 @@ class DockerReviewedInstallationWorker:
         *,
         preview_acknowledgement: PreviewAcknowledgement | None = None,
     ) -> bool:
+        with self._lifecycle:
+            return self._launch(generation, operation_id, preview_acknowledgement)
+
+    def _launch(
+        self,
+        generation: str,
+        operation_id: UUID,
+        preview_acknowledgement: PreviewAcknowledgement | None,
+    ) -> bool:
         if generation not in GENERATIONS:
             raise ReviewedWorkerError("generation is unsupported")
         if generation == "piers" and preview_acknowledgement is None:
@@ -528,6 +562,23 @@ class DockerReviewedInstallationWorker:
                 image_id, state_volume, lock_volume, desktop = self._self_contract(
                     client
                 )
+                pending = self._receipts.pending()
+                filename = f"{operation_id.hex}.json"
+                if any(path.name == filename for path in pending) or (
+                    self._receipts.contains_retired(operation_id)
+                ):
+                    raise ReviewedWorkerError("worker launch already recorded")
+                row = self._recorded_operation(operation_id)
+                if row is not None and (
+                    row.state in TERMINAL
+                    or generation != "piers"
+                    or row.generation != generation
+                ):
+                    raise ReviewedWorkerError("worker installation already recorded")
+                if len(pending) >= RECEIPT_LIMIT:
+                    raise ReviewedWorkerError(
+                        "worker retirement backlog requires review"
+                    )
                 if generation == "piers":
                     assert preview_acknowledgement is not None
                     image = client.api.inspect_image(image_id)
@@ -541,6 +592,24 @@ class DockerReviewedInstallationWorker:
                             "installed worker lacks reviewed OSTree contract"
                         )
                     self._admit_preview(operation_id, preview_acknowledgement)
+                    reviewed = reviewed_preview_recipe(preview_acknowledgement)
+                else:
+                    reviewed = load_installation_recipe(generation)
+                receipt = WorkerReceipt.model_validate(
+                    {
+                        "operation": operation_id,
+                        "nonce": uuid4(),
+                        "generation": generation,
+                        "engine": self._engine_id(client),
+                        "image": image_id,
+                        "state_volume": state_volume,
+                        "lock_volume": lock_volume,
+                        "recipe_digest": reviewed.digest,
+                    }
+                )
+                # The nonce binds a worker created just before a lost Docker reply
+                # to this exact pre-create intent. Persist the full ID before start.
+                self._receipts.save(receipt)
                 settings = Settings()
                 worker_environment = {
                     "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": str(
@@ -565,6 +634,10 @@ class DockerReviewedInstallationWorker:
                     detach=True,
                     auto_remove=False,
                     network_mode="none",
+                    log_config={
+                        "type": "json-file",
+                        "config": {"max-size": "256k", "max-file": "1"},
+                    },
                     read_only=True,
                     tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
                     cap_drop=["ALL"],
@@ -585,25 +658,283 @@ class DockerReviewedInstallationWorker:
                         OPERATION_LABEL: str(operation_id),
                         GENERATION_LABEL: generation,
                         IMAGE_LABEL: image_id,
+                        LAUNCH_LABEL: str(receipt.nonce),
                     },
                 )
                 container.reload()
-                if not self._identity(
-                    container,
-                    operation_id,
-                    image_id,
-                    state_volume,
-                    lock_volume,
-                    generation,
-                    desktop=desktop,
-                ):
+                if not self._receipt_matches(container, receipt, desktop):
                     raise ReviewedWorkerError("created worker identity differs")
+                self._receipts.save(
+                    WorkerReceipt.model_validate(
+                        {
+                            **receipt.model_dump(),
+                            "container": container.id,
+                            "start_requested": True,
+                        }
+                    )
+                )
                 container.start()
                 return True
             finally:
                 client.close()
-        except DockerException as error:
+        except (DockerException, OSError, SQLAlchemyError, ValueError) as error:
             raise ReviewedWorkerError("worker launch is unavailable") from error
+
+    @staticmethod
+    def _engine_id(client: Any) -> str:
+        info = client.info()
+        value = info.get("ID") if isinstance(info, dict) else None
+        if not isinstance(value, str) or not re.fullmatch(
+            r"[A-Za-z0-9:-]{1,128}", value
+        ):
+            raise ReviewedWorkerError("Docker Engine identity is unavailable")
+        return value
+
+    def _recorded_operation(
+        self, operation: UUID
+    ) -> RuntimeRecipeInstallationRow | None:
+        factory = self._session_factory
+        if factory is not None:
+            with factory() as session:
+                return RuntimeRecipeInstallationRepository(session).get(operation)
+        url = make_url(Settings().database_url)
+        if (
+            url.drivername != "sqlite"
+            or not url.database
+            or not Path(url.database).is_absolute()
+        ):
+            raise ReviewedWorkerError("installation database identity differs")
+        engine = create_database_engine(
+            "sqlite:///file:"
+            + quote(url.database, safe="/")
+            + "?mode=ro&timeout=1&uri=true"
+        )
+        try:
+            with create_session_factory(engine)() as session:
+                return RuntimeRecipeInstallationRepository(session).get(operation)
+        finally:
+            engine.dispose()
+
+    def _receipt_matches(
+        self,
+        container: Any,
+        receipt: WorkerReceipt,
+        desktop: _DesktopBindSources | None,
+    ) -> bool:
+        attrs = container.attrs
+        config = attrs.get("Config")
+        labels = config.get("Labels") if isinstance(config, dict) else None
+        container_id = attrs.get("Id")
+        return (
+            isinstance(container_id, str)
+            and re.fullmatch(r"[0-9a-f]{64}", container_id) is not None
+            and container_id == container.id
+            and (receipt.container is None or receipt.container == container_id)
+            and isinstance(labels, dict)
+            and labels.get(LAUNCH_LABEL) == str(receipt.nonce)
+            and self._identity(
+                container,
+                receipt.operation,
+                receipt.image,
+                receipt.state_volume,
+                receipt.lock_volume,
+                receipt.generation,
+                desktop=desktop,
+            )
+        )
+
+    @staticmethod
+    def _stopped_state(container: Any, receipt: WorkerReceipt) -> dict[str, Any] | None:
+        attrs = container.attrs
+        state = attrs.get("State")
+        network_settings = attrs.get("NetworkSettings")
+        networks = (
+            network_settings.get("Networks")
+            if isinstance(network_settings, dict)
+            else None
+        )
+        host = attrs.get("HostConfig")
+        restart = host.get("RestartPolicy") if isinstance(host, dict) else None
+        expected_status = "exited" if receipt.start_requested else "created"
+        if (
+            not isinstance(state, dict)
+            or state.get("Running") is not False
+            or any(
+                state.get(flag) is not False
+                for flag in ("Paused", "Restarting", "Dead")
+            )
+            or state.get("Status") != expected_status
+            or type(state.get("ExitCode")) is not int
+            or type(state.get("OOMKilled")) is not bool
+            or not isinstance(state.get("StartedAt"), str)
+            or not isinstance(state.get("FinishedAt"), str)
+            or not isinstance(networks, dict)
+            or set(networks) - {"none"}
+            or not isinstance(restart, dict)
+            or restart.get("Name") not in ("", "no")
+            or restart.get("MaximumRetryCount") != 0
+        ):
+            return None
+        return state
+
+    def _document_outcome(
+        self, receipt: WorkerReceipt, state: dict[str, Any], tail: str
+    ) -> WorkerDiagnostics | None:
+        row = self._recorded_operation(receipt.operation)
+        outcome: Literal["ready", "failed", "reused", "not_started", "interrupted"]
+        if row is not None:
+            if (
+                row.state not in TERMINAL
+                or row.generation != receipt.generation
+                or row.recipe_digest != receipt.recipe_digest
+            ):
+                return None
+            outcome = (
+                "ready"
+                if row.state is RuntimeRecipeInstallationState.READY
+                else "failed"
+            )
+        elif state["Status"] == "created":
+            outcome = "not_started"
+        elif state["ExitCode"] != 0:
+            # The exact process exited before creating an installation row.
+            # Preserve that observed failure without synthesizing an app record.
+            outcome = "interrupted"
+        else:
+            # A warm ensure can return another operation's existing READY receipt.
+            # The fixed worker CLI reports that receipt only on verified reuse.
+            matching = re.findall(
+                r"^kodi-lab-reviewed-reuse "
+                + str(receipt.operation)
+                + r" ([0-9a-f-]{36}) (sha256:[0-9a-f]{64})$",
+                tail,
+                re.MULTILINE,
+            )
+            if len(matching) != 1:
+                return None
+            previous, image = matching[0]
+            row = self._recorded_operation(UUID(previous))
+            if (
+                row is None
+                or row.state is not RuntimeRecipeInstallationState.READY
+                or row.recipe_digest != receipt.recipe_digest
+                or row.generation != receipt.generation
+                or row.image_id != image
+            ):
+                return None
+            outcome = "reused"
+        return WorkerDiagnostics(
+            outcome=outcome,
+            recorded_operation=UUID(row.id) if row else None,
+            completed_at=row.completed_at if row else None,
+            failure_code=row.failure_code if row else None,
+            exit_code=state["ExitCode"],
+            oom_killed=state["OOMKilled"],
+            started_at=state["StartedAt"],
+            finished_at=state["FinishedAt"],
+            log_tail=tail,
+        )
+
+    def _retire(self, path: Path, client: Any) -> None:
+        receipt = self._receipts.read(path)
+        _, state_volume, lock_volume, desktop = self._self_contract(client)
+        if (
+            self._engine_id(client) != receipt.engine
+            or state_volume != receipt.state_volume
+            or lock_volume != receipt.lock_volume
+        ):
+            return
+        try:
+            container = client.containers.get(
+                receipt.container or worker_name(receipt.operation)
+            )
+        except NotFound:
+            if receipt.container is not None and receipt.diagnostics is not None:
+                self._receipts.finish(path)
+            return
+        if not self._receipt_matches(container, receipt, desktop):
+            return
+        state = self._stopped_state(container, receipt)
+        if state is None:
+            return
+        if receipt.diagnostics is not None:
+            tail = receipt.diagnostics.log_tail
+        elif state["Status"] == "created":
+            tail = ""
+        else:
+            log = container.logs(stdout=True, stderr=True, tail=48)
+            if not isinstance(log, bytes):
+                return
+            tail = log[-LOG_TAIL_BYTES:].decode("utf-8", errors="replace")
+        result = self._document_outcome(receipt, state, tail)
+        if result is None:
+            return
+        if receipt.diagnostics is None:
+            self._receipts.save(
+                receipt.model_copy(
+                    update={"container": container.id, "diagnostics": result}
+                )
+            )
+        elif receipt.diagnostics != result:
+            return
+        container.reload()
+        if (
+            not self._receipt_matches(container, receipt, desktop)
+            or self._stopped_state(container, receipt) != state
+        ):
+            return
+        # Always address Docker by full ID and leave every attached volume in place.
+        container.remove(force=False, v=False)
+        self._receipts.finish(path)
+
+    def retire_terminal_workers(self) -> None:
+        """Retry a small set of privately owned receipts per broker cycle."""
+        from kodi_lab.runtime.install import RecipeInstallationError, _installation_lock
+
+        if not self._lifecycle.acquire(blocking=False):
+            return
+        try:
+            self._receipts.trim()
+            paths = self._receipts.pending()
+            if not paths:
+                return
+            batch = (
+                [path for path in paths if path.name > self._retirement_cursor]
+                + [path for path in paths if path.name <= self._retirement_cursor]
+            )[:_RETIREMENT_BATCH]
+            with _installation_lock(self._runtime_root):
+                client = self._client(timeout=2)
+                try:
+                    if self._active(client) is not None:
+                        return
+                    for path in batch:
+                        self._retirement_cursor = path.name
+                        try:
+                            self._retire(path, client)
+                        except (
+                            DockerException,
+                            OSError,
+                            SQLAlchemyError,
+                            ValueError,
+                            ReviewedWorkerError,
+                        ) as error:
+                            _LOGGER.warning(
+                                "Installer retirement pending for %s (%s)",
+                                path.stem,
+                                type(error).__name__,
+                            )
+                finally:
+                    client.close()
+        except (DockerException, OSError, RecipeInstallationError, ReviewedWorkerError):
+            # A concurrent install or an unavailable Engine leaves work pending.
+            return
+        finally:
+            self._lifecycle.release()
+
+    def serve_retirement(self, stopped: Event) -> None:
+        while not stopped.is_set():
+            self.retire_terminal_workers()
+            stopped.wait(_RETIREMENT_INTERVAL)
 
     def observe(self, operation_id: UUID) -> WorkerObservation:
         try:
