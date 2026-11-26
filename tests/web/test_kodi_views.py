@@ -493,8 +493,12 @@ def test_development_native_identity_review_stays_visible(
     assert (
         "<details open><summary>Connection identity and capabilities</summary>" in page
     )
-    assert "Observed Kodi identity: New observed Kodi identity" in page
-    assert f'data-observation-id="{observation}"' in page
+    assert "Binary provenance: Unknown. Kodi reports its version and identity." in page
+    assert "Native-reported Kodi identity: New observed Kodi identity" in page
+    assert (
+        f'data-action="confirm" data-observation-id="{observation}">'
+        "Confirm observed identity</button>" in page
+    )
     if evidence := os.getenv("KODI_VIEW_BROWSER_EVIDENCE"):
         root = Path(evidence)
         root.mkdir(parents=True, exist_ok=True)
