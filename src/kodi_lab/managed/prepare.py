@@ -46,7 +46,9 @@ def valid_prepare_receipt(
         "target",
         "image",
         "scratch",
+        "scratch_allocation",
         "material",
+        "material_allocation",
         "engine",
         "container",
     }
@@ -96,6 +98,13 @@ def valid_prepare_receipt(
             return False
         if inode is None and (not terminal or "scratch" in receipt):
             return False
+    for key in ("scratch", "material"):
+        allocation = key + "_allocation"
+        if allocation in receipt and (
+            receipt.get(key) is None
+            or not _matches(receipt[allocation], r"[0-9a-f]{32}")
+        ):
+            return False
     return True
 
 
@@ -126,7 +135,7 @@ class PrepareResources:
         self.runtime.checkpoint(event, prepare=self.receipt)
 
     def allocate_scratch(self) -> Path:
-        from .runtime import sync_dir
+        from .runtime import mark_allocation
 
         if self.scratch.exists() or self.scratch.is_symlink():
             raise Refusal("prepare_staging_collision")
@@ -138,15 +147,18 @@ class PrepareResources:
             del self.receipt["scratch"]
             self.checkpoint("prepare_staging_collision")
             raise Refusal("prepare_staging_collision") from error
-        sync_dir(self.scratch.parent)
-        self.receipt["scratch"] = self.scratch.lstat().st_ino
+        inode, allocation = mark_allocation(self.scratch)
+        self.receipt.update(scratch=inode, scratch_allocation=allocation)
         self.checkpoint("prepare_staging_allocated")
         build = self.scratch / "material"
         build.mkdir(mode=0o700)
         return build
 
     def mark_baseline_ready(self, build: Path) -> None:
-        self.receipt["material"] = build.lstat().st_ino
+        from .runtime import mark_allocation
+
+        inode, allocation = mark_allocation(build)
+        self.receipt.update(material=inode, material_allocation=allocation)
         self.checkpoint("prepare_baseline_ready")
 
     def publish_baseline(self) -> None:
@@ -154,13 +166,13 @@ class PrepareResources:
 
         if self.receipt.get("scratch") is None or "material" not in self.receipt:
             raise Refusal("prepare_baseline_identity")
-        self._require_directory(self.scratch, self.receipt["scratch"])
+        self._require_allocation(self.scratch, "scratch")
         require_unmounted_tree(self.scratch)
         build = self.scratch / "material"
         try:
-            self._require_directory(build, self.receipt["material"])
+            self._require_allocation(build, "material")
         except FileNotFoundError:
-            self._require_directory(self.runtime.material, self.receipt["material"])
+            self._require_allocation(self.runtime.material, "material")
         else:
             previous = self.scratch / "prior-material"
             if self.runtime.material.exists() or self.runtime.material.is_symlink():
@@ -184,17 +196,23 @@ class PrepareResources:
         ):
             raise Refusal("prepare_staging_identity")
 
+    def _require_allocation(self, path: Path, key: str) -> None:
+        from .runtime import has_allocation
+
+        self._require_directory(path, self.receipt[key])
+        if self.receipt[key] is None or not has_allocation(
+            path, self.receipt.get(key + "_allocation")
+        ):
+            raise Refusal("prepare_staging_allocation_unconfirmed")
+
     def retire_scratch(self) -> None:
         from .runtime import require_unmounted_tree, sync_dir
 
-        inode = self.receipt["scratch"]
         try:
-            self._require_directory(self.scratch, inode)
+            self._require_allocation(self.scratch, "scratch")
         except FileNotFoundError:
             pass
         else:
-            if inode is None:
-                raise Refusal("prepare_staging_allocation_unconfirmed")
             require_unmounted_tree(self.scratch)
             shutil.rmtree(self.scratch)
         sync_dir(self.scratch.parent)

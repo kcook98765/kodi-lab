@@ -281,9 +281,32 @@ class Controller:
             logging.warning("Managed Prepare cleanup pending (%s)", reason)
             self._prepare_warning_at[reason] = now + 60
 
-    def retry_prepare_cleanup(
-        self, record: Document, *, only: str | None = None
+    def update_prepare_cleanup(
+        self, operation: str, expected: Document, updated: Document
     ) -> None:
+        # Merge only this receipt into the latest operation. The lifecycle lock
+        # protects journal writes, while resource I/O stays in the cleanup worker.
+        with self.omega.exclusive():
+            current = self.last_operation()
+            if not current or (
+                current["state"] == "pending" and current.get("id") == operation
+            ):
+                raise Refusal("prepare_cleanup_receipt_changed")
+            obligations = current.get("prepare_cleanup")
+            if (
+                not isinstance(obligations, dict)
+                or obligations.get(operation) != expected
+            ):
+                raise Refusal("prepare_cleanup_receipt_changed")
+            if {"scratch", "engine"} & updated.keys():
+                obligations[operation] = updated
+            else:
+                del obligations[operation]
+                if not obligations:
+                    del current["prepare_cleanup"]
+            self.write_operation(current)
+
+    def retry_prepare_cleanup(self, record: Document) -> None:
         if "prepare_cleanup" not in record:
             return
         obligations = record["prepare_cleanup"]
@@ -291,12 +314,9 @@ class Controller:
             self.warn_prepare_cleanup("prepare_cleanup_collection_invalid")
             return
         deadline = time.monotonic() + PREPARE_CLEANUP_SECONDS
-        if only is None:
-            keys = sorted(obligations)
-            start = bisect_right(keys, self._prepare_cleanup_cursor)
-            batch = (keys[start:] + keys[:start])[:PREPARE_CLEANUP_BATCH]
-        else:
-            batch = [only] if only in obligations else []
+        keys = sorted(obligations)
+        start = bisect_right(keys, self._prepare_cleanup_cursor)
+        batch = (keys[start:] + keys[:start])[:PREPARE_CLEANUP_BATCH]
         if not batch:
             return
         # A journal rename may be visible after its directory fsync failed.
@@ -304,8 +324,7 @@ class Controller:
         for operation in batch:
             if time.monotonic() >= deadline:
                 break
-            if only is None:
-                self._prepare_cleanup_cursor = operation
+            self._prepare_cleanup_cursor = operation
             receipt = obligations[operation]
             if (
                 record["state"] == "pending" and operation == record.get("id")
@@ -321,33 +340,48 @@ class Controller:
             except Refusal:
                 self.warn_prepare_cleanup("prepare_resource_identity")
                 continue
-            for key in ("scratch", "engine"):
-                if key not in receipt or (
-                    key == "scratch" and time.time() < receipt["scratch_after"]
-                ):
-                    continue
-                if time.monotonic() >= deadline:
-                    return
-                try:
-                    if key == "engine":
-                        resources.retire_inspection(
-                            lambda: self.write_operation(record), deadline=deadline
-                        )
-                    else:
-                        resources.retire_scratch()
-                except (Refusal, OSError) as error:
-                    self.warn_prepare_cleanup(
-                        str(error) if isinstance(error, Refusal) else key
-                    )
+            self.retire_prepare_resources(resources, deadline)
+
+    def retire_prepare_resources(
+        self, resources: PrepareResources, deadline: float
+    ) -> None:
+        receipt = resources.receipt
+        expected = receipt.copy()
+
+        def persist() -> None:
+            self.update_prepare_cleanup(resources.operation, expected, receipt)
+            expected.update(receipt)
+
+        # Let bounded Engine cleanup proceed even if scratch is expensive.
+        for key in ("engine", "scratch"):
+            if key not in receipt or (
+                key == "scratch" and time.time() < receipt["scratch_after"]
+            ):
+                continue
+            if time.monotonic() >= deadline:
+                return
+            try:
+                if key == "engine":
+                    resources.retire_inspection(persist, deadline=deadline)
                 else:
-                    del receipt[key]
-                    if key == "engine":
-                        receipt.pop("container", None)
-                    if not {"scratch", "engine"} & receipt.keys():
-                        del obligations[operation]
-                    if not obligations:
-                        del record["prepare_cleanup"]
-                    self.write_operation(record)
+                    resources.retire_scratch()
+                del receipt[key]
+                if key == "engine":
+                    receipt.pop("container", None)
+                else:
+                    receipt.pop("scratch_allocation", None)
+                self.update_prepare_cleanup(resources.operation, expected, receipt)
+                expected = receipt.copy()
+            except (Refusal, OSError) as error:
+                if str(error) == "managed_busy":
+                    return
+                self.warn_prepare_cleanup(
+                    str(error) if isinstance(error, Refusal) else key
+                )
+                # A failed update can have reached the journal. Reload before
+                # attempting further writes for this receipt.
+                if receipt != expected:
+                    return
 
     def require_prepare_recovery_receipt(self, record: Document) -> None:
         if (
@@ -377,21 +411,15 @@ class Controller:
         record.update(state="complete", **outcome)
         # Persist the outcome and obligations together before best-effort retirement.
         self.write_operation(record)
-        try:
-            self.retry_prepare_cleanup(record, only=record["id"])
-        except OSError:
-            self.warn_prepare_cleanup("prepare_cleanup_journal_write")
 
     def resume_prepare_cleanup(self) -> None:
-        """Bounded terminal maintenance under the managed site lock."""
+        """Collect terminal obligations without holding the lifecycle lock over I/O."""
         try:
-            with self.omega.exclusive():
-                record = self.last_operation()
-                if record:
-                    self.retry_prepare_cleanup(record)
+            record = self.last_operation()
+            if record:
+                self.retry_prepare_cleanup(record)
         except Refusal as error:
-            if str(error) != "managed_busy":
-                self.warn_prepare_cleanup(str(error))
+            self.warn_prepare_cleanup(str(error))
         except OSError:
             self.warn_prepare_cleanup("prepare_cleanup_journal_io")
 
@@ -474,7 +502,7 @@ class Controller:
             }:
                 raise Refusal("stop_public_test_first")
             if self.runtime is self.omega and pending and name == "managed_stop":
-                return self.stop_runtime()
+                return self.stop_pending_public(pending)
         if name in READ or name in PRIVATE or name == "managed_recover":
             result = self.actions[name](**args)
             if isinstance(result, Package):
@@ -487,6 +515,8 @@ class Controller:
         if pending and pending.get("generation", "omega") != self.runtime.generation:
             raise Refusal("managed_recovery_required")
         if pending and pending.get("recovery_error") and name == "managed_stop":
+            if self.runtime.pointer.exists():
+                self.require_reconciled_volume(pending, self.runtime.read_pointer())
             return self.runtime.stop()
         if pending and not (
             "prepare" not in pending
@@ -494,8 +524,12 @@ class Controller:
             and name in {"managed_reset", "snapshot_load"}
         ):
             raise Refusal("managed_recovery_required")
+        operation = uuid4().hex
+        obligations = previous.get("prepare_cleanup") if previous else None
+        if isinstance(obligations, dict) and operation in obligations:
+            raise Refusal("managed_operation_identity_collision")
         self.current = {
-            "id": uuid4().hex,
+            "id": operation,
             "name": name,
             "generation": self.runtime.generation,
             "actor": self.actor,
@@ -611,6 +645,15 @@ class Controller:
             if self.runtime.public.session.exists():
                 self.runtime.public.remove()
             raise
+
+    def stop_pending_public(self, record: Document) -> Document:
+        try:
+            if self.runtime.pointer.exists():
+                self.require_reconciled_volume(record, self.runtime.read_pointer())
+        except Refusal:
+            self.runtime.public.remove()
+            raise
+        return self.stop_runtime()
 
     def stop_runtime(self) -> Document:
         try:
@@ -805,7 +848,7 @@ class Controller:
         if "prepare" in record:
             self.require_prepare_recovery_receipt(record)
             if native.public.session.exists():
-                self.stop_runtime()
+                self.stop_pending_public(record)
             self.reconcile_profile(record)
             return
         if native.public.session.exists():
@@ -845,6 +888,12 @@ class Controller:
         elif "deploy" in record:
             self.recover_deploy(record["deploy"])
 
+    def require_reconciled_volume(self, record: Document, slot: str) -> None:
+        if slot == record.get("slot") and "slot_inode" in record:
+            self.runtime.require_staged_volume(
+                slot, record["slot_inode"], record.get("slot_allocation")
+            )
+
     def reconcile_profile(self, record: Document) -> bool:
         slot = record.get("slot")
         if slot is None:
@@ -852,7 +901,10 @@ class Controller:
         native = self.runtime
         active = native.read_pointer() if native.pointer.exists() else None
         if active is not None and active == slot:
-            native.require_volume(active)
+            if "slot_inode" in record:
+                self.require_reconciled_volume(record, active)
+            else:
+                native.require_volume(active)
             if "prepare" in record:
                 receipt = record["prepare"]
                 if native.image != receipt["image"]:
@@ -865,7 +917,9 @@ class Controller:
             return True
         # The allocation checkpoint must have survived before retirement.
         sync_dir(self.record.parent)
-        native.retire_staged(slot, record.get("slot_inode"))
+        native.retire_staged(
+            slot, record.get("slot_inode"), record.get("slot_allocation")
+        )
         return False
 
     def import_zip(self, encoded: str, digest: str) -> Document:

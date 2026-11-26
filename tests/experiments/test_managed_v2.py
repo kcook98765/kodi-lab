@@ -18,7 +18,7 @@ from kodi_lab.managed.broker import Broker, BrokerClient
 from kodi_lab.managed.controller import Controller
 from kodi_lab.managed.packages import read_zip
 from kodi_lab.managed.protocol import Document
-from kodi_lab.managed.runtime import LABEL, Refusal, Runtime
+from kodi_lab.managed.runtime import LABEL, ProfileStage, Refusal, Runtime
 from kodi_lab.managed.snapshots import Snapshots, archive_digest
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 
@@ -187,21 +187,22 @@ class Volumes:
     def capacity(self) -> str:
         return self.image
 
-    def stage(self, clean: bool) -> str:
+    def stage(self, clean: bool) -> ProfileStage:
         assert not clean
         (self.root / "staging").mkdir()
-        return "staging"
+        return ProfileStage("staging", 1, "test-allocation")
 
     def profile(self, slot: str | None = None) -> Path:
         return self.root / (slot or self.current)
 
-    def exchange(self, slot: str, *, replace_exited: bool = False) -> None:
-        self.current = slot
+    def exchange(self, staged: ProfileStage, *, replace_exited: bool = False) -> None:
+        self.current = staged.slot
 
     def read_pointer(self) -> str:
         return self.current
 
-    def retire(self, slot: str) -> None:
+    def retire_staged(self, slot: str, inode: int, allocation: str) -> None:
+        assert (inode, allocation) == (1, "test-allocation")
         self.retired.append(slot)
 
 
@@ -499,6 +500,9 @@ def test_agent_can_explicitly_replace_exited_profile(
     monkeypatch.setattr(Runtime, "image", property(lambda _: Volumes.image))
     monkeypatch.setattr(native, "capacity", lambda: Volumes.image)
     monkeypatch.setattr(native, "require_volume", native.profile)
+    monkeypatch.setattr(
+        native, "require_staged_volume", lambda slot, *_: native.profile(slot)
+    )
     # The starting profile has no container in the disposable runtime.
     monkeypatch.setattr(native, "inspect", lambda: None)
     actor = str(uuid4())
@@ -519,10 +523,10 @@ def test_agent_can_explicitly_replace_exited_profile(
         removed.append(argv[1])
         return ""
 
-    def stage(clean: bool) -> str:
+    def stage(clean: bool) -> ProfileStage:
         assert clean == (action == "managed_reset")
         (native.root / "volumes" / new).mkdir()
-        return new
+        return ProfileStage(new, 1, "test-allocation")
 
     monkeypatch.setattr(native, "inspect", lambda: None if removed else container)
     monkeypatch.setattr("kodi_lab.managed.runtime.docker", docker)

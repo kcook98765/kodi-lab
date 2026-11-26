@@ -5,8 +5,9 @@ import os
 import shutil
 import signal
 import time
+from collections.abc import Callable
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Self
 from uuid import UUID
@@ -118,12 +119,27 @@ class Engine:
                 Path(dest).write_text("<addons/>")
             case ("ps", "-aq", "--filter", _) | ("network", "ls", "-q", *_):
                 return ""
-            case ("volume", "create", "--label", label, *_, device, name):
+            case (
+                "volume",
+                "create",
+                "--label",
+                label,
+                "--label",
+                allocation,
+                *_,
+                device,
+                name,
+            ):
                 assert device.startswith("device=")
-                self.volumes[name] = {
-                    "Labels": dict([label.split("=", 1)]),
-                    "Options": {"device": device.removeprefix("device=")},
-                }
+                self.volumes.setdefault(
+                    name,
+                    {
+                        "Labels": dict(
+                            item.split("=", 1) for item in (label, allocation)
+                        ),
+                        "Options": {"device": device.removeprefix("device=")},
+                    },
+                )
             case ("volume", "inspect", name):
                 return json.dumps([self.volumes[name]])
             case ("volume", "ls", "-q", "--filter", expression):
@@ -159,14 +175,18 @@ class Site:
         return self.engine
 
     def perform(self, action: str = "managed_prepare", **args: str) -> Document:
-        result = self.controller.perform(action, args, actor="admin")["result"]
+        try:
+            result = self.controller.perform(action, args, actor="admin")["result"]
+        finally:
+            if action in {"managed_prepare", "managed_recover"}:
+                self.controller.resume_prepare_cleanup()
         assert isinstance(result, dict)
         return result
 
     def restart(self) -> None:
         self.controller = Controller(self.root, reviewed_image=self.image)
-        self.controller.resume_prepare_cleanup()
         self.controller.resume_interrupted_prepare()
+        self.controller.resume_prepare_cleanup()
 
     def interrupt(self, event: str) -> None:
         def stop(checkpoint: str) -> None:
@@ -807,6 +827,7 @@ def test_six_ambiguous_dispatches_bound_admission_and_maintenance(
     obligations = site.record["prepare_cleanup"]
     first = sorted(obligations)[0]
     second = sorted(obligations)[1]
+    site.controller = Controller(site.root, reviewed_image=site.image)
     site.controller.resume_prepare_cleanup()
     assert calls == [PREPARE_CLEANUP_SECONDS]
     assert site.controller._prepare_cleanup_cursor == first
@@ -892,10 +913,12 @@ def test_mixed_cleanup_receipts_preserve_invalid_and_unsupported_entries(
     def scratch(key: str) -> tuple[Path, Document]:
         path = site.root / ("baseline-" + key)
         path.mkdir(mode=0o700)
+        inode, allocation = runtime.mark_allocation(path)
         return path, {
             "generation": "omega",
             "scratch_after": 0,
-            "scratch": path.lstat().st_ino,
+            "scratch": inode,
+            "scratch_allocation": allocation,
             "target": str(site.controller.runtime.target),
             "image": IMAGE,
         }
@@ -1016,3 +1039,147 @@ def test_cleanup_capacity_does_not_block_prepared_profile(site: Site) -> None:
     assert native.read_pointer() == prior
     assert site.engine.creates == 1
     assert len(site.record["prepare_cleanup"]) == PREPARE_CLEANUP_CAPACITY
+
+
+@pytest.mark.parametrize("resource", ["scratch", "material", "profile"])
+def test_recycled_directory_inode_cannot_authorize_prepare(
+    site: Site, resource: str
+) -> None:
+    checkpoint = {
+        "scratch": "prepare_inspection_created",
+        "material": "profile_committed",
+        "profile": "profile_before_commit",
+    }[resource]
+    site.interrupt(checkpoint)
+    record = site.record
+    if resource == "profile":
+        directory = site.root / "volumes" / record["slot"]
+    elif resource == "material":
+        directory = site.scratch / "material"
+    else:
+        directory = site.scratch
+    shutil.rmtree(directory)
+    directory.mkdir(mode=0o700)
+    (directory / "keep").write_text("replacement")
+    # Reproduce the inode equality even on filesystems which do not reuse it.
+    if resource == "profile":
+        record["slot_inode"] = directory.lstat().st_ino
+    else:
+        record["prepare"][resource] = directory.lstat().st_ino
+    site.controller.write_operation(record)
+    site.now += ABANDONED_SCRATCH_GRACE
+    site.restart()
+    site.now += ABANDONED_SCRATCH_GRACE
+    site.controller.resume_prepare_cleanup()
+    assert (directory / "keep").read_text() == "replacement"
+    if resource != "scratch":
+        assert site.record["state"] == "pending"
+
+
+def test_colliding_volume_without_allocation_label_survives(site: Site) -> None:
+    native = site.controller.runtime
+
+    def collide(event: str) -> None:
+        if event == "profile_allocated":
+            slot = site.record["slot"]
+            site.engine.volumes[native.volume(slot)] = {
+                "Labels": {runtime.LABEL: str(native.target)},
+                "Options": {"device": str(native.daemon_path(native.profile(slot)))},
+            }
+
+    site.controller.interrupt = collide
+    with pytest.raises(Refusal, match="profile_staging_identity"):
+        site.perform()
+    site.restart()
+    assert not native.pointer.exists()
+    assert site.record["state"] == "pending"
+    assert native.volume(site.record["slot"]) in site.engine.volumes
+
+
+@pytest.mark.parametrize("resource", ["engine", "scratch"])
+def test_slow_terminal_cleanup_leaves_lifecycle_available(
+    site: Site, monkeypatch: pytest.MonkeyPatch, resource: str
+) -> None:
+    # Exercise the controller directly so its reply is independent of the
+    # simulated broker maintenance pass in the helper.
+    assert site.controller.perform("managed_prepare", {}, actor="admin")["result"] == {
+        "state": "prepared",
+        "profile": "omega",
+    }
+    assert site.record["prepare_cleanup"]
+    entered, release = Event(), Event()
+    removed = PrepareResources.retire_scratch
+    if resource == "engine":
+        remove_engine = PrepareResources.retire_inspection
+
+        def retire_engine(
+            resources: PrepareResources, persist: Callable[[], None], *, deadline: float
+        ) -> None:
+            entered.set()
+            assert release.wait(5)
+            remove_engine(resources, persist, deadline=deadline)
+
+        monkeypatch.setattr(PrepareResources, "retire_inspection", retire_engine)
+    else:
+
+        def retire_scratch(resources: PrepareResources) -> None:
+            entered.set()
+            assert release.wait(5)
+            removed(resources)
+
+        monkeypatch.setattr(PrepareResources, "retire_scratch", retire_scratch)
+    maintenance = Thread(target=site.controller.resume_prepare_cleanup, daemon=True)
+    maintenance.start()
+    try:
+        assert entered.wait(2)
+        assert site.perform("managed_status")["state"] == "stopped"
+        assert site.perform("managed_stop")["state"] == "stopped"
+        stop = site.record["id"]
+    finally:
+        release.set()
+        maintenance.join(5)
+    assert not maintenance.is_alive()
+    assert site.record["id"] == stop
+    assert site.record["name"] == "managed_stop"
+    assert "prepare_cleanup" not in site.record
+
+
+@pytest.mark.parametrize(
+    "action", ["managed_prepare", "managed_reset", "snapshot_load"]
+)
+def test_recovery_does_not_accept_replaced_committed_slot(
+    site: Site, action: str
+) -> None:
+    native = site.controller.runtime
+    args: dict[str, str] = {}
+    if action != "managed_prepare":
+        site.perform()
+        if action == "snapshot_load":
+            args = {"name": "Safe"}
+            site.perform("snapshot_save", **args)
+    else:
+        native.public.session.write_text(str(time.time() + 900))
+    before = native.profile() if native.pointer.exists() else None
+
+    def interrupt(checkpoint: str) -> None:
+        if checkpoint == "profile_committed":
+            raise Interrupted
+
+    site.controller.interrupt = interrupt
+    with pytest.raises(Interrupted):
+        site.perform(action, **args)
+    selected = native.profile()
+    selected.rename(selected.with_name("parked-after-commit"))
+    selected.mkdir()
+    kept = selected / "keep"
+    kept.write_text("foreign")
+    site.restart()
+    if action != "managed_prepare":
+        with pytest.raises(Refusal, match="profile_staging_identity"):
+            site.perform("managed_recover")
+    assert site.record["state"] == "pending"
+    assert site.record["recovery_error"] == "profile_staging_identity"
+    assert list(selected.iterdir()) == [kept]
+    assert kept.read_text() == "foreign"
+    assert before is None or before.exists()
+    assert not native.public.session.exists()

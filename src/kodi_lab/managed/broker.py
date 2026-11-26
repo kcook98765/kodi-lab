@@ -11,7 +11,6 @@ import socket
 import socketserver
 import stat
 import struct
-import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -155,6 +154,12 @@ class Handler(socketserver.StreamRequestHandler):
             self.wfile.write(frame(reply))
 
 
+def maintain_prepare_resources(controller: Controller, stopped: Event) -> None:
+    while not stopped.is_set():
+        controller.resume_prepare_cleanup()
+        stopped.wait(PREPARE_CLEANUP_INTERVAL)
+
+
 def serve(
     root: Path, path: Path, frontend_uid: int, frontend_gid: int, daemon_root: Path
 ) -> None:
@@ -198,13 +203,15 @@ def serve(
                         name="managed-prepare-recovery",
                         daemon=True,
                     ).start()
+                    Thread(
+                        target=maintain_prepare_resources,
+                        args=(controller, stopped),
+                        name="managed-prepare-cleanup",
+                        daemon=True,
+                    ).start()
                     broker.timeout = 0.2
-                    cleanup_due = time.monotonic()
                     while not stopped.is_set():
                         broker.handle_request()
-                        if not stopped.is_set() and time.monotonic() >= cleanup_due:
-                            controller.resume_prepare_cleanup()
-                            cleanup_due = time.monotonic() + PREPARE_CLEANUP_INTERVAL
                 finally:
                     lane.close()
             finally:

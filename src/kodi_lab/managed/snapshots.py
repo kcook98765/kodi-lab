@@ -199,7 +199,8 @@ class Snapshots:
         if path.is_symlink() or not path.is_file():
             raise Refusal("snapshot_not_found")
         sources = self.read_metadata(path)
-        slot = self.runtime.stage(clean=False)
+        staged = self.runtime.stage(clean=False)
+        slot = staged.slot
         stage = self.runtime.profile(slot)
         seen: set[PurePosixPath] = set()
         size = 0
@@ -233,10 +234,10 @@ class Snapshots:
                 raise Refusal("snapshot_profile_settings_invalid")
             validate_profile(stage)
             write_sources(self.runtime.root, slot, sources)
-            self.runtime.exchange(slot, replace_exited=True)
+            self.runtime.exchange(staged, replace_exited=True)
         except Exception:
             if self.runtime.read_pointer() != slot:
-                self.runtime.retire(slot)
+                self.runtime.retire_staged(slot, staged.inode, staged.allocation)
             raise
         return {"name": name, "state": "restored", "entries": len(seen)}
 
