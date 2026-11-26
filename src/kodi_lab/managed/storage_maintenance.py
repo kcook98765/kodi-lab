@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID
@@ -71,7 +72,7 @@ class Outcome(BaseModel):
 
     identity: str
     plan: Plan
-    created: int
+    created: Annotated[int, Field(ge=0, le=253402300799)]
     state: Result = "pending"
     attempted: bool = False
     reason: str = "Cleanup was authorized"
@@ -157,6 +158,10 @@ class StorageMaintenance:
             "generation": outcome.plan.generation,
             "artifact": outcome.plan.artifact.model_dump(exclude={"source"}),
             "time": outcome.created,
+            "timestamp": datetime.fromtimestamp(outcome.created, UTC).isoformat(
+                timespec="seconds"
+            ),
+            "actor": "Administrator",
             "state": outcome.state,
             "reason": outcome.reason,
             "estimated_bytes": outcome.estimated_bytes,

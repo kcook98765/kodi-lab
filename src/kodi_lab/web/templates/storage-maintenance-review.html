@@ -46,7 +46,11 @@
 <h2>Recent maintenance</h2>
 <ul>
 {% for item in review.history %}
-<li>{{ item.generation | capitalize }} · {{ item.artifact.addon }} {{ item.artifact.version }} · {{ item.state | replace("_", " ") | capitalize }}. {{ item.reason }}</li>
+<li>
+  <time datetime="{{ item.timestamp }}">{{ item.timestamp }}</time> · {{ item.actor }} · {{ item.generation | capitalize }} · {{ item.artifact.addon }} {{ item.artifact.version }} · {{ item.state | replace("_", " ") | capitalize }}.
+  {{ item.reason }}
+  {% if item.state == "removed" %}Estimated reclaimable file bytes {{ byte_size(item.estimated_bytes) }}. Observed net available-space change {% if item.available_delta is not none %}{{ "%+d" | format(item.available_delta) }} B{% else %}Unknown{% endif %}.{% endif %}
+</li>
 {% endfor %}
 </ul>
 {% endif %}
