@@ -297,7 +297,7 @@ class FeedRetirement:
         )
         if any(path.is_symlink() or not path.is_dir() for path in folders):
             return None
-        require_unmounted_tree(self.feed)
+        self.require_feed_mounts()
         canonical_root = self.managed_root / ancestors[0]
         require_unmounted_tree(canonical_root)
         paths = (
@@ -315,8 +315,12 @@ class FeedRetirement:
             return None
         if not self.index_matches(current) or item.digest in self.approved_catalog():
             return None
-        if file_digest(canonical) != item.digest:
+        if file_digest(canonical, durable=True) != item.digest:
             return None
+        for folder in canonical.parents:
+            sync_dir(folder)
+            if folder == self.managed_root:
+                break
         removing = pending.phase == "removing"
         primary = file_digest(target)
         try:
@@ -331,8 +335,11 @@ class FeedRetirement:
             or snapshot_paths(paths) != before
         ):
             return None
-        return RetirementProof(
-            target, sidecar, canonical, canonical_root, paths, before
+        return RetirementProof(target, sidecar, canonical_root, paths, before)
+
+    def require_feed_mounts(self) -> None:
+        require_unmounted_tree(
+            self.root if self.root != self.managed_root else self.feed
         )
 
     def retire(
@@ -340,18 +347,10 @@ class FeedRetirement:
     ) -> bool:
         # The controller holds the site lock and has observed an absent managed
         # container. Large archive reads occurred outside the lifecycle lock.
-        require_unmounted_tree(self.feed)
+        self.require_feed_mounts()
         require_unmounted_tree(proof.canonical_root)
         if self.read() != state or snapshot_paths(proof.paths) != proof.identities:
             return False
-        with os.fdopen(
-            os.open(proof.canonical, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb"
-        ) as canonical:
-            os.fsync(canonical.fileno())
-        for folder in proof.canonical.parents:
-            sync_dir(folder)
-            if folder == self.managed_root:
-                break
         if pending.phase == "pending":
             marked = PendingCopy(artifact=pending.artifact, phase="removing")
             self.write(
@@ -366,6 +365,10 @@ class FeedRetirement:
             )
         else:
             sync_dir(self.record.parent)
+        self.require_feed_mounts()
+        require_unmounted_tree(proof.canonical_root)
+        if snapshot_paths(proof.paths) != proof.identities:
+            return False
         proof.target.unlink(missing_ok=True)
         proof.sidecar.unlink(missing_ok=True)
         sync_dir(proof.target.parent)
@@ -393,7 +396,6 @@ class IndexProof:
 class RetirementProof:
     target: Path
     sidecar: Path
-    canonical: Path
     canonical_root: Path
     paths: tuple[Path, ...]
     identities: tuple[Identity | None, ...]
@@ -419,7 +421,7 @@ def snapshot_paths(paths: tuple[Path, ...]) -> tuple[Identity | None, ...]:
     return tuple(identities)
 
 
-def file_digest(path: Path) -> str | None:
+def file_digest(path: Path, *, durable: bool = False) -> str | None:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     except FileNotFoundError:
@@ -433,6 +435,8 @@ def file_digest(path: Path) -> str | None:
         ):
             raise Refusal("feed_archive_identity")
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if durable:
+            os.fsync(stream.fileno())
         observed = os.fstat(stream.fileno())
         if (observed.st_size, observed.st_mtime_ns) != (
             metadata.st_size,

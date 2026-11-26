@@ -278,3 +278,26 @@ def test_renamed_labelled_runtime_blocks_cleanup(
 
     monkeypatch.setattr(feed_retirement, "docker_read", command)
     assert not feed_retirement.runtime_idle(native, "fixture-engine")
+
+
+def test_recovery_hold_appearing_during_intent_commit_blocks_unlink(
+    site: Controller, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = publish(site, "1.0.0")
+    publish(site, "2.0.0")
+    tracker = book(site)
+    state = tracker.read()
+    pending = state.pending[0]
+    proof = tracker.prove(state, pending)
+    assert proof is not None
+    write = tracker.write
+
+    def hold(commit: feed_retirement.FeedState) -> None:
+        write(commit)
+        tracker.hold.write_text("protect recovery")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(tracker, "write", hold)
+        assert not tracker.retire(state, pending, proof)
+    assert path_for(site, first).read_bytes() == first.data
+    assert tracker.read().pending[0].phase == "removing"
