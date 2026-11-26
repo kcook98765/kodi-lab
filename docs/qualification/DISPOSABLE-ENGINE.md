@@ -14,7 +14,7 @@ containerd, iproute2, util-linux and a caller in the Docker group.
 
 ```sh
 sudo -n unshare --mount --propagation private --net \
-  python3 -m scripts.qualification_run run /absolute/private-evidence-directory -- \
+  python3 -B -m scripts.qualification_run run /absolute/private-evidence-directory -- \
   /absolute/qualification-workload
 ```
 
@@ -42,7 +42,7 @@ Use `--hold OWNER REASON SCOPE YYYY-MM-DD` before the workload separator when
 an environment must remain for a specific review.
 
 ```sh
-sudo -n python3 -m scripts.qualification_run closeout /absolute/private-evidence-directory
+sudo -n python3 -B -m scripts.qualification_run closeout /absolute/private-evidence-directory
 ```
 
 The helper supports Linux hosts with these tools. A Windows Docker

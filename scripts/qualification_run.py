@@ -216,11 +216,11 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
             "ctr", "--address", str(ctr_socket), "namespaces", "list"
         ).splitlines()[1:]
     }
-    if record["namespace"] not in ctr_names or not ctr_names <= {
+    if not ctr_names <= {
         record["namespace"],
         record["namespace"] + "-plugins",
     }:
-        raise ValueError("Unexpected containerd namespace")
+        raise ValueError(f"Unexpected containerd namespaces: {sorted(ctr_names)}")
     if alias and socket_identity(DOCKER_ALIAS, outer) != docker_identity:
         raise ValueError("The child worker socket alias has a different listener")
     return {
@@ -239,7 +239,9 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
 
 def containerd_config(root: Path) -> str:
     return (
-        f'version = 2\nroot = "{root}/ctr-data"\nstate = "{root}/ctr-state"\n'
+        'version = 3\ndisabled_plugins = ["io.containerd.cri.v1.images", '
+        '"io.containerd.cri.v1.runtime", "io.containerd.grpc.v1.cri"]\n'
+        f'root = "{root}/ctr-data"\nstate = "{root}/ctr-state"\n'
         f'[grpc]\n  address = "{root}/ctr.sock"\n'
     )
 
@@ -471,7 +473,16 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
     uid, gid = int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"])
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True, timeout=10)
     source = source.resolve(strict=True)
-    git = ("git", "-c", f"safe.directory={source}", "-C", str(source))
+    git = (
+        "setpriv",
+        f"--reuid={uid}",
+        f"--regid={gid}",
+        "--init-groups",
+        "git",
+        "--no-optional-locks",
+        "-C",
+        str(source),
+    )
     if output(*git, "status", "--porcelain"):
         raise ValueError("Record a clean worktree for the qualification run")
     commit, tree = output(*git, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
