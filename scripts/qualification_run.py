@@ -593,13 +593,16 @@ def main() -> int:
     parser.add_argument(
         "--hold", nargs=4, metavar=("OWNER", "REASON", "SCOPE", "REVIEW_DATE")
     )
-    options, command = parser.parse_known_args()
+    arguments = sys.argv[1:]
+    separator = arguments.index("--") if "--" in arguments else len(arguments)
+    options = parser.parse_args(arguments[:separator])
+    command = arguments[separator + 1 :]
     evidence = options.evidence.absolute()
     os.umask(0o077)
     if os.getuid() != 0:
         parser.error("Qualification supervision must run as root")
     if options.action == "run":
-        if not command or command.pop(0) != "--" or not command:
+        if not command:
             parser.error("Run requires a workload after --")
         evidence.mkdir(mode=0o700)
     with lock(evidence):
