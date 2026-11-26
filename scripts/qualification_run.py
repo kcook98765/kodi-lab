@@ -155,6 +155,7 @@ def docker(root: Path, *args: str) -> str:
 
 def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     outer, inner = record["dockerd"], record["containerd"]
+    store = daemon_store(root, record)
     docker_socket, ctr_socket = root / "docker.sock", root / "ctr.sock"
     docker_identity = socket_identity(docker_socket, outer)
     ctr_identity = socket_identity(ctr_socket, inner)
@@ -170,8 +171,8 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     for option, expected in {
         "--config-file": str(root / "daemon.json"),
         "--host": "unix://" + str(docker_socket),
-        "--data-root": str(root / "docker-data"),
-        "--exec-root": str(root / "docker-exec"),
+        "--data-root": str(store / "docker-data"),
+        "--exec-root": str(store / "docker-exec"),
         "--containerd": str(ctr_socket),
         "--containerd-namespace": record["namespace"],
         "--containerd-plugins-namespace": record["namespace"] + "-plugins",
@@ -186,7 +187,7 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     if inner_args[1:3] != [
         "--config",
         str(ctr_config),
-    ] or ctr_config.read_text() != containerd_config(root):
+    ] or ctr_config.read_text() != containerd_config(root, store):
         raise ValueError("Containerd root or state identity changed")
     # Confirm the observed established connection, in the private network namespace.
     rows = [
@@ -219,7 +220,7 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     engine = platform["ID"]
     if (
         not engine
-        or platform["DockerRootDir"] != str(root / "docker-data")
+        or platform["DockerRootDir"] != str(store / "docker-data")
         or (record.get("engine") is not None and record["engine"] != engine)
     ):
         raise ValueError("Docker Engine identity or root changed")
@@ -250,11 +251,22 @@ def verify(root: Path, record: Doc, *, alias: bool) -> Doc:
     }
 
 
-def containerd_config(root: Path) -> str:
+def daemon_store(root: Path, record: Doc) -> Path:
+    layout = record.get("store_layout")
+    if layout is None:
+        return root  # Existing receipts retain their original layout.
+    if layout != "private-parent":
+        raise ValueError("Unknown qualification store layout")
+    store = root / "daemon"
+    owned_path(store, 0)
+    return store
+
+
+def containerd_config(root: Path, store: Path) -> str:
     return (
         'version = 3\ndisabled_plugins = ["io.containerd.cri.v1.images", '
         '"io.containerd.cri.v1.runtime", "io.containerd.grpc.v1.cri"]\n'
-        f'root = "{root}/ctr-data"\nstate = "{root}/ctr-state"\n'
+        f'root = "{store}/ctr-data"\nstate = "{store}/ctr-state"\n'
         f'[grpc]\n  address = "{root}/ctr.sock"\n'
     )
 
@@ -559,7 +571,11 @@ def collect(evidence: Path, root: Path, record: Doc, result: int | None) -> None
 
 def start_process(args: list[str], log: Path) -> subprocess.Popen[bytes]:
     with log.open("wb") as stream:
-        return subprocess.Popen(args, stdout=stream, stderr=subprocess.STDOUT)
+        # Keep evidence private without imposing that umask on unpacked
+        # container root filesystems, which must support image-configured users.
+        return subprocess.Popen(
+            args, stdout=stream, stderr=subprocess.STDOUT, umask=0o022
+        )
 
 
 def wait_ready(*args: str) -> None:
@@ -681,6 +697,7 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
         "root": str(root),
         "root_identity": [root.stat().st_dev, root.stat().st_ino],
         "worktree": str(source),
+        "store_layout": "private-parent",
         "source_commit": commit,
         "source_tree": tree,
         "owner_uid": uid,
@@ -689,7 +706,9 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
     }
     (root / "run-id").write_text(run_id)
     cfg = root / "containerd.toml"
-    cfg.write_text(containerd_config(root))
+    (root / "daemon").mkdir(mode=0o700)
+    store = daemon_store(root, record)
+    cfg.write_text(containerd_config(root, store))
     (root / "daemon.json").write_text("{}")
     for name in ("docker-config", "client", "artifact-inbox"):
         (root / name).mkdir(mode=0o700)
@@ -713,9 +732,9 @@ def qualify(source: Path, evidence: Path, command: list[str]) -> int:
                 "--host",
                 "unix://" + str(root / "docker.sock"),
                 "--data-root",
-                str(root / "docker-data"),
+                str(store / "docker-data"),
                 "--exec-root",
-                str(root / "docker-exec"),
+                str(store / "docker-exec"),
                 "--pidfile",
                 str(root / "engine.pid"),
                 "--containerd",
