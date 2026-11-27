@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from kodi_lab.broker.novnc import (
+    VIEW_HELPER,
     DisplayLane,
     DockerViewTunnel,
     ViewBinding,
@@ -16,6 +18,8 @@ from kodi_lab.broker.socket_path import SocketPathConfig
 from .controller import Controller
 from .protocol import Refusal
 from .runtime import docker
+
+MAX_NATIVE_INPUT_PROBES = 3
 
 
 def display_lane(
@@ -61,9 +65,7 @@ def display_lane(
             binding,
             request,
             valid,
-            proof=lambda exec_id: (
-                exec_id is None or helper_exited(binding.container, exec_id)
-            ),
+            proof=helper_exit_proof(binding, interactive=interactive),
             finished=(
                 (
                     lambda terminated: controller.finish_input(
@@ -89,17 +91,61 @@ def display_lane(
     )
 
 
-def helper_exited(container_id: str, exec_id: str) -> bool:
-    # The helper owns its X input fence until exit. If the exec completed,
-    # the tunnel's own exec_inspect check is sufficient. A removed container
-    # is also definitive. Other Docker errors keep the input gate occupied.
+def helper_exit_proof(
+    binding: ViewBinding, *, interactive: bool
+) -> Callable[[str | None], bool]:
+    # A clean interactive exit neutralizes keys and buttons. After a failed
+    # exit retry the read-only probe briefly for transient cleanup races.
+    # If input stays unproven, keep the fence until the incarnation retires.
     from docker import APIClient  # type: ignore[import-untyped]
     from docker.errors import NotFound  # type: ignore[import-untyped]
 
-    with APIClient(base_url="unix:///var/run/docker.sock", timeout=1) as client:
-        try:
-            return client.exec_inspect(exec_id).get("Running") is False
-        except NotFound:
-            return not bool(
-                docker("ps", "-aq", "--no-trunc", "--filter", "id=" + container_id)
-            )
+    probes_left = MAX_NATIVE_INPUT_PROBES
+
+    def proven(exec_id: str | None) -> bool:
+        nonlocal probes_left
+        if exec_id is None:
+            return True
+        with APIClient(base_url="unix:///var/run/docker.sock", timeout=1) as client:
+            try:
+                exec_state = client.exec_inspect(exec_id)
+                if exec_state.get("Running") is not False:
+                    return False
+                if not interactive or exec_state.get("ExitCode") == 0:
+                    return True
+                state = client.inspect_container(binding.container)["State"]
+                if state["Running"] is False or state["StartedAt"] != binding.started:
+                    return True
+                if probes_left == 0:
+                    return False
+                probes_left -= 1
+                probe = client.exec_create(
+                    binding.container,
+                    cmd=[
+                        "/usr/bin/python3",
+                        "-I",
+                        "-B",
+                        VIEW_HELPER,
+                        "--probe-control",
+                    ],
+                    user="1000:1000",
+                    stdin=False,
+                    stdout=False,
+                    stderr=False,
+                    tty=False,
+                    privileged=False,
+                )["Id"]
+                client.exec_start(probe)
+                observation = client.exec_inspect(probe)
+                return observation["Running"] is False and bool(
+                    observation["ExitCode"] == 0
+                )
+            except NotFound:
+                # No matching container means the old display and its input are gone.
+                return not bool(
+                    docker(
+                        "ps", "-aq", "--no-trunc", "--filter", "id=" + binding.container
+                    )
+                )
+
+    return proven

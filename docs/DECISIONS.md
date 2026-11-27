@@ -8364,3 +8364,20 @@ to hold worker ownership receipts, diagnostics, sockets and locks.
   mode. Before switching modes, the broker verifies the stopped runtime and its
   owned feed and bridge, then replaces those services without replacing the
   runtime's storage. The absent setting retains the internal default.
+
+
+## D-0509: Managed-v2 passive viewing uses an application-owned worker
+
+The broker sends fixed, package-owned passive helper code through the existing
+private Docker exec lane. It runs as the runtime UID and uses the same private
+Unix RFB transport, arming challenge, liveness leases and bounded buffers.
+The broker checks the admitted container ID, image and start time before
+arming. The passive worker reuses each sealed image’s view-only TigerVNC flags and
+removes its connection deadline. The sealed helper remains the interactive
+entry point.
+This allows existing approved images and profiles to use the passive change.
+
+Passive Web heartbeats check expiration and revocation without touching the
+session. The viewer pauses the managed page's periodic status and snapshot
+requests while watching. Explicit Web actions still refresh that page.
+General Web expiration and the interactive worker's ten-minute policy apply.

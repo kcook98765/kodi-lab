@@ -204,11 +204,22 @@ def test_dispatch_recheck_is_read_only_and_observes_expiry_and_revocation(
         assert service.resolve_in_session(session, created.token) is not None
         assert prior.last_used_at == last_used and not session.dirty
         assert service.resolve_in_session(session, "malformed") is None
+        assert service.resolve_read_only(created.token) is not None
     clock.now = created.authenticated.created_at + SESSION_IDLE_LIFETIME
+    assert service.resolve_read_only(created.token) is None
     with auth_factory() as session:
         assert service.resolve_in_session(session, created.token) is None
-        assert session.get(WebSessionRow, digest) is not None
+        row = session.get(WebSessionRow, digest)
+        assert row is not None and row.last_used_at == last_used
+    for hours in range(10, 168, 10):
+        clock.now = created.authenticated.created_at + timedelta(hours=hours)
+        assert service.resolve(created.token) is not None
+    clock.now = created.authenticated.absolute_expires_at - timedelta(minutes=1)
+    assert service.resolve_read_only(created.token) is not None
+    clock.now += timedelta(minutes=1)
+    assert service.resolve_read_only(created.token) is None
     clock.now = created.authenticated.created_at
     service.logout(created.token)
+    assert service.resolve_read_only(created.token) is None
     with auth_factory() as session:
         assert service.resolve_in_session(session, created.token) is None

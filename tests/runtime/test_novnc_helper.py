@@ -1,31 +1,52 @@
 from __future__ import annotations
 
+from pathlib import Path
+from runpy import run_path
+
 import pytest
 
+from kodi_lab.broker import passive_view_helper
 from kodi_lab.runtime.assembly import build_context
-from kodi_lab.runtime.assembly_assets.novnc_view_helper import command
-from kodi_lab.runtime.recipes import load_novnc_phase1_recipe, load_reviewed_recipe
+from kodi_lab.runtime.recipes import (
+    load_installation_recipe,
+    load_novnc_phase1_recipe,
+    load_reviewed_recipe,
+)
 
 
-def test_server_itself_refuses_input_clipboard_resize_and_tcp() -> None:
-    args = command("/run/kodi/private/rfb.sock", 10)
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
+def test_passive_server_preserves_each_sealed_policy(
+    generation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sealed = tmp_path / "sealed-helper.py"
+    sealed.write_bytes(
+        load_installation_recipe(generation).assets["novnc_view_helper.py"]
+    )
+    monkeypatch.setattr(passive_view_helper, "SEALED_HELPER", str(sealed))
+
+    socket = "/run/kodi/private/rfb.sock"
+    reference = run_path(str(sealed))["command"](socket, 2)
+    args = passive_view_helper.command(socket, 2)
+    assert args == [
+        "-MaxConnectionTime=0" if arg == "-MaxConnectionTime=600" else arg
+        for arg in reference
+    ]
     assert args[0] == "/usr/bin/X0tigervnc"
     assert "-display=:99" in args and "-rfbport=-1" in args
+    assert "-FrameRate=2" in args and "-rfbunixmode=0600" in args
     for capability in (
         "AcceptKeyEvents",
         "AcceptPointerEvents",
-        "AcceptCutText",
-        "SendCutText",
         "AcceptSetDesktopSize",
-        "SetPrimary",
-        "SendPrimary",
     ):
         assert f"-{capability}=0" in args
-    assert "-rfbunixmode=0600" in args
-    assert "-FrameRate=10" in args
-    assert "-FrameRate=15" in command("/run/kodi/private/rfb.sock", 15)
+    for capability in ("AcceptCutText", "SendCutText", "SetPrimary", "SendPrimary"):
+        if generation in {"matrix", "nexus"}:
+            assert all(not arg.startswith(f"-{capability}") for arg in args)
+        else:
+            assert f"-{capability}=0" in args
     with pytest.raises(ValueError):
-        command("/run/kodi/private/rfb.sock", 30)
+        passive_view_helper.command(socket, 30)
 
 
 def test_historical_experimental_recipe_is_pinned_and_separate_from_standard() -> None:
@@ -45,18 +66,9 @@ def test_historical_experimental_recipe_is_pinned_and_separate_from_standard() -
     assert b"chmod 0444 /usr/local/lib/kodi-lab-novnc-view.py" in content
 
 
-def test_interactive_flags_are_closed_and_other_capabilities_stay_denied() -> None:
-    args = command("/run/kodi/private/rfb.sock", 2, "interactive")
-    assert "-AcceptKeyEvents=1" in args and "-AcceptPointerEvents=1" in args
-    for capability in (
-        "AcceptCutText",
-        "SendCutText",
-        "AcceptSetDesktopSize",
-        "SetPrimary",
-        "SendPrimary",
-    ):
-        assert f"-{capability}=0" in args
-    assert "-rfbport=-1" in args and "-MaxConnectionTime=600" in args
-    with pytest.raises(ValueError):
-        command("/run/kodi/private/rfb.sock", 2, "arbitrary")
-    assert "-AcceptKeyEvents=0" in command("/run/kodi/private/rfb.sock", 2)
+@pytest.mark.parametrize("generation", ["matrix", "nexus", "omega", "piers"])
+def test_sealed_interactive_helper_and_limits_are_retained(generation: str) -> None:
+    helper = load_installation_recipe(generation).assets["novnc_view_helper.py"]
+    assert b"-MaxConnectionTime=600" in helper
+    assert b"LIFETIME_SECONDS = 600.0" in helper
+    assert b"check_input(release=True)" in helper

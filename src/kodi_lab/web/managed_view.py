@@ -28,6 +28,7 @@ async def stream_view(
     same_origin: Callable[[WebSocket], bool],
     require_https: bool,
     *,
+    recheck_passive_session: Callable[[str | None], AuthenticatedWebSession | None],
     generation: str = "omega",
 ) -> None:
     token = websocket.cookies.get(cookie_name)
@@ -79,7 +80,7 @@ async def stream_view(
                             ).hexdigest(),
                             "attempt": str(attempt),
                             "mode": "interactive" if interactive else "view-only",
-                            "rate": 10,
+                            "rate": 10 if interactive else 2,
                             "challenge": challenge,
                         }
                     )
@@ -107,8 +108,9 @@ async def stream_view(
                 await asyncio.wait_for(websocket.send_bytes(data), 2)
 
         async def renew() -> None:
+            recheck = resolve if interactive else recheck_passive_session
             while True:
-                current = await asyncio.to_thread(resolve, token)
+                current = await asyncio.to_thread(recheck, token)
                 if current is None:
                     return
                 pipe.write(struct.pack("!BI", 2, 0))

@@ -1867,6 +1867,7 @@ def create_app(
             current_session,
             mutation_session,
             resolve_session=context.auth.resolve,
+            recheck_passive_session=context.auth.resolve_read_only,
             cookie_name=settings.web_session_cookie_name,
             same_origin=_websocket_same_origin,
             require_https=settings.web_requires_https,

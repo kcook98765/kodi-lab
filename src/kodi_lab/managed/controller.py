@@ -99,6 +99,7 @@ class Controller:
                     network_policy=self.omega.network_policy,
                 )
         self.input_attempt: UUID | None = None
+        self.input_prior_lease: bytes | None = None
         self.input_revoked = False
         self.record = self.runtime.root / "operation.json"
         self.current: Document | None = None
@@ -198,7 +199,14 @@ class Controller:
         record = self.last_operation()
         if record and record["state"] == "pending":
             raise Refusal("managed_recovery_required")
+        # The administrator lease fences a surviving helper on a broker
+        # restart. Keep the live agent lease available for verified handback.
+        previous = self.owner()
+        prior_lease = (
+            self.lease_path.read_bytes() if previous not in (None, "admin") else None
+        )
         self.claim("admin")
+        self.input_prior_lease = prior_lease
         self.input_attempt = attempt
         self.input_revoked = False
 
@@ -208,7 +216,11 @@ class Controller:
         with self.omega.exclusive():
             if self.input_attempt == attempt:
                 if self.owner() == "admin":
-                    self.lease_path.unlink(missing_ok=True)
+                    if self.input_prior_lease is None:
+                        self.lease_path.unlink(missing_ok=True)
+                    else:
+                        atomic(self.lease_path, self.input_prior_lease)
+                self.input_prior_lease = None
                 self.input_attempt = None
                 self.input_revoked = False
 
@@ -229,6 +241,10 @@ class Controller:
             return None
 
         owner = self.owner()
+        if name in READ and self.input_prior_lease is not None:
+            prior = json.loads(self.input_prior_lease)
+            if prior["owner"] == actor and prior["expires"] > time.time():
+                return None
         public_stop = (
             actor == "admin"
             and name == "managed_stop"

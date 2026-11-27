@@ -842,8 +842,13 @@ def test_human_release_waits_for_rfb_helper_exit(tmp_path: Path) -> None:
     agent = str(uuid4())
 
     controller.perform("managed_acquire", {}, actor=agent)
+    original_lease = controller.lease_path.read_bytes()
     with controller.runtime.exclusive():
         controller.begin_input(attempt)
+    assert controller.owner() == "admin"
+    assert controller.authorize_profile("managed_gui", agent, None) is None
+    with pytest.raises(Refusal, match="managed_owned"):
+        controller.authorize_profile("managed_gui", str(uuid4()), None)
     with pytest.raises(Refusal, match="managed_input_in_use"):
         controller.perform("managed_acquire", {}, actor=agent)
 
@@ -854,11 +859,9 @@ def test_human_release_waits_for_rfb_helper_exit(tmp_path: Path) -> None:
         controller.perform("managed_acquire", {}, actor=agent)
 
     controller.finish_input(attempt, True)
-    assert controller.owner() is None
-    assert controller.perform("managed_acquire", {}, actor=agent)["result"] == {
-        "owner": agent,
-        "idle_timeout_seconds": 900,
-    }
+    assert controller.owner() == agent
+    assert controller.lease_path.read_bytes() == original_lease
+    assert controller.authorize_profile("managed_navigate", agent, None) is None
 
 
 def test_generation_scope_preserves_one_owner_and_separate_profiles(
