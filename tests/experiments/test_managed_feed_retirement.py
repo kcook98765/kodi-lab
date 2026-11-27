@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 import pytest
@@ -62,6 +63,58 @@ def publish(site: Controller, version: str, *, payload: str = "original") -> Pac
     pkg = site.packages.approve(archive(version, payload=payload))
     site.packages.publish(pkg, retirement=book(site))
     return pkg
+
+
+def test_publishes_only_manifest_artwork_and_replaces_it(site: Controller) -> None:
+    feed = site.omega.private_feed
+
+    def candidate(icon: bytes, include_fanart: bool) -> Package:
+        data = io.BytesIO()
+        fanart = "<fanart>resources/background.jpg</fanart>" if include_fanart else ""
+        with ZipFile(data, "w") as archive:
+            archive.writestr(
+                f"{ADDON}/addon.xml",
+                f'<addon id="{ADDON}" name="Fixture" version="1.0.0">'
+                '<extension point="xbmc.python.script" library="default.py"/>'
+                '<extension point="xbmc.addon.metadata"><assets>'
+                f"<icon>resources/icon.png</icon>{fanart}"
+                "<screenshot>resources/missing.png</screenshot>"
+                "<banner>resources/not-art.txt</banner>"
+                "</assets></extension></addon>",
+            )
+            for name, content in {
+                "default.py": b"pass",
+                "resources/icon.png": icon,
+                "resources/background.jpg": b"fixture background",
+                "resources/unreferenced.png": b"unreferenced",
+                "resources/not-art.txt": b"text",
+            }.items():
+                archive.writestr(f"{ADDON}/{name}", content)
+        return site.packages.approve(data.getvalue())
+
+    def published(package: Package) -> dict[str, Path]:
+        checksum, _ = site.packages.publish(package, retirement=book(site))
+        catalog = (feed / "addons.xml").read_bytes()
+        assert checksum == managed_packages.sha(catalog)
+        assert path_for(site, package).read_bytes() == package.data
+        result = {}
+        for asset in ET.fromstring(catalog).findall("addon/extension/assets/*"):
+            assert asset.text is not None
+            result[asset.tag] = feed / "zips" / ADDON / asset.text
+        return result
+
+    first = published(candidate(b"first image", True))
+    assert set(first) == {"icon", "fanart"}
+    assert first["icon"].read_bytes() == b"first image"
+    assert first["fanart"].read_bytes() == b"fixture background"
+    replacement = candidate(b"second image", False)
+    second = published(replacement)
+    assert set(second) == {"icon"}
+    assert second["icon"] != first["icon"]
+    assert second["icon"].read_bytes() == b"second image"
+    assert not any(path.exists() for path in first.values())
+    assert len(list(second["icon"].parent.iterdir())) == 1
+    assert replacement.node.findtext("extension/assets/icon") == "resources/icon.png"
 
 
 def eligible(site: Controller) -> bool:
