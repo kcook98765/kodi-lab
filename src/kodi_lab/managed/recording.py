@@ -28,7 +28,9 @@ MAX_ARTIFACTS = 4
 RETAIN_SECONDS = 24 * 60 * 60
 FREE_RESERVE = 2 * 1024**3
 AUTHORITY_SECONDS = 6
-ENCODER_ID = 10002
+ENCODER_LABEL = "io.kodi-lab.recording-scope"
+ENCODER_NAME = "kodi-lab-recording-"
+CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
 RECORDING_ID = re.compile(r"[0-9a-f]{32}")
 SAMPLE_SOURCE = Path(__file__).with_name("x11_recording.py")
 
@@ -54,20 +56,30 @@ class Capture:
 
 
 class Recordings:
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        daemon_root: Path | None = None,
+        encoder_image: str | None = None,
+    ) -> None:
         self.root = root
+        self.daemon_root = daemon_root
+        self.encoder_image = encoder_image
+        self.encoder_scope = hashlib.sha256(
+            os.fsencode(daemon_root or root)
+        ).hexdigest()
         self.active: Capture | None = None
         self.latest: Capture | None = None
         self.worker: Thread | None = None
         self.lock = Lock()
         self.closed = False
         self.next_cleanup = 0.0
-        self.root.mkdir(mode=0o710, exist_ok=True)
+        self.root.mkdir(mode=0o700, exist_ok=True)
         if self.root.is_symlink() or self.root.stat().st_uid != os.getuid():
             raise Refusal("recording_storage_identity")
-        if os.getuid() == 0:
-            os.chown(self.root, 0, ENCODER_ID)
-        self.root.chmod(0o710)
+        self.root.chmod(0o700)
+        self._retire_encoders()
         # A process restart invalidates all running leases. Recover only
         # artifacts with a committed receipt and their original checksum.
         for entry in self.root.iterdir():
@@ -108,6 +120,8 @@ class Recordings:
                 raise Refusal("managed_recording_artifact_limit")
             if shutil.disk_usage(self.root).free < FREE_RESERVE + MAX_BYTES:
                 raise Refusal("managed_recording_storage_limit")
+            if self.encoder_image is not None:
+                self._retire_encoders()
             binding = bind()
             capture = Capture(
                 identity,
@@ -238,8 +252,6 @@ class Recordings:
             if not 0 < size <= MAX_BYTES:
                 raise Refusal("managed_recording_storage_limit")
             result = {"state": "ready", **result, "sha256": digest, "bytes": size}
-            if os.getuid() == 0:
-                os.chown(path, 0, 0)
             path.replace(path.with_suffix(".mp4"))
             try:
                 atomic(
@@ -268,12 +280,12 @@ class Recordings:
     def _encode(self, capture: Capture, path: Path) -> Document:
         binding = capture.binding
         rate, seconds = capture.data["fps"], capture.data["limit_seconds"]
-        use_uid = os.getuid() == 0
+        if self.daemon_root is None or self.encoder_image is None:
+            raise Refusal("managed_recording_unavailable")
+        encoder_name = ENCODER_NAME + path.stem
         with path.open("xb"):
             pass
         path.chmod(0o600)
-        if use_uid:
-            os.chown(path, ENCODER_ID, ENCODER_ID)
         sampler = subprocess.Popen(
             [
                 *DOCKER,
@@ -308,51 +320,53 @@ class Recordings:
                 raise Refusal("managed_recording_runtime_changed")
             encoder = subprocess.Popen(
                 [
-                    "/usr/bin/ffmpeg",
-                    "-y",
-                    "-nostdin",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "rawvideo",
-                    "-pixel_format",
-                    "bgr0",
-                    "-video_size",
-                    f"{WIDTH}x{HEIGHT}",
-                    "-framerate",
-                    str(rate),
+                    *DOCKER,
+                    "run",
+                    "--rm",
                     "-i",
-                    "pipe:0",
-                    "-an",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-threads",
-                    "1",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-crf",
-                    "21",
-                    "-maxrate",
-                    "240k",
-                    "-bufsize",
-                    "480k",
-                    "-fs",
+                    "--pull",
+                    "never",
+                    "--name",
+                    encoder_name,
+                    "--label",
+                    f"{ENCODER_LABEL}={self.encoder_scope}",
+                    "--network",
+                    "none",
+                    "--read-only",
+                    "--cap-drop",
+                    "ALL",
+                    "--security-opt",
+                    "no-new-privileges",
+                    "--user",
+                    "1000:1000",
+                    "--pids-limit",
+                    "24",
+                    "--memory",
+                    "192m",
+                    "--memory-swap",
+                    "192m",
+                    "--cpus",
+                    "0.5",
+                    "--log-driver",
+                    "none",
+                    "--ulimit",
+                    f"fsize={MAX_BYTES}:{MAX_BYTES}",
+                    "--mount",
+                    f"type=bind,src={self.daemon_root / path.name},dst=/recording.mp4",
+                    "--entrypoint",
+                    "/usr/local/bin/python",
+                    self.encoder_image,
+                    "-I",
+                    "-B",
+                    "-m",
+                    "kodi_lab.managed.recording_encoder",
+                    str(rate),
+                    str(seconds),
                     str(MAX_BYTES - 1048576),
-                    "-movflags",
-                    "+faststart",
-                    "-f",
-                    "mp4",
-                    path.name,
                 ],
                 stdin=sampler.stdout,
-                stdout=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                cwd=self.root,
-                user=ENCODER_ID if use_uid else None,
-                group=ENCODER_ID if use_uid else None,
-                extra_groups=[] if use_uid else None,
             )
             sampler.stdout.close()
             os.set_blocking(sampler.stdin.fileno(), False)
@@ -365,33 +379,10 @@ class Recordings:
                 return {"reason": reason}
             with suppress(BrokenPipeError):
                 sampler.stdin.close()
-            if encoder.wait(5) != 0:
-                raise Refusal("managed_recording_encoder_failed")
+            output = encoder_metadata(encoder)
             if not current(binding):
                 reason = "runtime_stopped"
-            probe = subprocess.run(
-                [
-                    "/usr/bin/ffprobe",
-                    "-v",
-                    "error",
-                    "-f",
-                    "mov",
-                    "-show_entries",
-                    "stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration",
-                    "-of",
-                    "json",
-                    path.name,
-                ],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                cwd=self.root,
-                timeout=3,
-                user=ENCODER_ID if use_uid else None,
-                group=ENCODER_ID if use_uid else None,
-                extra_groups=[] if use_uid else None,
-            )
-            video = json.loads(probe.stdout)
+            video = json.loads(output)
             streams = video["streams"]
             duration = float(video["format"]["duration"])
             if (
@@ -409,6 +400,8 @@ class Recordings:
                 or not 0 < duration <= seconds + 1 / rate
             ):
                 raise Refusal("managed_recording_encoder_failed")
+            if reason == "capture_ended" and abs(duration - seconds) <= 1 / rate:
+                reason = "duration_limit"
             return {
                 "started_at": started,
                 "duration_seconds": duration,
@@ -417,19 +410,61 @@ class Recordings:
                 "height": HEIGHT,
             }
         finally:
-            if encoder is not None and encoder.poll() is None:
-                encoder.kill()
-            if encoder is not None:
-                encoder.wait()
             sampler.stdin.close()
             sampler.stdout.close()
+            if encoder is not None:
+                if encoder.poll() is None:
+                    encoder.kill()
+                encoder.wait()
+                if encoder.stdout is not None:
+                    encoder.stdout.close()
             try:
                 sampler.wait(LEASE_SECONDS + 1)
             except subprocess.TimeoutExpired:
-                # The independent in-runtime watchdog expires even if X11 or
-                # the attached Docker transport stalled.
+                # The independent sampler watchdog also bounds a stalled X11
+                # or Docker transport.
                 sampler.kill()
                 sampler.wait()
+            if encoder is not None:
+                self._retire_encoders(encoder_name)
+
+    def _retire_encoders(self, target: str | None = None) -> None:
+        if self.encoder_image is None:
+            return
+        try:
+            rows = subprocess.check_output(
+                [
+                    *DOCKER,
+                    "ps",
+                    "-a",
+                    "--no-trunc",
+                    "--filter",
+                    f"label={ENCODER_LABEL}={self.encoder_scope}",
+                    "--format",
+                    "{{.ID}} {{.Names}}",
+                ],
+                text=True,
+                timeout=2,
+                stderr=subprocess.DEVNULL,
+            )
+            for row in rows.splitlines():
+                cid, name = row.split()
+                if target is not None and name != target:
+                    continue
+                if not CONTAINER_ID.fullmatch(cid) or not (
+                    name.startswith(ENCODER_NAME)
+                    and RECORDING_ID.fullmatch(name.removeprefix(ENCODER_NAME))
+                ):
+                    raise Refusal("managed_recording_cleanup_unconfirmed")
+                remove = subprocess.run(
+                    [*DOCKER, "rm", "--force", cid],
+                    capture_output=True,
+                    timeout=5,
+                )
+                if remove.returncode and b"No such container" not in remove.stderr:
+                    raise Refusal("managed_recording_cleanup_unconfirmed")
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise Refusal("managed_recording_cleanup_unconfirmed") from error
 
     def _monitor(
         self,
@@ -460,6 +495,24 @@ class Recordings:
                 with suppress(BlockingIOError, BrokenPipeError):
                     sampler.stdin.write(b"+")
                 check_at = now + 2
+
+
+def encoder_metadata(encoder: subprocess.Popen[bytes]) -> bytes:
+    assert encoder.stdout is not None
+    deadline = time.monotonic() + 8
+    output = bytearray()
+    with DefaultSelector() as selector:
+        selector.register(encoder.stdout, EVENT_READ)
+        while len(output) <= 4096:
+            remaining = max(0, deadline - time.monotonic())
+            if not remaining or not selector.select(remaining):
+                break
+            if not (data := os.read(encoder.stdout.fileno(), 4097 - len(output))):
+                if encoder.wait(remaining) == 0 and output:
+                    return bytes(output)
+                break
+            output.extend(data)
+    raise Refusal("managed_recording_encoder_failed")
 
 
 def current(binding: CaptureBinding) -> bool:

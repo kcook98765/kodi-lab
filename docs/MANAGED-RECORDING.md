@@ -1,6 +1,9 @@
 # Private managed Kodi recordings
 
-An authorized agent with the Trusted Managed Lab role can record the private Kodi display. The Linux application broker includes FFmpeg. Recording uses the existing 640×360 Xvfb display in managed Kodi and leaves the runtime image and profile pin unchanged. It produces a silent H.264 MP4. No browser session is required.
+An authorized agent with the Trusted Managed Lab role can record the private Kodi display. The Linux application bundle includes FFmpeg. The broker starts a short-lived
+encoder from its exact packaged image for each recording. That worker has a
+private network namespace, an explicit resource budget and one writable output
+file. Recording uses the existing 640×360 Xvfb display in managed Kodi and leaves the runtime image and profile pin unchanged. It produces a silent H.264 MP4. An issuing MCP credential is sufficient for recording.
 
 ## Record and retrieve
 

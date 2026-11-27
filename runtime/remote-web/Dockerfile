@@ -65,8 +65,8 @@ FROM installed-runtime AS broker
 COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 RUN install -d -m 0700 /var/lib/kodi-lab-managed
 
-# The managed recorder uses Debian's FFmpeg and ffprobe under a separate
-# unprivileged UID. Kodi runtime images do not contain this capture component.
+# The managed recorder runs Debian's FFmpeg and ffprobe in a bounded worker
+# using this image with only the recording output file mounted.
 LABEL io.kodi-lab.reviewed-ostree-worker="v1"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ostree gpg gpgv ffmpeg \

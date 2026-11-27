@@ -368,7 +368,12 @@ def maintain_resources(
 
 
 def serve(
-    root: Path, path: Path, frontend_uid: int, frontend_gid: int, daemon_root: Path
+    root: Path,
+    path: Path,
+    frontend_uid: int,
+    frontend_gid: int,
+    daemon_root: Path,
+    encoder_image: str,
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
@@ -392,7 +397,11 @@ def serve(
                 raise Refusal("broker_socket_not_owned")
             path.unlink()
         try:
-            recordings: Recordings | None = Recordings(root / "recordings")
+            recordings: Recordings | None = Recordings(
+                root / "recordings",
+                daemon_root=daemon_root / "recordings",
+                encoder_image=encoder_image,
+            )
         except (OSError, Refusal):
             logging.warning("Managed recording storage unavailable")
             recordings = None
