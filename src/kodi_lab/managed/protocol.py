@@ -1,5 +1,6 @@
 """Closed broker requests shared with the unprivileged HTTP frontend."""
 
+import re
 from collections.abc import Callable
 from typing import Any, TypedDict
 from uuid import UUID
@@ -106,6 +107,7 @@ VERSION_SCOPED = (
 )
 OPTIONAL = {
     "snapshot_list": ("include_capacity",),
+    "managed_gui": ("include_player", "expected_local_media_sha256"),
     "managed_recording_start": ("fps", "seconds"),
     "managed_recording_status": ("recording",),
     "addon_install": ("allow_services",),
@@ -153,7 +155,15 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
         raise Refusal("invalid_arguments")
     if "generation" in args and args["generation"] not in RELEASES:
         raise Refusal("invalid_arguments")
-    if "include_capacity" in args and args["include_capacity"] not in {"true", "false"}:
+    if any(
+        field in args and args[field] not in {"true", "false"}
+        for field in ("include_capacity", "include_player")
+    ):
+        raise Refusal("invalid_arguments")
+    if "expected_local_media_sha256" in args and (
+        args.get("include_player") != "true"
+        or not re.fullmatch(r"[0-9a-f]{64}", args["expected_local_media_sha256"])
+    ):
         raise Refusal("invalid_arguments")
     if "replace" in args and args["replace"] not in {"true", "false"}:
         raise Refusal("invalid_arguments")
