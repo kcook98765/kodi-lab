@@ -15,6 +15,7 @@ from kodi_lab.auth.service import AuthenticatedWebSession
 from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient
 from kodi_lab.managed.protocol import VERSION_SCOPED, Refusal
+from kodi_lab.managed.snapshots import SNAPSHOT_ERRORS
 
 from .managed_view import stream_view
 
@@ -96,11 +97,15 @@ def managed_router(
                 return JSONResponse(
                     {"profile": result}, headers={"Cache-Control": "no-store"}
                 )
-            saved = broker.request("admin", "snapshot_list", {})["result"]
+            saved = broker.request(
+                "admin", "snapshot_list", {"include_capacity": "true"}
+            )["result"]
+            if not isinstance(saved, dict):
+                raise Refusal("snapshot_listing_unavailable")
         except Refusal as exc:
             return refused(exc)
         return JSONResponse(
-            {"profile": result, "snapshots": saved},
+            {"profile": result, **saved},
             headers={"Cache-Control": "no-store"},
         )
 
@@ -180,5 +185,10 @@ def refused(error: Exception) -> JSONResponse:
     )
     status = 503 if code == "operation_outcome_unconfirmed" else 409
     return JSONResponse(
-        {"code": code}, status_code=status, headers={"Cache-Control": "no-store"}
+        {
+            "code": code,
+            **({"message": SNAPSHOT_ERRORS[code]} if code in SNAPSHOT_ERRORS else {}),
+        },
+        status_code=status,
+        headers={"Cache-Control": "no-store"},
     )

@@ -125,7 +125,7 @@ class Controller:
             "managed_reset": lambda: self.runtime.reset(),
             "managed_status": self.status,
             "managed_recover": self.recover,
-            "snapshot_list": lambda **args: self.snapshots.list(**args),
+            "snapshot_list": lambda **args: self.snapshots.listing(**args),
             "snapshot_save": lambda **args: self.snapshots.save(**args),
             "snapshot_load": lambda **args: self.snapshots.load(**args),
             "snapshot_delete": lambda **args: self.snapshots.delete(**args),

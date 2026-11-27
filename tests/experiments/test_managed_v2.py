@@ -388,6 +388,28 @@ def test_snapshot_excludes_authority_and_round_trips(tmp_path: Path) -> None:
     assert snapshots.list() == []
 
 
+def test_snapshot_capacity_and_distinct_refusals(tmp_path: Path) -> None:
+    native = Volumes(tmp_path)
+    (native.source / "userdata").mkdir()
+    (native.source / "userdata/guisettings.xml").write_bytes(b"<settings/>")
+    snapshots = Snapshots(native)
+    assert snapshots.listing() == []
+    for index in range(8):
+        snapshots.save(f"checkpoint-{index}")
+    assert snapshots.listing("true") == {
+        "snapshots": snapshots.list(),
+        "snapshot_capacity": {"used": 8, "capacity": 8, "remaining": 0},
+    }
+    with pytest.raises(Refusal, match=r"^snapshot_name_exists$"):
+        snapshots.save("checkpoint-0")
+    with pytest.raises(Refusal, match=r"^snapshot_quota_exhausted$"):
+        snapshots.save("new-checkpoint")
+    snapshots.delete("checkpoint-7")
+    listing = snapshots.listing("true")
+    assert isinstance(listing, dict)
+    assert listing["snapshot_capacity"] == {"used": 7, "capacity": 8, "remaining": 1}
+
+
 def test_invalid_snapshot_never_replaces_active_profile(tmp_path: Path) -> None:
     native = Volumes(tmp_path)
     snapshots = Snapshots(native)

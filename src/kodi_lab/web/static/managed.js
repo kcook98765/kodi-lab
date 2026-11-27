@@ -11,6 +11,7 @@ const networkStatus = document.querySelector("#managed-network-status");
 let networkSettingEdited = false;
 const feedback = document.querySelector("#managed-feedback");
 const saved = document.querySelector("#managed-snapshot");
+const snapshotCapacity = document.querySelector("#managed-snapshot-capacity");
 const viewer = document.querySelector("#managed-viewer");
 const viewStatus = document.querySelector("#managed-view-status");
 let client = null;
@@ -104,6 +105,11 @@ async function refresh() {
   if (retired) statusLine.textContent += " · Review retirement to re-enable this runtime.";
   if (profile_version) statusLine.textContent += ` · Working profile: Kodi ${profile_version}`;
   if (public_repository_test) statusLine.textContent += " · Disposable public repository test";
+  if (data.snapshot_capacity) {
+    const {used, capacity, remaining} = data.snapshot_capacity;
+    const summary = `${used} of ${capacity} snapshot slots used · ${remaining} remaining`;
+    if (snapshotCapacity.textContent !== summary) snapshotCapacity.textContent = summary;
+  }
   if (Array.isArray(data.snapshots)) {
     const selected = saved.value;
     const options = data.snapshots.map(({name}) => new Option(name, name));
@@ -148,7 +154,7 @@ async function apply(button) {
       disk_headroom: "There is too little free space for this operation. Open Storage & Maintenance for details.",
       disk_headroom_unavailable: "Kodi Lab could not verify available space. Open Storage & Maintenance for details.",
     };
-    const errorText = errors[body.code] ?? (body.code || "Kodi action failed.").replaceAll("_", " ");
+    const errorText = body.message ?? errors[body.code] ?? (body.code || "Kodi action failed.").replaceAll("_", " ");
     if (response.ok && operation === "managed_network_access") networkSettingEdited = false;
     feedback.textContent = response.ok
       ? operation === "managed_network_access" ? "Network setting saved for the next Start." : "Done."

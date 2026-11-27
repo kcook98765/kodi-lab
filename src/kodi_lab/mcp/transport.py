@@ -107,6 +107,7 @@ from kodi_lab.managed.protocol import (
     validate,
 )
 from kodi_lab.managed.recording import RECORDING_ID
+from kodi_lab.managed.snapshots import SNAPSHOT_ERRORS
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import (
@@ -1041,7 +1042,12 @@ def build_mcp_http_transport(
     managed_inventory = [
         Tool(
             name=public,
-            description=name.replace("_", " "),
+            description=(
+                'List your private snapshots. Pass include_capacity="true" for '
+                "usage, capacity and remaining slots."
+                if name == "snapshot_list"
+                else name.replace("_", " ")
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -1729,6 +1735,8 @@ def _tool_error_result(
     # A tool error has no success-shaped structured result. Its text remains
     # available to models without violating the tool's declared outputSchema.
     message = result_code
+    if next_action := SNAPSHOT_ERRORS.get(result_code):
+        message += "\nnext_action: " + next_action
     if result_code == "managed_profile_not_prepared":
         message += (
             "\nnext_action: Call managed_prepare for the same generation before Start."
