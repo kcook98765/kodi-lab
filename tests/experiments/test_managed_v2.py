@@ -394,20 +394,26 @@ def test_snapshot_capacity_and_distinct_refusals(tmp_path: Path) -> None:
     (native.source / "userdata/guisettings.xml").write_bytes(b"<settings/>")
     snapshots = Snapshots(native)
     assert snapshots.listing() == []
-    for index in range(8):
-        snapshots.save(f"checkpoint-{index}")
-    assert snapshots.listing("true") == {
+    for index in range(9):
+        snapshots.save(f"checkpoint-{index}", capacity=9)
+    assert snapshots.listing("true", capacity=9) == {
         "snapshots": snapshots.list(),
-        "snapshot_capacity": {"used": 8, "capacity": 8, "remaining": 0},
+        "snapshot_capacity": {"used": 9, "capacity": 9, "remaining": 0},
     }
     with pytest.raises(Refusal, match=r"^snapshot_name_exists$"):
-        snapshots.save("checkpoint-0")
+        snapshots.save("checkpoint-0", capacity=9)
     with pytest.raises(Refusal, match=r"^snapshot_quota_exhausted$"):
-        snapshots.save("new-checkpoint")
+        snapshots.save("new-checkpoint", capacity=9)
+    snapshots.load("checkpoint-0")
+    assert snapshots.listing("true", capacity=8) == {
+        "snapshots": snapshots.list(),
+        "snapshot_capacity": {"used": 9, "capacity": 8, "remaining": 0},
+    }
+    snapshots.delete("checkpoint-8")
+    with pytest.raises(Refusal, match=r"^snapshot_quota_exhausted$"):
+        snapshots.save("new-checkpoint", capacity=8)
     snapshots.delete("checkpoint-7")
-    listing = snapshots.listing("true")
-    assert isinstance(listing, dict)
-    assert listing["snapshot_capacity"] == {"used": 7, "capacity": 8, "remaining": 1}
+    assert snapshots.save("new-checkpoint", capacity=8)["name"] == "new-checkpoint"
 
 
 def test_invalid_snapshot_never_replaces_active_profile(tmp_path: Path) -> None:

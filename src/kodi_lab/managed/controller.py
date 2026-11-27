@@ -50,7 +50,7 @@ from .protocol import (
 from .public_repository import REPOSITORY, Approval, approval
 from .runtime import ESTUARY, REPO, Runtime, atomic, sync_dir
 from .runtime_retirement import RuntimeRetirement
-from .snapshots import Snapshots
+from .snapshots import SnapshotQuotas, Snapshots
 from .source_provenance import (
     SourceFiles,
     read_sources,
@@ -85,6 +85,7 @@ class Controller:
             audio_image=audio_image,
         )
         self.omega = self.runtime
+        self.snapshot_quotas_file = self.omega.root / "snapshot-quotas.json"
         self.storage_maintenance = StorageMaintenance(self)
         self.runtime_retirement = RuntimeRetirement(self)
         self.runtimes = {"omega": self.omega}
@@ -129,8 +130,10 @@ class Controller:
             "managed_reset": lambda: self.runtime.reset(),
             "managed_status": self.status,
             "managed_recover": self.recover,
-            "snapshot_list": lambda **args: self.snapshots.listing(**args),
-            "snapshot_save": lambda **args: self.snapshots.save(**args),
+            "snapshot_list": self.snapshot_listing,
+            "snapshot_save": lambda name: self.snapshots.save(
+                name, capacity=self.snapshot_limit()
+            ),
             "snapshot_load": lambda **args: self.snapshots.load(**args),
             "snapshot_delete": lambda **args: self.snapshots.delete(**args),
             "workspace_open": lambda **args: self.packages.open_workspace(**args),
@@ -178,6 +181,17 @@ class Controller:
             self.checkpoint,
             directory=self.actor_directory(actor) / "snapshots",
         )
+
+    def snapshot_limit(self) -> int:
+        quotas = SnapshotQuotas.read(self.snapshot_quotas_file)
+        return quotas.administrator if self.actor == "admin" else quotas.agent_default
+
+    def snapshot_listing(
+        self, include_capacity: str = "false"
+    ) -> list[Document] | Document:
+        if include_capacity == "false":
+            return self.snapshots.list()
+        return self.snapshots.listing("true", capacity=self.snapshot_limit())
 
     def owner(self) -> str | None:
         if not self.lease_path.exists():

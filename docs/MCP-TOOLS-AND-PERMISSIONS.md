@@ -25,6 +25,14 @@ to `omega`. Stop the current runtime before starting another. The working
 profiles are independent. Ownership and the private workspace namespace span
 versions. Load snapshots only into their original reviewed image identity.
 
+Call `managed_snapshot_list` with `include_capacity="true"` to return
+`snapshots` and `snapshot_capacity` (`used`, `capacity`, `remaining`) for
+the authenticated scope across all versions. The default call returns the
+existing array of snapshots. Remaining slots are zero at or above capacity.
+Saves report `snapshot_name_exists` for an existing name and
+`snapshot_quota_exhausted` for a new name when the scope has no slots.
+Administrators configure limits in Storage & Maintenance.
+
 | Task | MCP tools |
 | --- | --- |
 | Lifecycle and authority | `managed_status`, `managed_prepare`, `managed_start`, `managed_stop`, `managed_reset`, `managed_acquire`, `managed_release` |
