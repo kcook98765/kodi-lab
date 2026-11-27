@@ -28,6 +28,7 @@ from kodi_lab.kodi.remote import (
 from . import RELEASES, reviewed_image_file
 from .feed_retirement import FeedRetirement, observed_engine, runtime_idle
 from .packages import Package, Packages, addon_id, manifest, sha, workspace_files
+from .player import OBSERVATION_ERRORS, incarnation, observe
 from .prepare import (
     ABANDONED_SCRATCH_GRACE,
     PREPARE_CLEANUP_BATCH,
@@ -1364,10 +1365,27 @@ class Controller:
         self.checkpoint("native_reply")
         return result
 
-    def gui(self) -> Document:
-        result: Document = self.runtime.rpc(
-            "GUI.GetProperties", properties=["currentwindow", "currentcontrol", "skin"]
-        )
+    def gui(
+        self,
+        include_player: str = "false",
+        expected_local_media_sha256: str | None = None,
+    ) -> Document:
+        try:
+            binding = incarnation(self.runtime) if include_player == "true" else None
+            if include_player == "true" and binding is None:
+                return {"player": {"state": "unavailable"}}
+            result: Document = self.runtime.rpc(
+                "GUI.GetProperties",
+                properties=["currentwindow", "currentcontrol", "skin"],
+            )
+        except OBSERVATION_ERRORS:
+            if include_player != "true":
+                raise
+            return {"player": {"state": "unavailable"}}
+        if binding is not None:
+            result["player"] = observe(
+                self.runtime, binding, expected_local_media_sha256
+            )
         return result
 
     def navigate(self, action: str) -> Document:

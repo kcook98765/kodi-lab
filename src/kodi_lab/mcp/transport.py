@@ -1039,15 +1039,21 @@ def build_mcp_http_transport(
         for lease in recording_leases:
             lease.cancel()
 
+    managed_descriptions = {
+        "snapshot_list": (
+            'List your private snapshots. Pass include_capacity="true" for '
+            "usage, capacity and remaining slots."
+        ),
+        "managed_gui": (
+            'Read managed Kodi window, focus and skin. Pass include_player="true" '
+            "for idle, playing, paused, uncertain or unavailable player state. "
+            "Pass expected_local_media_sha256 to verify a known local path."
+        ),
+    }
     managed_inventory = [
         Tool(
             name=public,
-            description=(
-                'List your private snapshots. Pass include_capacity="true" for '
-                "usage, capacity and remaining slots."
-                if name == "snapshot_list"
-                else name.replace("_", " ")
-            ),
+            description=managed_descriptions.get(name, name.replace("_", " ")),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -1073,7 +1079,8 @@ def build_mcp_http_transport(
                             "type": "string",
                             **(
                                 {"pattern": "^[0-9a-f]{64}$"}
-                                if field in {"baseline", "review"}
+                                if field
+                                in {"baseline", "review", "expected_local_media_sha256"}
                                 else {"enum": ["2", "5"]}
                                 if field == "fps"
                                 else {"pattern": "^[0-9]{1,4}$"}

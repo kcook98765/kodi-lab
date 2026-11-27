@@ -93,3 +93,24 @@ human approval and exact installed-tree verification. See the [external setup](L
 
 Use the [fresh-install guide](MANAGED-V2-FRESH-INSTALL.md) for configuration,
 managed profile recovery and backup boundaries.
+
+### Observe managed Kodi playback
+
+With the same managed authority as window and focus inspection, call
+`managed_gui` with the explicit generation and `include_player: "true"`.
+The default call still returns window, focus and skin. The optional `player`
+object reports `idle`, `playing`, `paused`, `uncertain` or `unavailable`.
+Idle means the running Kodi reported no active players in consecutive reads.
+A stable active sample can include the player ID and audio, video or picture
+type, together with an opaque `incarnation` and a `media_key` when the native
+item has a file identity. Compare keys only within the same incarnation.
+The reply carries no raw paths, URLs, titles or credentials.
+
+For a known local absolute path, pass its lowercase SHA-256 in
+`expected_local_media_sha256` to receive `matches_expected_local_media` if
+Kodi reports an ordinary absolute file path. Hash the exact path string Kodi
+will open using UTF-8, with no trailing newline. Missing comparison or a
+missing key means the native identity is unavailable. Picture players and
+items that expose incomplete native properties can report uncertain. Confirm
+the intended item before reporting playback success, and confirm idle after
+an explicit Stop while Kodi remains running.
