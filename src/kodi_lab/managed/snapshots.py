@@ -1,5 +1,8 @@
 """Named stopped-profile archives using one file per snapshot."""
 
+from __future__ import annotations
+
+import builtins
 import hashlib
 import io
 import json
@@ -24,6 +27,14 @@ from .source_provenance import (
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
+SNAPSHOT_CAPACITY = 8
+SNAPSHOT_ERRORS = {
+    "snapshot_name_exists": "Choose a different snapshot name.",
+    "snapshot_quota_exhausted": (
+        "Your snapshot scope is full. Review your snapshots and explicitly delete "
+        "one you no longer need before saving."
+    ),
+}
 
 
 def name_ok(value: object) -> str:
@@ -112,12 +123,30 @@ class Snapshots:
             and path.with_suffix(".json").is_file()
         ]
 
+    def listing(
+        self, include_capacity: str = "false"
+    ) -> builtins.list[Document] | Document:
+        snapshots = self.list()
+        if include_capacity == "false":
+            return snapshots
+        used = len(snapshots)
+        return {
+            "snapshots": snapshots,
+            "snapshot_capacity": {
+                "used": used,
+                "capacity": SNAPSHOT_CAPACITY,
+                "remaining": max(0, SNAPSHOT_CAPACITY - used),
+            },
+        }
+
     def save(self, name: str) -> Document:
         self.runtime.require_stopped()
-        self.runtime.capacity()
         path = self.path(name)
-        if path.exists() or len(self.list()) >= 8:
-            raise Refusal("snapshot_exists_or_quota")
+        if path.exists() or path.is_symlink():
+            raise Refusal("snapshot_name_exists")
+        if len(self.list()) >= SNAPSHOT_CAPACITY:
+            raise Refusal("snapshot_quota_exhausted")
+        self.runtime.capacity()
         staging = self.root / (".stage-" + uuid4().hex)
         self.checkpoint("snapshot_staging", snapshot=name, archive=staging.name)
         source = self.runtime.profile()

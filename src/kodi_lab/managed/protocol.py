@@ -105,6 +105,7 @@ VERSION_SCOPED = (
     }
 )
 OPTIONAL = {
+    "snapshot_list": ("include_capacity",),
     "managed_recording_start": ("fps", "seconds"),
     "managed_recording_status": ("recording",),
     "addon_install": ("allow_services",),
@@ -151,6 +152,8 @@ def validate(name: object, args: object) -> tuple[str, dict[str, str]]:
     ):
         raise Refusal("invalid_arguments")
     if "generation" in args and args["generation"] not in RELEASES:
+        raise Refusal("invalid_arguments")
+    if "include_capacity" in args and args["include_capacity"] not in {"true", "false"}:
         raise Refusal("invalid_arguments")
     if "replace" in args and args["replace"] not in {"true", "false"}:
         raise Refusal("invalid_arguments")

@@ -131,8 +131,14 @@ def test_managed_status_surfaces_exact_pending_recovery_without_mutation(
     ) -> OperationReply:
         assert actor == "admin"
         if operation == "snapshot_list":
-            assert args == {}
-            return {"result": [], "elapsed_seconds": 0.0}
+            assert args == {"include_capacity": "true"}
+            return {
+                "result": {
+                    "snapshots": [],
+                    "snapshot_capacity": {"used": 0, "capacity": 8, "remaining": 8},
+                },
+                "elapsed_seconds": 0.0,
+            }
         assert operation == "managed_status" and args == {"generation": "nexus"}
         return {
             "result": {"state": "unconfirmed", "operation": receipt},
@@ -145,6 +151,12 @@ def test_managed_status_surfaces_exact_pending_recovery_without_mutation(
     response = client.get("/api/managed-kodi/nexus")
     assert response.status_code == 200
     assert response.json()["profile"]["operation"] == receipt
+    assert response.json()["snapshots"] == []
+    assert response.json()["snapshot_capacity"] == {
+        "used": 0,
+        "capacity": 8,
+        "remaining": 8,
+    }
     page = client.get("/managed-kodi?generation=nexus")
     assert 'data-action="managed_recover"' in page.text
 
