@@ -373,7 +373,7 @@ def serve(
     frontend_uid: int,
     frontend_gid: int,
     daemon_root: Path,
-    encoder_image: str,
+    encoder_image: str | None = None,
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
