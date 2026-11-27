@@ -6,6 +6,7 @@ import base64
 import errno
 import fcntl
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -45,7 +46,7 @@ ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
 LABEL = "io.kodi-lab.managed-v2"
 AUDIO_LABEL = "io.kodi-lab.managed-audio"
-AUDIO_RUN_LABEL = "io.kodi-lab.managed-audio-run"
+AUDIO_OWNER_LABEL = "io.kodi-lab.managed-audio-owner"
 ALLOCATION_LABEL = "io.kodi-lab.profile-allocation"
 ALLOCATION_XATTR = "user.kodi_lab.allocation"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
@@ -795,36 +796,37 @@ class Runtime:
             raise Refusal("managed_audio_directory_identity")
         return directory
 
+    def audio_owner(self, image: str) -> str:
+        try:
+            key = (self.root / "audio-worker-key").read_bytes()
+        except FileNotFoundError as error:
+            raise Refusal("managed_audio_container_identity") from error
+        if len(key) != 32 or not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+            raise Refusal("managed_audio_container_identity")
+        return hmac.digest(key, image.encode(), "sha256").hex()
+
     def stop_audio(self) -> None:
         if self.audio_image is None:
             return
-        receipt = self.credentials / "audio-worker"
         ids = docker(
             "ps", "-aq", "--no-trunc", "--filter", f"name=^/{self.audio_name}$"
         )
         if ids:
             if not re.fullmatch(r"[0-9a-f]{64}", ids):
                 raise Refusal("managed_audio_container_identity")
-            try:
-                image, launch = receipt.read_text().split()
-            except (FileNotFoundError, ValueError) as error:
-                raise Refusal("managed_audio_container_identity") from error
-            if not re.fullmatch(
-                r"sha256:[0-9a-f]{64} [0-9a-f]{32}", f"{image} {launch}"
-            ):
-                raise Refusal("managed_audio_container_identity")
             child = json.loads(docker("inspect", "--type", "container", ids))[0]
             if (
                 child["Id"] != ids
                 or child["Name"] != "/" + self.audio_name
-                or child["Image"] != image
                 or child["Config"]["Labels"].get(AUDIO_LABEL) != str(self.target)
-                or child["Config"]["Labels"].get(AUDIO_RUN_LABEL) != launch
+                or child["Config"]["Labels"].get(AUDIO_OWNER_LABEL)
+                != self.audio_owner(child["Image"])
             ):
                 raise Refusal("managed_audio_container_identity")
             if child["State"]["Running"]:
                 docker("stop", "-t", "3", ids)
-            docker("rm", ids)
+            # Fence a previously dispatched Start of this exact container ID.
+            docker("rm", "-f", ids)
         try:
             directory = self.audio_directory()
         except FileNotFoundError:
@@ -832,7 +834,7 @@ class Runtime:
         else:
             (directory / "native").unlink(missing_ok=True)
             directory.rmdir()
-        receipt.unlink(missing_ok=True)
+        (self.credentials / "asound.conf").unlink(missing_ok=True)
 
     def start_audio(self) -> list[str]:
         if self.audio_image is None:
@@ -842,20 +844,18 @@ class Runtime:
         # existing read-only live mount using same-UID Unix peer authentication.
         (self.credentials / "audio").mkdir(mode=0o700)
         directory = self.audio_directory()
-        # Record the launch before Docker dispatch so a lost reply or broker
-        # image change can still reconcile the exact old worker.
-        launch = uuid4().hex
-        atomic(
-            self.credentials / "audio-worker", f"{self.audio_image} {launch}".encode()
-        )
-        docker(
-            "run",
-            "-d",
+        # Keep authority to remove workers from a previous broker image or
+        # late Create, even when no container is visible during recovery.
+        key = self.root / "audio-worker-key"
+        if not key.exists():
+            atomic(key, secrets.token_bytes(32))
+        child = docker(
+            "create",
             *self.args(AUDIO_LABEL),
             "--name",
             self.audio_name,
             "--label",
-            f"{AUDIO_RUN_LABEL}={launch}",
+            f"{AUDIO_OWNER_LABEL}={self.audio_owner(self.audio_image)}",
             "--network",
             "none",
             "--read-only",
@@ -895,10 +895,36 @@ class Runtime:
             "-L",
             "module-native-protocol-unix socket=/audio/native auth-cookie-enabled=no",
         )
+        if not re.fullmatch(r"[0-9a-f]{64}", child):
+            raise Refusal("managed_audio_container_identity")
+        docker("start", child)
         wait_until(
             (directory / "native").is_socket, 5, "managed_audio_socket_unavailable"
         )
-        return ["--env", "PULSE_SERVER=unix:/managed-v2-credentials/audio/native"]
+        environment = [
+            "--env",
+            "PULSE_SERVER=unix:/managed-v2-credentials/audio/native",
+        ]
+        if self.generation == "piers":
+            # The reviewed Piers launcher explicitly selects ALSA. Route its
+            # existing Pulse plugin to the same clocked sink as the other versions.
+            atomic(
+                self.credentials / "asound.conf",
+                b"pcm.!default {\n"
+                b"    type pulse\n"
+                b'    hint { show on description "Kodi Lab Silent Playback" }\n'
+                b"}\n"
+                b'pcm.Default "default"\n',
+            )
+            environment.extend(
+                (
+                    "--env",
+                    "ALSA_CONFIG_PATH=/managed-v2-credentials/asound.conf",
+                    "--env",
+                    "ALSA_PLUGIN_DIR=/opt/fdo/lib/x86_64-linux-gnu/alsa-lib",
+                )
+            )
+        return environment
 
     def start(self) -> Document:
         self.require_not_retired()

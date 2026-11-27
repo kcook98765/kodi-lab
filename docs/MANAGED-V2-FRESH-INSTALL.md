@@ -46,6 +46,8 @@ Managed Kodi plays audio into a silent PulseAudio sink. The broker starts it
 in a network-disabled worker for the active Kodi container and removes it
 on Stop. The endpoint uses a private Unix socket and needs no host audio
 configuration. It keeps playback paced while discarding audio samples.
+Piers routes its existing ALSA default through the PulseAudio plugin shipped
+in its reviewed image.
 
 The audio worker comes from the installed broker image. After a compatible
 application update, Start uses the endpoint with the existing reviewed Kodi
