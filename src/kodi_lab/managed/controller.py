@@ -74,6 +74,7 @@ class Controller:
         daemon_root: Path | None = None,
         reviewed_image: Path | None = None,
         handoff_root: Path | None = None,
+        audio_image: str | None = None,
         interrupt: Callable[[str], None] | None = None,
     ) -> None:
         self.runtime = Runtime(
@@ -81,6 +82,7 @@ class Controller:
             self.checkpoint,
             daemon_root=daemon_root,
             reviewed_image=reviewed_image,
+            audio_image=audio_image,
         )
         self.omega = self.runtime
         self.storage_maintenance = StorageMaintenance(self)
@@ -98,6 +100,7 @@ class Controller:
                     reviewed_image=handoff_root / reviewed_image_file(generation),
                     generation=generation,
                     network_policy=self.omega.network_policy,
+                    audio_image=audio_image,
                 )
         self.input_attempt: UUID | None = None
         self.input_prior_lease: bytes | None = None
