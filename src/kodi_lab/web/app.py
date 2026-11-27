@@ -1164,6 +1164,7 @@ def create_app(
             try:
                 yield
             finally:
+                context.mcp_transport.close_recordings()
                 storage_inventory.close()
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()

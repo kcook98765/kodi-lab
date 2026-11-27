@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import json
 import logging
@@ -12,20 +13,29 @@ import socketserver
 import stat
 import struct
 import time
-from collections.abc import Callable, Mapping
-from contextlib import suppress
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from threading import Event, Thread
+from threading import BoundedSemaphore, Event, Thread
 from typing import Protocol, cast
 
 from . import REVIEWED_IMAGE_FILE
 from .controller import Controller
 from .packages import HEX, MAX_ZIP
 from .prepare import PREPARE_CLEANUP_INTERVAL
-from .protocol import OperationReply, Refusal, actor_key, validate
+from .protocol import (
+    RECORDING_RATES,
+    RECORDING_TOOLS,
+    OperationReply,
+    Refusal,
+    actor_key,
+    validate,
+)
+from .recording import MAX_BYTES, RECORDING_ID, CaptureBinding, Recordings
 from .runtime_retirement import OPERATIONS as RETIREMENT_OPERATIONS
 from .storage_maintenance import OPERATIONS as STORAGE_OPERATIONS
 from .viewer import display_lane
+from .x11_recording import MAX_SECONDS
 
 MAX_REQUEST = 810_000
 MAX_REPLY = 2_000_000
@@ -58,6 +68,45 @@ class BrokerClient:
             actor, "package_upload", {"size": len(data), "digest": digest}, data
         )
 
+    @asynccontextmanager
+    async def download(
+        self, actor: str, credential: str, recording: str
+    ) -> AsyncIterator[tuple[asyncio.StreamReader, int]]:
+        writer: asyncio.StreamWriter | None = None
+        try:
+            try:
+                async with asyncio.timeout(5):
+                    reader, writer = await asyncio.open_unix_connection(self.path)
+                    writer.write(
+                        frame(
+                            {
+                                "actor": actor,
+                                "name": "recording_download",
+                                "args": {
+                                    "credential": credential,
+                                    "recording": recording,
+                                },
+                            }
+                        )
+                    )
+                    await writer.drain()
+                    reply = json.loads(await reader.readline())
+            except (OSError, ValueError) as error:
+                raise Refusal("operation_outcome_unconfirmed") from error
+            if not isinstance(reply, dict):
+                raise Refusal("managed_broker_reply_invalid")
+            if set(reply) == {"error"} and isinstance(reply["error"], str):
+                raise Refusal(reply["error"])
+            size = reply.get("bytes")
+            if type(size) is not int or not 0 < size <= MAX_BYTES:
+                raise Refusal("managed_broker_reply_invalid")
+            yield reader, size
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(OSError):
+                    await writer.wait_closed()
+
     def _exchange(
         self,
         actor: str,
@@ -67,7 +116,7 @@ class BrokerClient:
     ) -> OperationReply:
         try:
             with socket.socket(socket.AF_UNIX) as connection:
-                connection.settimeout(155)
+                connection.settimeout(2 if name == "recording_renew" else 155)
                 connection.connect(str(self.path))
                 connection.sendall(
                     frame({"actor": actor, "name": name, "args": dict(args)})
@@ -91,9 +140,17 @@ class BrokerClient:
 class Broker(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, path: Path, controller: Controller, frontend_uid: int) -> None:
+    def __init__(
+        self,
+        path: Path,
+        controller: Controller,
+        frontend_uid: int,
+        recordings: Recordings | None = None,
+    ) -> None:
         self.controller = controller
         self.frontend_uid = frontend_uid
+        self.recordings = recordings
+        self.download_slot = BoundedSemaphore()
         super().__init__(str(path), Handler)
 
     def verify_request(
@@ -131,6 +188,10 @@ class Broker(socketserver.ThreadingUnixStreamServer):
                 "result": handler.request(operation, request["args"]),
                 "elapsed_seconds": round(time.monotonic() - started, 3),
             }
+        if isinstance(operation, str) and operation in RECORDING_TOOLS | {
+            "recording_renew"
+        }:
+            return self.recording_request(actor, operation, request["args"])
         if request["name"] == "package_upload":
             args = request["args"]
             if (
@@ -151,6 +212,96 @@ class Broker(socketserver.ThreadingUnixStreamServer):
         name, args = validate(request["name"], request["args"])
         return self.controller.perform(name, args, actor=actor)
 
+    def recording_request(
+        self,
+        actor: str,
+        operation: str,
+        args: object,
+    ) -> OperationReply:
+        started = time.monotonic()
+        identity, arguments = recording_identity(actor, args)
+        if self.recordings is None:
+            raise Refusal("managed_recording_unavailable")
+        if operation == "managed_recording_start":
+            _, settings = validate(operation, arguments)
+            rate = settings.get("fps", "2")
+            seconds = settings.get("seconds", "300")
+            if (
+                rate not in RECORDING_RATES
+                or not seconds.isascii()
+                or not seconds.isdecimal()
+                or not 1 <= int(seconds) <= MAX_SECONDS
+            ):
+                raise Refusal("invalid_arguments")
+            generation = settings.get("generation", "omega")
+            result = self.recordings.start(
+                identity,
+                int(rate),
+                int(seconds),
+                lambda: self.recording_binding(generation, actor),
+            )
+        else:
+            if operation != "recording_renew":
+                validate(operation, arguments)
+            recording = (
+                None
+                if operation == "managed_recording_status" and not arguments
+                else recording_argument(arguments)
+            )
+            result = self.recordings.request(
+                identity, recording, operation.rsplit("_", 1)[1]
+            )
+        return {
+            "result": result,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+        }
+
+    def recording_binding(self, generation: str, actor: str) -> CaptureBinding:
+        runtime = self.controller.runtimes.get(generation)
+        if runtime is None:
+            raise Refusal("managed_generation_unavailable")
+        with self.controller.omega.exclusive():
+            # Use the same read authority as managed GUI observation. Recording
+            # never claims or renews the managed input lease.
+            self.controller.authorize_profile("managed_gui", actor, None)
+            obj = runtime.inspect()
+            if not obj or not obj["State"]["Running"]:
+                raise Refusal("kodi_stopped")
+            runtime.check_live_profile(obj)
+            if runtime.public.session.exists():
+                raise Refusal("managed_recording_public_profile")
+            return CaptureBinding(
+                generation,
+                obj["Id"],
+                obj["State"]["StartedAt"],
+                runtime.image,
+                runtime.read_pointer(),
+                runtime.read_pointer,
+            )
+
+
+def recording_identity(
+    actor: str, args: object
+) -> tuple[tuple[str, str], dict[str, object]]:
+    if actor == "admin" or not isinstance(args, dict):
+        raise Refusal("permission_denied")
+    arguments = dict(args)
+    credential = actor_key(arguments.pop("credential", None))
+    if credential == "admin":
+        raise Refusal("permission_denied")
+    return (actor, credential), arguments
+
+
+def recording_argument(args: Mapping[str, object]) -> str:
+    recording = args.get("recording")
+    if (
+        set(args) != {"recording"}
+        or not isinstance(recording, str)
+        or not RECORDING_ID.fullmatch(recording)
+    ):
+        raise Refusal("invalid_arguments")
+    return recording
+
 
 class Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
@@ -163,6 +314,12 @@ class Handler(socketserver.StreamRequestHandler):
         else:
             try:
                 assert isinstance(self.server, Broker)
+                if (
+                    isinstance(request, dict)
+                    and request.get("name") == "recording_download"
+                ):
+                    self.download(request)
+                    return
                 reply = {"value": self.server.dispatch(request, self.rfile.read)}
             except Refusal as exc:
                 reply = {"error": str(exc)}
@@ -172,17 +329,51 @@ class Handler(socketserver.StreamRequestHandler):
         with suppress(OSError):
             self.wfile.write(frame(reply))
 
+    def download(self, request: dict[str, object]) -> None:
+        assert isinstance(self.server, Broker)
+        if set(request) != {"actor", "name", "args"}:
+            raise Refusal("invalid_broker_request")
+        identity, args = recording_identity(
+            actor_key(request["actor"]), request["args"]
+        )
+        recording = recording_argument(args)
+        if self.server.recordings is None:
+            raise Refusal("managed_recording_unavailable")
+        if not self.server.download_slot.acquire(blocking=False):
+            raise Refusal("managed_recording_download_busy")
+        try:
+            file, result = self.server.recordings.open_artifact(identity, recording)
+            with file, suppress(OSError):
+                self.wfile.write(frame({"bytes": result["bytes"]}))
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline and (chunk := file.read(65536)):
+                    self.wfile.write(chunk)
+        finally:
+            self.server.download_slot.release()
 
-def maintain_resources(controller: Controller, stopped: Event) -> None:
+
+def maintain_resources(
+    controller: Controller,
+    recordings: Recordings,
+    stopped: Event,
+) -> None:
     while not stopped.is_set():
         controller.resume_prepare_cleanup()
         if not stopped.is_set():
             controller.resume_feed_cleanup()
+            if recordings is not None:
+                with suppress(OSError):
+                    recordings.cleanup()
         stopped.wait(PREPARE_CLEANUP_INTERVAL)
 
 
 def serve(
-    root: Path, path: Path, frontend_uid: int, frontend_gid: int, daemon_root: Path
+    root: Path,
+    path: Path,
+    frontend_uid: int,
+    frontend_gid: int,
+    daemon_root: Path,
+    encoder_image: str | None = None,
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
@@ -205,7 +396,16 @@ def serve(
             if not stat.S_ISSOCK(entry.st_mode) or entry.st_uid != os.getuid():
                 raise Refusal("broker_socket_not_owned")
             path.unlink()
-        with Broker(path, controller, frontend_uid) as broker:
+        try:
+            recordings: Recordings | None = Recordings(
+                root / "recordings",
+                daemon_root=daemon_root / "recordings",
+                encoder_image=encoder_image,
+            )
+        except (OSError, Refusal):
+            logging.warning("Managed recording storage unavailable")
+            recordings = None
+        with Broker(path, controller, frontend_uid, recordings) as broker:
             try:
                 os.chown(path, -1, frontend_gid)
                 path.chmod(0o660)
@@ -226,7 +426,7 @@ def serve(
                     ).start()
                     Thread(
                         target=maintain_resources,
-                        args=(controller, stopped),
+                        args=(controller, recordings, stopped),
                         name="managed-resource-cleanup",
                         daemon=True,
                     ).start()
@@ -234,6 +434,10 @@ def serve(
                     while not stopped.is_set():
                         broker.handle_request()
                 finally:
-                    lane.close()
+                    try:
+                        lane.close()
+                    finally:
+                        if recordings is not None:
+                            recordings.close()
             finally:
                 path.unlink(missing_ok=True)

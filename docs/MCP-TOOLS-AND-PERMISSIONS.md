@@ -31,6 +31,7 @@ versions. Load snapshots only into their original reviewed image identity.
 | Private profile snapshots | `managed_snapshot_list`, `managed_snapshot_save`, `managed_snapshot_load`, `managed_snapshot_delete` |
 | Private workspaces | `managed_workspace_open`, `managed_workspace_tree`, `managed_workspace_read`, `managed_workspace_edit`, `managed_workspace_package`, `managed_workspace_deploy` |
 | Native package workflow | `managed_package_import`, `managed_addon_install`, `managed_addon_inventory`, `managed_addon_launch`, `managed_addon_setting` |
+| Private video recording | `managed_recording_start`, `managed_recording_status`, `managed_recording_stop`, `managed_recording_delete` |
 | Inspection and control | `managed_logs`, `managed_gui`, `managed_screen`, `managed_navigate`, `managed_skin` |
 
 Admit a ZIP with its digest or package a workspace, then submit one install
@@ -57,6 +58,12 @@ supply its admitted digest and `replace="true"`. This replaces the private
 workspace tree without changing installed Kodi files. Keep unpublished edits
 you want to retain. For ordinary text changes retain the digest-guarded
 `managed_workspace_edit` and direct deploy workflow.
+
+### Private managed video
+
+Use the [managed recording workflow](MANAGED-RECORDING.md) for bounded silent
+Kodi display capture. The issuing Trusted Managed Lab credential controls
+and retrieves its own artifacts through the authenticated MCP endpoint.
 
 ### Approved disposable public repository testing
 

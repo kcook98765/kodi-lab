@@ -80,7 +80,7 @@ MANAGED_STATE = Path("/var/lib/kodi-lab-managed")
 KODI_UID = 1000
 
 
-def _managed_volume_source() -> Path:
+def _managed_volume_source() -> tuple[Path, str]:
     own = json.loads(docker("inspect", "--type", "container", socket.gethostname()))[0]
     if own["Config"].get("Entrypoint") != ["kodi-lab-broker"]:
         raise BrokerStartupError("managed broker container identity is invalid")
@@ -110,22 +110,30 @@ def _managed_volume_source() -> Path:
         or not source.endswith(f"/volumes/{name}/_data")
     ):
         raise BrokerStartupError("managed state volume has an unexpected host path")
-    return Path(source)
+    image = own.get("Image")
+    if not isinstance(image, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+        raise BrokerStartupError("managed broker image identity is invalid")
+    return Path(source), image
 
 
 def _start_managed(
-    root: Path, path: Path, web_uid: int, web_gid: int, daemon_root: Path
+    root: Path,
+    path: Path,
+    web_uid: int,
+    web_gid: int,
+    daemon_root: Path,
+    encoder_image: str,
 ) -> None:
     # Own only the separate managed state volume. Keep Web/agent credentials in
     # the application and never inherit the Web state directory as authority.
     os.setgroups([web_gid, Path("/var/run/docker.sock").stat().st_gid])
     os.setgid(KODI_UID)
     os.setuid(KODI_UID)
-    serve(root, path, web_uid, web_gid, daemon_root)
+    serve(root, path, web_uid, web_gid, daemon_root, encoder_image)
 
 
 def _managed_process() -> Process:
-    daemon_root = _managed_volume_source()
+    daemon_root, image = _managed_volume_source()
     config = ProductionBrokerConfiguration.resolve()
     runtime_directory = config.socket.runtime_directory / "managed"
     runtime_directory.mkdir(mode=0o750, exist_ok=True)
@@ -151,6 +159,7 @@ def _managed_process() -> Process:
             config.authorization.expected_uid,
             config.socket.socket_group_gid,
             daemon_root,
+            image,
         ),
     )
 
