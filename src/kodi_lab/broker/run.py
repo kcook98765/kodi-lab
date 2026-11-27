@@ -122,14 +122,14 @@ def _start_managed(
     web_uid: int,
     web_gid: int,
     daemon_root: Path,
-    encoder_image: str,
+    worker_image: str,
 ) -> None:
     # Own only the separate managed state volume. Keep Web/agent credentials in
     # the application and never inherit the Web state directory as authority.
     os.setgroups([web_gid, Path("/var/run/docker.sock").stat().st_gid])
     os.setgid(KODI_UID)
     os.setuid(KODI_UID)
-    serve(root, path, web_uid, web_gid, daemon_root, encoder_image)
+    serve(root, path, web_uid, web_gid, daemon_root, worker_image)
 
 
 def _managed_process() -> Process:

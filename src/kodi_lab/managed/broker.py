@@ -373,7 +373,7 @@ def serve(
     frontend_uid: int,
     frontend_gid: int,
     daemon_root: Path,
-    encoder_image: str | None = None,
+    worker_image: str | None = None,
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
@@ -382,6 +382,7 @@ def serve(
         daemon_root=daemon_root,
         reviewed_image=path.parent.parent / REVIEWED_IMAGE_FILE,
         handoff_root=path.parent.parent,
+        audio_image=worker_image,
     )
     parent = path.parent.stat()
     if parent.st_uid != os.getuid() or parent.st_mode & 0o022:
@@ -400,7 +401,7 @@ def serve(
             recordings: Recordings | None = Recordings(
                 root / "recordings",
                 daemon_root=daemon_root / "recordings",
-                encoder_image=encoder_image,
+                encoder_image=worker_image,
             )
         except (OSError, Refusal):
             logging.warning("Managed recording storage unavailable")

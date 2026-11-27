@@ -40,6 +40,18 @@ remains valid. If native input cleanup cannot be verified after a failure,
 stop Kodi to clear the input fence. A stopped or replaced Kodi ends the stream.
 Select **View** again to watch the next start.
 
+## Managed Kodi audio
+
+Managed Kodi plays audio into a silent PulseAudio sink. The broker starts it
+in a network-disabled worker for the active Kodi container and removes it
+on Stop. The endpoint uses a private Unix socket and needs no host audio
+configuration. It keeps playback paced while discarding audio samples.
+
+The audio worker comes from the installed broker image. After a compatible
+application update, Start uses the endpoint with the existing reviewed Kodi
+image, working profile and snapshot bindings. A profile Reset or runtime
+reacquisition is unnecessary.
+
 ## Managed Kodi network access
 
 On **Managed Kodi**, select **Allow network access** and save to let Matrix,

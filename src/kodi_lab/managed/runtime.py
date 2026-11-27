@@ -44,6 +44,8 @@ BRIDGE = "service.kodi_lab_bridge"
 ESTUARY = "skin.estuary"
 REPO = "repository.kodi-lab-v2"
 LABEL = "io.kodi-lab.managed-v2"
+AUDIO_LABEL = "io.kodi-lab.managed-audio"
+AUDIO_RUN_LABEL = "io.kodi-lab.managed-audio-run"
 ALLOCATION_LABEL = "io.kodi-lab.profile-allocation"
 ALLOCATION_XATTR = "user.kodi_lab.allocation"
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
@@ -204,8 +206,10 @@ class Runtime:
         reviewed_image: Path | None = None,
         generation: str = "omega",
         network_policy: Path | None = None,
+        audio_image: str | None = None,
     ) -> None:
         self.generation = generation
+        self.audio_image = audio_image
         self.system = "/app/share/kodi" if generation == "piers" else "/usr/share/kodi"
         self.addons_system = self.system + "/addons"
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
@@ -248,6 +252,7 @@ class Runtime:
         )
         prefix = "kodi-v2-" + self.target.hex[:16]
         self.feed_name = prefix + "-feed"
+        self.audio_name = prefix + "-audio"
         self.network_name = prefix + "-net"
         self.volume_prefix = prefix + "-"
         self.public = PublicNetwork(self)
@@ -306,12 +311,12 @@ class Runtime:
             raise Refusal("reviewed_image_required")
         return image
 
-    def args(self) -> list[str]:
+    def args(self, label: str = LABEL) -> list[str]:
         return [
             "--pull",
             "never",
             "--label",
-            f"{LABEL}={self.target}",
+            f"{label}={self.target}",
             "--cap-drop",
             "ALL",
             "--security-opt",
@@ -779,6 +784,122 @@ class Runtime:
         data = (self.material / "bridge/service.py").read_bytes()
         return hashlib.sha256(data).hexdigest()
 
+    def audio_directory(self) -> Path:
+        directory = self.credentials / "audio"
+        info = directory.lstat()
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+        ):
+            raise Refusal("managed_audio_directory_identity")
+        return directory
+
+    def stop_audio(self) -> None:
+        if self.audio_image is None:
+            return
+        receipt = self.credentials / "audio-worker"
+        ids = docker(
+            "ps", "-aq", "--no-trunc", "--filter", f"name=^/{self.audio_name}$"
+        )
+        if ids:
+            if not re.fullmatch(r"[0-9a-f]{64}", ids):
+                raise Refusal("managed_audio_container_identity")
+            try:
+                image, launch = receipt.read_text().split()
+            except (FileNotFoundError, ValueError) as error:
+                raise Refusal("managed_audio_container_identity") from error
+            if not re.fullmatch(
+                r"sha256:[0-9a-f]{64} [0-9a-f]{32}", f"{image} {launch}"
+            ):
+                raise Refusal("managed_audio_container_identity")
+            child = json.loads(docker("inspect", "--type", "container", ids))[0]
+            if (
+                child["Id"] != ids
+                or child["Name"] != "/" + self.audio_name
+                or child["Image"] != image
+                or child["Config"]["Labels"].get(AUDIO_LABEL) != str(self.target)
+                or child["Config"]["Labels"].get(AUDIO_RUN_LABEL) != launch
+            ):
+                raise Refusal("managed_audio_container_identity")
+            if child["State"]["Running"]:
+                docker("stop", "-t", "3", ids)
+            docker("rm", ids)
+        try:
+            directory = self.audio_directory()
+        except FileNotFoundError:
+            pass
+        else:
+            (directory / "native").unlink(missing_ok=True)
+            directory.rmdir()
+        receipt.unlink(missing_ok=True)
+
+    def start_audio(self) -> list[str]:
+        if self.audio_image is None:
+            return []
+        self.stop_audio()
+        # Only the worker can write this directory. Kodi connects through its
+        # existing read-only live mount using same-UID Unix peer authentication.
+        (self.credentials / "audio").mkdir(mode=0o700)
+        directory = self.audio_directory()
+        # Record the launch before Docker dispatch so a lost reply or broker
+        # image change can still reconcile the exact old worker.
+        launch = uuid4().hex
+        atomic(
+            self.credentials / "audio-worker", f"{self.audio_image} {launch}".encode()
+        )
+        docker(
+            "run",
+            "-d",
+            *self.args(AUDIO_LABEL),
+            "--name",
+            self.audio_name,
+            "--label",
+            f"{AUDIO_RUN_LABEL}={launch}",
+            "--network",
+            "none",
+            "--read-only",
+            "--no-healthcheck",
+            "--user",
+            "1000:1000",
+            "--pids-limit",
+            "24",
+            "--memory",
+            "64m",
+            "--memory-swap",
+            "64m",
+            "--cpus",
+            "0.25",
+            "--tmpfs",
+            "/run/pulse:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=700,size=4m",
+            "--env",
+            "HOME=/run/pulse",
+            "--env",
+            "XDG_RUNTIME_DIR=/run/pulse",
+            "--mount",
+            f"type=bind,src={self.daemon_path(directory)},dst=/audio",
+            "--entrypoint",
+            "/usr/bin/pulseaudio",
+            self.audio_image,
+            "-n",
+            "--daemonize=no",
+            "--exit-idle-time=-1",
+            "--disable-shm=yes",
+            "--realtime=no",
+            "--high-priority=no",
+            "--disallow-exit=yes",
+            "--disallow-module-loading=yes",
+            "--log-level=warning",
+            "-L",
+            "module-null-sink sink_name=kodi_lab rate=48000",
+            "-L",
+            "module-native-protocol-unix socket=/audio/native auth-cookie-enabled=no",
+        )
+        wait_until(
+            (directory / "native").is_socket, 5, "managed_audio_socket_unavailable"
+        )
+        return ["--env", "PULSE_SERVER=unix:/managed-v2-credentials/audio/native"]
+
     def start(self) -> Document:
         self.require_not_retired()
         self.capacity()
@@ -867,6 +988,7 @@ class Runtime:
             )
         elif not helper["State"]["Running"]:
             docker("start", helper["Id"])
+        audio = self.start_audio()
         docker(
             "run",
             "-d",
@@ -899,6 +1021,7 @@ class Runtime:
             "LP_NUM_THREADS=2",
             "--env",
             "PYTHONDONTWRITEBYTECODE=1",
+            *audio,
             "--tmpfs",
             "/run/kodi:rw,uid=1000,gid=1000,mode=700,size=32m",
             "--mount",
@@ -946,11 +1069,13 @@ class Runtime:
             if obj["State"]["Status"] != "exited" or obj["State"]["Running"]:
                 raise Refusal("clean_stop_required")
             docker("rm", obj["Id"])
+        self.stop_audio()
         for filename in ("state.json", "rpc"):
             (self.credentials / filename).unlink(missing_ok=True)
 
     def stop(self) -> Document:
         obj = self.inspect()
+        stopped = None
         if obj is not None:
             self.check_live_profile(obj)
             if obj["State"]["Running"]:
@@ -962,6 +1087,8 @@ class Runtime:
                     "native_exit_unconfirmed",
                 )
             stopped = self.inspect()
+        self.stop_audio()
+        if obj is not None:
             if (
                 stopped is None
                 or stopped["State"]["ExitCode"]
@@ -1088,6 +1215,7 @@ class Runtime:
                     if obj["State"]["Running"]:
                         docker("stop", "-t", "6", obj["Id"])
                     docker("rm", obj["Id"])
+            self.stop_audio()
             self.pointer.unlink(missing_ok=True)
             for directory in sorted((self.root / "volumes").iterdir()):
                 self.retire(directory.name)
