@@ -22,38 +22,22 @@ import tempfile
 import time
 from contextlib import suppress
 from pathlib import Path
+from runpy import run_path
 
 CHUNK = 65536
 BACKLOG = 1024 * 1024
 LEASE_SECONDS = 3.0
+SEALED_HELPER = "/usr/local/lib/kodi-lab-novnc-view.py"
 
 
 def command(socket_path: str, rate: int) -> list[str]:
-    """Closed policy: client preferences cannot enable input or TCP."""
-    if rate not in (2, 10, 15):
-        raise ValueError("unsupported rate")
-    return [
-        "/usr/bin/X0tigervnc",
-        "-display=:99",
-        "-rfbport=-1",
-        f"-rfbunixpath={socket_path}",
-        "-rfbunixmode=0600",
-        "-SecurityTypes=None",
-        "-AcceptKeyEvents=0",
-        "-AcceptPointerEvents=0",
-        "-AcceptCutText=0",
-        "-SendCutText=0",
-        "-AcceptSetDesktopSize=0",
-        "-SetPrimary=0",
-        "-SendPrimary=0",
-        "-NeverShared=1",
-        "-DisconnectClients=0",
-        "-MaxDisconnectionTime=5",
-        "-MaxConnectionTime=0",
-        "-MaxProcessorUsage=35",
-        f"-FrameRate={rate}",
-        "-Log=*:stderr:0",
-    ]
+    """Keep the approved runtime's view-only flags and remove its time limit."""
+    # Matrix and Nexus ship TigerVNC without X11 clipboard support. Their
+    # sealed policy omits arguments that those versions reject at startup.
+    policy = run_path(SEALED_HELPER)["command"]
+    args: list[str] = policy(socket_path, rate)
+    args[args.index("-MaxConnectionTime=600")] = "-MaxConnectionTime=0"
+    return args
 
 
 def run(rate: int) -> None:
@@ -204,6 +188,6 @@ def run(rate: int) -> None:
 
 if __name__ == "__main__":
     # The in-image cleanup probe also recognizes this marker in /proc.
-    if sys.argv[1:] != ["/usr/local/lib/kodi-lab-novnc-view.py"]:
+    if sys.argv[1:] != [SEALED_HELPER]:
         raise SystemExit(64)
     run(int(os.environ["KODI_LAB_VIEW_RATE"]))

@@ -364,7 +364,7 @@ def test_interactive_cleanup_checks_native_input_after_nonzero_exit(
     from contextlib import nullcontext
     from unittest.mock import Mock
 
-    from kodi_lab.managed.viewer import helper_exited
+    from kodi_lab.managed.viewer import helper_exit_proof
 
     binding = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", ())
     docker = Mock()
@@ -377,7 +377,34 @@ def test_interactive_cleanup_checks_native_input_after_nonzero_exit(
     }
     docker.exec_create.return_value = {"Id": "probe"}
     monkeypatch.setattr("docker.APIClient", lambda **_kwargs: nullcontext(docker))
-    assert helper_exited(binding, "interactive", interactive=True) is proven
+    assert helper_exit_proof(binding, interactive=True)("interactive") is proven
     assert bool(docker.exec_create.call_count) is probe_used
     if probe_used:
         assert docker.exec_create.call_args.kwargs["cmd"][-1] == "--probe-control"
+
+
+def test_interactive_probe_retries_are_bounded_until_incarnation_retires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from kodi_lab.managed.viewer import MAX_NATIVE_INPUT_PROBES, helper_exit_proof
+
+    binding = ViewBinding("a" * 64, "sha256:" + "b" * 64, "start", ())
+    docker = Mock()
+    docker.exec_inspect.return_value = {"Running": False, "ExitCode": 1}
+    docker.inspect_container.return_value = {
+        "State": {"Running": True, "StartedAt": binding.started}
+    }
+    docker.exec_create.return_value = {"Id": "probe"}
+    monkeypatch.setattr("docker.APIClient", lambda **_kwargs: nullcontext(docker))
+    prove = helper_exit_proof(binding, interactive=True)
+
+    for _ in range(MAX_NATIVE_INPUT_PROBES + 5):
+        assert not prove("interactive")
+    assert docker.exec_create.call_count == MAX_NATIVE_INPUT_PROBES
+
+    docker.inspect_container.return_value["State"]["StartedAt"] = "replacement"
+    assert prove("interactive")
+    assert docker.exec_create.call_count == MAX_NATIVE_INPUT_PROBES

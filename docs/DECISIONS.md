@@ -8372,7 +8372,9 @@ The broker sends fixed, package-owned passive helper code through the existing
 private Docker exec lane. It runs as the runtime UID and uses the same private
 Unix RFB transport, arming challenge, liveness leases and bounded buffers.
 The broker checks the admitted container ID, image and start time before
-arming. The sealed image helper remains the interactive entry point.
+arming. The passive worker reuses each sealed image’s view-only TigerVNC flags and
+removes its connection deadline. The sealed helper remains the interactive
+entry point.
 This allows existing approved images and profiles to use the passive change.
 
 Passive Web heartbeats check expiration and revocation without touching the

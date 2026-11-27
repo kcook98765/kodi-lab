@@ -36,8 +36,9 @@ credentials. When the Web session expires, sign in and select **View** again.
 **Take Control** temporarily excludes agent input for up to ten minutes.
 **Release Control** closes the interactive worker and restores any still-valid
 agent claim after cleanup. The agent can inspect Kodi while its previous claim
-remains valid. A stopped or replaced Kodi ends the stream. Select **View** again
-to watch the next start.
+remains valid. If native input cleanup cannot be verified after a failure,
+stop Kodi to clear the input fence. A stopped or replaced Kodi ends the stream.
+Select **View** again to watch the next start.
 
 ## Managed Kodi network access
 
