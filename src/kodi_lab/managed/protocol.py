@@ -17,7 +17,17 @@ class OperationReply(TypedDict):
     elapsed_seconds: float
 
 
+RECORDING_TOOLS = {
+    "managed_recording_delete",
+    "managed_recording_start",
+    "managed_recording_status",
+    "managed_recording_stop",
+}
+RECORDING_RATES = {"2", "5"}
+
+
 READ = {
+    "managed_recording_status",
     "managed_status",
     "managed_public_repository_status",
     "snapshot_list",
@@ -56,6 +66,10 @@ FIELDS = {
     "managed_logs": (),
     "managed_gui": (),
     "managed_screen": (),
+    "managed_recording_start": (),
+    "managed_recording_status": (),
+    "managed_recording_stop": ("recording",),
+    "managed_recording_delete": ("recording",),
     "managed_navigate": ("action",),
     "managed_recover": (),
     "snapshot_list": (),
@@ -85,9 +99,14 @@ VERSION_SCOPED = (
         "managed_release",
         "managed_take_control",
         "managed_network_access",
+        "managed_recording_delete",
+        "managed_recording_status",
+        "managed_recording_stop",
     }
 )
 OPTIONAL = {
+    "managed_recording_start": ("fps", "seconds"),
+    "managed_recording_status": ("recording",),
     "addon_install": ("allow_services",),
     "managed_public_install": ("allow_services",),
     "workspace_open": ("replace",),

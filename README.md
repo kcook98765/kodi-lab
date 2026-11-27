@@ -26,6 +26,8 @@ Ordinary development uses an internal network and private feed. The optional [ap
 
 [Managed MCP contracts and package admission](docs/MCP-TOOLS-AND-PERMISSIONS.md) · [Security boundaries](SECURITY.md)
 
+For private silent videos of managed Kodi, see [Managed recording](docs/MANAGED-RECORDING.md).
+
 ## External Kodi and recovery
 
 Register external Kodi separately and grant its inspection, navigation or development permissions per target. Trusted Managed Lab authority applies to managed Kodi only. [External registration and Bridge pairing](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge)

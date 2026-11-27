@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -47,7 +47,7 @@ from pydantic import (
     ValidationError,
 )
 from starlette.datastructures import Headers
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
@@ -101,10 +101,12 @@ from kodi_lab.managed.protocol import (
     FIELDS,
     OPTIONAL,
     READ,
+    RECORDING_TOOLS,
     VERSION_SCOPED,
     Refusal,
     validate,
 )
+from kodi_lab.managed.recording import RECORDING_ID
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import (
@@ -340,12 +342,14 @@ class ModernMcpAuthMiddleware:
         transport_security: TransportSecuritySettings | None = None,
         instance_id: str | None = None,
         package_upload: ASGIApp | None = None,
+        recording_download: ASGIApp | None = None,
     ) -> None:
         self._app = app
         self._authentication = authentication
         self._transport_security = transport_security
         self._instance_id = instance_id
         self._package_upload = package_upload
+        self._recording_download = recording_download
         self.failed_auth = failed_auth or BoundedTokenBucketLimiter(
             rate=5.0, burst=20, maximum_buckets=1024, idle_seconds=15 * 60
         )
@@ -386,6 +390,7 @@ class ModernMcpAuthMiddleware:
                 "content-length",
                 "content-type",
                 "x-kodi-lab-package-sha256",
+                "x-kodi-lab-recording",
             )
         ):
             await Response(status_code=400)(scope, receive, send)
@@ -396,12 +401,16 @@ class ModernMcpAuthMiddleware:
             )
             return
         content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
-        if content_type == "application/zip" and self._package_upload is not None:
+        private_transfer = {
+            "application/zip": self._package_upload,
+            "application/vnd.kodi-lab.recording": self._recording_download,
+        }.get(content_type)
+        if private_transfer is not None:
             principal = self._principal(scope, headers)
             if principal is None:
                 await self._authentication_failed(scope, receive, send)
                 return
-            await self._dispatch(scope, receive, send, principal, self._package_upload)
+            await self._dispatch(scope, receive, send, principal, private_transfer)
             return
         length = headers.get("content-length")
         if length is not None:
@@ -758,6 +767,7 @@ class McpHttpTransport:
     server: Server[dict[str, Any]]
     development_read_limiter: BoundedTokenBucketLimiter
     instance_id: str
+    close_recordings: Callable[[], None]
 
 
 def build_mcp_http_transport(
@@ -1005,6 +1015,29 @@ def build_mcp_http_transport(
         ),
     }
 
+    recording_leases: set[asyncio.Task[None]] = set()
+
+    async def renew_recording(principal: McpPrincipal, recording: str) -> None:
+        args = {"credential": str(principal.credential_id), "recording": recording}
+        try:
+            while True:
+                await asyncio.sleep(2)
+                if not await asyncio.to_thread(
+                    authorization.managed_lab_enabled, principal
+                ):
+                    return
+                await asyncio.to_thread(
+                    managed.request, str(principal.client_id), "recording_renew", args
+                )
+        except (McpAuthorizationError, Refusal):
+            return
+        except Exception:
+            logger.warning("Managed recording authority check unavailable")
+
+    def close_recordings() -> None:
+        for lease in recording_leases:
+            lease.cancel()
+
     managed_inventory = [
         Tool(
             name=public,
@@ -1035,6 +1068,12 @@ def build_mcp_http_transport(
                             **(
                                 {"pattern": "^[0-9a-f]{64}$"}
                                 if field in {"baseline", "review"}
+                                else {"enum": ["2", "5"]}
+                                if field == "fps"
+                                else {"pattern": "^[0-9]{1,4}$"}
+                                if field == "seconds"
+                                else {"pattern": "^[0-9a-f]{32}$"}
+                                if field == "recording"
                                 else {"enum": ["true", "false"]}
                             ),
                         }
@@ -1059,6 +1098,8 @@ def build_mcp_http_transport(
             if not authorization.managed_lab_enabled(principal):
                 return _tool_error_result("permission_denied")
             _, args = validate(name, params.arguments or {})
+            if name in RECORDING_TOOLS:
+                args["credential"] = str(principal.credential_id)
             output = await asyncio.to_thread(
                 broker.request, str(principal.client_id), name, args
             )
@@ -1067,6 +1108,15 @@ def build_mcp_http_transport(
         except Refusal as exc:
             return _tool_error_result(str(exc))
         result = output["result"]
+        if (
+            name == "managed_recording_start"
+            and isinstance(result, dict)
+            and isinstance(recording := result.get("recording"), str)
+            and RECORDING_ID.fullmatch(recording)
+        ):
+            lease = asyncio.create_task(renew_recording(principal, recording))
+            recording_leases.add(lease)
+            lease.add_done_callback(recording_leases.discard)
         if name == "managed_screen" and isinstance(result, dict):
             return CallToolResult(
                 content=[
@@ -1556,6 +1606,64 @@ def build_mcp_http_transport(
                 return
         await JSONResponse(result)(scope, receive, send)
 
+    async def recording_download(scope: Scope, receive: Receive, send: Send) -> None:
+        principal = _principal_context.get()
+        headers = Headers(scope=scope)
+        recording = headers.get("x-kodi-lab-recording", "")
+        if headers.get("content-length") != "0" or not RECORDING_ID.fullmatch(
+            recording
+        ):
+            await Response(status_code=400)(scope, receive, send)
+            return
+        try:
+            if not await asyncio.to_thread(
+                authorization.managed_lab_enabled, principal
+            ):
+                raise McpAuthorizationError("permission_denied")
+            async with managed.download(
+                str(principal.client_id), str(principal.credential_id), recording
+            ) as (reader, size):
+
+                async def chunks() -> AsyncIterator[bytes]:
+                    remaining = size
+                    recheck_at = time.monotonic() + 2
+                    while remaining:
+                        if time.monotonic() >= recheck_at:
+                            try:
+                                if not await asyncio.to_thread(
+                                    authorization.managed_lab_enabled, principal
+                                ):
+                                    return
+                            except McpAuthorizationError:
+                                return
+                            recheck_at = time.monotonic() + 2
+                        data = await reader.read(min(65536, remaining))
+                        if not data:
+                            return
+                        remaining -= len(data)
+                        yield data
+
+                filename = f"kodi-recording-{recording}.mp4"
+                async with asyncio.timeout(60):
+                    await StreamingResponse(
+                        chunks(),
+                        media_type="video/mp4",
+                        headers={
+                            "Content-Length": str(size),
+                            "Content-Disposition": f'attachment; filename="{filename}"',
+                            "Cache-Control": "no-store",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )(scope, receive, send)
+        except McpAuthorizationError:
+            await Response(status_code=403)(scope, receive, send)
+        except Refusal as error:
+            status = {
+                "managed_recording_not_found": 404,
+                "managed_recording_download_busy": 429,
+            }.get(str(error), 503)
+            await Response(status_code=status)(scope, receive, send)
+
     protected = ModernMcpAuthMiddleware(
         sdk_app,
         authentication,
@@ -1565,12 +1673,14 @@ def build_mcp_http_transport(
         transport_security=transport_security,
         instance_id=instance_id,
         package_upload=package_upload,
+        recording_download=recording_download,
     )
     return McpHttpTransport(
         app=protected,
         server=server,
         development_read_limiter=development_limiter,
         instance_id=instance_id,
+        close_recordings=close_recordings,
     )
 
 
