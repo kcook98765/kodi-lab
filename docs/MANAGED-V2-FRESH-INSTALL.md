@@ -59,6 +59,22 @@ network configuration. This is ordinary unicast networking; LAN multicast
 device discovery may differ from a standalone Kodi installation. The separate
 disposable public-repository test keeps its restricted network policy.
 
+A repository published on the Docker host's LAN address can have different
+reachability from a repository on another LAN host. A request from managed
+Kodi enters the host on a Docker bridge. It may be filtered before Docker
+forwards the published port, even when the URL works from the host and from
+physical LAN clients. A successful DNS lookup confirms the address only.
+If the numeric address also times out, check the explicit listener binding,
+Docker port mapping and host ingress policy. A host-local health check tests
+a different packet path. See [Docker's packet filtering guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
+
+For ordinary managed development, use the broker-owned private feed and the
+[reviewed dependency catalog](#approve-dependencies-for-native-installs).
+To qualify a repository meant for physical devices, use a separately
+authorized LAN Kodi client or a repository origin on a host already
+reachable from the disposable managed profile. Keep the managed runtime on
+its assigned bridge and use the existing repository publication policy.
+
 To restore isolation, clear the setting, save, then Stop and Start any
 affected runtime. Each managed bridge is reconciled at the next Start for
 that version and its profile, named snapshots, approved packages and
