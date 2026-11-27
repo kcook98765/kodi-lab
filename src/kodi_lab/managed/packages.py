@@ -12,6 +12,7 @@ import re
 import shutil
 import stat
 import zlib
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -44,6 +45,9 @@ TYPES = {
 MAX_ZIP = 32 * 1024**2
 MAX_TREE = 64 * 1024**2
 FEED_METADATA_ALLOWANCE = 1024**2
+ARTWORK_TAGS = {"icon", "screenshot", "fanart", "banner", "clearlogo", "thumb"}
+ARTWORK_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tbn"}
+ARTWORK_DIRECTORY = "artwork"
 
 
 def sha(data: bytes) -> str:
@@ -137,6 +141,38 @@ class Package:
     @property
     def digest(self) -> str:
         return sha(self.data)
+
+
+def catalog_entry(
+    package: Package, archive: ZipFile
+) -> tuple[ET.Element, dict[str, str]]:
+    """Project approved artwork into a feed-only URL namespace."""
+    node = deepcopy(package.node)
+    artwork: dict[str, str] = {}
+    for extension in node.findall("extension[@point='xbmc.addon.metadata']"):
+        # The private publisher owns the repository path for each exact ZIP.
+        for path in extension.findall("path"):
+            extension.remove(path)
+        for assets in extension.findall("assets"):
+            for asset in list(assets):
+                member = asset.text or ""
+                extension_name = PurePosixPath(member).suffix.lower()
+                digest = package.members.get(member)
+                if (
+                    asset.tag not in ARTWORK_TAGS
+                    or extension_name not in ARTWORK_EXTENSIONS
+                    or digest is None
+                ):
+                    assets.remove(asset)
+                    continue
+                source = f"{package.id}/{member}"
+                if archive.getinfo(source).file_size == 0:
+                    assets.remove(asset)
+                    continue
+                filename = digest + extension_name
+                artwork[filename] = source
+                asset.text = f"{ARTWORK_DIRECTORY}/{filename}"
+    return node, artwork
 
 
 def read_zip(data: bytes, *, repository: bool = False) -> Package:
@@ -361,14 +397,21 @@ class Packages:
         index = ET.Element("addons")
         # Bind the catalog checksum to each exact archive, including changes
         # to the bytes of a dependency at the same version.
+        artwork: dict[str, dict[str, str]] = {}
+        lengths = [65]
         for pkg in packages:
+            with ZipFile(io.BytesIO(pkg.data)) as archive:
+                node, assets = catalog_entry(pkg, archive)
+                artwork[pkg.id] = assets
+                lengths.extend(
+                    archive.getinfo(source).file_size for source in assets.values()
+                )
             index.append(ET.Comment("package sha256 " + pkg.digest))
-            index.append(pkg.node)
+            index.append(node)
+            lengths.extend((len(pkg.data), 65))
         catalog = ET.tostring(index, encoding="utf-8", xml_declaration=True) + b"\n"
         checksum = sha(catalog)
-        lengths = [len(catalog), 65]
-        for pkg in packages:
-            lengths.extend((len(pkg.data), 65))
+        lengths.append(len(catalog))
         if retirement is None:
             self.require_publication_space(self.feed, lengths)
         else:
@@ -395,6 +438,12 @@ class Packages:
             # Both files are private to this one runtime and mutation gate.
             atomic(target, pkg.data)
             atomic(target.with_suffix(".zip.sha256"), (pkg.digest + "\n").encode())
+            if assets := artwork[pkg.id]:
+                directory = folder / ARTWORK_DIRECTORY
+                directory.mkdir(exist_ok=True)
+                with ZipFile(io.BytesIO(pkg.data)) as archive:
+                    for filename, source in assets.items():
+                        atomic(directory / filename, archive.read(source))
         if retirement is not None:
             sync_dir(self.feed / "zips")
         atomic(self.feed / "addons.xml", catalog)
@@ -404,4 +453,16 @@ class Packages:
                 retirement.confirm_publication()
             except (Refusal, OSError, ValueError):
                 logging.warning("Managed feed retirement publication pending")
+        for addon, assets in artwork.items():
+            directory = self.feed / "zips" / addon / ARTWORK_DIRECTORY
+            for path in directory.iterdir() if directory.is_dir() else ():
+                if (
+                    path.name not in assets
+                    and HEX.fullmatch(path.stem)
+                    and path.suffix in ARTWORK_EXTENSIONS
+                ):
+                    try:
+                        path.unlink()
+                    except OSError:
+                        logging.warning("Managed feed artwork retirement pending")
         return checksum, candidates
