@@ -31,11 +31,20 @@ from .feed_retirement import (
 from .packages import HEX
 from .protocol import Document, Refusal
 from .runtime import Runtime, atomic, sync_dir
+from .snapshots import SnapshotQuotas, snapshot_capacity
 
 if TYPE_CHECKING:
     from .controller import Controller
 
-OPERATIONS = frozenset({"storage_review", "storage_execute", "storage_policy"})
+OPERATIONS = frozenset(
+    {
+        "storage_review",
+        "storage_execute",
+        "storage_policy",
+        "storage_snapshot_quotas",
+        "storage_set_snapshot_quotas",
+    }
+)
 EXPIRES = 300
 REVIEW_LIMIT = 4
 HISTORY_LIMIT = 32
@@ -458,6 +467,27 @@ class StorageMaintenance:
         self.save(history)
         return result
 
+    def snapshot_quotas(self) -> Document:
+        with self.controller.omega.exclusive():
+            quotas = SnapshotQuotas.read(self.controller.snapshot_quotas_file)
+            used = len(self.controller.actor_snapshots("admin").list())
+            return {
+                "administrator": snapshot_capacity(used, quotas.administrator),
+                "agent_default": quotas.agent_default,
+            }
+
+    def set_snapshot_quotas(self, administrator: str, agent_default: str) -> Document:
+        quotas = SnapshotQuotas.from_arguments(administrator, agent_default)
+        with self.controller.omega.exclusive():
+            try:
+                atomic(
+                    self.controller.snapshot_quotas_file,
+                    quotas.model_dump_json().encode(),
+                )
+            except OSError:
+                raise Refusal("operation_outcome_unconfirmed") from None
+        return quotas.model_dump()
+
     def request(self, name: str, args: object) -> Document:
         if not isinstance(args, dict) or not all(
             isinstance(value, str) for value in args.values()
@@ -469,6 +499,15 @@ class StorageMaintenance:
             and args["enabled"] in {"true", "false"}
         ):
             return self.policy(args["enabled"] == "true")
+        if name == "storage_snapshot_quotas" and not args:
+            return self.snapshot_quotas()
+        if name == "storage_set_snapshot_quotas" and set(args) == {
+            "administrator",
+            "agent_default",
+        }:
+            return self.set_snapshot_quotas(
+                args["administrator"], args["agent_default"]
+            )
         session = args.get("session", "")
         if not HEX.fullmatch(session):
             raise Refusal("invalid_storage_maintenance_request")

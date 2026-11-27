@@ -14,6 +14,27 @@
   {% endif %}
 </p>
 
+<section aria-labelledby="snapshot-quotas">
+  <h2 id="snapshot-quotas">Snapshot quotas</h2>
+  {% if snapshot_quota_error %}<p class="notice" role="alert">{{ snapshot_quota_error }}</p>{% endif %}
+  {% if snapshot_quotas %}
+  {% set administrator = snapshot_quotas.administrator %}
+  <p>Administrator scope · {{ administrator.used }} of {{ administrator.capacity }} used · {{ administrator.remaining }} remaining</p>
+  {% if administrator.used > administrator.capacity %}<p class="notice">The administrator scope is over capacity. Existing snapshots are retained. Reduce usage below the quota or increase the quota before saving again.</p>{% endif %}
+  {% else %}
+  <p>Snapshot quotas are unavailable. Refresh to check the current settings.</p>
+  {% endif %}
+  <p id="snapshot-quota-help">Enter a whole number from 1 to {{ snapshot_quota_max }} for each limit. Each scope shares its quota across Kodi versions. Lowering a quota keeps existing snapshots.</p>
+  <form method="post" action="/storage-maintenance/snapshot-quotas#snapshot-quotas" aria-describedby="snapshot-quota-help">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="snapshot-quota-admin">Administrator snapshot capacity</label>
+    <input type="number" id="snapshot-quota-admin" name="administrator" min="1" max="{{ snapshot_quota_max }}" step="1" required{% if snapshot_quotas %} value="{{ administrator.capacity }}"{% endif %}>
+    <label for="snapshot-quota-agent">Default snapshot capacity per agent scope</label>
+    <input type="number" id="snapshot-quota-agent" name="agent_default" min="1" max="{{ snapshot_quota_max }}" step="1" required{% if snapshot_quotas %} value="{{ snapshot_quotas.agent_default }}"{% endif %}>
+    <button type="submit">Save snapshot quotas</button>
+  </form>
+</section>
+
 <section aria-labelledby="storage-filesystems">
   <h2 id="storage-filesystems">Filesystems</h2>
   <p>Warnings appear below 10% available or 12 GiB available. Identical observations appear together. Filesystem rows can overlap.</p>
@@ -80,6 +101,7 @@
   <p>Persistent profiles, named snapshots, manual backups, original imports, unique source and required rollback assets are protected. Backup and rollback usage outside this inventory is unknown.</p>
   {% if inventory.snapshots.state != "measured" %}<p>Snapshot inventory is {{ inventory.snapshots.state }}.</p>{% endif %}
   {% if inventory.snapshots["items"] %}
+  <p>Observed snapshot archives · {{ byte_size(inventory.snapshots["items"] | sum(attribute="bytes")) }}</p>
   <div class="matrix-table-wrap" role="region" aria-label="Snapshot sizes" tabindex="0">
   <table>
     <thead><tr><th scope="col">Snapshot</th><th scope="col">Archive size</th></tr></thead>

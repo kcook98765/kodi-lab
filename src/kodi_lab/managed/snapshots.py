@@ -11,9 +11,13 @@ import re
 import sqlite3
 import tarfile
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Annotated, Protocol
 from uuid import uuid4
 from xml.etree import ElementTree as ET
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from kodi_lab.storage.inventory_snapshot import read_file
 
 from .protocol import Checkpoint, Document
 from .runtime import BRIDGE, ProfileStage, Refusal, atomic, sync_dir
@@ -27,7 +31,8 @@ from .source_provenance import (
 
 MAX_PROFILE = 256 * 1024**2
 MAX_FILES = 18000
-SNAPSHOT_CAPACITY = 8
+DEFAULT_SNAPSHOT_CAPACITY = 32
+MAX_SNAPSHOT_CAPACITY = 64
 SNAPSHOT_ERRORS = {
     "snapshot_name_exists": "Choose a different snapshot name.",
     "snapshot_quota_exhausted": (
@@ -35,6 +40,43 @@ SNAPSHOT_ERRORS = {
         "one you no longer need before saving."
     ),
 }
+
+
+class SnapshotQuotas(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    administrator: Annotated[int, Field(ge=1, le=MAX_SNAPSHOT_CAPACITY)]
+    agent_default: Annotated[int, Field(ge=1, le=MAX_SNAPSHOT_CAPACITY)]
+
+    @classmethod
+    def read(cls, path: Path) -> SnapshotQuotas:
+        try:
+            return cls.model_validate_json(read_file(path, 128))
+        except FileNotFoundError:
+            return cls(
+                administrator=DEFAULT_SNAPSHOT_CAPACITY,
+                agent_default=DEFAULT_SNAPSHOT_CAPACITY,
+            )
+        except (OSError, ValueError):
+            raise Refusal("snapshot_quotas_unavailable") from None
+
+    @classmethod
+    def from_arguments(cls, administrator: str, agent_default: str) -> SnapshotQuotas:
+        if all(
+            re.fullmatch(r"[0-9]{1,2}", value)
+            for value in (administrator, agent_default)
+        ):
+            try:
+                return cls(
+                    administrator=int(administrator), agent_default=int(agent_default)
+                )
+            except ValidationError:
+                pass
+        raise Refusal("invalid_snapshot_quotas")
+
+
+def snapshot_capacity(used: int, capacity: int) -> Document:
+    return {"used": used, "capacity": capacity, "remaining": max(0, capacity - used)}
 
 
 def name_ok(value: object) -> str:
@@ -124,27 +166,25 @@ class Snapshots:
         ]
 
     def listing(
-        self, include_capacity: str = "false"
+        self,
+        include_capacity: str = "false",
+        *,
+        capacity: int = DEFAULT_SNAPSHOT_CAPACITY,
     ) -> builtins.list[Document] | Document:
         snapshots = self.list()
         if include_capacity == "false":
             return snapshots
-        used = len(snapshots)
         return {
             "snapshots": snapshots,
-            "snapshot_capacity": {
-                "used": used,
-                "capacity": SNAPSHOT_CAPACITY,
-                "remaining": max(0, SNAPSHOT_CAPACITY - used),
-            },
+            "snapshot_capacity": snapshot_capacity(len(snapshots), capacity),
         }
 
-    def save(self, name: str) -> Document:
+    def save(self, name: str, *, capacity: int = DEFAULT_SNAPSHOT_CAPACITY) -> Document:
         self.runtime.require_stopped()
         path = self.path(name)
         if path.exists() or path.is_symlink():
             raise Refusal("snapshot_name_exists")
-        if len(self.list()) >= SNAPSHOT_CAPACITY:
+        if len(self.list()) >= capacity:
             raise Refusal("snapshot_quota_exhausted")
         self.runtime.capacity()
         staging = self.root / (".stage-" + uuid4().hex)

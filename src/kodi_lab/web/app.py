@@ -263,6 +263,7 @@ from kodi_lab.kodi.window_resolver import WindowResolver
 from kodi_lab.managed import RELEASES
 from kodi_lab.managed.broker import BrokerClient as ManagedBrokerClient
 from kodi_lab.managed.protocol import Refusal as ManagedRefusal
+from kodi_lab.managed.snapshots import MAX_SNAPSHOT_CAPACITY
 from kodi_lab.mcp.authorization import (
     McpAuthorizationService,
 )
@@ -1875,11 +1876,16 @@ def create_app(
         )
     )
 
-    @app.get("/storage-maintenance", response_class=HTMLResponse)
-    def storage_maintenance_page(
+    def render_storage_maintenance(
         request: Request,
-        authenticated: AuthenticatedWebSession = Depends(current_session),
+        authenticated: AuthenticatedWebSession,
+        *,
+        error: str | None = None,
+        status_code: int = 200,
     ) -> Response:
+        quotas = None
+        with suppress(ManagedRefusal):
+            quotas = managed.request("admin", "storage_snapshot_quotas", {})["result"]
         return templates.TemplateResponse(
             request,
             "storage-maintenance.html",
@@ -1888,9 +1894,57 @@ def create_app(
                 "inventory": storage_inventory.snapshot(),
                 "byte_size": byte_size,
                 "generations": RELEASES,
+                "snapshot_quotas": quotas,
+                "snapshot_quota_max": MAX_SNAPSHOT_CAPACITY,
+                "snapshot_quota_error": error,
             },
+            status_code=status_code,
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.get("/storage-maintenance", response_class=HTMLResponse)
+    def storage_maintenance_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return render_storage_maintenance(request, authenticated)
+
+    @app.post("/storage-maintenance/snapshot-quotas", response_class=HTMLResponse)
+    def set_snapshot_quotas(
+        request: Request,
+        administrator: Annotated[str, Form(max_length=16)],
+        agent_default: Annotated[str, Form(max_length=16)],
+        csrf_token: Annotated[str, Form(max_length=256)],
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        _require_same_origin(request)
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(403)
+        try:
+            managed.request(
+                "admin",
+                "storage_set_snapshot_quotas",
+                {"administrator": administrator, "agent_default": agent_default},
+            )
+        except ManagedRefusal as failure:
+            errors = {
+                "invalid_snapshot_quotas": (
+                    422,
+                    f"Enter whole numbers from 1 to {MAX_SNAPSHOT_CAPACITY}.",
+                ),
+                "managed_busy": (
+                    409,
+                    "Retry when the managed Kodi operation finishes.",
+                ),
+            }
+            code, message = errors.get(
+                str(failure),
+                (503, "Quota update unconfirmed. Review the current values."),
+            )
+            return render_storage_maintenance(
+                request, authenticated, error=message, status_code=code
+            )
+        return RedirectResponse("/storage-maintenance#snapshot-quotas", status_code=303)
 
     def maintenance_page(
         request: Request,

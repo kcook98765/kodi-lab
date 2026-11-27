@@ -352,3 +352,68 @@ def test_automatic_cleanup_control_keeps_scope_and_reverse_action_visible(
     assert resume.status_code == 200
     assert "Pause automatic feed cleanup" in resume.text
     assert state
+
+
+def test_snapshot_quota_form_and_web_capacity_agree(
+    client: TestClient,
+    target: Controller,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with Broker(tmp_path / "quota.sock", target, os.getuid()) as broker:
+
+        def request(
+            _client: BrokerClient, actor: str, name: str, args: Mapping[str, str]
+        ) -> OperationReply:
+            if name == "managed_status":
+                return {"result": {"state": "stopped"}, "elapsed_seconds": 0}
+            return broker.dispatch({"actor": actor, "name": name, "args": dict(args)})
+
+        monkeypatch.setattr(BrokerClient, "request", request)
+        endpoint = "/storage-maintenance/snapshot-quotas"
+        values = {"administrator": "7", "agent_default": "25"}
+        assert client.post(endpoint, data=values, headers=ORIGIN).status_code == 401
+        assert (
+            client.post(
+                endpoint,
+                data=values,
+                headers={**ORIGIN, "Authorization": "Bearer fixture"},
+            ).status_code
+            == 401
+        )
+        csrf = login(client)
+        page = client.get("/storage-maintenance")
+        assert "0 of 32 used · 32 remaining" in page.text
+        body = {**values, "csrf_token": csrf}
+        assert (
+            client.post(
+                endpoint, data=body, headers={"Origin": "http://elsewhere.test"}
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                endpoint, data={**body, "csrf_token": "wrong"}, headers=ORIGIN
+            ).status_code
+            == 403
+        )
+        for invalid in ("0", "65", "1.5", "-1", "1e1", "\uff12"):
+            reply = client.post(
+                endpoint, data={**body, "administrator": invalid}, headers=ORIGIN
+            )
+            assert reply.status_code == 422
+            assert "0 of 32 used · 32 remaining" in reply.text
+        assert not target.snapshot_quotas_file.exists()
+        reply = client.post(endpoint, data=body, headers=ORIGIN, follow_redirects=False)
+        assert reply.status_code == 303
+        assert reply.headers["location"] == "/storage-maintenance#snapshot-quotas"
+        assert "0 of 7 used · 7 remaining" in client.get(reply.headers["location"]).text
+        assert client.get("/api/managed-kodi/omega").json()["snapshot_capacity"] == {
+            "used": 0,
+            "capacity": 7,
+            "remaining": 7,
+        }
+        assert json.loads(target.snapshot_quotas_file.read_bytes()) == {
+            "administrator": 7,
+            "agent_default": 25,
+        }

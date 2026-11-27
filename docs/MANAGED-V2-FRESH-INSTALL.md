@@ -194,6 +194,24 @@ separate empty volume before retiring any original volume. SQLite includes termi
 by the time of backup, so they remain protected from replay on a fresh broker
 socket volume.
 
+In **Storage & Maintenance → Snapshot quotas**, an administrator can set the
+administrator scope and the default for each agent scope independently. Both
+default to 32 on fresh installs and upgrades from the fixed-eight limit. Each
+accepts a whole number from 1 to 64. An actor's slots and names are shared across
+managed Kodi versions. If usage meets or exceeds the limit, new saves are refused.
+Existing snapshots remain available to list, load into their original reviewed
+image and explicitly delete under the current authorization rules.
+
+The broker stores both settings in the managed volume alongside the existing
+site policies. Include the managed volume in upgrade and recovery backups.
+The quotas count snapshots. The 256 MiB uncompressed profile limit, 18,000-entry
+limit and save-time filesystem headroom check also apply. A scope at the default
+limit can hold roughly 8 GiB of poorly compressible profile contents, plus
+archive overhead. Multiple scopes share the same disk. Use the filesystem and
+archive observations on Storage & Maintenance to check aggregate use. The
+archive inventory can be partial, and WSL filesystem figures describe the
+guest, whose available space can differ from the Windows host's.
+
 The broker-owned managed volume holds Kodi's working profile, private snapshots,
 workspaces, package approvals and the latest operation. A managed snapshot
 captures the stopped Kodi profile. Save named snapshots for everyday environment
