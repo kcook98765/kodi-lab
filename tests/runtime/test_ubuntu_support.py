@@ -172,23 +172,27 @@ def test_bounded_download_failures(kind: str, monkeypatch: pytest.MonkeyPatch) -
             support.download_support(Lease(), uuid4())  # type: ignore[arg-type]
 
 
-def test_snapshot_allowlist_binds_only_the_four_original_r3_perl_artifacts() -> None:
+def test_snapshot_allowlist_binds_only_original_r3_support_artifacts() -> None:
     from urllib.parse import urlsplit
 
     closure = support.load_support_closure(revision=3)
-    admitted = []
+    admitted = {}
     for (url, digest), fallback in support._R3_ARCHIVE_FALLBACKS.items():
         package = next(
             p for p in closure.packages if (p.url, p.sha256) == (url, digest)
         )
-        assert package.version == "5.40.1-7ubuntu0.3"
         parsed = urlsplit(fallback)
         assert parsed.scheme == "https" and parsed.netloc == "snapshot.ubuntu.com"
-        assert parsed.path == (
-            "/ubuntu/20261001T000000Z/pool/main/p/perl/" + package.archive_name
-        )
-        admitted.append(package.name)
-    assert set(admitted) == {"libperl5.40", "perl", "perl-base", "perl-modules-5.40"}
+        original_path = urlsplit(package.url).path.removeprefix("/ubuntu/")
+        assert parsed.path == f"/ubuntu/20261001T000000Z/{original_path}"
+        admitted[package.name] = package.version
+    assert admitted == {
+        "libexpat1": "2.7.4-1ubuntu0.2",
+        "libperl5.40": "5.40.1-7ubuntu0.3",
+        "perl": "5.40.1-7ubuntu0.3",
+        "perl-base": "5.40.1-7ubuntu0.3",
+        "perl-modules-5.40": "5.40.1-7ubuntu0.3",
+    }
 
 
 @pytest.mark.parametrize(
