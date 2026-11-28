@@ -11,6 +11,20 @@ from kodi_lab.runtime.recipes import (
 
 
 @dataclass(frozen=True, slots=True)
+class FlathubArtifactSource:
+    ref: str
+    revision: str
+
+    @property
+    def name(self) -> str:
+        return self.ref.split("/")[1]
+
+    @property
+    def branch(self) -> str:
+        return self.ref.rsplit("/", 1)[-1]
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSource:
     provider: str
     distribution: str
@@ -22,15 +36,19 @@ class RuntimeSource:
     binary_sha256: str = ""
     acquisition_checksum: str = ""
     checksum_label: str = "Kodi binary package SHA-256"
+    application: FlathubArtifactSource | None = None
+    platform_runtime: FlathubArtifactSource | None = None
+    graphics_runtime: FlathubArtifactSource | None = None
+    package_url: str = ""
+    release_url: str = ""
 
 
 def runtime_source(reviewed: ReviewedRecipe) -> RuntimeSource:
     recipe = reviewed.recipe
     provider = recipe.provider
     if isinstance(provider, FlathubOstreeProvider):
-        app = next(
-            component for component in provider.components if component.role == "app"
-        )
+        app, platform, gl = provider.components
+        application = FlathubArtifactSource(app.ref, app.commit)
         upstream = load_inactive_ostree_recipe(recipe.kodi_version).recipe
         channel = "Stable" if app.remote == "flathub" else "Beta"
         return RuntimeSource(
@@ -47,6 +65,18 @@ def runtime_source(reviewed: ReviewedRecipe) -> RuntimeSource:
             source_url=f"https://github.com/xbmc/xbmc/commit/{upstream.kodi_source_revision}",
             acquisition_checksum=f"sha256:{app.commit}",
             checksum_label="Flathub app OSTree commit",
+            application=application,
+            platform_runtime=FlathubArtifactSource(platform.ref, platform.commit),
+            graphics_runtime=FlathubArtifactSource(gl.ref, gl.commit),
+            package_url=f"https://flathub.org/apps/{application.name}",
+            release_url=next(
+                (
+                    url
+                    for url in recipe.source_references
+                    if "/xbmc/xbmc/releases/" in url
+                ),
+                recipe.source_references[0],
+            ),
         )
     binary = next(
         package for package in recipe.critical_packages if package.name == "kodi-bin"

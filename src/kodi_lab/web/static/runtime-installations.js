@@ -31,10 +31,11 @@
     root.querySelectorAll("[data-preview-acknowledgement]").forEach(input => { input.checked = false; });
   }
   const cardFor = generation => root.querySelector(`[data-generation="${generation}"]`);
+  const sourceFor = card => card.dataset.sourceName ? ` · ${card.dataset.sourceName}` : "";
   choice?.addEventListener("change", () => {
     resetReview();
     const card = cardFor(choice.value);
-    name.textContent = card ? `Runtime: ${card.dataset.instanceName}` : "Choose a version to review the runtime.";
+    name.textContent = card ? `Runtime: ${card.dataset.instanceName}${sourceFor(card)}` : "Choose a version to review the runtime.";
   });
   document.querySelector("[data-setup-show]")?.addEventListener("click", () => {
     const card = cardFor(choice.value);
@@ -68,6 +69,12 @@
   function render(item) {
     const card = root.querySelector(`[data-generation="${item.generation}"]`);
     if (!card) return;
+    if (card.dataset.provenanceRecipe !== undefined &&
+        card.dataset.provenanceRecipe !== (item.provenance_recipe_digest || "")) {
+      resetReview();
+      window.location.reload();
+      return;
+    }
     const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
     const scope = item.preview_acknowledgement || null;
     if (pending?.generation === item.generation && (
@@ -89,6 +96,10 @@
     card.dataset.operationId = item.operation_id || "";
     const image = card.querySelector("[data-runtime-image]");
     if (image) image.textContent = item.image_id || "Unknown";
+    const signatures = card.querySelector("[data-runtime-signatures]");
+    if (signatures) signatures.textContent = item.artifact_signatures_verified
+      ? "Verified for this runtime image"
+      : "Verification pending or unavailable for this runtime image";
     const operation = card.querySelector("[data-install-operation]");
     if (operation) operation.textContent = item.operation_id || "No operation recorded";
     const progress = card.querySelector("[data-install-progress]");
@@ -160,7 +171,7 @@
     catch (_) { showError("Refresh the page to review the exact Preview recipe."); return; }
     pending = {generation:card.dataset.generation, action:button.dataset.installAction,
       status:card.dataset.state, operationId:card.dataset.operationId || "", acknowledgement:scope};
-    document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Runtime: ${card.dataset.instanceName} · Action: ${pending.action}.`;
+    document.querySelector("[data-install-review-summary]").textContent = `${card.dataset.version} · Runtime: ${card.dataset.instanceName}${sourceFor(card)} · Action: ${pending.action}.`;
     review.hidden = false;
     review.focus();
     review.scrollIntoView({block:"center"});

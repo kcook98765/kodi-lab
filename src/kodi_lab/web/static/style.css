@@ -63,7 +63,7 @@ dd { margin: 0; }
 .runtime-install-message:empty { display: none; }
 .runtime-install-note:empty { display: none; }
 .runtime-install-card details { margin-top: 1rem; }
-.runtime-install-card dl { overflow-wrap: anywhere; }
+.runtime-install-card dl, [data-runtime-details] dl { overflow-wrap: anywhere; }
 .runtime-install-card dt { font-weight: 600; }
 .runtime-install-card dd { margin: 0 0 0.5rem; }
 .runtime-matrix-details { margin-top: 2rem; }

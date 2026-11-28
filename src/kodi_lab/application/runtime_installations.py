@@ -192,6 +192,8 @@ class RuntimeInstallationView:
     newly_accepted: bool = False
     technical_details: dict[str, str] | None = None
     source: RuntimeSource | None = None
+    provenance_recipe_digest: str | None = None
+    artifact_signatures_verified: bool = False
     image_id: str | None = None
     unavailable_code: str | None = None
     preview_acknowledgement: dict[str, object] | None = None
@@ -513,6 +515,8 @@ class RuntimeInstallationService:
                 )
             except (ValueError, OSError):
                 recorded_recipe_unavailable = True
+        elif row is not None and row.recipe_digest != reviewed.digest:
+            recorded_recipe_unavailable = True
         recipe = reviewed.recipe
         development_variant = reviewed.digest == NOVNC_PHASE1_DIGEST
         major, stable_version = (
@@ -532,6 +536,9 @@ class RuntimeInstallationService:
             ),
             version=stable_version,
             source=None if recorded_recipe_unavailable else runtime_source(reviewed),
+            provenance_recipe_digest=None
+            if recorded_recipe_unavailable
+            else reviewed.digest,
             image_id=row.image_id if row is not None else None,
             managed_instance_name=(
                 f"Kodi 22 Piers {stable_version.split()[-1]}"
@@ -669,6 +676,8 @@ class RuntimeInstallationService:
                 phase="Runtime files missing",
                 action="none" if development_variant else "reacquire",
             )
+        if isinstance(recipe.provider, FlathubOstreeProvider):
+            current = replace(current, artifact_signatures_verified=True)
         if not development_variant:
             return replace(
                 current,

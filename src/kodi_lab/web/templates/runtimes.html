@@ -28,14 +28,15 @@
         <button type="button" data-install-cancel>Cancel review</button>
       </section>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
+      <p>Each card shows the configured recipe for that version. Installation records show the source associated with each saved image.</p>
       <p>The technical matrix describes recorded runtime eligibility. Installation also requires a compatible, reachable broker and verified local runtime files.</p>
       <p class="error" role="alert" data-runtime-install-error hidden></p>
       <div class="runtime-install-grid" data-runtime-installations>
         {% for item in installations %}
-        <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}" data-operation-id="{{ item.operation_id or '' }}" data-instance-name="{{ item.managed_instance_name }}" data-version="{{ item.version }}">
+        <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}" data-operation-id="{{ item.operation_id or '' }}" data-instance-name="{{ item.managed_instance_name }}" data-version="{{ item.version }}" data-source-name="{{ item.source.distribution if item.source else '' }}" data-provenance-recipe="{{ item.provenance_recipe_digest or '' }}">
           <h2>{{ item.display_name }}</h2>
           <p class="secondary">{{ item.version }}</p>
-          {% with source=item.source, runtime_version=item.version, runtime_image=item.image_id, preview=item.preview_acknowledgement %}
+          {% with source=item.source, runtime_version=item.version, runtime_image=item.image_id, preview=item.preview_acknowledgement, signatures_verified=item.artifact_signatures_verified %}
           {% include "runtime-source.html" %}
           {% endwith %}
           {% if item.generation == 'matrix' %}
@@ -78,7 +79,7 @@
         <article>
           <h3>{{ record.managed_instance_name }}</h3>
           <p>{{ record.phase }} · {{ record.note or '' }}</p>
-          {% with source=record.source, runtime_version=record.version, runtime_image=record.image_id, preview=record.preview_acknowledgement %}
+          {% with source=record.source, runtime_version=record.version, runtime_image=record.image_id, preview=record.preview_acknowledgement, signatures_verified=record.artifact_signatures_verified %}
           {% include "runtime-source.html" %}
           {% endwith %}
           {% if record.failure_message %}<p class="error">{{ record.failure_message }}</p>{% endif %}

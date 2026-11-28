@@ -197,6 +197,7 @@ def test_ready_omega_links_the_managed_page_and_can_reacquire(
     row = SimpleNamespace(
         id=str(operation_id),
         generation="omega",
+        recipe_digest=load_reviewed_recipe("omega").digest,
         state=RuntimeRecipeInstallationState.READY,
         created_at="2026-09-27T23:50:00.000000Z",
         updated_at="2026-09-28T00:00:00.000000Z",
@@ -204,7 +205,9 @@ def test_ready_omega_links_the_managed_page_and_can_reacquire(
         runtime_revision_id=str(revision_id),
         image_id="sha256:" + "a" * 64,
     )
-    monkeypatch.setattr(service, "_latest", lambda _generation: row)
+    monkeypatch.setattr(
+        service, "_latest", lambda generation: row if generation == "omega" else None
+    )
     monkeypatch.setattr(
         service, "_runtime_eligibility", lambda _row: RuntimeEligibility(True)
     )

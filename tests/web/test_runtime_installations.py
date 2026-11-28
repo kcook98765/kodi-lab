@@ -17,7 +17,11 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationService,
 )
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.runtime.recipes import load_reviewed_recipe
+from kodi_lab.runtime.recipes import (
+    ReviewedRecipe,
+    load_omega_flathub_pilot,
+    load_reviewed_recipe,
+)
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
 from .conftest import IMAGE_ID, ORIGIN, REVISION_ID, FakeBroker, login
@@ -55,9 +59,13 @@ class Flow:
 
 
 def seed_installation(
-    factory: sessionmaker[Session], generation: str, *, ready: bool = False
+    factory: sessionmaker[Session],
+    generation: str,
+    *,
+    ready: bool = False,
+    reviewed: ReviewedRecipe | None = None,
 ) -> UUID:
-    reviewed = load_reviewed_recipe(generation)
+    reviewed = reviewed or load_reviewed_recipe(generation)
     operation_id = uuid4()
     now = datetime.now(UTC)
     with factory.begin() as session:
@@ -118,6 +126,65 @@ def test_remote_only_page_has_four_unavailable_choices(
     )
     assert "several GB of Docker storage" in primary
     assert 'data-instance-action="start"' not in primary
+
+
+@pytest.mark.parametrize("pilot", [False, True])
+def test_omega_provenance_tracks_configured_recipe_and_recorded_image(
+    pilot: bool,
+    request: pytest.FixtureRequest,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KODI_LAB_FLATHUB_OMEGA_PILOT", str(pilot).lower())
+    client: TestClient = request.getfixturevalue("client")
+    login(client)
+    flow = Flow()
+    flow.attach(broker)
+    pinned = load_omega_flathub_pilot()
+    ubuntu_id = seed_installation(database, "omega", ready=True)
+    flathub_id = seed_installation(database, "omega", ready=True, reviewed=pinned)
+    listed = client.get("/api/runtime-installations").json()["installations"]
+    omega = next(item for item in listed if item["generation"] == "omega")
+    assert omega["operation_id"] == str(flathub_id if pilot else ubuntu_id)
+    assert bool(omega["source"]["application"]) is pilot
+    assert not omega["artifact_signatures_verified"]
+
+    recorded = client.get(f"/api/runtime-installations/{flathub_id}").json()
+    assert recorded["provenance_recipe_digest"] == pinned.digest
+    assert recorded["source"]["application"]["ref"] == "app/tv.kodi.Kodi/x86_64/stable"
+    assert recorded["source"]["platform_runtime"]["ref"].endswith("/26.08")
+    assert not recorded["artifact_signatures_verified"]
+    assert "Verified for this runtime image" not in client.get("/runtimes").text
+
+    # Exercise the presentation with an eligible local image, independently
+    # of the existing tests for sealed-record eligibility.
+    monkeypatch.setattr(
+        RuntimeInstallationService,
+        "_runtime_eligibility",
+        lambda _self, _row: RuntimeEligibility(True),
+    )
+    html = client.get("/runtimes").text
+    configured, history = html.split('id="installation-records"', 1)
+    assert ("Flathub Stable" in configured) is pilot
+    assert "Flathub Stable" in history and "Ubuntu Resolute APT archive" in history
+    assert "org.freedesktop.Platform" in history
+    assert "https://flathub.org/apps/tv.kodi.Kodi" in history
+    assert "Verified for this runtime image" in history
+    assert (
+        client.get(f"/api/runtime-installations/{flathub_id}").json()[
+            "artifact_signatures_verified"
+        ]
+        is True
+    )
+    assert (
+        client.get(f"/api/runtime-installations/{ubuntu_id}").json()[
+            "artifact_signatures_verified"
+        ]
+        is False
+    )
+    flow.present = False
+    assert "Verified for this runtime image" not in client.get("/runtimes").text
 
 
 def test_install_api_auth_origin_csrf_body_and_polling(

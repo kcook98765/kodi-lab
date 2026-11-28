@@ -1,12 +1,26 @@
 {% if source %}
-<p class="secondary">{{ source.provider }} · <a href="{{ source.url }}">{{ source.distribution }}</a> · {{ source.support }}</p>
-<details>
+<p class="secondary" data-runtime-source>{{ source.provider }} · <a href="{{ source.url }}">{{ source.distribution }}</a> · {{ source.support }}{% if source.application and source.support == "Development pilot" %} (experimental){% endif %}</p>
+{% if source.application %}
+<p>Kodi Lab acquires maintained Flathub artifacts and assembles them into its managed Docker runtime. A host Flatpak installation and a Kodi build are unnecessary.</p>
+{% endif %}
+<details data-runtime-details>
   <summary>Runtime Details</summary>
   <dl>
     <dt>Kodi version</dt><dd>{{ runtime_version }}</dd>
     {% if source.package_version %}<dt>Package version</dt><dd><code>{{ source.package_version }}</code></dd>{% endif %}
+    {% if source.application %}
+    <dt>Binary distribution source</dt><dd>Flathub · {{ source.application.branch | capitalize }}</dd>
+    <dt>Application</dt><dd><code>{{ source.application.name }}</code> · {{ runtime_version }}</dd>
+    <dt>Application ref</dt><dd><code>{{ source.application.ref }}</code></dd>
+    <dt>Platform runtime</dt><dd><code>{{ source.platform_runtime.name }}</code> · {{ source.platform_runtime.branch }}</dd>
+    <dt>Platform OSTree commit</dt><dd><code>{{ source.platform_runtime.revision }}</code></dd>
+    <dt>Graphics runtime</dt><dd><code>{{ source.graphics_runtime.name }}</code> · {{ source.graphics_runtime.branch }}</dd>
+    <dt>Graphics OSTree commit</dt><dd><code>{{ source.graphics_runtime.revision }}</code></dd>
+    <dt>Signed artifact verification</dt><dd data-runtime-signatures>{% if signatures_verified %}Verified for this runtime image{% else %}Verification pending or unavailable for this runtime image{% endif %}</dd>
+    <dt>Package and upstream source</dt><dd><a href="{{ source.package_url }}">Flathub app page</a> · <a href="{{ source.url }}">Pinned Flathub packaging</a> · <a href="{{ source.release_url }}">Team Kodi release</a></dd>
+    {% endif %}
     <dt>Upstream Git revision</dt><dd>{% if source.source_url %}<a href="{{ source.source_url }}"><code>{{ source.source_revision }}</code></a>{% else %}Unknown{% endif %}</dd>
-    {% if source.binary_sha256 and source.binary_sha256 != source.acquisition_checksum %}<dt>Kodi binary package SHA-256</dt><dd><code>{{ source.binary_sha256 }}</code></dd>{% endif %}
+    {% if source.binary_sha256 and source.binary_sha256 != source.acquisition_checksum %}<dt>Kodi {% if source.application %}executable{% else %}binary package{% endif %} SHA-256</dt><dd><code>{{ source.binary_sha256 }}</code></dd>{% endif %}
     <dt>Acquisition checksum ({{ source.checksum_label }})</dt><dd><code>{{ source.acquisition_checksum }}</code></dd>
     <dt>Recorded runtime image identity</dt><dd><code data-runtime-image>{{ runtime_image or 'Unknown' }}</code></dd>
     {% if preview %}<dt>Recipe</dt><dd data-preview-recipe>{{ preview.recipe_id }} · revision {{ preview.recipe_revision }}</dd>
