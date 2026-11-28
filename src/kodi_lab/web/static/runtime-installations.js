@@ -178,7 +178,7 @@
     }
     const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
     if (acknowledgement && !acknowledgement.checked) {
-      showError("Acknowledge that Piers is prerelease development software before continuing.");
+      showError(failures.exact_preview_acknowledgement_required);
       acknowledgement.focus();
       return;
     }
