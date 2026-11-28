@@ -497,7 +497,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             import signal
 
             previous_handler = None
-            if arguments.generation == "piers":
+            if arguments.generation == "piers" or (
+                arguments.generation == "omega" and settings.flathub_omega_pilot
+            ):
 
                 def cancel(_signum: int, _frame: object) -> None:
                     raise RecipeInstallationError("installation cancelled")

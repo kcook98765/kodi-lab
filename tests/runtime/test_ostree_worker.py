@@ -253,5 +253,13 @@ def test_display_support_helper_variant_is_exact_and_not_a_package_selector(
         HelperRunner(h, support_revision=3).execute(
             (*command[:-1], "arbitrary-package"), stage=stage, timeout=1
         )
-    with pytest.raises(OstreeAcquisitionError, match="unsupported_support_revision"):
+    assert (
         HelperRunner(h, support_revision=5)
+        .execute((*command[:-1], "5"), stage=stage, timeout=1)
+        .returncode
+        == 0
+    )
+    with pytest.raises(OstreeAcquisitionError, match="unreviewed_helper_command"):
+        HelperRunner(h, support_revision=5).execute(command, stage=stage, timeout=1)
+    with pytest.raises(OstreeAcquisitionError, match="unsupported_support_revision"):
+        HelperRunner(h, support_revision=6)

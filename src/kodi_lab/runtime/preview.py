@@ -118,6 +118,7 @@ def recorded_acknowledgement(
                 PREVIEW_INSTALLATION_DIGEST,
                 PIERS_DISPLAY_INSTALLATION_DIGEST,
                 PIERS_RC2_INSTALLATION_DIGEST,
+                OMEGA_FLATHUB_DIGEST,
             }
         ):
             raise ValueError("Preview admission missing")

@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.runtime_installations import preview_acknowledgement
 from kodi_lab.broker.operations import ReviewedInstallationLaunchParams
 from kodi_lab.runtime.display_capabilities import reviewed_display_capability
 from kodi_lab.runtime.ostree_validation import native_identity
-from kodi_lab.runtime.preview import PreviewAcknowledgement, reviewed_preview_recipe
+from kodi_lab.runtime.preview import (
+    PreviewAcknowledgement,
+    admission_evidence,
+    recorded_acknowledgement,
+    reviewed_preview_recipe,
+)
 from kodi_lab.runtime.recipes import (
     InactiveOstreeRecipe,
     load_inactive_ostree_recipe,
@@ -21,6 +29,8 @@ from kodi_lab.runtime.recipes import (
     selected_installation_recipe,
 )
 from kodi_lab.runtime.validation import RecipeValidationError
+from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
+from tests.runtime.test_recipe_installation import factory as factory
 
 
 def test_pilot_uses_distinct_artifacts_and_preserves_every_default() -> None:
@@ -86,3 +96,29 @@ def test_native_pilot_rejects_unreviewed_omega_binary() -> None:
             {"name": "Kodi", "version": {**version, "revision": "20260315-nogitfound"}},
             "21.3",
         )
+
+
+def test_worker_reads_only_exact_operation_owned_pilot_consent(
+    factory: sessionmaker[Session],
+) -> None:
+    ack = PreviewAcknowledgement.model_validate(
+        preview_acknowledgement(generation="omega")
+    )
+    operation = uuid4()
+    with factory.begin() as db:
+        row = RuntimeRecipeInstallationRepository(db).create(
+            operation_id=operation,
+            generation="omega",
+            recipe_id=ack.recipe_id,
+            recipe_revision=ack.recipe_revision,
+            recipe_digest=ack.recipe_digest,
+            now=datetime.now(UTC),
+        )
+        row.attestation_json = admission_evidence(ack, operation)
+    assert recorded_acknowledgement(factory, operation) == ack
+    with factory.begin() as db:
+        row = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert row is not None
+        row.attestation_json = admission_evidence(ack, uuid4())
+    with pytest.raises(ValueError, match="operation admission differs"):
+        recorded_acknowledgement(factory, operation)
