@@ -12,13 +12,18 @@ from copy import deepcopy
 from dataclasses import fields
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_eligibility import (
+    RuntimeRevisionEligibilityPolicy,
+    RuntimeSelectionPolicy,
+)
+from kodi_lab.application.runtime_installations import preview_acknowledgement
 from kodi_lab.broker.operations import ReviewedInstallationLaunchParams
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
@@ -44,6 +49,7 @@ from kodi_lab.runtime.recipes import (
     PIERS_RC2_INSTALLATION_DIGEST,
     load_inactive_ostree_recipe,
     load_installation_recipe,
+    load_omega_flathub_pilot,
     load_recorded_reviewed_recipe,
     load_reviewed_recipe,
     supported_generations,
@@ -68,14 +74,19 @@ def acknowledgement() -> PreviewAcknowledgement:
     )
 
 
-def assembly(operation: UUID) -> OstreeInstallationAssembly:
+def assembly(
+    operation: UUID, *, generation: Literal["piers", "omega"] = "piers"
+) -> OstreeInstallationAssembly:
     data = json.loads(
         (Path(__file__).parent / "fixtures/rc1-installation-evidence.json").read_text()
     )
     raw = data["assembly"]
     raw["operation_id"] = operation.hex
-    raw["recipe_revision"] = 4
-    inputs = load_inactive_ostree_recipe("22.0-rc.2")
+    ack = PreviewAcknowledgement.model_validate(
+        preview_acknowledgement(generation=generation)
+    )
+    raw["recipe_revision"] = ack.recipe_revision
+    inputs = load_inactive_ostree_recipe(ack.release)
     acquired = data["acquisition"]
     acquired.update(
         recipe_id=inputs.recipe.recipe_id,
@@ -86,7 +97,12 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     for actual, pinned in zip(
         acquired["components"], inputs.recipe.provider.components, strict=True
     ):
-        actual.update(commit=pinned.commit, metadata_sha256=pinned.metadata_sha256)
+        actual.update(
+            ref=pinned.ref,
+            collection=pinned.collection,
+            commit=pinned.commit,
+            metadata_sha256=pinned.metadata_sha256,
+        )
     raw["recipe_digest"] = inputs.digest
     raw["acquisition_digest"] = (
         "sha256:"
@@ -106,11 +122,15 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     )
     from kodi_lab.runtime.ubuntu_support import load_support_closure
 
-    raw["supporting_closure_digest"] = load_support_closure(revision=4).digest
-    raw["assembly_assets_digest"] = "sha256:" + assembly_assets_digest(revision=4)
+    raw["supporting_closure_digest"] = load_support_closure(
+        revision=ack.recipe_revision
+    ).digest
+    raw["assembly_assets_digest"] = "sha256:" + assembly_assets_digest(
+        revision=ack.recipe_revision
+    )
     raw["asset_hashes"] = sorted(
         (name, hashlib.sha256(payload).hexdigest())
-        for name, payload in load_assembly_assets(revision=4).items()
+        for name, payload in load_assembly_assets(revision=ack.recipe_revision).items()
     )
     names = {f.name for f in fields(OstreeAssemblyEvidence)}
     for key in ("asset_hashes", "input_components"):
@@ -118,11 +138,13 @@ def assembly(operation: UUID) -> OstreeInstallationAssembly:
     return OstreeInstallationAssembly(
         OstreeAssemblyEvidence(**{k: v for k, v in raw.items() if k in names}),
         OstreeVerificationEvidence.model_validate(data["acquisition"]),
-        acknowledgement(),
+        ack,
     )
 
 
-def validation(image_id: str) -> ValidationResult:
+def validation(
+    image_id: str, *, generation: Literal["piers", "omega"] = "piers"
+) -> ValidationResult:
     from tests.runtime.test_recipe_installation import _validation
 
     reviewed = load_installation_recipe("piers")
@@ -156,6 +178,24 @@ def validation(image_id: str) -> ValidationResult:
         session_dbus=True,
         stale_display_absent=True,
     )
+    if generation == "omega":
+        pilot = load_omega_flathub_pilot()
+        report.update(
+            recipe_digest=pilot.digest,
+            release=pilot.recipe.kodi_version,
+            native_identity={
+                "name": "Kodi",
+                "version": {
+                    "major": 21,
+                    "minor": 3,
+                    "tag": "stable",
+                    "revision": "20251031-a3a448d-dirty",
+                },
+            },
+            python="3.14.9",
+            python_api="3.0.1",
+            ffmpeg="6.1.6",
+        )
     now = datetime.now(UTC)
     return ValidationResult(now, now, report)
 
@@ -180,6 +220,51 @@ def ready(factory: sessionmaker[Session]) -> UUID:
         data_root=Settings().data_root,
     )
     return operation
+
+
+def test_stable_ostree_pilot_requires_its_exact_recipe_even_with_current_tier(
+    factory: sessionmaker[Session],
+) -> None:
+    pilot = load_omega_flathub_pilot()
+    operation = uuid4()
+    _create_operation(factory, pilot, operation)
+    built = assembly(operation, generation="omega")
+    for state in (
+        RuntimeRecipeInstallationState.PENDING,
+        RuntimeRecipeInstallationState.ACQUIRING,
+        RuntimeRecipeInstallationState.ASSEMBLING,
+    ):
+        _advance(factory, operation, expected=state)
+    commit = _commit_ready(
+        factory,
+        pilot,
+        operation,
+        built,
+        validation(built.image_id, generation="omega"),
+        data_root=Settings().data_root,
+    )
+    with factory() as session:
+        definition = RuntimeDefinitionRepository(session).get(
+            pilot.recipe.definition_id
+        )
+        revision = RuntimeRevisionRepository(session).get(
+            UUID(commit["runtime_revision_id"])
+        )
+        assert definition is not None and revision is not None
+        assert definition.support_tier is RuntimeSupportTier.CURRENT
+        policy = RuntimeRevisionEligibilityPolicy()
+
+        def eligible(selection: RuntimeSelectionPolicy) -> bool:
+            return policy.evaluate_for_release(
+                session,
+                required_release=definition.kodi_release,
+                definition=definition,
+                revision=revision,
+                policy=selection,
+            ).eligible
+
+        assert not eligible(RuntimeSelectionPolicy())
+        assert eligible(RuntimeSelectionPolicy(preview_recipe_digest=pilot.digest))
 
 
 def test_exact_backend_recipe_does_not_change_web_stable_registry() -> None:

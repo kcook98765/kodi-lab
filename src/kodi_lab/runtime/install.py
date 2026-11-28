@@ -396,6 +396,7 @@ def _commit_ready(
             support_tier=(
                 RuntimeSupportTier.PREVIEW
                 if isinstance(recipe.provider, FlathubOstreeProvider)
+                and recipe.execution_profile.expected_version_tag != "stable"
                 else RuntimeSupportTier.LEGACY
                 if isinstance(recipe, MatrixCandidateRecipe)
                 else RuntimeSupportTier.CURRENT
