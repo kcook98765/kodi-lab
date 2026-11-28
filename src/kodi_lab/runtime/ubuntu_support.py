@@ -38,10 +38,16 @@ _NAME = re.compile(r"[a-z][a-z0-9+.-]{0,63}\Z")
 _VERSION = re.compile(r"[0-9][A-Za-z0-9.+:~_-]{0,95}\Z")
 _FILE = re.compile(r"[a-z0-9][a-zA-Z0-9.+_~%-]{0,191}\.deb\Z")
 
-# These four r3 artifacts disappeared from the moving archive. Their original
-# reviewed bytes are retained by the already used immutable Ubuntu snapshot.
+# These r3 artifacts disappeared from the moving archive. The immutable Ubuntu
+# snapshot retains their original reviewed bytes.
 # This is an exact URL+content allowlist, not a mirror or replacement resolver.
 _R3_ARCHIVE_FALLBACKS = {
+    (
+        "https://archive.ubuntu.com/ubuntu/pool/main/e/expat/"
+        "libexpat1_2.7.4-1ubuntu0.2_amd64.deb",
+        "0063e68d742facfd3c46d7d7df9eb0d85f13e0fc294908a4f138d45557607837",
+    ): "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/pool/main/e/expat/"
+    "libexpat1_2.7.4-1ubuntu0.2_amd64.deb",
     (
         "https://archive.ubuntu.com/ubuntu/pool/main/p/perl/"
         "libperl5.40_5.40.1-7ubuntu0.3_amd64.deb",
