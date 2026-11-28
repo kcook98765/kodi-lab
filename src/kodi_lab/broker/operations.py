@@ -46,7 +46,10 @@ class ReviewedInstallationLaunchParams(StrictModel):
 
     @model_validator(mode="after")
     def _preview_scope(self) -> ReviewedInstallationLaunchParams:
-        if (self.generation == "piers") != (self.preview_acknowledgement is not None):
+        if (self.preview_acknowledgement is None and self.generation == "piers") or (
+            self.preview_acknowledgement is not None
+            and self.preview_acknowledgement.generation != self.generation
+        ):
             raise ValueError("exact Preview acknowledgement/provider mismatch")
         return self
 
@@ -262,7 +265,7 @@ def register_reviewed_runtime_operations(
                 UUID(params.operation_id),
                 **(
                     {"preview_acknowledgement": params.preview_acknowledgement}
-                    if params.generation == "piers"
+                    if params.preview_acknowledgement is not None
                     else {}
                 ),
             )

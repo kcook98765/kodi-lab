@@ -377,12 +377,15 @@ def serve(
 ) -> None:
     if frontend_uid in {0, os.getuid()}:
         raise Refusal("separate_frontend_uid_required")
+    from kodi_lab.config import Settings
+
     controller = Controller(
         root,
         daemon_root=daemon_root,
         reviewed_image=path.parent.parent / REVIEWED_IMAGE_FILE,
         handoff_root=path.parent.parent,
         audio_image=worker_image,
+        omega_flathub_pilot=Settings().flathub_omega_pilot,
     )
     parent = path.parent.stat()
     if parent.st_uid != os.getuid() or parent.st_mode & 0o022:

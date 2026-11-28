@@ -20,6 +20,7 @@ from kodi_lab.runtime.display_validation import (
     display_validation_command,
     parse_display_validation,
 )
+from kodi_lab.runtime.flathub_omega import OMEGA_KODI_NATIVE_REVISION
 from kodi_lab.runtime.recipes import ReviewedRecipe, load_inactive_ostree_recipe
 from kodi_lab.runtime.temporary_networks import (
     create_temporary_network,
@@ -92,7 +93,10 @@ def native_identity(value: object, release: str = "22.0-rc.1") -> dict[str, obje
     from kodi_lab.kodi.readiness import KodiApplicationIdentity
 
     definition = load_inactive_ostree_recipe(release)
-    ordinal = 2 if release == "22.0-rc.2" else 1
+    omega = release == "21.3"
+    ordinal = None if omega else 2 if release == "22.0-rc.2" else 1
+    native_tag = "stable" if omega else "releasecandidate"
+    major, minor = (21, 3) if omega else (22, 0)
     revision = definition.recipe.kodi_source_revision[:8]
     if not isinstance(value, dict) or value.get("name") != "Kodi":
         raise RecipeValidationError("RC1 identity differs")
@@ -104,19 +108,38 @@ def native_identity(value: object, release: str = "22.0-rc.1") -> dict[str, obje
         or any(
             v.get(k) != expected
             for k, expected in {
-                "major": 22,
-                "minor": 0,
-                "tag": "releasecandidate",
-                "tagversion": str(ordinal),
+                "major": major,
+                "minor": minor,
+                "tag": native_tag,
+                **({} if omega else {"tagversion": str(ordinal)}),
             }.items()
         )
-        or revision not in str(v.get("revision"))
+        or (
+            v.get("revision") != OMEGA_KODI_NATIVE_REVISION
+            if omega
+            else revision not in str(v.get("revision"))
+        )
     ):
         raise RecipeValidationError("RC1 upstream identity differs")
-    identity = KodiApplicationIdentity("Kodi", 22, 0, "releasecandidate", ordinal)
+    identity = KodiApplicationIdentity("Kodi", major, minor, native_tag, ordinal)
     if identity.kodi_release != KodiReleaseIdentity.parse(release):
         raise RecipeValidationError("RC1 canonical identity differs")
     return v
+
+
+def native_executable_matches(executable: bytes, release: str) -> bool:
+    if release == "21.3":
+        expected = b"Kodi Media Center 21.3 (21.3.0) Git:"
+        return expected + OMEGA_KODI_NATIVE_REVISION.encode() in executable.splitlines()
+    expected = b"22.0-RC2" if release == "22.0-rc.2" else b"22.0-RC1"
+    source = load_inactive_ostree_recipe(release).recipe.kodi_source_revision
+    return expected in executable and source[:8].encode() in executable
+
+
+def runtime_versions(release: str) -> tuple[str, str, str]:
+    if release == "21.3":
+        return ("3.14.9", "3.0.1", "6.1.6")
+    return ("3.14.7", "3.1.1" if release == "22.0-rc.2" else "3.1.0", "9.0.2")
 
 
 def validation_matches(report: object, release: str = "22.0-rc.1") -> bool:
@@ -124,11 +147,11 @@ def validation_matches(report: object, release: str = "22.0-rc.1") -> bool:
         return False
     try:
         native_identity(report["native_identity"], release)
+        python, python_api, ffmpeg = runtime_versions(release)
         return (
-            report.get("python") == "3.14.7"
-            and report.get("python_api")
-            == ("3.1.1" if release == "22.0-rc.2" else "3.1.0")
-            and report.get("ffmpeg") == "9.0.2"
+            report.get("python") == python
+            and report.get("python_api") == python_api
+            and report.get("ffmpeg") == ffmpeg
             and report.get("renderer") == "llvmpipe"
             and report.get("windowing") == "x11"
             and report.get("security_contract") == "nonroot-capless-seccomp-v1"
@@ -159,6 +182,8 @@ def validate_ostree_image(
     network = container = None
     cycles: list[dict[str, object]] = []
     report: dict[str, object] = {}
+    release = reviewed.recipe.kodi_version
+    python_version, python_api, ffmpeg = runtime_versions(release)
     try:
         network = create_temporary_network(
             client, settings, operation_id=operation_id, purpose="validation"
@@ -242,16 +267,7 @@ def validate_ostree_image(
             executable = _exec(
                 container, ["/usr/local/bin/kodi-lab-launcher", "--version"], limit=4096
             )
-            source = load_inactive_ostree_recipe(reviewed.recipe.kodi_version).recipe
-            expected = (
-                b"22.0-RC2"
-                if reviewed.recipe.kodi_version == "22.0-rc.2"
-                else b"22.0-RC1"
-            )
-            if (
-                expected not in executable
-                or source.kodi_source_revision[:8].encode() not in executable
-            ):
+            if not native_executable_matches(executable, release):
                 raise RecipeValidationError("RC1 executable differs")
             _exec(container, ["/usr/bin/xdpyinfo", "-display", ":99"])
             _exec(
@@ -344,10 +360,8 @@ def validate_ostree_image(
                             ) from None
                         time.sleep(0.1)
                 if python != {
-                    "python": "3.14.7",
-                    "python_api": "3.1.1"
-                    if reviewed.recipe.kodi_version == "22.0-rc.2"
-                    else "3.1.0",
+                    "python": python_version,
+                    "python_api": python_api,
                     "prefix": "/opt/fdo",
                 }:
                     raise RecipeValidationError("RC1 Python differs")
@@ -413,7 +427,11 @@ def validate_ostree_image(
         log = _file(container, "/home/kodi/.kodi/temp/kodi.log").decode(
             errors="replace"
         )
-        if "llvmpipe" not in log or "9.0.2" not in log or "OpenGL ES" not in log:
+        if (
+            "llvmpipe" not in log
+            or ffmpeg not in log
+            or ("GL_VERSION = 4." if release == "21.3" else "OpenGL ES") not in log
+        ):
             raise RecipeValidationError("RC1 renderer/media dependencies differ")
         report.update(
             schema=reviewed.recipe.validation_contract,
@@ -429,7 +447,7 @@ def validate_ostree_image(
             cycles=cycles,
             renderer="llvmpipe",
             windowing="x11",
-            ffmpeg="9.0.2",
+            ffmpeg=ffmpeg,
             security_contract="nonroot-capless-seccomp-v1",
             profile="/home/kodi/.kodi",
             profile_restart=True,

@@ -88,6 +88,37 @@ _CRITICAL_FILES = {
 }
 
 
+_OMEGA_CRITICAL_FILES = {
+    "f125d3e688cc8c69b11163b5b55cd080847fbdcb77ba437607f5c32e2da0f071": {
+        "files/lib/kodi/kodi.bin": (
+            "726ef8c726aeb4fa4cb3321b9e8e68026c4412520f2d41ca5978b7d20c55b82c"
+        ),
+        "files/manifest.json": (
+            "73559c523d16f1952333f9c3681194b5009ee55edcdb9f4d7aa6647d5b3e7083"
+        ),
+        "files/share/metainfo/tv.kodi.Kodi.metainfo.xml": (
+            "c7afc577b4d5601254e1f12d3e7d68df3b9693067d7768edf766ea0ec96564e4"
+        ),
+    },
+    "df26daaf9d07610b4a72cc4585566194051275ac68396597b06474396f66427c": {
+        "files/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2": (
+            "6b887f408400b77f99a5c0e99f380c84264eef29156c191713b3343189cb0391"
+        ),
+        "files/lib/x86_64-linux-gnu/libpython3.14.so.1.0": (
+            "e5c4b181660a9e668b98867325fc9cf3360c242649442590f6c521c09ef2bf8c"
+        ),
+        "files/manifest.json": (
+            "5b887d09506ca0db13e589b7353fd05d6dfebbdac4a3471780c49d7b577e80af"
+        ),
+    },
+    "5aec1b8281d53c91bdac451eb577ec5331ca0e34d89cf0dcc8dba2360171eae6": {
+        "files/lib/libEGL_mesa.so.0.0.0": (
+            "aada5cfc1707f72acd0bcf522c090af93335684a399495dc8e0545652e9930bb"
+        ),
+    },
+}
+
+
 class OstreeAcquisitionError(RuntimeError):
     """A bounded, non-secret failure code; never an upstream command transcript."""
 
@@ -569,13 +600,16 @@ class OstreeVerificationEvidence(BaseModel):
         "flathub-ostree-verification-v1"
     )
     provider: Literal["flathub_ostree"] = "flathub_ostree"
-    recipe_id: Literal["piers-22.0-rc1-r1", "piers-22.0-rc2-r1"] = "piers-22.0-rc1-r1"
+    recipe_id: Literal[
+        "piers-22.0-rc1-r1", "piers-22.0-rc2-r1", "omega-21.3-flathub-r1"
+    ] = "piers-22.0-rc1-r1"
     recipe_revision: Literal[1] = 1
     recipe_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    kodi_release: Literal["22.0-rc.1", "22.0-rc.2"] = "22.0-rc.1"
+    kodi_release: Literal["22.0-rc.1", "22.0-rc.2", "21.3"] = "22.0-rc.1"
     kodi_source_revision: Literal[
         "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
         "d686683a55d50e576dd282f53fb2bf9914931b38",
+        "a3a448d26b8d560a65655dab2cd122994dc4e146",
     ] = KODI_RC1_SOURCE_REVISION
     platform: Literal["linux/amd64"] = "linux/amd64"
     installation_status: Literal["inactive"] = "inactive"
@@ -726,7 +760,9 @@ def _inventory(root: Path, component: OstreeComponent) -> tuple[str, int, int]:
         walk(fd, "")
     finally:
         os.close(fd)
-    critical = _CRITICAL_FILES[component.role]
+    critical = _OMEGA_CRITICAL_FILES.get(
+        component.commit, _CRITICAL_FILES[component.role]
+    )
     if (
         component.role == "app"
         and component.commit
@@ -791,8 +827,14 @@ def _application_release(root: Path, release: str = "22.0-rc.1") -> None:
         tree.findtext("id") != "tv.kodi.Kodi"
         or not releases
         or releases[0].get("version")
-        != ("22.0~rc2-Piers" if release == "22.0-rc.2" else "22.0~rc1-Piers")
-        or releases[0].get("type") != "development"
+        != (
+            "21.3-Omega"
+            if release == "21.3"
+            else "22.0~rc2-Piers"
+            if release == "22.0-rc.2"
+            else "22.0~rc1-Piers"
+        )
+        or releases[0].get("type") != ("stable" if release == "21.3" else "development")
     ):
         raise OstreeAcquisitionError("kodi_release_metadata_mismatch")
 
@@ -994,7 +1036,7 @@ class OstreeAcquirer:
                 )
             )
         for component in definition.recipe.provider.components:
-            remote = "flathub-beta" if component.role == "app" else "flathub"
+            remote = component.remote
             run(
                 (
                     *ostree,

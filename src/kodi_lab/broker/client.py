@@ -104,7 +104,7 @@ class BrokerClient:
             operation_id=operation_id,
             **(
                 {"preview_acknowledgement": preview_acknowledgement}
-                if generation == "piers"
+                if preview_acknowledgement is not None
                 else {}
             ),
         )

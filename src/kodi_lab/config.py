@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     external_target_test_loopback_enabled: bool = False
     # An administrator may reserve an IPv4 pool for reviewed runtime build and
     # validation bridges. An absent pool retains Docker's ordinary allocator.
+    flathub_omega_pilot: bool = False
     temporary_network_pool: str | None = None
     temporary_network_child_prefix: int = Field(default=24, ge=24, le=28)
 

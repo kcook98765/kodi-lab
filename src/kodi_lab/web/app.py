@@ -1014,7 +1014,10 @@ def create_app(
         )
     )
     runtime_installations = RuntimeInstallationService(
-        session_factory, broker, data_root=settings.data_root
+        session_factory,
+        broker,
+        data_root=settings.data_root,
+        omega_flathub_pilot=settings.flathub_omega_pilot,
     )
     lan_endpoints = [
         urlsplit(url)
@@ -2565,7 +2568,9 @@ def create_app(
     ) -> JSONResponse:
         if generation not in (*REVIEWED_INSTALL_GENERATIONS, "piers"):
             raise HTTPException(status_code=404, detail="generation_not_supported")
-        if generation == "piers":
+        if generation == "piers" or (
+            generation == "omega" and settings.flathub_omega_pilot
+        ):
             from pydantic import ValidationError
 
             try:
@@ -2577,9 +2582,12 @@ def create_app(
         elif await request.body():
             raise HTTPException(status_code=400, detail="request_body_must_be_empty")
         try:
-            if generation == "piers":
+            if generation == "piers" or (
+                generation == "omega" and settings.flathub_omega_pilot
+            ):
                 result = runtime_installations.start_preview(
                     approval=approval,
+                    generation=generation,
                     action=action,
                 )
                 item = runtime_installations.get(UUID(result.operation_id))

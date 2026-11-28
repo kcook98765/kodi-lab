@@ -75,6 +75,7 @@ class Controller:
         reviewed_image: Path | None = None,
         handoff_root: Path | None = None,
         audio_image: str | None = None,
+        omega_flathub_pilot: bool = False,
         interrupt: Callable[[str], None] | None = None,
     ) -> None:
         self.runtime = Runtime(
@@ -83,6 +84,7 @@ class Controller:
             daemon_root=daemon_root,
             reviewed_image=reviewed_image,
             audio_image=audio_image,
+            omega_flathub_pilot=omega_flathub_pilot,
         )
         self.omega = self.runtime
         self.snapshot_quotas_file = self.omega.root / "snapshot-quotas.json"

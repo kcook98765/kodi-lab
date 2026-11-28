@@ -72,7 +72,7 @@ def test_old_preview_consent_cannot_be_relabelled_rc2() -> None:
     current = preview_acknowledgement()
     assert current["release"] == "22.0-rc.2"
     current["release"] = "22.0-rc.1"
-    with pytest.raises(ValidationError, match="release differs"):
+    with pytest.raises(ValidationError, match="release or acknowledgement differs"):
         PreviewAcknowledgement.model_validate(current)
 
 

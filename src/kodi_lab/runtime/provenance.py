@@ -32,11 +32,17 @@ def runtime_source(reviewed: ReviewedRecipe) -> RuntimeSource:
             component for component in provider.components if component.role == "app"
         )
         upstream = load_inactive_ostree_recipe(recipe.kodi_version).recipe
+        channel = "Stable" if app.remote == "flathub" else "Beta"
         return RuntimeSource(
             provider="Team Kodi Flatpak",
-            distribution=f"Flathub Beta · {app.ref}",
+            distribution=f"Flathub {channel} · {app.ref}",
             url=next(url for url in recipe.source_references if "/flathub/" in url),
-            support="Preview",
+            support="Development pilot" if recipe.generation == "omega" else "Preview",
+            binary_sha256=(
+                "sha256:726ef8c726aeb4fa4cb3321b9e8e68026c4412520f2d41ca5978b7d20c55b82c"
+                if recipe.generation == "omega"
+                else ""
+            ),
             source_revision=upstream.kodi_source_revision,
             source_url=f"https://github.com/xbmc/xbmc/commit/{upstream.kodi_source_revision}",
             acquisition_checksum=f"sha256:{app.commit}",
