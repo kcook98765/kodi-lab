@@ -117,8 +117,8 @@ def test_worker_reads_only_exact_operation_owned_pilot_consent(
         row.attestation_json = admission_evidence(ack, operation)
     assert recorded_acknowledgement(factory, operation) == ack
     with factory.begin() as db:
-        row = RuntimeRecipeInstallationRepository(db).get(operation)
-        assert row is not None
-        row.attestation_json = admission_evidence(ack, uuid4())
+        recorded = RuntimeRecipeInstallationRepository(db).get(operation)
+        assert recorded is not None
+        recorded.attestation_json = admission_evidence(ack, uuid4())
     with pytest.raises(ValueError, match="operation admission differs"):
         recorded_acknowledgement(factory, operation)
