@@ -20,6 +20,7 @@ from kodi_lab.runtime.display_validation import (
     display_validation_command,
     parse_display_validation,
 )
+from kodi_lab.runtime.flathub_omega import OMEGA_KODI_NATIVE_REVISION
 from kodi_lab.runtime.recipes import ReviewedRecipe, load_inactive_ostree_recipe
 from kodi_lab.runtime.temporary_networks import (
     create_temporary_network,
@@ -114,7 +115,7 @@ def native_identity(value: object, release: str = "22.0-rc.1") -> dict[str, obje
             }.items()
         )
         or (
-            v.get("revision") != "20251031-a3a448d-dirty"
+            v.get("revision") != OMEGA_KODI_NATIVE_REVISION
             if omega
             else revision not in str(v.get("revision"))
         )
@@ -124,6 +125,15 @@ def native_identity(value: object, release: str = "22.0-rc.1") -> dict[str, obje
     if identity.kodi_release != KodiReleaseIdentity.parse(release):
         raise RecipeValidationError("RC1 canonical identity differs")
     return v
+
+
+def native_executable_matches(executable: bytes, release: str) -> bool:
+    if release == "21.3":
+        expected = b"Kodi Media Center 21.3 (21.3.0) Git:"
+        return expected + OMEGA_KODI_NATIVE_REVISION.encode() in executable.splitlines()
+    expected = b"22.0-RC2" if release == "22.0-rc.2" else b"22.0-RC1"
+    source = load_inactive_ostree_recipe(release).recipe.kodi_source_revision
+    return expected in executable and source[:8].encode() in executable
 
 
 def runtime_versions(release: str) -> tuple[str, str, str]:
@@ -257,18 +267,7 @@ def validate_ostree_image(
             executable = _exec(
                 container, ["/usr/local/bin/kodi-lab-launcher", "--version"], limit=4096
             )
-            source = load_inactive_ostree_recipe(reviewed.recipe.kodi_version).recipe
-            expected = (
-                b"21.3"
-                if release == "21.3"
-                else b"22.0-RC2"
-                if release == "22.0-rc.2"
-                else b"22.0-RC1"
-            )
-            if (
-                expected not in executable
-                or source.kodi_source_revision[:8].encode() not in executable
-            ):
+            if not native_executable_matches(executable, release):
                 raise RecipeValidationError("RC1 executable differs")
             _exec(container, ["/usr/bin/xdpyinfo", "-display", ":99"])
             _exec(

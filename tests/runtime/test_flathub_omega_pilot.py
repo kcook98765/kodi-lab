@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.runtime_installations import preview_acknowledgement
 from kodi_lab.broker.operations import ReviewedInstallationLaunchParams
 from kodi_lab.runtime.display_capabilities import reviewed_display_capability
-from kodi_lab.runtime.ostree_validation import native_identity
+from kodi_lab.runtime.ostree_validation import (
+    native_executable_matches,
+    native_identity,
+)
 from kodi_lab.runtime.preview import (
     PreviewAcknowledgement,
     admission_evidence,
@@ -91,6 +94,14 @@ def test_native_pilot_rejects_unreviewed_omega_binary() -> None:
         "revision": "20251031-a3a448d-dirty",
     }
     assert native_identity({"name": "Kodi", "version": version}, "21.3") == version
+    assert native_executable_matches(
+        b"Kodi Media Center 21.3 (21.3.0) Git:20251031-a3a448d-dirty\n"
+        b"Copyright (C) 2005-2025 Team Kodi - http://kodi.tv\n",
+        "21.3",
+    )
+    assert not native_executable_matches(
+        b"Kodi Media Center 21.3 (21.3.0) Git:20260315-nogitfound\n", "21.3"
+    )
     with pytest.raises(RecipeValidationError, match="identity differs"):
         native_identity(
             {"name": "Kodi", "version": {**version, "revision": "20260315-nogitfound"}},
