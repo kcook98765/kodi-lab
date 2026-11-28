@@ -9,7 +9,7 @@
     installation_busy: "Another runtime installation is in progress. Wait for it to finish, then try again.",
     installation_action_conflict: "Runtime status changed. Review the refreshed action before trying again.",
     installation_unavailable: "The installation broker is unavailable or cannot safely perform this action. Check the status below and broker diagnostics.",
-    exact_preview_acknowledgement_required: "Acknowledge this exact Piers prerelease before continuing. Refresh the page if its reviewed recipe changed.",
+    exact_preview_acknowledgement_required: "Acknowledge this exact development runtime before continuing. Refresh the page if its reviewed recipe changed.",
   };
   let submitting = false;
   let refreshing = false;

@@ -35,7 +35,10 @@ from kodi_lab.runtime.ostree_assembly import (
     OstreeAssemblyEvidence,
     assemble_ostree_image,
 )
-from kodi_lab.runtime.recipes import load_inactive_ostree_recipe
+from kodi_lab.runtime.recipes import (
+    load_inactive_ostree_recipe,
+    ostree_release_for_revision,
+)
 from kodi_lab.runtime.temporary_networks import (
     create_temporary_network,
     remove_exact_temporary_network,
@@ -67,7 +70,7 @@ def require_support_success(result: CommandResult) -> None:
 
 class HelperRunner(BoundedCommandRunner):
     def __init__(self, helper: Any, *, support_revision: int = 2) -> None:
-        if type(support_revision) is not int or support_revision not in (2, 3, 4):
+        if type(support_revision) is not int or support_revision not in (2, 3, 4, 5):
             raise OstreeAcquisitionError("unsupported_support_revision")
         self.helper = helper
         self.support_revision = support_revision
@@ -90,11 +93,11 @@ class HelperRunner(BoundedCommandRunner):
                 "pull",
                 "--depth=0",
                 "--http-header=User-Agent=Kodi-Lab-reviewed-OSTree",
-                "flathub-beta" if c.role == "app" else "flathub",
+                c.remote,
                 f"{c.ref}@{c.commit}",
             )
             for c in load_inactive_ostree_recipe(
-                "22.0-rc.2" if self.support_revision == 4 else "22.0-rc.1"
+                ostree_release_for_revision(self.support_revision)
             ).recipe.provider.components
         }
         operation = stage.name.removeprefix("ostree-")
@@ -106,7 +109,7 @@ class HelperRunner(BoundedCommandRunner):
                 str(UUID(operation)),
                 *(
                     (str(self.support_revision),)
-                    if self.support_revision in (3, 4)
+                    if self.support_revision in (3, 4, 5)
                     else ()
                 ),
             )
@@ -175,7 +178,7 @@ def assemble_in_worker(
     *,
     support_revision: int = 2,
 ) -> tuple[OstreeAssemblyEvidence, OstreeVerificationEvidence]:
-    if type(support_revision) is not int or support_revision not in (2, 3, 4):
+    if type(support_revision) is not int or support_revision not in (2, 3, 4, 5):
         raise OstreeAcquisitionError("unsupported_support_revision")
     if settings.runtime_root != Path("/run/kodi-lab") or os.geteuid() != 0:
         raise OstreeAcquisitionError("installed_worker_contract_required")
@@ -255,7 +258,7 @@ def assemble_in_worker(
         with OstreeAcquirer(
             STAGING_ROOT,
             runner=runner,
-            release="22.0-rc.2" if support_revision == 4 else "22.0-rc.1",
+            release=ostree_release_for_revision(support_revision),
         ).acquire(operation_id) as acquired:
             result = runner.execute(
                 (
@@ -263,7 +266,11 @@ def assemble_in_worker(
                     "-m",
                     "kodi_lab.runtime.ostree_worker",
                     str(operation_id),
-                    *((str(support_revision),) if support_revision in (3, 4) else ()),
+                    *(
+                        (str(support_revision),)
+                        if support_revision in (3, 4, 5)
+                        else ()
+                    ),
                 ),
                 stage=acquired.stage,
                 timeout=650,
@@ -307,7 +314,7 @@ def assemble_in_worker(
 def main() -> int:
     """Socketless support fetch; UUID chooses only this fixed private operation."""
     if len(sys.argv) not in (2, 3, 4) or (
-        len(sys.argv) == 3 and sys.argv[2] not in ("3", "4")
+        len(sys.argv) == 3 and sys.argv[2] not in ("3", "4", "5")
     ):
         return 2
     operation = UUID(sys.argv[1])

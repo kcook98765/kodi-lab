@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.runtime.attestation_integrity import canonical_json
+from kodi_lab.runtime.flathub_omega import OMEGA_FLATHUB_DIGEST
 from kodi_lab.runtime.recipes import (
     HISTORICAL_PREVIEW_INSTALLATION_DIGEST,
     PIERS_DISPLAY_INSTALLATION_DIGEST,
@@ -28,17 +29,25 @@ class PreviewAcknowledgement(BaseModel):
         "piers-22.0-rc1-r2",
         "piers-22.0-rc1-r3",
         "piers-22.0-rc2-r4",
+        "omega-21.3-flathub-pilot",
     ]
-    recipe_revision: Literal[1, 2, 3, 4]
+    recipe_revision: Literal[1, 2, 3, 4, 5]
     recipe_digest: Literal[
+        "sha256:284dcf3a926a6cb3e7e42e1a9ca61564363fade256ac3e3e3b067c088e231144",
         "sha256:16b275718524e6dafef27691677d07ac4bffb7af97e5960d227c0ae54bfa8527",
         "sha256:77d02aed048def17482f6b225fccf37670ca35d441bdf1e898c58acb46fdb7e8",
         "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793",
         "sha256:75d32434f6208efc051bc71ff0d501f07e91a1fcd666eed6f8806d49d43e3454",
     ]
-    release: Literal["22.0-rc.1", "22.0-rc.2"]
+    release: Literal["22.0-rc.1", "22.0-rc.2", "21.3"]
     support_tier: Literal["preview"]
-    acknowledgement: Literal["development-only-prerelease"]
+    acknowledgement: Literal[
+        "development-only-prerelease", "development-only-runtime-pilot"
+    ]
+
+    @property
+    def generation(self) -> Literal["piers", "omega"]:
+        return "omega" if self.recipe_digest == OMEGA_FLATHUB_DIGEST else "piers"
 
     @field_validator("recipe_revision", mode="before")
     @classmethod
@@ -54,10 +63,21 @@ class PreviewAcknowledgement(BaseModel):
             ("piers-22.0-rc1-r2", 2, PREVIEW_INSTALLATION_DIGEST),
             ("piers-22.0-rc1-r3", 3, PIERS_DISPLAY_INSTALLATION_DIGEST),
             ("piers-22.0-rc2-r4", 4, PIERS_RC2_INSTALLATION_DIGEST),
+            ("omega-21.3-flathub-pilot", 5, OMEGA_FLATHUB_DIGEST),
         }:
             raise ValueError("Preview recipe identity differs")
-        if self.release != ("22.0-rc.2" if self.recipe_revision == 4 else "22.0-rc.1"):
-            raise ValueError("Preview release differs")
+        if self.release != (
+            "21.3"
+            if self.generation == "omega"
+            else "22.0-rc.2"
+            if self.recipe_revision == 4
+            else "22.0-rc.1"
+        ) or self.acknowledgement != (
+            "development-only-runtime-pilot"
+            if self.generation == "omega"
+            else "development-only-prerelease"
+        ):
+            raise ValueError("Preview release or acknowledgement differs")
         return self
 
 
@@ -66,7 +86,7 @@ def reviewed_preview_recipe(ack: PreviewAcknowledgement) -> ReviewedRecipe:
     if ack.recipe_revision == 1:
         raise ValueError("Preview recipe differs")
     reviewed = load_recorded_reviewed_recipe(
-        "piers", ack.recipe_id, ack.recipe_revision, ack.recipe_digest
+        ack.generation, ack.recipe_id, ack.recipe_revision, ack.recipe_digest
     )
     if ack.release != reviewed.recipe.kodi_version:
         raise ValueError("Preview release differs")
@@ -92,7 +112,7 @@ def recorded_acknowledgement(
         row = RuntimeRecipeInstallationRepository(session).get(operation_id)
         if (
             row is None
-            or row.generation != "piers"
+            or row.generation not in {"piers", "omega"}
             or row.recipe_digest
             not in {
                 PREVIEW_INSTALLATION_DIGEST,
@@ -109,7 +129,8 @@ def recorded_acknowledgement(
             raise ValueError("Preview operation admission differs")
         ack = PreviewAcknowledgement.model_validate(value["preview_acknowledgement"])
         reviewed = reviewed_preview_recipe(ack)
-        if (row.recipe_id, row.recipe_revision, row.recipe_digest) != (
+        if (row.generation, row.recipe_id, row.recipe_revision, row.recipe_digest) != (
+            ack.generation,
             reviewed.recipe.recipe_id,
             reviewed.recipe.recipe_revision,
             reviewed.digest,

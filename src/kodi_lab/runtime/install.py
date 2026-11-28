@@ -56,8 +56,8 @@ from kodi_lab.runtime.recipes import (
     SignedDistroAptProvider,
     load_display_candidate_recipe,
     load_inactive_ostree_recipe,
-    load_installation_recipe,
     load_novnc_phase1_recipe,
+    selected_installation_recipe,
 )
 from kodi_lab.runtime.recipes import recipe_target_id as recipe_target_id
 from kodi_lab.runtime.temporary_networks import (
@@ -200,7 +200,11 @@ def _phase_timing(
     row: RuntimeRecipeInstallationRow | None, previous_time: str | None
 ) -> dict[str, object] | None:
     """Record committed RC1 transitions without changing attestations or schema."""
-    if row is None or row.generation != "piers" or previous_time is None:
+    if (
+        row is None
+        or (row.generation != "piers" and row.recipe_id != "omega-21.3-flathub-pilot")
+        or previous_time is None
+    ):
         return None
     seconds = (
         datetime.fromisoformat(row.updated_at) - datetime.fromisoformat(previous_time)
@@ -339,9 +343,11 @@ def _ready_installation(
                 policy=RuntimeSelectionPolicy(
                     novnc_phase1=reviewed.digest == NOVNC_PHASE1_DIGEST,
                     include_legacy=True,
-                    include_prerelease=reviewed.recipe.generation == "piers",
+                    include_prerelease=isinstance(
+                        reviewed.recipe.provider, FlathubOstreeProvider
+                    ),
                     preview_recipe_digest=reviewed.digest
-                    if reviewed.recipe.generation == "piers"
+                    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
                     else None,
                     validation_contract=reviewed.recipe.validation_contract,
                 ),
@@ -418,7 +424,7 @@ def _commit_ready(
                 else REVIEWED_SIGNED_DISTRO_SOURCE_KIND
             ),
             source_reference=(
-                "Flathub signed immutable Piers closure"
+                f"Flathub signed immutable {recipe.kodi_version} closure"
                 if isinstance(recipe.provider, FlathubOstreeProvider)
                 else (
                     f"{recipe.provider.distribution} "
@@ -624,7 +630,7 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
             and labels.get("io.kodi-lab.recipe-digest")
             == (
                 load_inactive_ostree_recipe(reviewed.recipe.kodi_version).digest
-                if reviewed.recipe.generation == "piers"
+                if isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
                 else reviewed.digest
             )
         )
@@ -635,11 +641,20 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
 
 
 def _publish_managed_image(
-    runtime_root: Path, reviewed: ReviewedRecipe, image_id: str
+    runtime_root: Path,
+    reviewed: ReviewedRecipe,
+    image_id: str,
+    *,
+    omega_flathub_pilot: bool = False,
 ) -> None:
     """Pass only a current approved recipe's validated, immutable ID."""
     generation = reviewed.recipe.generation
-    if reviewed.digest != load_installation_recipe(generation).digest:
+    if (
+        reviewed.digest
+        != selected_installation_recipe(
+            generation, omega_flathub_pilot=omega_flathub_pilot
+        ).digest
+    ):
         return
     if re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None:
         raise RecipeInstallationError("validated managed image identity is invalid")
@@ -668,7 +683,9 @@ def install_reviewed_runtime(
         if novnc_phase1
         else load_display_candidate_recipe(generation)
         if display_candidate
-        else load_installation_recipe(generation)
+        else selected_installation_recipe(
+            generation, omega_flathub_pilot=settings.flathub_omega_pilot
+        )
     )
     preview_ack = None
     if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
@@ -691,7 +708,9 @@ def install_reviewed_runtime(
         from kodi_lab.runtime.preview import reviewed_preview_recipe
 
         admitted = reviewed_preview_recipe(preview_ack)
-        if display_candidate and admitted.digest != reviewed.digest:
+        if (
+            display_candidate or generation == "omega"
+        ) and admitted.digest != reviewed.digest:
             raise RecipeInstallationError("Preview display candidate consent differs")
         # The fixed broker command consumes its exact operation-owned consent.
         # Fresh installs select RC2 r4; recorded operations retain their exact consent.
@@ -708,7 +727,7 @@ def install_reviewed_runtime(
         )
         if (
             prior
-            and generation != "piers"
+            and not isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
             and _exact_existing_image(reviewed, prior["image_id"])
         ):
             revision_id = UUID(prior["runtime_revision_id"])
@@ -747,7 +766,7 @@ def install_reviewed_runtime(
                     )
                     return result["terminal"] == "true"
 
-                if generation != "piers":
+                if not isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
                     reclaim_terminal_orphans(preflight_client, terminal=terminal)
                 preflight_temporary_networks(preflight_client, settings)
             finally:
@@ -775,7 +794,7 @@ def install_reviewed_runtime(
                     on_base_ready,
                     **(
                         {"support_revision": reviewed.recipe.recipe_revision}
-                        if reviewed.recipe.recipe_revision in (3, 4)
+                        if reviewed.recipe.recipe_revision in (3, 4, 5)
                         else {}
                     ),
                 )
@@ -856,6 +875,11 @@ def install_reviewed_runtime(
                 f"reviewed {generation} installation failed ({code})"
             ) from error
         revision_id = UUID(committed["runtime_revision_id"])
-        _publish_managed_image(settings.runtime_root, reviewed, assembly.image_id)
+        _publish_managed_image(
+            settings.runtime_root,
+            reviewed,
+            assembly.image_id,
+            omega_flathub_pilot=settings.flathub_omega_pilot,
+        )
         report("ready")
         return InstallOutcome(operation_id, revision_id, assembly.image_id, False)

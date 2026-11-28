@@ -1,0 +1,88 @@
+"""The sealed Omega pilot shares OSTree without changing default selection."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
+
+from kodi_lab.application.runtime_installations import preview_acknowledgement
+from kodi_lab.broker.operations import ReviewedInstallationLaunchParams
+from kodi_lab.runtime.display_capabilities import reviewed_display_capability
+from kodi_lab.runtime.ostree_validation import native_identity
+from kodi_lab.runtime.preview import PreviewAcknowledgement, reviewed_preview_recipe
+from kodi_lab.runtime.recipes import (
+    InactiveOstreeRecipe,
+    load_inactive_ostree_recipe,
+    load_installation_recipe,
+    load_omega_flathub_pilot,
+    selected_installation_recipe,
+)
+from kodi_lab.runtime.validation import RecipeValidationError
+
+
+def test_pilot_uses_distinct_artifacts_and_preserves_every_default() -> None:
+    pilot = load_omega_flathub_pilot()
+    assert pilot.recipe.kodi_version == "21.3"
+    assert (
+        pilot.recipe.definition_id
+        != load_installation_recipe("omega").recipe.definition_id
+    )
+    assert selected_installation_recipe("omega", omega_flathub_pilot=True) == pilot
+    for generation in ("matrix", "nexus", "omega", "piers"):
+        assert selected_installation_recipe(
+            generation, omega_flathub_pilot=False
+        ) == load_installation_recipe(generation)
+        if generation != "omega":
+            assert selected_installation_recipe(
+                generation, omega_flathub_pilot=True
+            ) == load_installation_recipe(generation)
+    capability = reviewed_display_capability(pilot)
+    assert capability is not None
+    assert capability.expected_kodi_version == "21.3"
+    assert capability.process_probe == "piers-loader"
+
+
+def test_exact_signed_component_set_rejects_mixing_piers_and_omega() -> None:
+    omega = load_inactive_ostree_recipe("21.3").recipe
+    piers = load_inactive_ostree_recipe("22.0-rc.2").recipe
+    assert omega.provider.components[0].remote == "flathub"
+    assert piers.provider.components[0].remote == "flathub-beta"
+    wrong: dict[str, Any] = deepcopy(omega.model_dump(mode="json"))
+    wrong["provider"]["components"][1] = piers.provider.components[1].model_dump()
+    with pytest.raises(ValidationError, match="source and release"):
+        InactiveOstreeRecipe.model_validate(wrong)
+
+
+def test_pilot_approval_is_bound_to_exact_recipe_and_omega_generation() -> None:
+    ack = PreviewAcknowledgement.model_validate(
+        preview_acknowledgement(generation="omega")
+    )
+    assert reviewed_preview_recipe(ack) == load_omega_flathub_pilot()
+    with pytest.raises(ValidationError, match="acknowledgement/provider"):
+        ReviewedInstallationLaunchParams(
+            generation="piers",
+            operation_id="06ad33b0-de21-429a-bbab-347d40f29abd",
+            preview_acknowledgement=ack,
+        )
+    with pytest.raises(ValidationError, match="acknowledgement differs"):
+        PreviewAcknowledgement.model_validate(
+            {**ack.model_dump(), "acknowledgement": "development-only-prerelease"}
+        )
+
+
+def test_native_pilot_rejects_unreviewed_omega_binary() -> None:
+    version = {
+        "major": 21,
+        "minor": 3,
+        "tag": "stable",
+        "revision": "20251031-a3a448d-dirty",
+    }
+    assert native_identity({"name": "Kodi", "version": version}, "21.3") == version
+    with pytest.raises(RecipeValidationError, match="identity differs"):
+        native_identity(
+            {"name": "Kodi", "version": {**version, "revision": "20260315-nogitfound"}},
+            "21.3",
+        )

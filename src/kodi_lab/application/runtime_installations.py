@@ -25,10 +25,11 @@ from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.runtime.provenance import RuntimeSource, runtime_source
 from kodi_lab.runtime.recipes import (
     NOVNC_PHASE1_DIGEST,
+    FlathubOstreeProvider,
     ReviewedRecipe,
     load_display_candidate_recipe,
-    load_installation_recipe,
     load_recorded_reviewed_recipe,
+    selected_installation_recipe,
 )
 from kodi_lab.storage.models import RuntimeRecipeInstallationRow
 from kodi_lab.storage.repositories import (
@@ -128,6 +129,7 @@ def _preview_action_acknowledgement(
     action: Literal["install", "retry", "reacquire"],
     *,
     display_candidate: bool,
+    generation: Generation,
 ) -> PreviewAcknowledgement:
     # Reparse even trusted Python models: model_copy/model_construct must not
     # bypass field or nested recipe validation at the service boundary.
@@ -140,17 +142,21 @@ def _preview_action_acknowledgement(
     if checked.action != action:
         raise RuntimeInstallationActionConflict("Preview action approval differs")
     if checked.acknowledgement.model_dump(mode="json") != preview_acknowledgement(
-        display_candidate=display_candidate
+        display_candidate=display_candidate, generation=generation
     ):
         raise RuntimeInstallationActionConflict("Preview acknowledgement differs")
     return checked.acknowledgement
 
 
-def preview_acknowledgement(*, display_candidate: bool = False) -> dict[str, object]:
+def preview_acknowledgement(
+    *, display_candidate: bool = False, generation: Generation = "piers"
+) -> dict[str, object]:
     reviewed = (
         load_display_candidate_recipe("piers")
         if display_candidate
-        else load_installation_recipe("piers")
+        else selected_installation_recipe(
+            generation, omega_flathub_pilot=generation == "omega"
+        )
     )
     return _preview_acknowledgement_for_recipe(reviewed)
 
@@ -163,7 +169,9 @@ def _preview_acknowledgement_for_recipe(reviewed: ReviewedRecipe) -> dict[str, o
             "recipe_digest": reviewed.digest,
             "release": reviewed.recipe.kodi_version,
             "support_tier": "preview",
-            "acknowledgement": "development-only-prerelease",
+            "acknowledgement": "development-only-runtime-pilot"
+            if reviewed.recipe.generation == "omega"
+            else "development-only-prerelease",
         }
     ).model_dump(mode="json")
 
@@ -203,10 +211,12 @@ class RuntimeInstallationService:
         broker: Any,
         *,
         data_root: Path | None = None,
+        omega_flathub_pilot: bool = False,
     ) -> None:
         self._factory = factory
         self._broker = broker
         self._data_root = data_root or Settings().data_root
+        self._omega_flathub_pilot = omega_flathub_pilot
 
     def _eligible_ready(self, row: RuntimeRecipeInstallationRow) -> bool:
         return self._runtime_eligibility(row).eligible
@@ -241,9 +251,11 @@ class RuntimeInstallationService:
                     revision=revision,
                     policy=RuntimeSelectionPolicy(
                         include_legacy=True,
-                        include_prerelease=row.generation == "piers",
+                        include_prerelease=isinstance(
+                            reviewed.recipe.provider, FlathubOstreeProvider
+                        ),
                         preview_recipe_digest=reviewed.digest
-                        if row.generation == "piers"
+                        if isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
                         else None,
                         validation_contract=reviewed.recipe.validation_contract,
                     ),
@@ -255,16 +267,23 @@ class RuntimeInstallationService:
         self,
         *,
         approval: PreviewActionApproval,
+        generation: Generation = "piers",
         display_candidate: bool = False,
         action: Literal["install", "retry", "reacquire"] = "install",
     ) -> ReviewedInstallationLaunchResult:
         """Admission retains exact consent and broker-owned operation semantics."""
+        if generation != "piers" and not (
+            generation == "omega"
+            and self._omega_flathub_pilot
+            and not display_candidate
+        ):
+            raise RuntimeInstallationActionConflict
         ack = _preview_action_acknowledgement(
-            approval, action, display_candidate=display_candidate
+            approval, action, display_candidate=display_candidate, generation=generation
         )
         current = self._view(
-            "piers",
-            self._latest("piers", display_candidate=display_candidate),
+            generation,
+            self._latest(generation, display_candidate=display_candidate),
             capable=True,
             reconcile=False,
             display_candidate=display_candidate,
@@ -282,7 +301,7 @@ class RuntimeInstallationService:
         reviewed = reviewed_preview_recipe(ack)
         operation = uuid4()
         with self._factory() as session:
-            previous = RuntimeRecipeInstallationRepository(session).active("piers")
+            previous = RuntimeRecipeInstallationRepository(session).active(generation)
         if previous is not None and previous.state.value != "pending":
             reconciled = self._reconcile(previous)
             if reconciled.state.value not in ("failed", "ready"):
@@ -290,19 +309,19 @@ class RuntimeInstallationService:
         with self._factory.begin() as session:
             repo = RuntimeRecipeInstallationRepository(session)
             if any(
-                repo.active(generation) is not None
-                for generation in installation_generations()
-                if generation != "piers"
+                repo.active(other) is not None
+                for other in installation_generations()
+                if other != generation
             ):
                 raise RuntimeInstallationBusy
-            row = repo.active("piers")
+            row = repo.active(generation)
             if row is None:
                 row = repo.create(
                     operation_id=operation,
                     recipe_id=reviewed.recipe.recipe_id,
                     recipe_revision=reviewed.recipe.recipe_revision,
                     recipe_digest=reviewed.digest,
-                    generation="piers",
+                    generation=generation,
                     now=datetime.now(UTC),
                 )
                 row.attestation_json = admission_evidence(ack, operation)
@@ -316,7 +335,7 @@ class RuntimeInstallationService:
                     raise RuntimeInstallationBusy
         try:
             result = self._broker.launch_reviewed_runtime_installation(
-                generation="piers",
+                generation=generation,
                 operation_id=str(operation),
                 preview_acknowledgement=ack,
             )
@@ -329,7 +348,7 @@ class RuntimeInstallationService:
             if observed.state == "running":
                 return ReviewedInstallationLaunchResult(
                     operation_id=str(operation),
-                    generation="piers",
+                    generation=generation,
                     newly_accepted=False,
                 )
             with self._factory.begin() as session:
@@ -415,7 +434,9 @@ class RuntimeInstallationService:
         reviewed = (
             load_display_candidate_recipe(generation)
             if display_candidate
-            else load_installation_recipe(generation)
+            else selected_installation_recipe(
+                generation, omega_flathub_pilot=self._omega_flathub_pilot
+            )
         )
         with self._factory() as session:
             return session.scalar(
@@ -477,7 +498,9 @@ class RuntimeInstallationService:
         reviewed = (
             load_display_candidate_recipe(generation)
             if display_candidate
-            else load_installation_recipe(generation)
+            else selected_installation_recipe(
+                generation, omega_flathub_pilot=self._omega_flathub_pilot
+            )
         )
         recorded_recipe_unavailable = False
         if recorded and row is not None:
@@ -501,7 +524,12 @@ class RuntimeInstallationService:
             generation=generation,
             display_name=f"Kodi 22 Piers {stable_version.split()[-1]}"
             if generation == "piers"
-            else f"Kodi {major} — {generation.capitalize()}",
+            else f"Kodi {major} — {generation.capitalize()}"
+            + (
+                " · Flathub pilot"
+                if isinstance(recipe.provider, FlathubOstreeProvider)
+                else ""
+            ),
             version=stable_version,
             source=None if recorded_recipe_unavailable else runtime_source(reviewed),
             image_id=row.image_id if row is not None else None,
@@ -515,7 +543,7 @@ class RuntimeInstallationService:
             phase="Not installed",
             action="install",
             preview_acknowledgement=_preview_acknowledgement_for_recipe(reviewed)
-            if generation == "piers"
+            if isinstance(recipe.provider, FlathubOstreeProvider)
             else None,
         )
         if recorded_recipe_unavailable and row is not None:
@@ -774,7 +802,9 @@ class RuntimeInstallationService:
         *,
         action: Literal["install", "retry", "reacquire"] = "install",
     ) -> RuntimeInstallationView:
-        if generation == "piers":
+        if generation == "piers" or (
+            generation == "omega" and self._omega_flathub_pilot
+        ):
             raise RuntimeInstallationActionConflict
         if not self._capable():
             raise RuntimeInstallationUnavailable

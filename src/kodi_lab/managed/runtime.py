@@ -208,11 +208,11 @@ class Runtime:
         generation: str = "omega",
         network_policy: Path | None = None,
         audio_image: str | None = None,
+        omega_flathub_pilot: bool = False,
     ) -> None:
         self.generation = generation
         self.audio_image = audio_image
-        self.system = "/app/share/kodi" if generation == "piers" else "/usr/share/kodi"
-        self.addons_system = self.system + "/addons"
+        self.omega_flathub_pilot = omega_flathub_pilot
         self.checkpoint = checkpoint or (lambda _event, **_data: None)
         self.root = root.resolve(strict=True)
         self.daemon_root = daemon_root if daemon_root is not None else self.root
@@ -273,6 +273,35 @@ class Runtime:
             except BlockingIOError as error:
                 raise Refusal("managed_busy") from error
             yield
+
+    @property
+    def flathub_omega(self) -> bool:
+        if self.generation != "omega" or not self.omega_flathub_pilot:
+            return False
+        from kodi_lab.runtime.recipes import load_inactive_ostree_recipe
+
+        image = self.image
+        identity = docker(
+            "image",
+            "inspect",
+            "--format",
+            '{{.Id}} {{index .Config.Labels "io.kodi-lab.recipe-digest"}}',
+            image,
+        )
+        observed, _, digest = identity.partition(" ")
+        if observed != image:
+            raise Refusal("reviewed_image_required")
+        return digest == load_inactive_ostree_recipe("21.3").digest
+
+    @property
+    def system(self) -> str:
+        if self.generation == "piers" or self.flathub_omega:
+            return "/app/share/kodi"
+        return "/usr/share/kodi"
+
+    @property
+    def addons_system(self) -> str:
+        return self.system + "/addons"
 
     def retired(self) -> bool:
         from .runtime_retirement import RuntimeRetirement
@@ -763,10 +792,12 @@ class Runtime:
             )
             bridge = self.signed("bridge_identity")
             actual = version["version"]
-            if self.generation == "piers":
+            if self.generation == "piers" or self.flathub_omega:
                 from kodi_lab.runtime.ostree_validation import native_identity
 
-                native_identity(version, "22.0-rc.2")
+                native_identity(
+                    version, "22.0-rc.2" if self.generation == "piers" else "21.3"
+                )
             expected = self.expected_release()
             if (
                 version.get("name") != "Kodi"
@@ -905,8 +936,8 @@ class Runtime:
             "--env",
             "PULSE_SERVER=unix:/managed-v2-credentials/audio/native",
         ]
-        if self.generation == "piers":
-            # The reviewed Piers launcher explicitly selects ALSA. Route its
+        if self.generation == "piers" or self.flathub_omega:
+            # The reviewed Flatpak launcher explicitly selects ALSA. Route its
             # existing Pulse plugin to the same clocked sink as the other versions.
             atomic(
                 self.credentials / "asound.conf",

@@ -49,9 +49,10 @@ from kodi_lab.runtime.preview import (
     reviewed_preview_recipe,
 )
 from kodi_lab.runtime.recipes import (
+    FlathubOstreeProvider,
     load_inactive_ostree_recipe,
-    load_installation_recipe,
     load_recorded_reviewed_recipe,
+    selected_installation_recipe,
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import (
@@ -531,7 +532,7 @@ class DockerReviewedInstallationWorker:
                 if (
                     row is None
                     or row.state.value != "pending"
-                    or row.generation != "piers"
+                    or row.generation != ack.generation
                     or row.recipe_id != reviewed.recipe.recipe_id
                     or row.recipe_revision != reviewed.recipe.recipe_revision
                     or row.recipe_digest != reviewed.digest
@@ -562,10 +563,18 @@ class DockerReviewedInstallationWorker:
     ) -> bool:
         if generation not in GENERATIONS:
             raise ReviewedWorkerError("generation is unsupported")
-        if generation == "piers" and preview_acknowledgement is None:
-            raise ReviewedWorkerError("exact Preview acknowledgement required")
-        if generation != "piers" and preview_acknowledgement is not None:
+        settings = Settings()
+        selector = selected_installation_recipe(
+            generation, omega_flathub_pilot=settings.flathub_omega_pilot
+        )
+        is_ostree = isinstance(selector.recipe.provider, FlathubOstreeProvider)
+        if is_ostree != (preview_acknowledgement is not None):
             raise ReviewedWorkerError("Preview acknowledgement/provider mismatch")
+        if (
+            preview_acknowledgement is not None
+            and preview_acknowledgement.generation != generation
+        ):
+            raise ReviewedWorkerError("Preview acknowledgement/generation mismatch")
         try:
             client = self._client()
             try:
@@ -590,7 +599,7 @@ class DockerReviewedInstallationWorker:
                 row = self._recorded_operation(operation_id)
                 if row is not None and (
                     row.state in TERMINAL
-                    or generation != "piers"
+                    or not is_ostree
                     or row.generation != generation
                 ):
                     raise ReviewedWorkerError("worker installation already recorded")
@@ -598,7 +607,7 @@ class DockerReviewedInstallationWorker:
                     raise ReviewedWorkerError(
                         "worker retirement backlog requires review"
                     )
-                if generation == "piers":
+                if is_ostree:
                     assert preview_acknowledgement is not None
                     image = client.api.inspect_image(image_id)
                     if (
@@ -613,7 +622,7 @@ class DockerReviewedInstallationWorker:
                     self._admit_preview(operation_id, preview_acknowledgement)
                     reviewed = reviewed_preview_recipe(preview_acknowledgement)
                 else:
-                    reviewed = load_installation_recipe(generation)
+                    reviewed = selector
                 receipt = WorkerReceipt.model_validate(
                     {
                         "operation": operation_id,
@@ -626,12 +635,13 @@ class DockerReviewedInstallationWorker:
                         "recipe_digest": reviewed.digest,
                     }
                 )
-                settings = Settings()
                 worker_environment = {
                     "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": str(
                         settings.temporary_network_child_prefix
                     )
                 }
+                if generation == "omega" and is_ostree:
+                    worker_environment["KODI_LAB_FLATHUB_OMEGA_PILOT"] = "true"
                 if settings.temporary_network_pool is not None:
                     worker_environment["KODI_LAB_TEMPORARY_NETWORK_POOL"] = (
                         settings.temporary_network_pool
@@ -1149,7 +1159,13 @@ class DockerReviewedInstallationWorker:
                     )
                 except ValueError:
                     return False
-                if digest == load_installation_recipe(row.generation).digest:
+                if (
+                    digest
+                    == selected_installation_recipe(
+                        row.generation,
+                        omega_flathub_pilot=Settings().flathub_omega_pilot,
+                    ).digest
+                ):
                     try:
                         selected = (
                             self._runtime_root / reviewed_image_file(row.generation)
@@ -1172,7 +1188,7 @@ class DockerReviewedInstallationWorker:
                     and labels.get("io.kodi-lab.recipe-digest")
                     == (
                         load_inactive_ostree_recipe(reviewed.recipe.kodi_version).digest
-                        if row.generation == "piers"
+                        if isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
                         else digest
                     )
                 )

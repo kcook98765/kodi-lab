@@ -14,6 +14,12 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from kodi_lab.runtime.flathub_omega import (
+    OMEGA_FLATHUB_DIGEST,
+    OMEGA_FLATHUB_RECIPE_ID,
+    OMEGA_FLATHUB_REVISION,
+)
+
 if TYPE_CHECKING:
     from kodi_lab.runtime.recipes import ReviewedRecipe
 
@@ -136,6 +142,15 @@ _GRACEFUL_DISPLAYS = (
     ),
 )
 _DISPLAY_RECIPES = (
+    replace(
+        PIERS_DISPLAY_CANDIDATE,
+        recipe_id=OMEGA_FLATHUB_RECIPE_ID,
+        recipe_revision=OMEGA_FLATHUB_REVISION,
+        recipe_digest=OMEGA_FLATHUB_DIGEST,
+        expected_kodi_version="21.3",
+        expected_version_tag="stable",
+        expected_prerelease_ordinal=None,
+    ),
     *_GRACEFUL_DISPLAYS,
     replace(
         MATRIX_DISPLAY_CANDIDATE,

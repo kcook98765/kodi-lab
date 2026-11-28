@@ -20,8 +20,14 @@ from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
 
+from kodi_lab.runtime.flathub_omega import (
+    OMEGA_FLATHUB_RECIPE_ID,
+    OMEGA_FLATHUB_REVISION,
+    OMEGA_KODI_SOURCE_REVISION,
+)
 from kodi_lab.runtime.ostree import AcquiredOstree
 from kodi_lab.runtime.ostree_context import verified_context
+from kodi_lab.runtime.recipes import ostree_release_for_revision
 from kodi_lab.runtime.ubuntu_support import (
     BASE_IMAGE,
     download_support,
@@ -85,17 +91,22 @@ class OstreeAssemblyEvidence:
             2,
             3,
             4,
+            OMEGA_FLATHUB_REVISION,
         ):
             raise OstreeAssemblyError("unsupported_assembly_revision")
         data = {
             "schema_version": "flathub-ostree-assembly-v1",
             "recipe_id": (
-                f"piers-22.0-rc{2 if self.recipe_revision == 4 else 1}"
+                OMEGA_FLATHUB_RECIPE_ID
+                if self.recipe_revision == OMEGA_FLATHUB_REVISION
+                else f"piers-22.0-rc{2 if self.recipe_revision == 4 else 1}"
                 f"-r{self.recipe_revision}"
             ),
             "recipe_revision": self.recipe_revision,
-            "kodi_release": "22.0-rc.2" if self.recipe_revision == 4 else "22.0-rc.1",
-            "kodi_source_revision": "d686683a55d50e576dd282f53fb2bf9914931b38"
+            "kodi_release": ostree_release_for_revision(self.recipe_revision),
+            "kodi_source_revision": OMEGA_KODI_SOURCE_REVISION
+            if self.recipe_revision == OMEGA_FLATHUB_REVISION
+            else "d686683a55d50e576dd282f53fb2bf9914931b38"
             if self.recipe_revision == 4
             else "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
             "platform": "linux/amd64",
@@ -118,26 +129,41 @@ class OstreeAssemblyEvidence:
 
 
 def assembly_assets_digest(*, revision: int = 2) -> str:
-    if type(revision) is not int or revision not in (1, 2, 3, 4):
+    if type(revision) is not int or revision not in (
+        1,
+        2,
+        3,
+        4,
+        OMEGA_FLATHUB_REVISION,
+    ):
         raise OstreeAssemblyError("unsupported_assembly_revision")
     return {
         1: HISTORICAL_ASSETS_SHA256,
         2: ASSETS_SHA256,
         3: DISPLAY_ASSETS_SHA256,
         4: "fbbe31c3717ea65a9822bd030b539069a38d7ce982cc54e23715dc397b700869",
+        OMEGA_FLATHUB_REVISION: (
+            "57995134ff6a11100ed4259b82511e95041c6179ee0a74703376719bab4686cd"
+        ),
     }[revision]
 
 
 def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
     expected = assembly_assets_digest(revision=revision)
-    directory = f"assembly_assets/piers-22.0-rc{2 if revision == 4 else 1}-r{revision}"
+    directory = (
+        f"assembly_assets/{OMEGA_FLATHUB_RECIPE_ID}"
+        if revision == OMEGA_FLATHUB_REVISION
+        else f"assembly_assets/piers-22.0-rc{2 if revision == 4 else 1}-r{revision}"
+    )
     root = resources.files("kodi_lab.runtime").joinpath(directory)
     raw = root.joinpath("assembly-assets.json").read_bytes()
     if len(raw) > 8192 or hashlib.sha256(raw).hexdigest() != expected:
         raise OstreeAssemblyError("assembly_manifest_mismatch")
     manifest = json.loads(raw)
     if set(manifest) != _ASSET_NAMES | (
-        {"novnc_view_helper.py"} if revision in (3, 4) else set()
+        {"novnc_view_helper.py"}
+        if revision in (3, 4, OMEGA_FLATHUB_REVISION)
+        else set()
     ):
         raise OstreeAssemblyError("unexpected_assembly_asset")
     entries = {}
@@ -153,7 +179,10 @@ def load_assembly_assets(*, revision: int = 2) -> dict[str, bytes]:
             and not (revision == 3 and name == "supervisor.py")
             else root
         )
-        if revision == 4 and name not in {"Dockerfile", "healthcheck.py"}:
+        if revision in (4, OMEGA_FLATHUB_REVISION) and name not in {
+            "Dockerfile",
+            "healthcheck.py",
+        }:
             source = resources.files("kodi_lab.runtime").joinpath(
                 "assembly_assets/piers-22.0-rc1-r1"
                 if name in _SHARED_PYTHON_ASSETS and name != "supervisor.py"
@@ -314,14 +343,13 @@ def assemble_ostree_image(
 ) -> OstreeAssemblyEvidence:
     """Local, offline Docker assembly only. Acquirer owns staging until return."""
     assets_digest = assembly_assets_digest(revision=support_revision)
-    if acquired.evidence.kodi_release != (
-        "22.0-rc.2" if support_revision == 4 else "22.0-rc.1"
-    ):
+    if acquired.evidence.kodi_release != ostree_release_for_revision(support_revision):
         raise OstreeAssemblyError("assembly_release_mismatch")
     acquired.claim_assembly(operation_id)
     owned = client is None
     client = client or docker.from_env(timeout=600)
-    tag = "kodi-lab-experimental-piers:phase3-" + operation_id.hex
+    lane = "omega" if support_revision == OMEGA_FLATHUB_REVISION else "piers"
+    tag = f"kodi-lab-experimental-{lane}:phase3-" + operation_id.hex
     log = hashlib.sha256()
     log_bytes = 0
     stream = None
